@@ -2,3 +2,8 @@ node_modules
 dist
 .env
 .DS_Store
+supabase.exe
+supabase-go.exe
+supabase-go
+supabase.temp/
+supabase\.temp/
