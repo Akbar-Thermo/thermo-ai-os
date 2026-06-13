@@ -450,8 +450,6 @@ function downloadCSV(filename, rows) {
 async function claudeCall(content, system) {
   const { supabase } = await import("./db");
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
   const { data, error } = await supabase.functions.invoke("ai-proxy", {
     body: { content, system },
     headers: { Authorization: `Bearer ${anonKey}` },
