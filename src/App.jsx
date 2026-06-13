@@ -166,6 +166,13 @@ async function importBackup(file) {
 
 
 /* ============ HELPERS ============ */
+// Очищает uuid/foreign key поля: пустая строка "" → null (Supabase не принимает "" в uuid-колонках)
+const cleanUuids = (obj) => {
+  const UUID_FIELDS = ["id", "master_id", "supplier_id", "object_id", "product_id", "item_id"];
+  const out = { ...obj };
+  UUID_FIELDS.forEach((k) => { if (k in out && out[k] === "") out[k] = null; });
+  return out;
+};
 const fmt = (n) => (Number(n) || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
 const fmt2 = (n) => (Number(n) || 0).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const money = (n) => fmt(n) + " сум";
@@ -762,7 +769,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
         </table>
       </div>
       {pay && <SupplierPayModal s={pay} objects={objects} ops={finance_ops} fin={fin} onClose={() => setPay(null)}
-        onSave={async (op) => { await db.from("finance_ops").insert(op); await logAction("Оплата поставщику", "supplier:" + pay.name, fmt(op.amount) + " · " + (op.note || "")); await reload(); toast("Оплата поставщику записана"); }}
+        onSave={async (op) => { await db.from("finance_ops").insert(cleanUuids(op)); await logAction("Оплата поставщику", "supplier:" + pay.name, fmt(op.amount) + " · " + (op.note || "")); await reload(); toast("Оплата поставщику записана"); }}
         onEditPay={async (o, patch) => {
           const log = [...(o.edit_log || []), { at: new Date().toISOString(), before: { amount: o.amount, op_date: o.op_date, note: o.note } }];
           await db.from("finance_ops").update({ ...patch, edited: true, edit_log: log }).eq("id", o.id);
@@ -957,7 +964,9 @@ function RequestWizard({ data, reload, toast, openObject }) {
     try {
       let obj = selObj;
       if (!obj) {
-        const { data: ins, error: insErr } = await db.from("objects").insert({ ...newObj, status: "draft", items: [] });
+        // Очищаем uuid-поля: пустая строка ломает Supabase uuid-колонки
+        const objData = cleanUuids({ ...newObj, status: "draft", items: [] });
+        const { data: ins, error: insErr } = await db.from("objects").insert(objData);
         if (insErr) throw new Error("Ошибка создания объекта: " + insErr.message);
         if (ins && ins[0]) {
           obj = ins[0];
@@ -980,13 +989,13 @@ function RequestWizard({ data, reload, toast, openObject }) {
         };
       });
       await db.from("objects").update({ items: [...(obj.items || []), ...items] }).eq("id", obj.id);
-      await db.from("requests").insert({
+      await db.from("requests").insert(cleanUuids({
         object_id: obj.id, segment, mode, source: files.length ? "files:" + files.map((f) => f.name).join(",") : "text",
         lines: src_.map((m) => ({
           source: m.item.name, ai_product_id: m.ai_product_id || m.product_id, final_product_id: m.product_id,
           confidence: m.confidence, corrected: !!m.manual,
         })),
-      });
+      }));
       await logAction("Заявка сохранена", "object:" + obj.name, "поставка №" + batchNo + ", позиций: " + items.length); toast("Поставка №" + batchNo + " сохранена: " + items.length + " поз. → «" + obj.name + "»");
       setStep(0); setText(""); setFiles([]); setExtracted([]); setMatches([]); setObjId("");
       await reload();
@@ -1498,7 +1507,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
         setEditOp(null); await reload(); toast("Операция изменена (история сохранена)");
       }} />}
       {opForm && opForm.type === "return" && <ReturnForm obj={obj} ops={ops} onClose={() => setOpForm(null)} onSave={async (list) => {
-        await db.from("finance_ops").insert(list);
+        await db.from("finance_ops").insert(list.map(cleanUuids));
         await warehouseIn(list, obj.name);
         await logAction("Возврат товара", "object:" + obj.name, "позиций: " + list.length + ", сумма: " + fmt(list.reduce((a,x)=>a+(x.amount||0),0)));
         setOpForm(null); await reload(); toast("Возврат оформлен: " + list.length + " поз. → Склад Thermo");
@@ -1506,7 +1515,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
       {opForm && opForm.type !== "return" && <OpForm obj={obj} type={opForm.type} suppliers={suppliers} onClose={() => setOpForm(null)}
         onSave={async (op) => {
           if (op.type === "bonus") op.master_id = obj.master_id || null;
-          await db.from("finance_ops").insert(op); await logAction(opLabel(op.type), "object:" + obj.name, fmt(op.amount) + (op.note ? " · " + op.note : "")); setOpForm(null); await reload(); toast("Операция добавлена");
+          await db.from("finance_ops").insert(cleanUuids(op)); await logAction(opLabel(op.type), "object:" + obj.name, fmt(op.amount) + (op.note ? " · " + op.note : "")); setOpForm(null); await reload(); toast("Операция добавлена");
         }} />}
     </div>
   );
@@ -2388,7 +2397,7 @@ function FinanceTab({ data, reload, toast }) {
         </table>
       </div>
       {expForm && <CompanyExpenseForm onClose={() => setExpForm(false)} onSave={async (op) => {
-        await db.from("finance_ops").insert(op);
+        await db.from("finance_ops").insert(cleanUuids(op));
         await logAction("Расход компании: " + op.category, "company", fmt(op.amount) + (op.note ? " · " + op.note : ""));
         setExpForm(false); await reload(); toast("Расход добавлен");
       }} />}
@@ -2657,17 +2666,10 @@ function AppInner() {
       try {
         await reload();
         // восстановить сессию из localStorage
-        const rawUid = localStorage.getItem("te:session");
-        // совместимость: старая версия сохраняла JSON.stringify(id), новая — чистый id
-        const uid = rawUid ? rawUid.replace(/^"|"$/g, "") : null;
-        // uuid должен содержать дефис или начинаться не с кавычки; u1/u2 — старые seed-id
-        const isValidId = uid && uid.length > 8 && !uid.startsWith("u");
-        if (isValidId) {
+        const uid = localStorage.getItem("te:session");
+        if (uid) {
           const { data: users } = await db.from("users").select().eq("id", uid).eq("status", "active");
           if (users && users.length) { setCurrentUser(users[0]); CURRENT_USER = users[0]; }
-          else { localStorage.removeItem("te:session"); } // сессия устарела
-        } else if (uid) {
-          localStorage.removeItem("te:session"); // старый формат — сбрасываем
         }
       } catch (e) {
         console.error(e); setBootErr(String(e && (e.message || e)));
