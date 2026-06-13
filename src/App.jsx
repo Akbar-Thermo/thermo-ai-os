@@ -1,17 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
+import { db } from "./db.js";
 
 /* ============================================================
-   THERMO ENGINEERING — AI Procurement & Finance OS (Prototype)
-   ------------------------------------------------------------
-   DATA LAYER = Supabase-compatible API (db.from(...).select()...)
-   Миграция на Supabase:
-   1) Установить официальный js-клиент Supabase (см. supabase.com/docs → Installing, JavaScript client)
-   2) Заменить локальный адаптер внизу секции DATA LAYER на:
-        createClient(SUPABASE_URL, SUPABASE_ANON_KEY) из этого пакета → const db = createClient(...)
-   3) Создать таблицы: products, suppliers, objects, finance_ops, requests
-      (items в objects = jsonb; всё остальное — плоские колонки)
-   Весь остальной код менять не нужно.
+   THERMO ENGINEERING — AI Procurement & Finance OS
+   DATA LAYER = Supabase (db импортируется из ./db.js)
    ============================================================ */
 
 const SEGMENTS = ["бюджет", "эконом", "комфорт", "премиум"];
@@ -116,18 +109,12 @@ table.t tr:hover td{background:rgba(255,255,255,.02)}
 table.t td{position:static}
 `;
 
-/* ============ DATA LAYER (Supabase-compatible local adapter) ============ */
-const LS = "te:";
+/* ============ DATA LAYER = Supabase (db из ./db.js) ============ */
 const TABLES = ["products", "suppliers", "objects", "finance_ops", "requests", "masters", "warehouse", "wh_moves", "users", "audit_log"];
-const mem = {};
-const timers = {};
-const loadedOK = {};   // запись в хранилище разрешена только после подтверждённого чтения
-let persistAllowed = true;
 const uuid = () => {
   try { if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID(); } catch (e) {}
   return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
 };
-const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
 let CURRENT_USER = null;
 async function logAction(action, entity, detail) {
   try {
@@ -145,91 +132,7 @@ async function hashPass(pw) {
     return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
   } catch (e) { return "plain:" + pw; }
 }
-const storageOK = () => { try { return typeof window !== "undefined" && window.storage && typeof window.storage.get === "function"; } catch (e) { return false; } };
-async function probeStorage() {
-  try {
-    const v = "p" + Date.now();
-    await withTimeout(window.storage.set(LS + "probe", v), 3000);
-    const r = await withTimeout(window.storage.get(LS + "probe"), 3000);
-    return !!(r && r.value === v);
-  } catch (e) { return false; }
-}
-async function tryGet(key, attempts = 3) {
-  let lastErr = null;
-  for (let i = 0; i < attempts; i++) {
-    try { return { ok: true, res: await withTimeout(window.storage.get(key), 3000) }; }
-    catch (e) { lastErr = e; await new Promise((r) => setTimeout(r, 300)); }
-  }
-  return { ok: false, err: lastErr };
-}
-function persist(t) {
-  if (!persistAllowed || !loadedOK[t]) return; // защита: не затираем то, что не смогли прочитать
-  clearTimeout(timers[t]);
-  timers[t] = setTimeout(async () => {
-    try { if (storageOK()) await window.storage.set(LS + t, JSON.stringify(mem[t])); } catch (e) { console.error("storage", e); }
-  }, 150);
-}
-async function dbInit() {
-  if (!storageOK()) {
-    const s = seedData(); TABLES.forEach((t) => { mem[t] = s[t] || []; });
-    persistAllowed = false;
-    return { mode: "session", reason: "хранилище недоступно" };
-  }
-  const marker = await tryGet(LS + "init", 2);
-  const results = {};
-  for (const t of TABLES) results[t] = await tryGet(LS + t, 3);
-
-  const anyTableReadable = TABLES.some((t) => results[t].ok);
-  const dbExists = marker.ok || anyTableReadable;
-
-  if (!dbExists) {
-    const alive = await probeStorage();
-    const s = seedData();
-    if (!alive) {
-      TABLES.forEach((t) => { mem[t] = s[t] || []; });
-      persistAllowed = false;
-      return { mode: "session", reason: "хранилище не отвечает" };
-    }
-    // первый запуск этой версии — чистая инициализация
-    TABLES.forEach((t) => { mem[t] = s[t] || []; loadedOK[t] = true; persist(t); });
-    try { await window.storage.set(LS + "init", "1"); } catch (e) {}
-    return { mode: "fresh" };
-  }
-  // база существует: используем только подтверждённые чтения
-  let failures = 0;
-  for (const t of TABLES) {
-    if (results[t].ok) {
-      const r = results[t].res;
-      mem[t] = r && r.value ? JSON.parse(r.value) : [];
-      loadedOK[t] = true;
-    } else {
-      mem[t] = []; loadedOK[t] = false; failures++;
-    }
-  }
-  if (failures) {
-    // различаем "ключа просто нет" (норма для новой таблицы) и реальный сбой хранилища
-    const alive = await probeStorage();
-    if (alive) {
-      TABLES.forEach((t) => { if (!loadedOK[t]) { mem[t] = []; loadedOK[t] = true; persist(t); } });
-      failures = 0;
-    }
-  }
-  // мягкое дозаполнение справочников, не трогая данные пользователя
-  if (loadedOK.products && (!mem.products || !mem.products.length)) { mem.products = seedData().products; persist("products"); }
-  if (loadedOK.masters && (!mem.masters || !mem.masters.length)) { mem.masters = seedData().masters; persist("masters"); }
-  if (loadedOK.suppliers && (!mem.suppliers || !mem.suppliers.length)) { mem.suppliers = seedData().suppliers; persist("suppliers"); }
-  if (loadedOK.users && (!mem.users || !mem.users.length)) { mem.users = seedData().users; persist("users"); }
-  if (!mem.audit_log) { mem.audit_log = []; loadedOK.audit_log = true; persist("audit_log"); }
-  try { await window.storage.set(LS + "init", "1"); } catch (e) {}
-  if (failures) return { mode: "partial", reason: "не прочитались таблицы: " + TABLES.filter((t) => !loadedOK[t]).join(", ") + " — запись в них отключена, чтобы не потерять данные. Обновите страницу." };
-  return { mode: "ok" };
-}
 /* ---- Бэкап / восстановление всей базы (JSON) ---- */
-function backupJSON() {
-  const dump = { _app: "ThermoAI", _date: new Date().toISOString(), tables: {} };
-  TABLES.forEach((t) => { dump.tables[t] = mem[t] || []; });
-  return JSON.stringify(dump);
-}
 function tryDownloadBackup(json) {
   try {
     const blob = new Blob([json], { type: "application/json" });
@@ -241,105 +144,26 @@ function tryDownloadBackup(json) {
     return true;
   } catch (e) { console.error(e); return false; }
 }
-async function restoreFromText(text) {
-  const dump = JSON.parse(text);
+async function restoreFromSupabase(dump) {
   if (!dump.tables) throw new Error("Неверный формат бэкапа");
   for (const t of TABLES) {
-    if (Array.isArray(dump.tables[t])) {
-      mem[t] = dump.tables[t];
-      loadedOK[t] = true;
-      try { if (storageOK()) await window.storage.set(LS + t, JSON.stringify(mem[t])); } catch (e) {}
+    if (!Array.isArray(dump.tables[t])) continue;
+    // Удаляем все существующие записи и вставляем из бэкапа
+    const { data: existing } = await db.from(t).select();
+    for (const row of (existing || [])) {
+      await db.from(t).delete().eq("id", row.id);
+    }
+    for (const row of dump.tables[t]) {
+      await db.from(t).insert(row);
     }
   }
-  try { if (storageOK()) await window.storage.set(LS + "init", "1"); } catch (e) {}
 }
 async function importBackup(file) {
   const text = await file.text();
-  await restoreFromText(text);
+  const dump = JSON.parse(text);
+  await restoreFromSupabase(dump);
 }
-class Q {
-  constructor(t) { this.t = t; this.f = []; this.op = "select"; this.rows = null; this.patch = null; this.ord = null; }
-  select() { this.op = "select"; return this; }
-  insert(rows) { this.op = "insert"; this.rows = Array.isArray(rows) ? rows : [rows]; return this; }
-  update(patch) { this.op = "update"; this.patch = patch; return this; }
-  delete() { this.op = "delete"; return this; }
-  eq(k, v) { this.f.push((r) => r[k] === v); return this; }
-  neq(k, v) { this.f.push((r) => r[k] !== v); return this; }
-  ilike(k, v) { const s = String(v).replace(/%/g, "").toLowerCase(); this.f.push((r) => String(r[k] || "").toLowerCase().includes(s)); return this; }
-  order(k, o) { this.ord = { k, asc: !o || o.ascending !== false }; return this; }
-  m(r) { return this.f.every((fn) => fn(r)); }
-  async exec() {
-    const tbl = mem[this.t] || (mem[this.t] = []);
-    if (this.op === "select") {
-      let d = tbl.filter((r) => this.m(r));
-      if (this.ord) { const { k, asc } = this.ord; d = [...d].sort((a, b) => ((a[k] > b[k] ? 1 : a[k] < b[k] ? -1 : 0) * (asc ? 1 : -1))); }
-      return { data: JSON.parse(JSON.stringify(d)), error: null };
-    }
-    if (this.op === "insert") {
-      const rows = this.rows.map((r) => ({ id: uuid(), created_at: new Date().toISOString(), ...r }));
-      tbl.push(...rows); persist(this.t);
-      return { data: JSON.parse(JSON.stringify(rows)), error: null };
-    }
-    if (this.op === "update") {
-      const out = [];
-      tbl.forEach((r, i) => { if (this.m(r)) { tbl[i] = { ...r, ...this.patch, updated_at: new Date().toISOString() }; out.push(tbl[i]); } });
-      persist(this.t);
-      return { data: JSON.parse(JSON.stringify(out)), error: null };
-    }
-    if (this.op === "delete") {
-      mem[this.t] = tbl.filter((r) => !this.m(r)); persist(this.t);
-      return { data: [], error: null };
-    }
-  }
-  then(res, rej) { return this.exec().then(res, rej); }
-}
-const db = { from: (t) => new Q(t) };
 
-/* ============ SEED DATA ============ */
-function seedData() {
-  const sup = [
-    { id: "s1", name: "ТеплоТрейд", contact: "Алишер", phone: "+998 90 111 22 33", currency: "сум", segment: "комфорт", terms: "Отсрочка 14 дней", status: "active" },
-    { id: "s2", name: "СантехОпт", contact: "Бахтиёр", phone: "+998 93 444 55 66", currency: "сум", segment: "эконом", terms: "Предоплата", status: "active" },
-    { id: "s3", name: "AquaPro Premium", contact: "Дмитрий", phone: "+998 97 777 88 99", currency: "сум", segment: "премиум", terms: "Отсрочка 30 дней", status: "active" },
-    { id: "s4", name: "StroyBaza", contact: "Рустам", phone: "+998 94 222 33 44", currency: "сум", segment: "бюджет", terms: "Оплата по факту", status: "active" },
-  ];
-  const P = (code, name, alt, cat, brand, sid, seg, size, unit, cost, price, stock) => ({
-    id: uuid(), code, sku: code + "-SKU", name, alt_names: alt, category: cat, brand,
-    supplier_id: sid, segment: seg, size, unit, cost, price, stock, min_stock: 5, status: "active",
-    price_updated: new Date().toISOString(),
-  });
-  const products = [
-    P("KTL-001", "Котёл газовый настенный Baxi Eco4s 24 кВт", "газовый котел, baxi 24", "Котлы", "Baxi", "s3", "премиум", "24 кВт", "шт", 6500000, 8200000, 6),
-    P("KTL-002", "Котёл газовый Immergas Mythos 24 кВт", "иммергаз котел", "Котлы", "Immergas", "s1", "комфорт", "24 кВт", "шт", 5200000, 6500000, 9),
-    P("KTL-003", "Котёл газовый Arderia D24 24 кВт", "ардерия котел", "Котлы", "Arderia", "s2", "эконом", "24 кВт", "шт", 3800000, 4700000, 12),
-    P("RAD-001", "Радиатор алюминиевый Global Iseo 500/80", "глобал радиатор, батарея 500", "Радиаторы", "Global", "s3", "премиум", "500/80", "секция", 95000, 135000, 240),
-    P("RAD-002", "Радиатор алюминиевый Ferroli 500/80", "ферроли батарея", "Радиаторы", "Ferroli", "s1", "комфорт", "500/80", "секция", 62000, 88000, 380),
-    P("RAD-003", "Радиатор алюминиевый ECO 500/76", "эко батарея, радиатор эко", "Радиаторы", "ECO", "s2", "эконом", "500/76", "секция", 38000, 55000, 520),
-    P("TRB-025", "Труба PPR PN20 Ø25 Valtec", "полипропилен труба 25, ппр 25", "Трубы PPR", "Valtec", "s1", "комфорт", "25 мм", "м", 14000, 21000, 1800),
-    P("TRB-032", "Труба PPR PN20 Ø32 Valtec", "ппр 32, труба 32", "Трубы PPR", "Valtec", "s1", "комфорт", "32 мм", "м", 21000, 31000, 1200),
-    P("TRB-025E", "Труба PPR PN20 Ø25 ASG", "труба асг 25", "Трубы PPR", "ASG", "s2", "эконом", "25 мм", "м", 8500, 13000, 2400),
-    P("FIT-025U", "Угол PPR 90° Ø25 Valtec", "уголок 25, отвод 25", "Фитинги PPR", "Valtec", "s1", "комфорт", "25 мм", "шт", 2800, 4500, 900),
-    P("FIT-025T", "Тройник PPR Ø25 Valtec", "тройник 25", "Фитинги PPR", "Valtec", "s1", "комфорт", "25 мм", "шт", 3400, 5500, 740),
-    P("FIT-025M", "Муфта PPR Ø25 Valtec", "муфта 25, соединитель", "Фитинги PPR", "Valtec", "s1", "комфорт", "25 мм", "шт", 1900, 3200, 1100),
-    P("KRN-012", "Кран шаровый 1/2\" вр-нр Bugatti", "шаровый кран полдюйма", "Запорная арматура", "Bugatti", "s3", "премиум", "1/2\"", "шт", 38000, 56000, 160),
-    P("KRN-012E", "Кран шаровый 1/2\" вр-нр STA", "кран ста", "Запорная арматура", "STA", "s2", "эконом", "1/2\"", "шт", 14000, 23000, 300),
-    P("NSS-2560", "Насос циркуляционный Grundfos UPS 25-60", "грундфос насос, циркуляционный насос", "Насосы", "Grundfos", "s3", "премиум", "25-60", "шт", 980000, 1350000, 14),
-    P("NSS-2560E", "Насос циркуляционный Wilo Star-RS 25/6 (аналог)", "вило насос", "Насосы", "Wilo", "s1", "комфорт", "25/6", "шт", 720000, 980000, 18),
-    P("KOL-004", "Коллектор латунный 4 выхода 3/4\"x1/2\"", "гребенка 4 выхода, коллектор 4", "Коллекторы", "TIM", "s1", "комфорт", "3/4\" x 4", "шт", 145000, 215000, 40),
-    P("FLT-034", "Фильтр грубой очистки 3/4\" косой", "фильтр косой, грязевик", "Фильтры", "Valtec", "s1", "комфорт", "3/4\"", "шт", 28000, 45000, 90),
-    P("PDV-050", "Подводка гибкая для воды 1/2\" 50 см", "гибкий шланг 50", "Подводки", "Monoflex", "s2", "эконом", "1/2\" 50см", "шт", 9000, 16000, 200),
-    P("FUM-001", "Лента ФУМ 19мм x 15м", "фумка, фум лента", "Расходники", "Unitec", "s4", "бюджет", "19мм", "шт", 3000, 6000, 500),
-    P("KRP-RAD", "Кронштейн радиатора анкерный", "крепление радиатора, кронштейн", "Крепёж", "NoName", "s4", "бюджет", "универс.", "шт", 2500, 5000, 800),
-  ];
-  const masters = [
-    { id: "m1", name: "Шерзод (отопление)", phone: "+998 90 555 11 22", specialty: "Отопление, котлы", bonus_percent: 10, status: "active", note: "" },
-    { id: "m2", name: "Жасур (сантехника)", phone: "+998 93 666 33 44", specialty: "Сантехника, разводка", bonus_percent: 8, status: "active", note: "" },
-    { id: "m3", name: "Олим (универсал)", phone: "+998 97 888 55 66", specialty: "Универсал", bonus_percent: 10, status: "active", note: "" },
-  ];
-  return { suppliers: sup, products, objects: [], finance_ops: [], requests: [], masters, warehouse: [], wh_moves: [], audit_log: [], users: [
-    { id: "u1", username: "admin", pass_hash: "", role: "boss", name: "Руководитель", status: "active", need_seed_pass: "admin123" },
-  ] };
-}
 
 /* ============ HELPERS ============ */
 const fmt = (n) => (Number(n) || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
@@ -2824,37 +2648,27 @@ function AppInner() {
   useEffect(() => {
     (async () => {
       try {
-        const st = await dbInit();
-        if (st && st.mode === "session") setBootErr("Хранилище недоступно — режим сессии, данные не сохранятся. Используйте «Бэкап».");
-        if (st && st.mode === "partial") setBootErr(st.reason);
         await reload();
+        // восстановить сессию из localStorage
+        const uid = localStorage.getItem("te:session");
+        if (uid) {
+          const { data: users } = await db.from("users").select().eq("id", uid).eq("status", "active");
+          if (users && users.length) { setCurrentUser(users[0]); CURRENT_USER = users[0]; }
+        }
       } catch (e) {
         console.error(e); setBootErr(String(e && (e.message || e)));
-        const s = seedData(); TABLES.forEach((t) => { mem[t] = s[t] || []; });
-        try { await reload(); } catch (e2) {}
       }
-      // восстановить сессию
-      try {
-        if (storageOK()) {
-          const s = await tryGet(LS + "session", 1);
-          if (s.ok && s.res && s.res.value) {
-            const uid = JSON.parse(s.res.value);
-            const u = (mem.users || []).find((x) => x.id === uid && x.status === "active");
-            if (u) { setCurrentUser(u); CURRENT_USER = u; }
-          }
-        }
-      } catch (e) {}
       setReady(true);
     })();
   }, []);
   const doLogin = async (u) => {
     setCurrentUser(u); CURRENT_USER = u;
-    try { if (storageOK()) await window.storage.set(LS + "session", JSON.stringify(u.id)); } catch (e) {}
+    try { localStorage.setItem("te:session", u.id); } catch (e) {}
     await reload();
   };
   const doLogout = async () => {
     setCurrentUser(null); CURRENT_USER = null;
-    try { if (storageOK()) await window.storage.set(LS + "session", JSON.stringify(null)); } catch (e) {}
+    try { localStorage.removeItem("te:session"); } catch (e) {}
   };
   const [backupOpen, setBackupOpen] = useState(false);
   const onRestore = async (e) => {
@@ -2895,7 +2709,7 @@ function AppInner() {
         <input ref={restoreRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={onRestore} />
       </div>
       <div className="body">
-        {bootErr && <div className="card sect" style={{ borderColor: "var(--warn)", color: "var(--warn)" }}>Хранилище недоступно ({bootErr}) — работаю в режиме сессии, данные не сохранятся между перезапусками.</div>}
+        {bootErr && <div className="card sect" style={{ borderColor: "var(--warn)", color: "var(--warn)" }}>Ошибка подключения к Supabase: {bootErr}</div>}
         {tab === "dash" && <Dashboard data={data} />}
         {tab === "objects" && <ObjectsTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} goRequest={() => setTab("request")} fin={role === "boss"} />}
         {tab === "request" && <RequestWizard data={data} reload={reload} toast={toast} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
@@ -2907,15 +2721,20 @@ function AppInner() {
         {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} />}
         {tab === "finance" && <FinanceTab data={data} reload={reload} toast={toast} />}
       </div>
-      {backupOpen && <BackupModal onClose={() => setBackupOpen(false)} toast={toast} onFilePick={() => restoreRef.current.click()} onRestoreText={async (text) => {
-        await restoreFromText(text); await reload(); setBackupOpen(false); toast("База восстановлена");
+      {backupOpen && <BackupModal data={data} onClose={() => setBackupOpen(false)} toast={toast} onFilePick={() => restoreRef.current.click()} onRestoreText={async (text) => {
+        const dump = JSON.parse(text);
+        await restoreFromSupabase(dump); await reload(); setBackupOpen(false); toast("База восстановлена");
       }} />}
       {msg && <div className="toast">{msg}</div>}
     </div>
   );
 }
-function BackupModal({ onClose, toast, onFilePick, onRestoreText }) {
-  const [json] = useState(() => backupJSON());
+function BackupModal({ data, onClose, toast, onFilePick, onRestoreText }) {
+  const [json] = useState(() => {
+    const dump = { _app: "ThermoAI", _date: new Date().toISOString(), tables: {} };
+    TABLES.forEach((t) => { dump.tables[t] = data[t] || []; });
+    return JSON.stringify(dump);
+  });
   const [restoreTxt, setRestoreTxt] = useState("");
   const [err, setErr] = useState("");
   const taRef = useRef(null);
