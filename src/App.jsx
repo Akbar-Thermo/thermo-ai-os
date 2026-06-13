@@ -2657,10 +2657,17 @@ function AppInner() {
       try {
         await reload();
         // восстановить сессию из localStorage
-        const uid = localStorage.getItem("te:session");
-        if (uid) {
+        const rawUid = localStorage.getItem("te:session");
+        // совместимость: старая версия сохраняла JSON.stringify(id), новая — чистый id
+        const uid = rawUid ? rawUid.replace(/^"|"$/g, "") : null;
+        // uuid должен содержать дефис или начинаться не с кавычки; u1/u2 — старые seed-id
+        const isValidId = uid && uid.length > 8 && !uid.startsWith("u");
+        if (isValidId) {
           const { data: users } = await db.from("users").select().eq("id", uid).eq("status", "active");
           if (users && users.length) { setCurrentUser(users[0]); CURRENT_USER = users[0]; }
+          else { localStorage.removeItem("te:session"); } // сессия устарела
+        } else if (uid) {
+          localStorage.removeItem("te:session"); // старый формат — сбрасываем
         }
       } catch (e) {
         console.error(e); setBootErr(String(e && (e.message || e)));
