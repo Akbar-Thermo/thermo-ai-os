@@ -448,15 +448,20 @@ function downloadCSV(filename, rows) {
 // AI-вызов. В облаке идёт через Supabase Edge Function "ai-proxy" (ключ Anthropic на сервере).
 // Подключение: задайте VITE_AI_PROXY_URL в .env ИЛИ замените тело на supabase.functions.invoke (см. MIGRATION.md, шаг 4в).
 async function claudeCall(content, system) {
-  const { supabase } = await import("./db");
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  const { data, error } = await supabase.functions.invoke("ai-proxy", {
-    body: { content, system },
-    headers: { Authorization: `Bearer ${anonKey}` },
+  const url = import.meta.env.VITE_AI_PROXY_URL;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${anonKey}`,
+    },
+    body: JSON.stringify({ content, system }),
   });
-  if (error) throw new Error(error.message);
-  if (!data || !data.text) throw new Error("Пустой ответ от AI");
-  return data.text;
+  const d = await r.json();
+  if (d.error) throw new Error(d.error);
+  if (!d.text) throw new Error("Пустой ответ от AI");
+  return d.text;
 }
 function parseJSONLoose(t) {
   const clean = t.replace(/```json|```/g, "").trim();
