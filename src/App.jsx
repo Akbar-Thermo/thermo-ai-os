@@ -957,8 +957,15 @@ function RequestWizard({ data, reload, toast, openObject }) {
     try {
       let obj = selObj;
       if (!obj) {
-        const { data: ins } = await db.from("objects").insert({ ...newObj, status: "draft", items: [] });
-        obj = ins[0];
+        const { data: ins, error: insErr } = await db.from("objects").insert({ ...newObj, status: "draft", items: [] });
+        if (insErr) throw new Error("Ошибка создания объекта: " + insErr.message);
+        if (ins && ins[0]) {
+          obj = ins[0];
+        } else {
+          const { data: found } = await db.from("objects").select().eq("name", newObj.name).order("created_at", { ascending: false });
+          obj = found && found[0];
+        }
+        if (!obj) throw new Error("Объект создан, но не удалось прочитать. Проверьте RLS на таблице objects.");
       }
       const rows = src_.filter((m) => m.product_id && m.accepted);
       const exNos = (obj.items || []).map((i) => i.batch_no || 1);
