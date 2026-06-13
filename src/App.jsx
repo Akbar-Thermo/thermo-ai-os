@@ -449,8 +449,12 @@ function downloadCSV(filename, rows) {
 // Подключение: задайте VITE_AI_PROXY_URL в .env ИЛИ замените тело на supabase.functions.invoke (см. MIGRATION.md, шаг 4в).
 async function claudeCall(content, system) {
   const { supabase } = await import("./db");
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
   const { data, error } = await supabase.functions.invoke("ai-proxy", {
     body: { content, system },
+    headers: { Authorization: `Bearer ${anonKey}` },
   });
   if (error) throw new Error(error.message);
   if (!data || !data.text) throw new Error("Пустой ответ от AI");
