@@ -53,6 +53,13 @@ const CSS = `
 .logo small{display:block;font-weight:500;color:var(--mut);font-size:10px;letter-spacing:2px;text-transform:uppercase}
 .tabs{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto}
 .tab{padding:8px 14px;border-radius:8px;border:1px solid transparent;color:var(--mut);cursor:pointer;font-weight:600;font-size:13px;background:none;font-family:var(--sans)}
+.burger{display:none;align-items:center;justify-content:center;width:38px;height:38px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:#fff;cursor:pointer;font-size:18px;margin-left:auto}
+@media(max-width:820px){
+  .tabs{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;flex-wrap:nowrap;gap:0;margin:0;background:#0c0c0c;border-bottom:2px solid var(--acc);box-shadow:0 16px 30px rgba(0,0,0,.6);padding:6px;z-index:60}
+  .tabs.open{display:flex}
+  .tab{width:100%;text-align:left;padding:12px 14px;border-radius:6px}
+  .burger{display:flex}
+}
 .tab:hover{color:var(--txt);background:var(--panel2)}
 .tab.on{color:#fff;border-color:var(--acc);background:var(--acc);box-shadow:0 4px 16px rgba(255,31,48,.35)}
 .body{padding:20px 22px;max-width:1280px;margin:0 auto}
@@ -2480,6 +2487,7 @@ function AppInner() {
     try { localStorage.removeItem("te:session"); } catch (e) {}
   };
   const [backupOpen, setBackupOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const onRestore = async (e) => {
     const f = e.target.files[0]; if (!f) return;
     try { await importBackup(f); await reload(); toast("База восстановлена из бэкапа"); setBootErr(""); }
@@ -2511,9 +2519,10 @@ function AppInner() {
           </div>
           <button className="btn xs" onClick={doLogout} title="Выйти">Выйти</button>
         </div>
-        <div className="tabs">
-          {allTabs.map((t) => <button key={t.id} className={"tab " + (tab === t.id ? "on" : "")} onClick={() => { setTab(t.id); if (t.id !== "objects") setOpenId(null); }}>{t.label}</button>)}
+        <div className={"tabs" + (mobileMenuOpen ? " open" : "")}>
+          {allTabs.map((t) => <button key={t.id} className={"tab " + (tab === t.id ? "on" : "")} onClick={() => { setTab(t.id); if (t.id !== "objects") setOpenId(null); setMobileMenuOpen(false); }}>{t.label}</button>)}
         </div>
+        <button className="burger" onClick={() => setMobileMenuOpen((v) => !v)} title="Меню">{mobileMenuOpen ? "✕" : "☰"}</button>
         <button className="btn xs" title="Бэкап и восстановление базы" onClick={() => setBackupOpen(true)}>💾 Бэкап</button>
         <input ref={restoreRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={onRestore} />
       </div>
