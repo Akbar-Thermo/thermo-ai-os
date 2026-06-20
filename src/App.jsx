@@ -29,7 +29,7 @@ const OP_TYPES = [
 ];
 const OBJECT_OP_TYPES = ["client_payment", "supplier_payment", "return", "discount", "expense", "bonus"];
 const ROLES = [
-  { id: "manager", label: "Менеджер", tabs: ["request", "objects", "products", "wh", "suppliers", "masters"] },
+  { id: "manager", label: "Менеджер", tabs: ["request", "objects", "products", "wh", "suppliers", "masters", "finance"] },
   { id: "boss", label: "Руководитель", tabs: ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "admin"] },
 ];
 const MANAGER_OP_TYPES = ["client_payment", "return", "discount"];
@@ -2035,12 +2035,41 @@ function MasterForm({ m, onClose, onSave }) {
 
 /* ============ СКЛАД THERMO ============ */
 function WarehouseTab({ data, reload, toast, openObject }) {
-  const { warehouse, wh_moves, objects } = data;
+  const { warehouse, wh_moves, objects, suppliers } = data;
   const [issue, setIssue] = useState(false);
+  const [editRow, setEditRow] = useState(null);
+  const [delRow, setDelRow] = useState(null);
+  const [retForm, setRetForm] = useState(null);
   const stock = warehouse.filter((w) => (w.qty || 0) > 0);
   const totalCost = stock.reduce((a, w) => a + w.qty * (w.cost || 0), 0);
   const totalSale = stock.reduce((a, w) => a + w.qty * (w.price || 0), 0);
   const KPI = ({ l, v, c }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}</div></div>;
+  const saveRow = async (patch) => {
+    await db.from("warehouse").update({ qty: patch.qty, cost: patch.cost, price: patch.price }).eq("id", editRow.id);
+    await logAction("Склад: изменена позиция", editRow.name, "кол-во " + editRow.qty + " → " + patch.qty);
+    setEditRow(null); await reload(); toast("Позиция обновлена");
+  };
+  const confirmDelRow = async () => {
+    await db.from("warehouse").delete().eq("id", delRow.id);
+    await db.from("wh_moves").insert(cleanUuids({ product_id: delRow.product_id, name: delRow.name, qty: delRow.qty, dir: "out", object_id: null, object_name: null, op_date: today(), user: CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username) : "", note: "позиция удалена со склада вручную" }));
+    await logAction("Склад: позиция удалена", delRow.name, "кол-во " + delRow.qty);
+    setDelRow(null); await reload(); toast("Позиция удалена со склада");
+  };
+  // Возврат поставщику со склада: списываем количество и создаём финансовую операцию type:"return",
+  // привязанную к supplier_id — она автоматически вычитается из долга поставщику (см. supplierStats: returns по cost_amount).
+  const submitSupplierReturn = async (row, qty, supplierId, reason) => {
+    const newQty = Math.max(0, row.qty - qty);
+    await db.from("warehouse").update({ qty: newQty }).eq("id", row.id);
+    const costAmount = qty * (row.cost || 0);
+    await db.from("finance_ops").insert(cleanUuids({
+      type: "return", object_id: null, supplier_id: supplierId, product_id: row.product_id, product_name: row.name,
+      qty, amount: qty * (row.price || 0), cost_amount: costAmount, reason: reason || "возврат поставщику со склада",
+      op_date: today(), user: CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username) : "",
+    }));
+    await db.from("wh_moves").insert(cleanUuids({ product_id: row.product_id, name: row.name, qty, dir: "out", object_id: null, object_name: null, op_date: today(), user: CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username) : "", note: "возврат поставщику" }));
+    await logAction("Возврат поставщику со склада", row.name, "кол-во " + qty + ", на сумму себест. " + fmt(costAmount));
+    setRetForm(null); await reload(); toast("Возврат поставщику оформлен: −" + fmt(costAmount) + " к долгу");
+  };
   return (
     <div>
       <div className="row sect">
@@ -2055,7 +2084,7 @@ function WarehouseTab({ data, reload, toast, openObject }) {
       </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
-          <thead><tr><th>Товар</th><th>Размер</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"right"}}>Закуп</th><th style={{textAlign:"right"}}>Продажа</th><th style={{textAlign:"right"}}>Сумма (закуп)</th></tr></thead>
+          <thead><tr><th>Товар</th><th>Размер</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"right"}}>Закуп</th><th style={{textAlign:"right"}}>Продажа</th><th style={{textAlign:"right"}}>Сумма (закуп)</th><th></th></tr></thead>
           <tbody>
             {stock.map((w) => (
               <tr key={w.id}>
@@ -2066,9 +2095,14 @@ function WarehouseTab({ data, reload, toast, openObject }) {
                 <td className="num">{fmt(w.cost)}</td>
                 <td className="num">{fmt(w.price)}</td>
                 <td className="num">{fmt(w.qty * (w.cost || 0))}</td>
+                <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
+                  <button className="btn xs" onClick={() => setEditRow(w)}>ред.</button>
+                  <button className="btn xs" onClick={() => setRetForm(w)}>↩ поставщику</button>
+                  <button className="btn xs dng" onClick={() => setDelRow(w)}>✕</button>
+                </div></td>
               </tr>
             ))}
-            {!stock.length && <tr><td colSpan={7} className="mut" style={{ textAlign: "center", padding: 26 }}>Склад пуст — товары появляются автоматически при возвратах с объектов</td></tr>}
+            {!stock.length && <tr><td colSpan={8} className="mut" style={{ textAlign: "center", padding: 26 }}>Склад пуст — товары появляются автоматически при возвратах с объектов</td></tr>}
           </tbody>
         </table>
       </div>
@@ -2106,6 +2140,72 @@ function WarehouseTab({ data, reload, toast, openObject }) {
         setIssue(false); await reload();
         await logAction("Отгрузка со склада", "object:" + targetObj.name, "позиций: " + lines.length); toast("Отгружено на «" + targetObj.name + "»: " + lines.length + " поз.");
       }} />}
+      {editRow && (
+        <Modal title="Редактировать позицию склада" onClose={() => setEditRow(null)} w={460}>
+          <WarehouseEditForm row={editRow} onCancel={() => setEditRow(null)} onSave={saveRow} />
+        </Modal>
+      )}
+      {delRow && (
+        <Modal title="Удалить позицию со склада?" onClose={() => setDelRow(null)} w={420}>
+          <p className="sm mut">«{delRow.name}» ({delRow.qty} {delRow.unit}) будет полностью удалено со склада. Это действие нельзя отменить.</p>
+          <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
+            <button className="btn" onClick={() => setDelRow(null)}>Отмена</button>
+            <button className="btn dng" onClick={confirmDelRow}>Удалить</button>
+          </div>
+        </Modal>
+      )}
+      {retForm && (
+        <Modal title={"Возврат поставщику — " + retForm.name} onClose={() => setRetForm(null)} w={480}>
+          <SupplierReturnForm row={retForm} suppliers={suppliers} onCancel={() => setRetForm(null)} onSave={submitSupplierReturn} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+function WarehouseEditForm({ row, onCancel, onSave }) {
+  const [qty, setQty] = useState(row.qty);
+  const [cost, setCost] = useState(row.cost);
+  const [price, setPrice] = useState(row.price);
+  return (
+    <div>
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <Fld label="Количество"><input type="number" className="inp" value={qty} onChange={(e) => setQty(e.target.value)} /></Fld>
+        <Fld label="Ед."><div className="inp mono" style={{ background: "var(--panel2)" }}>{row.unit}</div></Fld>
+        <Fld label="Себестоимость"><input type="number" className="inp" value={cost} onChange={(e) => setCost(e.target.value)} /></Fld>
+        <Fld label="Цена продажи"><input type="number" className="inp" value={price} onChange={(e) => setPrice(e.target.value)} /></Fld>
+      </div>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
+        <button className="btn" onClick={onCancel}>Отмена</button>
+        <button className="btn pri" onClick={() => onSave({ qty: Number(qty) || 0, cost: Number(cost) || 0, price: Number(price) || 0 })}>Сохранить</button>
+      </div>
+    </div>
+  );
+}
+function SupplierReturnForm({ row, suppliers, onCancel, onSave }) {
+  const [qty, setQty] = useState(Math.min(1, row.qty));
+  const [supplierId, setSupplierId] = useState(row.supplier_id || "");
+  const [reason, setReason] = useState("");
+  const costAmount = (Number(qty) || 0) * (row.cost || 0);
+  return (
+    <div>
+      <p className="sm mut" style={{ marginBottom: 12 }}>Сумма возврата по себестоимости будет вычтена из долга выбранному поставщику.</p>
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <Fld label="Поставщик">
+          <select className="inp" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
+            <option value="">—</option>
+            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </Fld>
+        <Fld label={"Количество (на складе: " + row.qty + ")"}>
+          <input type="number" className="inp" min={1} max={row.qty} value={qty} onChange={(e) => setQty(Math.max(0, Math.min(Number(e.target.value) || 0, row.qty)))} />
+        </Fld>
+        <div style={{ gridColumn: "1/-1" }}><Fld label="Причина"><input className="inp" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="брак / излишек / не подошло" /></Fld></div>
+        <div className="fld"><label>Сумма (себестоимость)</label><div className="inp mono" style={{ background: "var(--panel2)" }}>{fmt(costAmount)}</div></div>
+      </div>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
+        <button className="btn" onClick={onCancel}>Отмена</button>
+        <button className="btn pri" disabled={!supplierId || !qty} onClick={() => onSave(row, Number(qty) || 0, supplierId, reason)}>Оформить возврат</button>
+      </div>
     </div>
   );
 }
@@ -2693,7 +2793,7 @@ function AppInner() {
         {tab === "request" && <RequestWizard data={data} reload={reload} toast={toast} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "products" && <ProductsTab data={data} reload={reload} toast={toast} />}
         {tab === "suppliers" && <SuppliersTab data={data} reload={reload} toast={toast} fin={role === "boss"} />}
-        {tab === "masters" && <MastersTab data={data} reload={reload} toast={toast} fin={role === "boss"} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
+        {tab === "masters" && <MastersTab data={data} reload={reload} toast={toast} fin={true} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "wh" && <WarehouseTab data={data} reload={reload} toast={toast} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "log" && <LogTab data={data} />}
         {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} />}
