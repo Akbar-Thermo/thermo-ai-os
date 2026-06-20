@@ -7,7 +7,7 @@ import { db } from "./db.js";
    DATA LAYER = Supabase (db импортируется из ./db.js)
    ============================================================ */
 
-const SEGMENTS = ["бюджет", "эконом", "комфорт", "премиум"];
+const SEGMENTS = ["эконом", "комфорт", "премиум"];
 const OBJ_STATUSES = [
   { id: "draft", label: "Черновик", c: "#9a9a9a" },
   { id: "review", label: "На проверке", c: "#ffb020" },
@@ -39,29 +39,32 @@ const EXPENSE_CATEGORIES = ["Зарплата", "Аренда", "Коммуна�
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 :root{
-  --bg:#070707; --panel:#121212; --panel2:#1a1a1a; --line:#262626; --line2:#383838;
-  --txt:#ffffff; --mut:#9a9a9a; --acc:#ff1f30; --acc2:#ff707b; --ok:#3ddc7d; --warn:#ffb020; --bad:#ff4d5e;
+  --bg:#f7f7f8; --panel:#ffffff; --panel2:#f1f1f3; --line:#e2e2e6; --line2:#d4d4da;
+  --txt:#15151a; --mut:#6b6b73; --acc:#ff1f30; --acc2:#d6001a; --ok:#1f9d52; --warn:#b97300; --bad:#d6283b;
   --mono:'JetBrains Mono',monospace; --sans:'Manrope',sans-serif;
+  --hdr-bg:#0c0c0c; --hdr-txt:#ffffff; --hdr-mut:#9a9a9a; --hdr-line:#262626; --hdr-panel2:#1a1a1a;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-.te{font-family:var(--sans);background:var(--bg);color:var(--txt);min-height:100vh;font-size:14px;
-  background-image:radial-gradient(ellipse 80% 50% at 50% -10%,rgba(255,31,48,.10),transparent),
-  repeating-linear-gradient(0deg,transparent,transparent 39px,rgba(255,255,255,.015) 40px)}
-.hdr{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:2px solid var(--acc);flex-wrap:wrap;position:sticky;top:0;background:rgba(7,7,7,.94);backdrop-filter:blur(8px);z-index:50;box-shadow:0 6px 24px rgba(255,31,48,.12)}
-.logo{font-weight:800;letter-spacing:.5px;font-size:17px;color:#fff}
+.te{font-family:var(--sans);background:var(--bg);color:var(--txt);min-height:100vh;font-size:14px}
+.hdr{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:2px solid var(--acc);flex-wrap:wrap;position:sticky;top:0;background:var(--hdr-bg);z-index:50;box-shadow:0 6px 24px rgba(0,0,0,.18);transition:transform .25s ease}
+@media(max-width:820px){.hdr.hide-on-scroll{transform:translateY(-100%)}}
+.logo{font-weight:800;letter-spacing:.5px;font-size:17px;color:var(--hdr-txt)}
 .logo span{color:var(--acc)}
-.logo small{display:block;font-weight:500;color:var(--mut);font-size:10px;letter-spacing:2px;text-transform:uppercase}
+.logo small{display:block;font-weight:500;color:var(--hdr-mut);font-size:10px;letter-spacing:2px;text-transform:uppercase}
 .tabs{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto}
-.tab{padding:8px 14px;border-radius:8px;border:1px solid transparent;color:var(--mut);cursor:pointer;font-weight:600;font-size:13px;background:none;font-family:var(--sans)}
-.burger{display:none;align-items:center;justify-content:center;width:38px;height:38px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:#fff;cursor:pointer;font-size:18px;margin-left:auto}
+.tab{padding:8px 14px;border-radius:8px;border:1px solid transparent;color:var(--hdr-mut);cursor:pointer;font-weight:600;font-size:13px;background:none;font-family:var(--sans)}
+.burger{display:none;align-items:center;justify-content:center;width:38px;height:38px;border-radius:8px;border:1px solid var(--hdr-line);background:var(--hdr-panel2);color:var(--hdr-txt);cursor:pointer;font-size:18px;margin-left:auto}
 @media(max-width:820px){
-  .tabs{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;flex-wrap:nowrap;gap:0;margin:0;background:#0c0c0c;border-bottom:2px solid var(--acc);box-shadow:0 16px 30px rgba(0,0,0,.6);padding:6px;z-index:60}
+  .tabs{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;flex-wrap:nowrap;gap:0;margin:0;background:var(--hdr-bg);border-bottom:2px solid var(--acc);box-shadow:0 16px 30px rgba(0,0,0,.6);padding:6px;z-index:60}
   .tabs.open{display:flex}
   .tab{width:100%;text-align:left;padding:12px 14px;border-radius:6px}
   .burger{display:flex}
 }
-.tab:hover{color:var(--txt);background:var(--panel2)}
+.tab:hover{color:var(--hdr-txt);background:var(--hdr-panel2)}
 .tab.on{color:#fff;border-color:var(--acc);background:var(--acc);box-shadow:0 4px 16px rgba(255,31,48,.35)}
+.hdr .btn{background:var(--hdr-panel2);border-color:var(--hdr-line);color:var(--hdr-txt)}
+.hdr .btn:hover{border-color:var(--acc);color:var(--acc)}
+.hdr .mut{color:var(--hdr-mut)}
 .body{padding:20px 22px;max-width:1280px;margin:0 auto}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
 .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
@@ -85,7 +88,7 @@ textarea.inp{min-height:120px;font-family:var(--mono);font-size:12px;resize:vert
 table.t{width:100%;border-collapse:collapse;font-size:13px}
 table.t th{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--mut);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);font-weight:700}
 table.t td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
-table.t tr:hover td{background:rgba(255,255,255,.02)}
+table.t tr:hover td{background:rgba(0,0,0,.025)}
 .num{font-family:var(--mono);font-size:12px;text-align:right;white-space:nowrap}
 .bdg{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
@@ -106,7 +109,7 @@ table.t tr:hover td{background:rgba(255,255,255,.02)}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--mut);border-top-color:var(--acc);border-radius:50%;animation:sp 0.8s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
 .conf{font-family:var(--mono);font-weight:700;font-size:12px}
-.pick-row:hover{background-color:#241112 !important}
+.pick-row:hover{background-color:#fff0f1 !important}
 table.t td{position:static}
 `;
 
@@ -307,12 +310,12 @@ function ProductPicker({ products, onPick, placeholder }) {
     <div style={{ position: "relative", minWidth: 220, flex: 1, zIndex: hits.length ? 999 : "auto" }}>
       <input className="inp" placeholder={placeholder || "Поиск товара для добавления…"} value={q} onChange={(e) => setQ(e.target.value)} />
       {hits.length > 0 && (
-        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "#101010", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, maxHeight: 260, overflow: "auto", boxShadow: "0 16px 44px rgba(0,0,0,.95), 0 0 0 1px rgba(255,31,48,.15)", isolation: "isolate" }}>
+        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "#ffffff", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, maxHeight: 260, overflow: "auto", boxShadow: "0 16px 44px rgba(0,0,0,.18), 0 0 0 1px rgba(255,31,48,.15)", isolation: "isolate" }}>
           {hits.map((p) => (
-            <div key={p.id} className="clk pick-row" style={{ padding: "9px 11px", borderBottom: "1px solid var(--line)", backgroundColor: "#101010" }}
+            <div key={p.id} className="clk pick-row" style={{ padding: "9px 11px", borderBottom: "1px solid var(--line)", backgroundColor: "#ffffff" }}
               onClick={() => { onPick(p); setQ(""); }}>
-              <div style={{ fontWeight: 600, fontSize: 13, color: "#fff" }}>{p.name}</div>
-              <div className="xs mono" style={{ color: "#b9b9b9" }}>{p.size} · {money(p.price)} · ост. {p.stock}</div>
+              <div style={{ fontWeight: 600, fontSize: 13, color: "var(--txt)" }}>{p.name}</div>
+              <div className="xs mono" style={{ color: "var(--mut)" }}>{p.size} · {money(p.price)} · ост. {p.stock}</div>
             </div>
           ))}
         </div>
@@ -808,7 +811,7 @@ function SupplierForm({ s, onSave }) {
   );
 }
 
-/* ============ REQUEST WIZARD (заявка → AI extraction → AI match) ============ */
+/* ============ REQUEST WIZARD (ручной подбор товаров) ============ */
 function RequestWizard({ data, reload, toast, openObject }) {
   const { products, suppliers, objects, masters } = data;
   const [step, setStep] = useState(0);
@@ -816,8 +819,17 @@ function RequestWizard({ data, reload, toast, openObject }) {
   const [newObj, setNewObj] = useState({ name: "", client: "", phone: "", master: "", master_id: "", manager: "", address: "", segment: "комфорт" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [lines, setLines] = useState([]); // { product_id, name, size, unit, qty, price, manual }
+  const [lines, setLines] = useState([]); // { product_id, name, size, unit, qty, cost, checked, manual }
   const [catF, setCatF] = useState("");
+  const [delLine, setDelLine] = useState(null); // line pending delete confirmation
+  const [markupModal, setMarkupModal] = useState(false);
+  const [markup, setMarkup] = useState(15);
+  const [markupCustom, setMarkupCustom] = useState("");
+  // добавление нового мастера прямо тут
+  const [addingMaster, setAddingMaster] = useState(false);
+  const [newMasterName, setNewMasterName] = useState("");
+  const [newMasterPhone, setNewMasterPhone] = useState("");
+  const [savingMaster, setSavingMaster] = useState(false);
 
   const activeObjects = objects.filter((o) => !["closed", "cancelled"].includes(o.status));
   const selObj = objects.find((o) => o.id === objId);
@@ -829,14 +841,14 @@ function RequestWizard({ data, reload, toast, openObject }) {
     setLines((prev) => {
       const ex = prev.find((l) => l.product_id === p.id);
       if (ex) return prev.map((l) => (l.product_id === p.id ? { ...l, qty: l.qty + 1 } : l));
-      return [...prev, { id: uuid(), product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, price: p.price, manual: false }];
+      return [...prev, { id: uuid(), product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, cost: p.cost, checked: false, manual: false }];
     });
   };
   const addManualLine = () => {
-    setLines((prev) => [...prev, { id: uuid(), product_id: null, name: "", size: "", unit: "шт", qty: 1, price: 0, manual: true }]);
+    setLines((prev) => [...prev, { id: uuid(), product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: 0, checked: false, manual: true }]);
   };
   const setLine = (id, patch) => setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  const removeLine = (id) => setLines((prev) => prev.filter((l) => l.id !== id));
+  const confirmRemoveLine = () => { if (delLine) { setLines((prev) => prev.filter((l) => l.id !== delLine)); setDelLine(null); } };
 
   const filteredProducts = useMemo(() => {
     let pool = products.filter((p) => p.status !== "archive");
@@ -844,10 +856,27 @@ function RequestWizard({ data, reload, toast, openObject }) {
     return pool;
   }, [products, catF]);
 
-  const save = async () => {
-    if (!lines.length) { setErr("Добавьте хотя бы одну позицию"); return; }
-    const incomplete = lines.find((l) => !l.product_id && (!l.name || !l.name.trim()));
-    if (incomplete) { setErr("Заполните название для всех ручных позиций"); return; }
+  const saveNewMaster = async () => {
+    if (!newMasterName.trim()) return;
+    setSavingMaster(true);
+    try {
+      const { data: ins, error } = await db.from("masters").insert(cleanUuids({ name: newMasterName.trim(), phone: newMasterPhone.trim(), status: "active", specialty: "", bonus_percent: 0, note: "" }));
+      if (error) throw new Error(error.message);
+      const m = ins && ins[0];
+      if (m) {
+        setNewObj((prev) => ({ ...prev, master_id: m.id, master: m.name }));
+        await reload();
+        toast("Мастер «" + m.name + "» добавлен");
+      }
+      setAddingMaster(false); setNewMasterName(""); setNewMasterPhone("");
+    } catch (e) { toast("Ошибка добавления мастера: " + e.message); }
+    setSavingMaster(false);
+  };
+
+  const totalCost = lines.reduce((a, l) => a + l.qty * (Number(l.cost) || 0), 0);
+  const allChecked = lines.length > 0 && lines.every((l) => l.checked);
+
+  const doSave = async (saleK) => {
     setBusy(true); setErr("");
     try {
       let obj = selObj;
@@ -867,9 +896,10 @@ function RequestWizard({ data, reload, toast, openObject }) {
       const batchNo = exNos.length ? Math.max(...exNos) + 1 : 1;
       const items = lines.map((l) => {
         const p = l.product_id ? prodById(l.product_id) : null;
+        const cost = p ? p.cost : (Number(l.cost) || 0);
         return {
           id: uuid(), product_id: p ? p.id : null, name: p ? p.name : l.name, size: p ? p.size : l.size, unit: p ? p.unit : l.unit,
-          qty: l.qty, price: l.price, cost: p ? p.cost : 0, supplier_id: p ? p.supplier_id : null,
+          qty: l.qty, price: Math.round(cost * saleK * 100) / 100, cost, supplier_id: p ? p.supplier_id : null,
           source_text: p ? p.name : l.name, confidence: 100,
           batch_no: batchNo, batch_date: today(),
         };
@@ -881,15 +911,25 @@ function RequestWizard({ data, reload, toast, openObject }) {
       }));
       await logAction("Заявка сохранена", "object:" + obj.name, "поставка №" + batchNo + ", позиций: " + items.length);
       toast("Поставка №" + batchNo + " сохранена: " + items.length + " поз. → «" + obj.name + "»");
-      setStep(0); setLines([]); setObjId("");
+      setStep(0); setLines([]); setObjId(""); setMarkupModal(false);
       await reload();
       openObject(obj.id);
     } catch (e) { setErr("Ошибка сохранения: " + e.message); }
     setBusy(false);
   };
 
-  const totalCost = lines.reduce((a, l) => { const p = l.product_id ? prodById(l.product_id) : null; return a + l.qty * (p ? p.cost : 0); }, 0);
-  const totalSale = lines.reduce((a, l) => a + l.qty * (Number(l.price) || 0), 0);
+  const trySave = () => {
+    if (!lines.length) { setErr("Добавьте хотя бы одну позицию"); return; }
+    const incomplete = lines.find((l) => !l.product_id && (!l.name || !l.name.trim()));
+    if (incomplete) { setErr("Заполните название для всех ручных позиций"); return; }
+    if (!allChecked) { setErr("Отметьте галочкой все позиции — это повторная проверка перед сохранением"); return; }
+    setErr("");
+    setMarkupModal(true);
+  };
+
+  const effectiveMarkup = markupCustom !== "" ? Number(markupCustom) : markup;
+  const saleK = 1 + (Number(effectiveMarkup) || 0) / 100;
+  const totalSalePreview = Math.round(totalCost * saleK * 100) / 100;
 
   return (
     <div>
@@ -916,8 +956,33 @@ function RequestWizard({ data, reload, toast, openObject }) {
                 <Fld label="Название объекта"><input className="inp" value={newObj.name} onChange={(e) => setNewObj({ ...newObj, name: e.target.value })} placeholder="Дом, ул. Чиланзар 12" /></Fld>
                 <Fld label="Клиент"><input className="inp" value={newObj.client} onChange={(e) => setNewObj({ ...newObj, client: e.target.value })} /></Fld>
                 <Fld label="Телефон клиента"><input className="inp" value={newObj.phone} onChange={(e) => setNewObj({ ...newObj, phone: e.target.value })} /></Fld>
-                <Fld label="Мастер"><select className="inp" value={newObj.master_id} onChange={(e) => { const m = masters.find((x) => x.id === e.target.value); setNewObj({ ...newObj, master_id: e.target.value, master: m ? m.name : "" }); }}>
-                  <option value="">—</option>{masters.filter((m) => m.status === "active").map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></Fld>
+                <div className="fld">
+                  <label>Мастер</label>
+                  {!addingMaster ? (
+                    <>
+                      <select className="inp" value={newObj.master_id} onChange={(e) => {
+                        if (e.target.value === "__add__") { setAddingMaster(true); return; }
+                        const m = masters.find((x) => x.id === e.target.value);
+                        setNewObj({ ...newObj, master_id: e.target.value, master: m ? m.name : "" });
+                      }}>
+                        <option value="">—</option>
+                        {masters.filter((m) => m.status === "active").map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                        <option value="__add__">+ добавить нового мастера…</option>
+                      </select>
+                    </>
+                  ) : (
+                    <div className="card sect" style={{ padding: 10 }}>
+                      <div className="row" style={{ gap: 6 }}>
+                        <input className="inp" placeholder="Имя мастера" value={newMasterName} onChange={(e) => setNewMasterName(e.target.value)} />
+                        <input className="inp" placeholder="Телефон" value={newMasterPhone} onChange={(e) => setNewMasterPhone(e.target.value)} />
+                      </div>
+                      <div className="row" style={{ marginTop: 8, justifyContent: "flex-end", gap: 6 }}>
+                        <button className="btn xs" onClick={() => { setAddingMaster(false); setNewMasterName(""); setNewMasterPhone(""); }}>Отмена</button>
+                        <button className="btn xs pri" disabled={!newMasterName.trim() || savingMaster} onClick={saveNewMaster}>{savingMaster ? "Сохраняю…" : "Добавить"}</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <Fld label="Менеджер"><input className="inp" value={newObj.manager} onChange={(e) => setNewObj({ ...newObj, manager: e.target.value })} /></Fld>
                 <Fld label="Адрес"><input className="inp" value={newObj.address} onChange={(e) => setNewObj({ ...newObj, address: e.target.value })} /></Fld>
                 <Fld label="Сегмент"><select className="inp" value={newObj.segment} onChange={(e) => setNewObj({ ...newObj, segment: e.target.value })}>{SEGMENTS.map((s) => <option key={s}>{s}</option>)}</select></Fld>
@@ -953,19 +1018,27 @@ function RequestWizard({ data, reload, toast, openObject }) {
           {lines.length > 0 && (
             <div style={{ overflow: "auto" }}>
               <table className="t">
-                <thead><tr><th>Товар</th><th style={{ width: 90 }}>Кол-во</th><th style={{ width: 110, textAlign: "right" }}>Цена</th><th style={{ textAlign: "right" }}>Себестоимость</th><th style={{ textAlign: "right" }}>Сумма (себест.)</th><th>Ост.</th><th></th></tr></thead>
+                <thead><tr>
+                  <th style={{ width: 30 }}>
+                    <input type="checkbox" checked={allChecked} onChange={(e) => setLines((prev) => prev.map((l) => ({ ...l, checked: e.target.checked })))} title="Отметить все как проверенные" />
+                  </th>
+                  <th>Товар</th><th style={{ width: 90 }}>Кол-во</th><th style={{ width: 70 }}>Ед.</th><th style={{ textAlign: "right" }}>Себестоимость</th><th style={{ textAlign: "right" }}>Сумма (себест.)</th><th>Ост.</th><th></th>
+                </tr></thead>
                 <tbody>
                   {lines.map((l) => {
                     const p = l.product_id ? prodById(l.product_id) : null;
                     return (
-                      <tr key={l.id}>
+                      <tr key={l.id} style={{ background: l.checked ? "rgba(61,220,125,.05)" : "none" }}>
+                        <td style={{ textAlign: "center" }}>
+                          <input type="checkbox" checked={l.checked} onChange={(e) => setLine(l.id, { checked: e.target.checked })} title="Проверено" />
+                        </td>
                         <td style={{ minWidth: 240 }}>
                           {l.manual ? (
                             <>
                               <input className="inp" placeholder="Название товара" value={l.name} onChange={(e) => setLine(l.id, { name: e.target.value })} />
                               <div className="row" style={{ marginTop: 4, gap: 6 }}>
                                 <input className="inp" style={{ width: 90 }} placeholder="размер" value={l.size} onChange={(e) => setLine(l.id, { size: e.target.value })} />
-                                <input className="inp" style={{ width: 70 }} placeholder="ед." value={l.unit} onChange={(e) => setLine(l.id, { unit: e.target.value })} />
+                                <input type="number" className="inp" style={{ width: 100 }} placeholder="себестоимость" value={l.cost} onChange={(e) => setLine(l.id, { cost: Number(e.target.value) || 0 })} />
                               </div>
                               <div className="xs mut" style={{ marginTop: 3 }}>добавлено вручную</div>
                             </>
@@ -977,11 +1050,15 @@ function RequestWizard({ data, reload, toast, openObject }) {
                           )}
                         </td>
                         <td><input type="number" className="inp" value={l.qty} onChange={(e) => setLine(l.id, { qty: Number(e.target.value) || 0 })} /></td>
-                        <td><input type="number" className="inp" style={{ textAlign: "right" }} value={l.price} onChange={(e) => setLine(l.id, { price: Number(e.target.value) || 0 })} /></td>
-                        <td className="num">{p ? fmt2(p.cost) : "—"}</td>
-                        <td className="num" style={{ fontWeight: 700 }}>{p ? fmt(l.qty * p.cost) : "—"}</td>
+                        <td>
+                          {l.manual
+                            ? <input className="inp" style={{ width: 64 }} value={l.unit} onChange={(e) => setLine(l.id, { unit: e.target.value })} />
+                            : <span className="mut">{l.unit}</span>}
+                        </td>
+                        <td className="num">{fmt2(p ? p.cost : l.cost)}</td>
+                        <td className="num" style={{ fontWeight: 700 }}>{fmt(l.qty * (p ? p.cost : l.cost))}</td>
                         <td className="num" style={{ color: p && p.stock < l.qty ? "var(--bad)" : "var(--ok)" }}>{p ? p.stock : "—"}</td>
-                        <td><button className="btn xs dng" onClick={() => removeLine(l.id)}>✕</button></td>
+                        <td><button className="btn xs dng" onClick={() => setDelLine(l.id)}>✕</button></td>
                       </tr>
                     );
                   })}
@@ -993,16 +1070,55 @@ function RequestWizard({ data, reload, toast, openObject }) {
           <div className="row" style={{ marginTop: 12 }}>
             <button className="btn xs" onClick={addManualLine}>+ добавить позицию вручную (нет в базе)</button>
             <div className="mono" style={{ fontWeight: 700, marginLeft: "auto" }}>
-              Позиций: {lines.length} · Себестоимость: <span style={{ color: "var(--acc2)" }}>{money(totalCost)}</span> · Продажа: <span style={{ color: "var(--ok)" }}>{money(totalSale)}</span>
+              Позиций: {lines.length} · Себестоимость: <span style={{ color: "var(--acc2)" }}>{money(totalCost)}</span>
             </div>
           </div>
+          {lines.length > 0 && !allChecked && (
+            <div className="xs" style={{ color: "var(--warn)", marginTop: 8 }}>⚠ Отметьте галочкой каждую позицию — повторная проверка перед сохранением</div>
+          )}
 
           <div className="row" style={{ marginTop: 16, justifyContent: "space-between" }}>
             <button className="btn" onClick={() => setStep(0)}>← Назад</button>
-            <button className="btn pri" disabled={busy || !lines.length} onClick={save}>
+            <button className="btn pri" disabled={busy || !lines.length} onClick={trySave}>
               {busy ? <span><span className="spin" /> Сохраняю…</span> : "Сохранить в объект ✓"}
             </button>
           </div>
+
+          {delLine && (
+            <Modal title="Удалить позицию?" onClose={() => setDelLine(null)} w={420}>
+              <p className="sm mut">Позиция будет убрана из текущего списка заявки. Это действие нельзя отменить.</p>
+              <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
+                <button className="btn" onClick={() => setDelLine(null)}>Отмена</button>
+                <button className="btn dng" onClick={confirmRemoveLine}>Удалить</button>
+              </div>
+            </Modal>
+          )}
+
+          {markupModal && (
+            <Modal title="Наценка на розничную цену" onClose={() => setMarkupModal(false)} w={460}>
+              <p className="sm mut" style={{ marginBottom: 12 }}>Розничная цена каждой позиции = себестоимость + наценка. Применяется ко всему списку. После сохранения цены можно поправить вручную на странице объекта.</p>
+              <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                <Fld label="Наценка, %">
+                  <input type="number" className="inp" style={{ fontSize: 18, fontWeight: 700 }}
+                    value={markupCustom !== "" ? markupCustom : markup}
+                    onChange={(e) => { setMarkupCustom(e.target.value); }} />
+                </Fld>
+                <div className="fld"><label>Предпросмотр</label>
+                  <div className="inp mono" style={{ background: "var(--panel)" }}>
+                    <div className="xs mut">себест: {fmt(totalCost)}</div>
+                    <div style={{ fontWeight: 700, color: "var(--ok)" }}>продажа: {fmt(totalSalePreview)}</div>
+                  </div>
+                </div>
+              </div>
+              <div className="row" style={{ marginTop: 8 }}>
+                {[5, 10, 15, 20].map((x) => <button key={x} className={"btn xs " + (effectiveMarkup === x && markupCustom === "" ? "pri" : "")} onClick={() => { setMarkup(x); setMarkupCustom(""); }}>{x}%</button>)}
+              </div>
+              <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
+                <button className="btn" onClick={() => setMarkupModal(false)}>Отмена</button>
+                <button className="btn pri" disabled={busy} onClick={() => doSave(saleK)}>{busy ? "Сохраняю…" : "Применить и сохранить ✓"}</button>
+              </div>
+            </Modal>
+          )}
         </div>
       )}
     </div>
@@ -1081,6 +1197,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
   const [addItems, setAddItems] = useState(false);
   const [impItems, setImpItems] = useState(false);
   const [delSelf, setDelSelf] = useState(false);
+  const [delItemId, setDelItemId] = useState(null);
   const supName = (id) => (suppliers.find((s) => s.id === id) || {}).name || "—";
 
   const setStatus = async (s) => { await db.from("objects").update({ status: s }).eq("id", obj.id); await reload(); };
@@ -1100,16 +1217,19 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
     await db.from("objects").update({ items: (obj.items || []).map((i) => i.id === item.id ? item : i) }).eq("id", obj.id);
     await reload(); toast("Позиция обновлена");
   };
-  const addManualItems = async (rows) => {
+  // newBatch: true → создаём новую поставку с новым номером. false → добавляем в последнюю существующую поставку (или №1, если поставок ещё нет)
+  const addManualItems = async (rows, newBatch) => {
     const exNos = (obj.items || []).map((i) => i.batch_no || 1);
-    const batchNo = exNos.length ? Math.max(...exNos) + 1 : 1;
+    const lastNo = exNos.length ? Math.max(...exNos) : 0;
+    const batchNo = newBatch ? lastNo + 1 : (lastNo || 1);
+    const batchDate = newBatch || !lastNo ? today() : ((obj.items || []).find((i) => (i.batch_no || 1) === batchNo) || {}).batch_date || today();
     const items = rows.map((r) => ({
       id: uuid(), product_id: r.product_id || null, name: r.name, size: r.size, unit: r.unit || "шт",
       qty: r.qty, price: r.price, cost: r.cost, supplier_id: r.supplier_id || null,
-      source_text: "добавлено вручную", confidence: 100, batch_no: batchNo, batch_date: today(), manual: true,
+      source_text: "добавлено вручную", confidence: 100, batch_no: batchNo, batch_date: batchDate, manual: true,
     }));
     await db.from("objects").update({ items: [...(obj.items || []), ...items] }).eq("id", obj.id);
-    await reload(); toast("Добавлено вручную: " + items.length + " поз. (Поставка №" + batchNo + ")");
+    await reload(); toast((newBatch ? "Новая поставка №" + batchNo + ": " : "Добавлено в поставку №" + batchNo + ": ") + items.length + " поз.");
   };
   const voidOp = async (id) => {
     const op = ops.find((x) => x.id === id);
@@ -1221,8 +1341,9 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
 
       <div className="row sect" style={{ marginBottom: 8 }}>
         <h3 style={{ marginRight: "auto" }}>Материалы объекта</h3>
-        <ProductPicker products={products} placeholder="+ добавить товар из базы…" onPick={(p) => addManualItems([{ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, price: p.price, cost: p.cost, supplier_id: p.supplier_id }])} />
+        <ProductPicker products={products} placeholder="+ добавить товар из базы…" onPick={(p) => addManualItems([{ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, price: p.price, cost: p.cost, supplier_id: p.supplier_id }], false)} />
         <button className="btn" onClick={() => setAddItems(true)}>+ Список вручную</button>
+        <button className="btn pri" onClick={() => setAddItems("newbatch")}>📦 Новая поставка</button>
         <button className="btn" onClick={() => setImpItems(true)}>📊 Импорт Excel</button>
       </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
@@ -1240,21 +1361,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
                   </tr>
                 ) : null}
                 {!closedBatches[b.no] && b.items.map((i) => (
-              <tr key={i.id}>
-                <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}<div className="xs mut">{i.from_warehouse ? "со склада Thermo" : "из заявки: " + i.source_text}</div></td>
-                <td className="mono xs">{i.size}</td>
-                <td><input type="number" className="inp" value={i.qty} onChange={(e) => setItemQty(i.id, Number(e.target.value) || 0)} /></td>
-                <td className="sm">{i.unit}</td>
-                {fin && <td className="num mut">{fmt(i.cost)}</td>}
-                <td><input type="number" className="inp num" style={{ width: 104, textAlign: "right" }} value={i.price} onChange={(e) => setItemPrice(i.id, Number(e.target.value) || 0)} /></td>
-                <td className="num" style={{ fontWeight: 700 }}>{fmt(i.qty * i.price)}</td>
-                <td className="sm">{supName(i.supplier_id)}</td>
-                <td><Conf v={i.confidence || 100} /></td>
-                <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
-                  <button className="btn xs" onClick={() => setEditItem(i)}>ред.</button>
-                  <button className="btn xs dng" onClick={() => delItem(i.id)}>✕</button>
-                </div></td>
-              </tr>
+              <ObjectItemRow key={i.id} i={i} fin={fin} supName={supName} setItemQty={setItemQty} setItemPrice={setItemPrice} setEditItem={setEditItem} setDelItemId={setDelItemId} />
                 ))}
               </React.Fragment>
             ))}
@@ -1297,8 +1404,17 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
           </div>
         </Modal>
       )}
+      {delItemId && (
+        <Modal title="Удалить позицию?" onClose={() => setDelItemId(null)} w={420}>
+          <p className="sm mut">Позиция будет удалена из объекта. Это действие нельзя отменить.</p>
+          <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
+            <button className="btn" onClick={() => setDelItemId(null)}>Отмена</button>
+            <button className="btn dng" onClick={async () => { await delItem(delItemId); setDelItemId(null); }}>Удалить</button>
+          </div>
+        </Modal>
+      )}
       {editItem && <ItemEditModal item={editItem} suppliers={suppliers} fin={fin} onClose={() => setEditItem(null)} onSave={async (it) => { await saveItem(it); setEditItem(null); }} />}
-      {addItems && <AddItemsModal products={products} suppliers={suppliers} onClose={() => setAddItems(false)} onSave={async (rows) => { await addManualItems(rows); setAddItems(false); }} />}
+      {addItems && <AddItemsModal products={products} suppliers={suppliers} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} onSave={async (rows) => { await addManualItems(rows, addItems === "newbatch"); setAddItems(false); }} />}
       {impItems && <ObjectExcelImport products={products} suppliers={suppliers} onClose={() => setImpItems(false)} onSave={async (rows) => { await addManualItems(rows); setImpItems(false); }} />}
       {editOp && <EditOpModal op={editOp} suppliers={suppliers} isReturn={editOp.type === "return"} onClose={() => setEditOp(null)} onSave={async (patch) => {
         const log = [...(editOp.edit_log || []), { at: new Date().toISOString(), before: { amount: editOp.amount, op_date: editOp.op_date, note: editOp.note, reason: editOp.reason } }];
@@ -1321,6 +1437,34 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
   );
 }
 
+// Строка таблицы материалов объекта: количество/цена редактируются свободно на экране,
+// в базу уходят только по потере фокуса (onBlur) — чтобы не слать запрос на каждое нажатие клавиши
+// и не ловить промежуточные значения вроде "1" при наборе "15".
+function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem, setDelItemId }) {
+  const [qty, setQty] = useState(i.qty);
+  const [price, setPrice] = useState(i.price);
+  useEffect(() => { setQty(i.qty); }, [i.qty]);
+  useEffect(() => { setPrice(i.price); }, [i.price]);
+  return (
+    <tr>
+      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}<div className="xs mut">{i.from_warehouse ? "со склада Thermo" : "из заявки: " + i.source_text}</div></td>
+      <td className="mono xs">{i.size}</td>
+      <td><input type="number" className="inp" value={qty} onChange={(e) => setQty(e.target.value)}
+        onBlur={() => { const v = Number(qty) || 0; if (v !== i.qty) setItemQty(i.id, v); }} /></td>
+      <td className="sm">{i.unit}</td>
+      {fin && <td className="num mut">{fmt(i.cost)}</td>}
+      <td><input type="number" className="inp num" style={{ width: 104, textAlign: "right" }} value={price} onChange={(e) => setPrice(e.target.value)}
+        onBlur={() => { const v = Number(price) || 0; if (v !== i.price) setItemPrice(i.id, v); }} /></td>
+      <td className="num" style={{ fontWeight: 700 }}>{fmt((Number(qty) || 0) * (Number(price) || 0))}</td>
+      <td className="sm">{supName(i.supplier_id)}</td>
+      <td><Conf v={i.confidence || 100} /></td>
+      <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
+        <button className="btn xs" onClick={() => setEditItem(i)}>ред.</button>
+        <button className="btn xs dng" onClick={() => setDelItemId(i.id)}>✕</button>
+      </div></td>
+    </tr>
+  );
+}
 function ItemEditModal({ item, suppliers, fin, onClose, onSave }) {
   const [v, setV] = useState({ ...item });
   const set = (k) => (e) => setV({ ...v, [k]: e.target.value });
@@ -1475,7 +1619,7 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
     </Modal>
   );
 }
-function AddItemsModal({ products, suppliers, onClose, onSave }) {
+function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
   const [rows, setRows] = useState([]);
   const addRow = (r) => setRows([...rows, r]);
   const blank = () => addRow({ product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: 0, price: 0, supplier_id: "" });
@@ -1483,7 +1627,7 @@ function AddItemsModal({ products, suppliers, onClose, onSave }) {
   const del = (i) => setRows(rows.filter((_, j) => j !== i));
   const total = rows.reduce((a, r) => a + (Number(r.qty) || 0) * (Number(r.price) || 0), 0);
   return (
-    <Modal title="Добавить позиции вручную" onClose={onClose} w={860}>
+    <Modal title={newBatch ? "Новая поставка" : "Добавить позиции вручную"} onClose={onClose} w={860}>
       <div className="row" style={{ marginBottom: 10 }}>
         <ProductPicker products={products} placeholder="найти товар в базе и добавить строку…" onPick={(p) => addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, cost: p.cost, price: p.price, supplier_id: p.supplier_id })} />
         <button className="btn" onClick={blank}>+ Пустая строка (товара нет в базе)</button>
@@ -1512,7 +1656,7 @@ function AddItemsModal({ products, suppliers, onClose, onSave }) {
         <div className="mono" style={{ fontWeight: 700 }}>Позиций: {rows.length} · Сумма: <span style={{ color: "var(--acc2)" }}>{money(total)}</span></div>
         <div className="row">
           <button className="btn" onClick={onClose}>Отмена</button>
-          <button className="btn pri" disabled={!rows.filter((r) => r.name).length} onClick={() => onSave(rows.filter((r) => r.name))}>Добавить в объект (новая поставка)</button>
+          <button className="btn pri" disabled={!rows.filter((r) => r.name).length} onClick={() => onSave(rows.filter((r) => r.name))}>{newBatch ? "Создать новую поставку" : "Добавить в текущую поставку"}</button>
         </div>
       </div>
     </Modal>
@@ -2488,6 +2632,22 @@ function AppInner() {
   };
   const [backupOpen, setBackupOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [hdrHidden, setHdrHidden] = useState(false);
+  const lastScrollY = useRef(0);
+  useEffect(() => {
+    const onScroll = () => {
+      const y = window.scrollY;
+      const goingDown = y > lastScrollY.current;
+      // прячем только при заметном скролле вниз и не у самого верха страницы
+      if (goingDown && y > 80) setHdrHidden(true);
+      else if (!goingDown) setHdrHidden(false);
+      lastScrollY.current = y;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  // при открытии мобильного меню шапка всегда видна, чтобы не закрывать список вкладок
+  useEffect(() => { if (mobileMenuOpen) setHdrHidden(false); }, [mobileMenuOpen]);
   const onRestore = async (e) => {
     const f = e.target.files[0]; if (!f) return;
     try { await importBackup(f); await reload(); toast("База восстановлена из бэкапа"); setBootErr(""); }
@@ -2510,7 +2670,7 @@ function AppInner() {
   return (
     <div className="te">
       <style>{CSS}</style>
-      <div className="hdr">
+      <div className={"hdr" + (hdrHidden ? " hide-on-scroll" : "")}>
         <div className="logo">THERMO<span>•</span>ENGINEERING<small>AI procurement & finance OS</small></div>
         <div className="row" style={{ gap: 8 }}>
           <div style={{ textAlign: "right" }}>
