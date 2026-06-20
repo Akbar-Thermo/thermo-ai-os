@@ -8,12 +8,6 @@ import { db } from "./db.js";
    ============================================================ */
 
 const SEGMENTS = ["бюджет", "эконом", "комфорт", "премиум"];
-const MODES = [
-  { id: "optimal", label: "Оптимальный" },
-  { id: "cheapest", label: "Самый дешёвый" },
-  { id: "margin", label: "Максимальная маржа" },
-  { id: "instock", label: "Только в наличии" },
-];
 const OBJ_STATUSES = [
   { id: "draft", label: "Черновик", c: "#9a9a9a" },
   { id: "review", label: "На проверке", c: "#ffb020" },
@@ -115,6 +109,13 @@ const uuid = () => {
   try { if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID(); } catch (e) {}
   return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
 };
+// Очищает uuid/foreign key поля: пустая строка "" → null (Supabase не принимает "" в uuid-колонках)
+const cleanUuids = (obj) => {
+  const UUID_FIELDS = ["id", "master_id", "supplier_id", "object_id", "product_id", "item_id"];
+  const out = { ...obj };
+  UUID_FIELDS.forEach((k) => { if (k in out && out[k] === "") out[k] = null; });
+  return out;
+};
 let CURRENT_USER = null;
 async function logAction(action, entity, detail) {
   try {
@@ -166,13 +167,6 @@ async function importBackup(file) {
 
 
 /* ============ HELPERS ============ */
-// Очищает uuid/foreign key поля: пустая строка "" → null (Supabase не принимает "" в uuid-колонках)
-const cleanUuids = (obj) => {
-  const UUID_FIELDS = ["id", "master_id", "supplier_id", "object_id", "product_id", "item_id"];
-  const out = { ...obj };
-  UUID_FIELDS.forEach((k) => { if (k in out && out[k] === "") out[k] = null; });
-  return out;
-};
 const fmt = (n) => (Number(n) || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
 const fmt2 = (n) => (Number(n) || 0).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const money = (n) => fmt(n) + " сум";
@@ -273,97 +267,6 @@ function downloadCSV(filename, rows) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = filename; a.click();
   URL.revokeObjectURL(a.href);
-}
-
-/* ============ AI LAYER ============ */
-// AI-вызов. В облаке идёт через Supabase Edge Function "ai-proxy" (ключ Anthropic на сервере).
-// Подключение: задайте VITE_AI_PROXY_URL в .env ИЛИ замените тело на supabase.functions.invoke (см. MIGRATION.md, шаг 4в).
-async function claudeCall(content, system) {
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  const url = import.meta.env.VITE_AI_PROXY_URL;
-  const r = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${anonKey}`,
-    },
-    body: JSON.stringify({ content, system }),
-  });
-  const d = await r.json();
-  if (d.error) throw new Error(d.error);
-  if (!d.text) throw new Error("Пустой ответ от AI");
-  return d.text;
-}
-function parseJSONLoose(t) {
-  const clean = t.replace(/```json|```/g, "").trim();
-  const m = clean.match(/\[[\s\S]*\]/);
-  return JSON.parse(m ? m[0] : clean);
-}
-async function aiExtract(input) {
-  const sys = "Ты — парсер заявок на сантехнические/отопительные материалы. Тебе могут дать несколько изображений/документов и текст — обработай ВСЁ и верни единый список. Отвечай ТОЛЬКО валидным JSON-массивом без markdown. Формат: [{\"name\":\"...\",\"category\":\"...\",\"size\":\"...\",\"qty\":число,\"unit\":\"шт|м|секция|компл\",\"comment\":\"...\",\"sure\":true|false}]. Если строка неразборчива или количество неясно — sure:false. Названия нормализуй, но не выдумывай позиции. Если одна и та же позиция встречается в разных файлах — не дублируй, объединяй количество.";
-  const content = [];
-  (input.files || []).forEach((f, i) => {
-    if (input.files.length > 1) content.push({ type: "text", text: "Файл " + (i + 1) + ":" });
-    content.push(f.mediaType === "application/pdf"
-      ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: f.b64 } }
-      : { type: "image", source: { type: "base64", media_type: f.mediaType, data: f.b64 } });
-  });
-  if (input.text && input.text.trim()) content.push({ type: "text", text: "Также текст заявки:\n" + input.text });
-  content.push({ type: "text", text: "Извлеки полный список материалов из всех источников выше. Только JSON-массив." });
-  const out = await claudeCall(content, sys);
-  return parseJSONLoose(out).map((r, i) => ({
-    idx: i, name: r.name || "", category: r.category || "", size: r.size || "",
-    qty: Number(r.qty) || 1, unit: r.unit || "шт", comment: r.comment || "", sure: r.sure !== false,
-  }));
-}
-const tokenize = (s) => String(s || "").toLowerCase().replace(/[^a-zа-яё0-9"/×x.,-]+/gi, " ").split(/\s+/).filter((w) => w.length > 1);
-function prefilter(item, products, segment) {
-  let pool = products.filter((p) => p.status !== "archive");
-  if (segment) {
-    const segPool = pool.filter((p) => p.segment === segment);
-    if (segPool.length >= 3) pool = segPool;
-  }
-  const it = tokenize(item.name + " " + (item.size || "") + " " + (item.category || ""));
-  const scored = pool.map((p) => {
-    const pt = tokenize([p.name, p.alt_names, p.size, p.category, p.brand].join(" "));
-    let s = 0;
-    it.forEach((w) => { if (pt.some((x) => x.includes(w) || w.includes(x))) s++; });
-    return { p, s };
-  }).filter((x) => x.s > 0).sort((a, b) => b.s - a.s);
-  return scored.slice(0, 20).map((x) => x.p);
-}
-async function aiMatch(items, products, segment, mode) {
-  const results = [];
-  const BATCH = 5;
-  for (let b = 0; b < items.length; b += BATCH) {
-    const batch = items.slice(b, b + BATCH);
-    const poolMap = new Map();
-    batch.forEach((it) => prefilter(it, products, segment).forEach((p) => poolMap.set(p.id, p)));
-    const pool = [...poolMap.values()];
-    if (!pool.length) {
-      batch.forEach((it) => results.push({ item: it, product_id: null, confidence: 0, reason: "Нет кандидатов в базе", alts: [] }));
-      continue;
-    }
-    const catLines = pool.map((p, i) => `${i}|${p.name}|${p.size}|${p.segment}|${p.unit}|зак:${p.cost}|прод:${p.price}|ост:${p.stock}`).join("\n");
-    const reqLines = batch.map((it, i) => `${i}: ${it.name} ${it.size || ""} (${it.qty} ${it.unit})`).join("\n");
-    const modeHint = { cheapest: "Приоритет — минимальная закупочная цена.", margin: "Приоритет — максимальная разница прод-зак.", instock: "Только позиции с остатком > 0.", optimal: "Баланс цены, качества и наличия." }[mode] || "";
-    const sys = `Ты подбираешь товары из каталога под строки заявки (сантехника/отопление, сегмент: ${segment}). ${modeHint} Размер (диаметр, дюймы, кВт) — жёсткое требование: при несовпадении размера уверенность не выше 40. Отвечай ТОЛЬКО JSON-массивом: [{"i":индекс_строки,"match":индекс_товара_или_null,"conf":0-100,"why":"коротко по-русски","alts":[до 4 индексов альтернатив]}]`;
-    const out = await claudeCall(`КАТАЛОГ (индекс|название|размер|сегмент|ед|цены|остаток):\n${catLines}\n\nЗАЯВКА:\n${reqLines}\n\nJSON:`, sys);
-    let parsed = [];
-    try { parsed = parseJSONLoose(out); } catch (e) { parsed = []; }
-    batch.forEach((it, i) => {
-      const m = parsed.find((x) => x.i === i) || {};
-      const prod = m.match != null && pool[m.match] ? pool[m.match] : null;
-      results.push({
-        item: it,
-        product_id: prod ? prod.id : null,
-        confidence: Math.min(100, Math.max(0, Number(m.conf) || 0)),
-        reason: m.why || (prod ? "Совпадение по названию" : "Не найдено"),
-        alts: (m.alts || []).map((ai) => pool[ai]).filter(Boolean).map((p) => p.id),
-      });
-    });
-  }
-  return results;
 }
 
 /* ============ SHARED UI ============ */
@@ -904,67 +807,44 @@ function RequestWizard({ data, reload, toast, openObject }) {
   const [step, setStep] = useState(0);
   const [objId, setObjId] = useState("");
   const [newObj, setNewObj] = useState({ name: "", client: "", phone: "", master: "", master_id: "", manager: "", address: "", segment: "комфорт" });
-  const [mode, setMode] = useState("optimal");
-  const [text, setText] = useState("");
-  const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [extracted, setExtracted] = useState([]);
-  const [matches, setMatches] = useState([]);
-  const fileRef = useRef(null);
+  const [lines, setLines] = useState([]); // { product_id, name, size, unit, qty, price, manual }
+  const [catF, setCatF] = useState("");
 
   const activeObjects = objects.filter((o) => !["closed", "cancelled"].includes(o.status));
   const selObj = objects.find((o) => o.id === objId);
   const segment = selObj ? selObj.segment : newObj.segment;
   const prodById = (id) => products.find((p) => p.id === id);
+  const categories = useMemo(() => [...new Set(products.map((p) => p.category).filter(Boolean))].sort(), [products]);
 
-  const onFiles = (e) => {
-    const list = [...e.target.files];
-    if (!list.length) return;
-    list.forEach((f) => {
-      const r = new FileReader();
-      r.onload = () => setFiles((prev) => [...prev, { b64: r.result.split(",")[1], mediaType: f.type, name: f.name }]);
-      r.readAsDataURL(f);
+  const addFromBase = (p) => {
+    setLines((prev) => {
+      const ex = prev.find((l) => l.product_id === p.id);
+      if (ex) return prev.map((l) => (l.product_id === p.id ? { ...l, qty: l.qty + 1 } : l));
+      return [...prev, { id: uuid(), product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, price: p.price, manual: false }];
     });
-    e.target.value = "";
   };
-  const removeFile = (i) => setFiles(files.filter((_, j) => j !== i));
-  const runExtract = async () => {
-    setBusy(true); setErr("");
-    try {
-      const rows = await aiExtract({ files, text });
-      setExtracted(rows); setStep(2);
-    } catch (e) { setErr("Ошибка распознавания: " + e.message); }
-    setBusy(false);
+  const addManualLine = () => {
+    setLines((prev) => [...prev, { id: uuid(), product_id: null, name: "", size: "", unit: "шт", qty: 1, price: 0, manual: true }]);
   };
-  const runMatch = async () => {
-    setBusy(true); setErr("");
-    try {
-      const res = await aiMatch(extracted, products, segment, mode);
-      setMatches(res.map((m) => {
-        const p = prodById(m.product_id);
-        return { ...m, qty: m.item.qty, price: p ? p.price : 0, accepted: false, manual: false };
-      }));
-      setStep(3);
-    } catch (e) { setErr("Ошибка подбора: " + e.message); }
-    setBusy(false);
-  };
-  const [markupModal, setMarkupModal] = useState(false);
-  const [markup, setMarkup] = useState(15);
-  const setMatch = (i, patch) => setMatches(matches.map((m, idx) => (idx === i ? { ...m, ...patch } : m)));
-  const pickProduct = (i, p) => setMatch(i, { product_id: p.id, price: p.price, accepted: true, manual: true });
-  const addManual = (p) => setMatches([...matches, {
-    item: { name: p.name, qty: 1, unit: p.unit, comment: "добавлено вручную" },
-    product_id: p.id, confidence: 100, reason: "Ручное добавление", alts: [], qty: 1, price: p.price, accepted: true, manual: true,
-  }]);
+  const setLine = (id, patch) => setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  const removeLine = (id) => setLines((prev) => prev.filter((l) => l.id !== id));
 
-  const save = async (list) => {
-    const src_ = Array.isArray(list) ? list : matches;
-    setBusy(true);
+  const filteredProducts = useMemo(() => {
+    let pool = products.filter((p) => p.status !== "archive");
+    if (catF) pool = pool.filter((p) => p.category === catF);
+    return pool;
+  }, [products, catF]);
+
+  const save = async () => {
+    if (!lines.length) { setErr("Добавьте хотя бы одну позицию"); return; }
+    const incomplete = lines.find((l) => !l.product_id && (!l.name || !l.name.trim()));
+    if (incomplete) { setErr("Заполните название для всех ручных позиций"); return; }
+    setBusy(true); setErr("");
     try {
       let obj = selObj;
       if (!obj) {
-        // Очищаем uuid-поля: пустая строка ломает Supabase uuid-колонки
         const objData = cleanUuids({ ...newObj, status: "draft", items: [] });
         const { data: ins, error: insErr } = await db.from("objects").insert(objData);
         if (insErr) throw new Error("Ошибка создания объекта: " + insErr.message);
@@ -976,43 +856,39 @@ function RequestWizard({ data, reload, toast, openObject }) {
         }
         if (!obj) throw new Error("Объект создан, но не удалось прочитать. Проверьте RLS на таблице objects.");
       }
-      const rows = src_.filter((m) => m.product_id && m.accepted);
       const exNos = (obj.items || []).map((i) => i.batch_no || 1);
       const batchNo = exNos.length ? Math.max(...exNos) + 1 : 1;
-      const items = rows.map((m) => {
-        const p = prodById(m.product_id);
+      const items = lines.map((l) => {
+        const p = l.product_id ? prodById(l.product_id) : null;
         return {
-          id: uuid(), product_id: p.id, name: p.name, size: p.size, unit: p.unit,
-          qty: m.qty, price: m.price, cost: p.cost, supplier_id: p.supplier_id,
-          source_text: m.item.name, confidence: m.confidence,
+          id: uuid(), product_id: p ? p.id : null, name: p ? p.name : l.name, size: p ? p.size : l.size, unit: p ? p.unit : l.unit,
+          qty: l.qty, price: l.price, cost: p ? p.cost : 0, supplier_id: p ? p.supplier_id : null,
+          source_text: p ? p.name : l.name, confidence: 100,
           batch_no: batchNo, batch_date: today(),
         };
       });
       await db.from("objects").update({ items: [...(obj.items || []), ...items] }).eq("id", obj.id);
       await db.from("requests").insert(cleanUuids({
-        object_id: obj.id, segment, mode, source: files.length ? "files:" + files.map((f) => f.name).join(",") : "text",
-        lines: src_.map((m) => ({
-          source: m.item.name, ai_product_id: m.ai_product_id || m.product_id, final_product_id: m.product_id,
-          confidence: m.confidence, corrected: !!m.manual,
-        })),
+        object_id: obj.id, segment, mode: "manual", source: "manual",
+        lines: lines.map((l) => ({ source: l.name, ai_product_id: null, final_product_id: l.product_id, confidence: 100, corrected: false })),
       }));
-      await logAction("Заявка сохранена", "object:" + obj.name, "поставка №" + batchNo + ", позиций: " + items.length); toast("Поставка №" + batchNo + " сохранена: " + items.length + " поз. → «" + obj.name + "»");
-      setStep(0); setText(""); setFiles([]); setExtracted([]); setMatches([]); setObjId("");
+      await logAction("Заявка сохранена", "object:" + obj.name, "поставка №" + batchNo + ", позиций: " + items.length);
+      toast("Поставка №" + batchNo + " сохранена: " + items.length + " поз. → «" + obj.name + "»");
+      setStep(0); setLines([]); setObjId("");
       await reload();
       openObject(obj.id);
     } catch (e) { setErr("Ошибка сохранения: " + e.message); }
     setBusy(false);
   };
 
-  const totalCost = matches.filter((m) => m.accepted && m.product_id).reduce((a, m) => { const p = prodById(m.product_id); return a + m.qty * (p ? p.cost : 0); }, 0);
-  const totalSale = Math.round(totalCost * (1 + (Number(markup) || 0) / 100) * 100) / 100;
-  const needCheck = matches.filter((m) => m.confidence < CONF_THRESHOLD && m.accepted).length;
+  const totalCost = lines.reduce((a, l) => { const p = l.product_id ? prodById(l.product_id) : null; return a + l.qty * (p ? p.cost : 0); }, 0);
+  const totalSale = lines.reduce((a, l) => a + l.qty * (Number(l.price) || 0), 0);
 
   return (
     <div>
       <h2>Новая заявка</h2>
       <div className="steps">
-        {["Объект и сегмент", "Загрузка заявки", "Проверка распознавания", "AI-подбор и проверка"].map((s, i) => (
+        {["Объект и сегмент", "Подбор товаров"].map((s, i) => (
           <div key={i} className={"step " + (i === step ? "on" : i < step ? "done" : "")}>{i + 1}. {s}</div>
         ))}
       </div>
@@ -1041,12 +917,7 @@ function RequestWizard({ data, reload, toast, openObject }) {
               </div>
             )}
           </div>
-          <div className="row" style={{ marginTop: 16, justifyContent: "space-between" }}>
-            <Fld label="Режим подбора">
-              <select className="inp" style={{ minWidth: 200 }} value={mode} onChange={(e) => setMode(e.target.value)}>
-                {MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-              </select>
-            </Fld>
+          <div className="row" style={{ marginTop: 16, justifyContent: "flex-end" }}>
             <button className="btn pri" disabled={!objId && !newObj.name} onClick={() => setStep(1)}>Далее →</button>
           </div>
         </div>
@@ -1054,155 +925,77 @@ function RequestWizard({ data, reload, toast, openObject }) {
 
       {step === 1 && (
         <div className="card">
-          <div className="row sm mut" style={{ marginBottom: 10 }}>Сегмент: <Badge c="#ffffff">{segment}</Badge> Режим: <Badge c="#ff707b">{(MODES.find((m) => m.id === mode) || {}).label}</Badge></div>
-          <div className="split">
-            <div>
-              <h3 style={{ marginBottom: 8 }}>Текст заявки</h3>
-              <textarea className="inp" style={{ minHeight: 200 }} value={text} onChange={(e) => setText(e.target.value)}
-                placeholder={"котел 24квт - 1шт\nрадиатор 500 - 36 секций\nтруба ппр 25 - 120м\nуголки 25 - 40шт\nкран шаровый 1/2 - 6шт"} />
+          <div className="row" style={{ marginBottom: 12 }}>
+            <h3 style={{ marginRight: "auto" }}>Подбор товаров · сегмент <Badge c="#ffffff">{segment}</Badge></h3>
+          </div>
+
+          <div className="row" style={{ marginBottom: 12, gap: 10 }}>
+            <select className="inp" style={{ maxWidth: 220 }} value={catF} onChange={(e) => setCatF(e.target.value)}>
+              <option value="">Все категории</option>
+              {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <ProductPicker products={filteredProducts} placeholder="Поиск товара по названию / коду — начните вводить…" onPick={addFromBase} />
+          </div>
+
+          {lines.length === 0 && (
+            <div className="card sect mut" style={{ textAlign: "center", padding: 30 }}>
+              Список пуст. Найдите товар через поиск выше или добавьте позицию вручную.
             </div>
-            <div>
-              <h3 style={{ marginBottom: 8 }}>Файлы (фото / PDF / скан) — можно несколько</h3>
-              <div className="card clk" style={{ borderStyle: "dashed", textAlign: "center", padding: files.length ? 16 : 30 }} onClick={() => fileRef.current.click()}>
-                <div className="mut">📎 Добавить файлы<br /><span className="xs">JPG, PNG, PDF — несколько листов/фото за раз, рукописные тоже</span></div>
-              </div>
-              <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple style={{ display: "none" }} onChange={onFiles} />
-              {files.length > 0 && (
-                <div style={{ marginTop: 10 }}>
-                  {files.map((f, i) => (
-                    <div key={i} className="row" style={{ justifyContent: "space-between", padding: "6px 10px", background: "var(--panel2)", borderRadius: 6, marginBottom: 5 }}>
-                      <span className="sm" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.mediaType === "application/pdf" ? "📄" : "🖼"} {f.name}</span>
-                      <button className="btn xs dng" onClick={() => removeFile(i)}>✕</button>
-                    </div>
-                  ))}
-                  <div className="xs mut">Файлов: {files.length} — будут распознаны вместе в один список</div>
-                </div>
-              )}
+          )}
+
+          {lines.length > 0 && (
+            <div style={{ overflow: "auto" }}>
+              <table className="t">
+                <thead><tr><th>Товар</th><th style={{ width: 90 }}>Кол-во</th><th style={{ width: 110, textAlign: "right" }}>Цена</th><th style={{ textAlign: "right" }}>Себестоимость</th><th style={{ textAlign: "right" }}>Сумма (себест.)</th><th>Ост.</th><th></th></tr></thead>
+                <tbody>
+                  {lines.map((l) => {
+                    const p = l.product_id ? prodById(l.product_id) : null;
+                    return (
+                      <tr key={l.id}>
+                        <td style={{ minWidth: 240 }}>
+                          {l.manual ? (
+                            <>
+                              <input className="inp" placeholder="Название товара" value={l.name} onChange={(e) => setLine(l.id, { name: e.target.value })} />
+                              <div className="row" style={{ marginTop: 4, gap: 6 }}>
+                                <input className="inp" style={{ width: 90 }} placeholder="размер" value={l.size} onChange={(e) => setLine(l.id, { size: e.target.value })} />
+                                <input className="inp" style={{ width: 70 }} placeholder="ед." value={l.unit} onChange={(e) => setLine(l.id, { unit: e.target.value })} />
+                              </div>
+                              <div className="xs mut" style={{ marginTop: 3 }}>добавлено вручную</div>
+                            </>
+                          ) : (
+                            <>
+                              <div style={{ fontWeight: 600 }}>{l.name}</div>
+                              <div className="xs mut">{l.size}{p ? " · " + ((suppliers.find((s) => s.id === p.supplier_id) || {}).name || "") : ""}</div>
+                            </>
+                          )}
+                        </td>
+                        <td><input type="number" className="inp" value={l.qty} onChange={(e) => setLine(l.id, { qty: Number(e.target.value) || 0 })} /></td>
+                        <td><input type="number" className="inp" style={{ textAlign: "right" }} value={l.price} onChange={(e) => setLine(l.id, { price: Number(e.target.value) || 0 })} /></td>
+                        <td className="num">{p ? fmt2(p.cost) : "—"}</td>
+                        <td className="num" style={{ fontWeight: 700 }}>{p ? fmt(l.qty * p.cost) : "—"}</td>
+                        <td className="num" style={{ color: p && p.stock < l.qty ? "var(--bad)" : "var(--ok)" }}>{p ? p.stock : "—"}</td>
+                        <td><button className="btn xs dng" onClick={() => removeLine(l.id)}>✕</button></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="row" style={{ marginTop: 12 }}>
+            <button className="btn xs" onClick={addManualLine}>+ добавить позицию вручную (нет в базе)</button>
+            <div className="mono" style={{ fontWeight: 700, marginLeft: "auto" }}>
+              Позиций: {lines.length} · Себестоимость: <span style={{ color: "var(--acc2)" }}>{money(totalCost)}</span> · Продажа: <span style={{ color: "var(--ok)" }}>{money(totalSale)}</span>
             </div>
           </div>
+
           <div className="row" style={{ marginTop: 16, justifyContent: "space-between" }}>
             <button className="btn" onClick={() => setStep(0)}>← Назад</button>
-            <button className="btn pri" disabled={busy || (!text.trim() && !files.length)} onClick={runExtract}>
-              {busy ? <span><span className="spin" /> Распознаю…</span> : "Распознать (AI) →"}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {step === 2 && (
-        <div className="card">
-          <h3 style={{ marginBottom: 10 }}>Распознано позиций: {extracted.length}. Проверьте перед подбором.</h3>
-          <table className="t">
-            <thead><tr><th>Название</th><th>Размер</th><th style={{width:90}}>Кол-во</th><th style={{width:90}}>Ед.</th><th>Комментарий</th><th></th></tr></thead>
-            <tbody>
-              {extracted.map((r, i) => (
-                <tr key={i} style={{ background: r.sure ? "none" : "rgba(232,183,48,.07)" }}>
-                  <td><input className="inp" value={r.name} onChange={(e) => setExtracted(extracted.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} />
-                    {!r.sure && <div className="xs" style={{ color: "var(--warn)", marginTop: 3 }}>⚠ требует проверки</div>}</td>
-                  <td><input className="inp" style={{ width: 90 }} value={r.size} onChange={(e) => setExtracted(extracted.map((x, j) => j === i ? { ...x, size: e.target.value } : x))} /></td>
-                  <td><input type="number" className="inp" value={r.qty} onChange={(e) => setExtracted(extracted.map((x, j) => j === i ? { ...x, qty: Number(e.target.value) || 0 } : x))} /></td>
-                  <td><input className="inp" value={r.unit} onChange={(e) => setExtracted(extracted.map((x, j) => j === i ? { ...x, unit: e.target.value } : x))} /></td>
-                  <td className="xs mut">{r.comment}</td>
-                  <td><button className="btn xs dng" onClick={() => setExtracted(extracted.filter((_, j) => j !== i))}>✕</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="row" style={{ marginTop: 16, justifyContent: "space-between" }}>
-            <button className="btn" onClick={() => setStep(1)}>← Назад</button>
-            <button className="btn pri" disabled={busy || !extracted.length} onClick={runMatch}>
-              {busy ? <span><span className="spin" /> Подбираю по базе…</span> : "Подобрать товары (AI) →"}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {step === 3 && (
-        <div className="card">
-          <div className="row" style={{ marginBottom: 12 }}>
-            <h3 style={{ marginRight: "auto" }}>AI-подбор · сегмент <Badge c="#ffffff">{segment}</Badge></h3>
-            {needCheck > 0 && <Badge c="#ffb020">⚠ {needCheck} поз. ниже порога {CONF_THRESHOLD}% — выберите вручную</Badge>}
-          </div>
-
-          <div style={{ overflow: "auto" }}>
-            <table className="t">
-              <thead><tr><th style={{width:24}}>
-                <input type="checkbox"
-                  checked={matches.length > 0 && matches.filter((m) => m.product_id).every((m) => m.accepted)}
-                  onChange={(e) => setMatches(matches.map((m) => (m.product_id ? { ...m, accepted: e.target.checked } : m)))}
-                  title="Выбрать все" />
-              </th><th>Из заявки</th><th>Товар из базы / альтернативы</th><th>Увер.</th><th style={{width:80}}>Кол-во</th><th style={{textAlign:"right"}}>Себестоимость</th><th style={{textAlign:"right"}}>Сумма (себест.)</th><th>Ост.</th><th></th></tr></thead>
-              <tbody>
-                {matches.map((m, i) => {
-                  const p = prodById(m.product_id);
-                  const altList = [m.product_id, ...m.alts].filter(Boolean);
-                  return (
-                    <tr key={i} style={{ opacity: m.accepted ? 1 : 0.45, background: m.confidence < CONF_THRESHOLD && m.accepted ? "rgba(232,183,48,.06)" : "none" }}>
-                      <td><input type="checkbox" checked={m.accepted} onChange={(e) => setMatch(i, { accepted: e.target.checked })} /></td>
-                      <td className="sm" style={{ maxWidth: 180 }}>{m.item.name}<div className="xs mut">{m.item.qty} {m.item.unit}</div></td>
-                      <td style={{ minWidth: 240 }}>
-                        <select className="inp" value={m.product_id || ""} onChange={(e) => {
-                          const np = prodById(e.target.value);
-                          if (np) setMatch(i, { product_id: np.id, price: np.price, manual: true, ai_product_id: m.ai_product_id || m.product_id });
-                        }}>
-                          {!m.product_id && <option value="">— не найдено —</option>}
-                          {altList.map((id) => { const ap = prodById(id); return ap ? <option key={id} value={id}>{ap.name} · {ap.size} · {fmt(ap.price)}</option> : null; })}
-                        </select>
-                        <div className="xs mut" style={{ marginTop: 3 }}>{m.reason}{p ? " · " + ((suppliers.find((s) => s.id === p.supplier_id) || {}).name || "") : ""}</div>
-                        <div style={{ marginTop: 4 }}><ProductPicker products={products} placeholder="заменить — поиск по базе…" onPick={(np) => pickProduct(i, np)} /></div>
-                      </td>
-                      <td><Conf v={m.confidence} />{m.manual && <div className="xs" style={{ color: "var(--ok)" }}>исправлено</div>}</td>
-                      <td><input type="number" className="inp" value={m.qty} onChange={(e) => setMatch(i, { qty: Number(e.target.value) || 0 })} /></td>
-                      <td className="num">{p ? fmt2(p.cost) : "—"}</td>
-                      <td className="num" style={{ fontWeight: 700 }}>{p ? fmt(m.qty * p.cost) : "—"}</td>
-                      <td className="num" style={{ color: p && p.stock < m.qty ? "var(--bad)" : "var(--ok)" }}>{p ? p.stock : "—"}</td>
-                      <td><button className="btn xs dng" onClick={() => setMatches(matches.filter((_, j) => j !== i))}>✕</button></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div className="row" style={{ marginTop: 12 }}>
-            <ProductPicker products={products} placeholder="+ добавить позицию вручную (поиск по базе)…" onPick={addManual} />
-            <div className="mono" style={{ fontWeight: 700, marginLeft: "auto" }}>Выбрано: {matches.filter((m) => m.accepted && m.product_id).length} из {matches.length} · Итого по себестоимости: <span style={{ color: "var(--acc2)" }}>{money(totalCost)}</span></div>
-          </div>
-          <div className="row" style={{ marginTop: 16, justifyContent: "space-between" }}>
-            <button className="btn" onClick={() => setStep(2)}>← Назад</button>
-            <button className="btn pri" disabled={busy || !matches.some((m) => m.accepted && m.product_id)} onClick={() => setMarkupModal(true)}>
+            <button className="btn pri" disabled={busy || !lines.length} onClick={save}>
               {busy ? <span><span className="spin" /> Сохраняю…</span> : "Сохранить в объект ✓"}
             </button>
           </div>
-          {markupModal && (
-            <Modal title="Наценка на розничную цену" onClose={() => setMarkupModal(false)} w={460}>
-              <p className="sm mut" style={{ marginBottom: 12 }}>Розничная цена каждой позиции = себестоимость + наценка. После сохранения цены можно поправить вручную на странице объекта.</p>
-              <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                <Fld label="Наценка, %"><input type="number" className="inp" style={{ fontSize: 18, fontWeight: 700 }} value={markup} onChange={(e) => setMarkup(e.target.value)} /></Fld>
-                <div className="fld"><label>Предпросмотр</label>
-                  <div className="inp mono" style={{ background: "var(--panel)" }}>
-                    <div className="xs mut">себест: {fmt(totalCost)}</div>
-                    <div style={{ fontWeight: 700, color: "var(--ok)" }}>продажа: {fmt(totalSale)}</div>
-                  </div>
-                </div>
-              </div>
-              <div className="row" style={{ marginTop: 8 }}>
-                {[10, 15, 20, 25, 30].map((x) => <button key={x} className={"btn xs " + (Number(markup) === x ? "pri" : "")} onClick={() => setMarkup(x)}>{x}%</button>)}
-              </div>
-              <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
-                <button className="btn" onClick={() => setMarkupModal(false)}>Отмена</button>
-                <button className="btn pri" disabled={busy} onClick={() => {
-                  const k = 1 + (Number(markup) || 0) / 100;
-                  const priced = matches.map((m) => {
-                    const p = prodById(m.product_id);
-                    return p ? { ...m, price: Math.round(p.cost * k * 100) / 100 } : m;
-                  });
-                  setMatches(priced);
-                  setMarkupModal(false);
-                  save(priced);
-                }}>{busy ? "Сохраняю…" : "Применить и сохранить ✓"}</button>
-              </div>
-            </Modal>
-          )}
         </div>
       )}
     </div>
