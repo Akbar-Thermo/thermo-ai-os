@@ -44,6 +44,12 @@ const CSS = `
   --mono:'JetBrains Mono',monospace; --sans:'Manrope',sans-serif;
   --hdr-bg:#0c0c0c; --hdr-txt:#ffffff; --hdr-mut:#9a9a9a; --hdr-line:#262626; --hdr-panel2:#1a1a1a;
 }
+.te.dark{
+  --bg:#111115; --panel:#1a1a20; --panel2:#222228; --line:#2e2e36; --line2:#3a3a44;
+  --txt:#e8e8f0; --mut:#8888a0; --ok:#3ddc7d; --warn:#e6a020; --bad:#ff4d5e;
+}
+.te.dark table.t tr:hover td{background:rgba(255,255,255,.04)}
+.te.dark .pick-row:hover{background-color:#2a1a1c !important}
 *{box-sizing:border-box;margin:0;padding:0}
 .te{font-family:var(--sans);background:var(--bg);color:var(--txt);min-height:100vh;font-size:14px}
 .hdr{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:2px solid var(--acc);flex-wrap:wrap;position:sticky;top:0;background:var(--hdr-bg);z-index:50;box-shadow:0 6px 24px rgba(0,0,0,.18);transition:transform .25s ease}
@@ -278,6 +284,13 @@ function downloadCSV(filename, rows) {
   a.href = URL.createObjectURL(blob); a.download = filename; a.click();
   URL.revokeObjectURL(a.href);
 }
+async function batchInsert(table, rows, chunkSize = 500) {
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize);
+    const { error } = await db.from(table).insert(chunk);
+    if (error) throw new Error(error.message);
+  }
+}
 
 /* ============ SHARED UI ============ */
 const Fld = ({ label, children }) => (<div className="fld"><label>{label}</label>{children}</div>);
@@ -301,19 +314,30 @@ function Modal({ title, onClose, children, w = 640 }) {
 }
 function ProductPicker({ products, onPick, placeholder }) {
   const [q, setQ] = useState("");
+  const [activeIdx, setActiveIdx] = useState(-1);
   const hits = useMemo(() => {
     if (q.length < 2) return [];
     const s = q.toLowerCase();
     return products.filter((p) => p.status !== "archive" && (p.name + " " + (p.alt_names || "") + " " + p.code).toLowerCase().includes(s)).slice(0, 8);
   }, [q, products]);
+  const pick = (p) => { onPick(p); setQ(""); setActiveIdx(-1); };
+  const onKeyDown = (e) => {
+    if (!hits.length) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, hits.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, 0)); }
+    else if (e.key === "Enter" && activeIdx >= 0) { e.preventDefault(); pick(hits[activeIdx]); }
+    else if (e.key === "Escape") { setQ(""); setActiveIdx(-1); }
+  };
   return (
     <div style={{ position: "relative", minWidth: 220, flex: 1, zIndex: hits.length ? 999 : "auto" }}>
-      <input className="inp" placeholder={placeholder || "Поиск товара для добавления…"} value={q} onChange={(e) => setQ(e.target.value)} />
+      <input className="inp" placeholder={placeholder || "Поиск товара для добавления…"} value={q}
+        onChange={(e) => { setQ(e.target.value); setActiveIdx(-1); }}
+        onKeyDown={onKeyDown} />
       {hits.length > 0 && (
-        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "#ffffff", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, maxHeight: 260, overflow: "auto", boxShadow: "0 16px 44px rgba(0,0,0,.18), 0 0 0 1px rgba(255,31,48,.15)", isolation: "isolate" }}>
-          {hits.map((p) => (
-            <div key={p.id} className="clk pick-row" style={{ padding: "9px 11px", borderBottom: "1px solid var(--line)", backgroundColor: "#ffffff" }}
-              onClick={() => { onPick(p); setQ(""); }}>
+        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, maxHeight: 260, overflow: "auto", boxShadow: "0 16px 44px rgba(0,0,0,.18), 0 0 0 1px rgba(255,31,48,.15)", isolation: "isolate" }}>
+          {hits.map((p, idx) => (
+            <div key={p.id} className="clk pick-row" style={{ padding: "9px 11px", borderBottom: "1px solid var(--line)", backgroundColor: idx === activeIdx ? "rgba(255,31,48,.08)" : "var(--panel)" }}
+              onClick={() => pick(p)}>
               <div style={{ fontWeight: 600, fontSize: 13, color: "var(--txt)" }}>{p.name}</div>
               <div className="xs mono" style={{ color: "var(--mut)" }}>{p.size} · {money(p.price)} · ост. {p.stock}</div>
             </div>
@@ -534,7 +558,7 @@ function ImportModal({ suppliers, onClose, onDone }) {
           status: "active", min_stock: 0, price_updated: new Date().toISOString(),
         });
       }
-      if (products.length) await db.from("products").insert(products);
+      if (products.length) await batchInsert("products", products);
       onDone(products.length + (newSups ? " (+ новых поставщиков: " + newSups + ")" : ""));
     } catch (e) { setErr("Ошибка импорта: " + e.message); }
     setBusy(false);
@@ -555,7 +579,7 @@ function ImportModal({ suppliers, onClose, onDone }) {
         price_updated: new Date().toISOString(),
       });
     }
-    if (out.length) await db.from("products").insert(out);
+    if (out.length) await batchInsert("products", out);
     onDone(out.length);
   };
 
@@ -641,11 +665,65 @@ function ImportModal({ suppliers, onClose, onDone }) {
 }
 
 /* ============ SUPPLIERS TAB ============ */
+function AktSverkaModal({ s, objects, ops, products, onClose }) {
+  // Received items (purchases) from all non-cancelled objects
+  const received = [];
+  objects.forEach((ob) => {
+    if (ob.status === "cancelled") return;
+    (ob.items || []).forEach((it) => {
+      if (it.supplier_id === s.id && !it.from_warehouse) {
+        received.push({ ...it, obj_name: ob.name, obj_id: ob.id, date: it.batch_date || ob.created_at });
+      }
+    });
+  });
+  // Returns by this supplier
+  const returns = ops.filter((o) => !o.voided && o.type === "return" && o.supplier_id === s.id);
+  // Payments to this supplier
+  const payments = ops.filter((o) => !o.voided && o.type === "supplier_payment" && o.supplier_id === s.id);
+  const totalReceived = received.reduce((a, it) => a + (it.qty || 0) * (it.cost || 0), 0);
+  const totalReturns = returns.reduce((a, o) => a + (o.cost_amount || 0), 0);
+  const totalPaid = payments.reduce((a, o) => a + (o.amount || 0), 0);
+  const debt = Math.max(0, totalReceived - totalReturns - totalPaid);
+  return (
+    <Modal title={"Акт-сверка: " + s.name} onClose={onClose} w={860}>
+      <div className="kpis" style={{ marginBottom: 16 }}>
+        <div className="kpi"><div className="l">Получено товаров</div><div className="v">{fmt(totalReceived)}</div></div>
+        <div className="kpi"><div className="l">Возвраты</div><div className="v" style={{ color: "var(--warn)" }}>{fmt(totalReturns)}</div></div>
+        <div className="kpi"><div className="l">Оплачено</div><div className="v" style={{ color: "var(--ok)" }}>{fmt(totalPaid)}</div></div>
+        <div className="kpi"><div className="l">Долг</div><div className="v" style={{ color: debt > 0 ? "var(--bad)" : "var(--mut)" }}>{fmt(debt)}</div></div>
+      </div>
+      <details open>
+        <summary className="sm" style={{ cursor: "pointer", fontWeight: 700, marginBottom: 8 }}>Полученные товары ({received.length})</summary>
+        <div style={{ overflow: "auto", maxHeight: 260 }}>
+          <table className="t"><thead><tr><th>Объект</th><th>Товар</th><th>Кол-во</th><th>Ед.</th><th style={{textAlign:"right"}}>Себест.</th><th style={{textAlign:"right"}}>Сумма</th><th>Дата</th></tr></thead>
+            <tbody>{received.map((it, i) => <tr key={i}><td className="sm">{it.obj_name}</td><td className="sm">{it.name}<div className="xs mut">{it.size}</div></td><td className="num">{it.qty}</td><td className="xs mut">{it.unit}</td><td className="num">{fmt(it.cost)}</td><td className="num" style={{fontWeight:700}}>{fmt((it.qty||0)*(it.cost||0))}</td><td className="xs mono mut">{dt(it.date)}</td></tr>)}
+            {!received.length && <tr><td colSpan={7} className="mut sm" style={{padding:14}}>Нет поступлений</td></tr>}</tbody>
+          </table>
+        </div>
+      </details>
+      <details style={{ marginTop: 12 }}>
+        <summary className="sm" style={{ cursor: "pointer", fontWeight: 700, marginBottom: 8 }}>Возвраты ({returns.length})</summary>
+        <table className="t"><thead><tr><th>Дата</th><th>Товар</th><th>Кол-во</th><th style={{textAlign:"right"}}>Сумма</th><th>Примечание</th></tr></thead>
+          <tbody>{returns.map((o) => <tr key={o.id}><td className="xs mono mut">{dt(o.op_date||o.created_at)}</td><td className="sm">{o.product_name || "—"}</td><td className="num">{o.qty||"—"}</td><td className="num" style={{color:"var(--warn)"}}>{fmt(o.cost_amount||0)}</td><td className="xs mut">{o.note}</td></tr>)}
+          {!returns.length && <tr><td colSpan={5} className="mut sm" style={{padding:14}}>Нет возвратов</td></tr>}</tbody>
+        </table>
+      </details>
+      <details style={{ marginTop: 12 }}>
+        <summary className="sm" style={{ cursor: "pointer", fontWeight: 700, marginBottom: 8 }}>Платежи ({payments.length})</summary>
+        <table className="t"><thead><tr><th>Дата</th><th style={{textAlign:"right"}}>Сумма</th><th>Кто</th><th>Примечание</th></tr></thead>
+          <tbody>{payments.map((o) => <tr key={o.id}><td className="xs mono mut">{dt(o.op_date||o.created_at)}</td><td className="num" style={{color:"var(--ok)",fontWeight:700}}>{fmt(o.amount)}</td><td className="xs mut">{o.user}</td><td className="xs mut">{o.note}</td></tr>)}
+          {!payments.length && <tr><td colSpan={4} className="mut sm" style={{padding:14}}>Нет платежей</td></tr>}</tbody>
+        </table>
+      </details>
+    </Modal>
+  );
+}
 function SuppliersTab({ data, reload, toast, fin = true }) {
   const { suppliers, objects, finance_ops, products } = data;
   const [edit, setEdit] = useState(null);
   const [del, setDel] = useState(null);
   const [pay, setPay] = useState(null);
+  const [akt, setAkt] = useState(null);
   return (
     <div>
       <div className="row sect">
@@ -672,6 +750,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
                   <td className="num">{cnt}</td>
                   <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
                     <button className="btn xs" style={{ color: "var(--ok)" }} onClick={() => setPay(s)}>💵 оплата</button>
+                    <button className="btn xs" onClick={() => setAkt(s)}>📋 акт</button>
                     <button className="btn xs" onClick={() => setEdit(s)}>ред.</button>
                     {fin && <button className="btn xs dng" onClick={() => setDel(s)}>✕</button>}
                   </div></td>
@@ -681,6 +760,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
           </tbody>
         </table>
       </div>
+      {akt && <AktSverkaModal s={akt} objects={objects} ops={finance_ops} products={products} onClose={() => setAkt(null)} />}
       {pay && <SupplierPayModal s={pay} objects={objects} ops={finance_ops} fin={fin} onClose={() => setPay(null)}
         onSave={async (op) => { await db.from("finance_ops").insert(cleanUuids(op)); await logAction("Оплата поставщику", "supplier:" + pay.name, fmt(op.amount) + " · " + (op.note || "")); await reload(); toast("Оплата поставщику записана"); }}
         onEditPay={async (o, patch) => {
@@ -792,7 +872,7 @@ function SupplierPayModal({ s, objects, ops, onClose, onSave, onEditPay, onVoidP
   );
 }
 function SupplierForm({ s, onSave }) {
-  const [v, setV] = useState({ ...s });
+  const [v, setV] = useState({ segment: "комфорт", status: "active", terms: "", contact: "", phone: "", note: "", ...s });
   const set = (k) => (e) => setV({ ...v, [k]: e.target.value });
   return (
     <div>
@@ -800,9 +880,10 @@ function SupplierForm({ s, onSave }) {
         <Fld label="Название"><input className="inp" value={v.name || ""} onChange={set("name")} /></Fld>
         <Fld label="Контактное лицо"><input className="inp" value={v.contact || ""} onChange={set("contact")} /></Fld>
         <Fld label="Телефон"><input className="inp" value={v.phone || ""} onChange={set("phone")} /></Fld>
-        <Fld label="Сегмент"><select className="inp" value={v.segment} onChange={set("segment")}>{SEGMENTS.map((x) => <option key={x}>{x}</option>)}</select></Fld>
+        <Fld label="Сегмент"><select className="inp" value={v.segment || "комфорт"} onChange={set("segment")}>{SEGMENTS.map((x) => <option key={x}>{x}</option>)}</select></Fld>
         <Fld label="Условия оплаты"><input className="inp" value={v.terms || ""} onChange={set("terms")} /></Fld>
-        <Fld label="Статус"><select className="inp" value={v.status} onChange={set("status")}><option value="active">активен</option><option value="inactive">неактивен</option></select></Fld>
+        <Fld label="Статус"><select className="inp" value={v.status || "active"} onChange={set("status")}><option value="active">активен</option><option value="inactive">неактивен</option></select></Fld>
+        <Fld label="Примечание" style={{ gridColumn: "span 2" }}><input className="inp" value={v.note || ""} onChange={set("note")} /></Fld>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn pri" disabled={!v.name} onClick={() => onSave(v)}>Сохранить</button>
@@ -812,16 +893,17 @@ function SupplierForm({ s, onSave }) {
 }
 
 /* ============ REQUEST WIZARD (ручной подбор товаров) ============ */
+const WZ_KEY = "te:wz_draft";
 function RequestWizard({ data, reload, toast, openObject }) {
   const { products, suppliers, objects, masters } = data;
-  const [step, setStep] = useState(0);
-  const [objId, setObjId] = useState("");
-  const [newObj, setNewObj] = useState({ name: "", client: "", phone: "", master: "", master_id: "", manager: "", address: "", segment: "комфорт" });
+  const [step, setStep] = useState(() => { try { return JSON.parse(localStorage.getItem(WZ_KEY) || "{}").step || 0; } catch { return 0; } });
+  const [objId, setObjId] = useState(() => { try { return JSON.parse(localStorage.getItem(WZ_KEY) || "{}").objId || ""; } catch { return ""; } });
+  const [newObj, setNewObj] = useState(() => { try { return JSON.parse(localStorage.getItem(WZ_KEY) || "{}").newObj || { name: "", client: "", phone: "", master: "", master_id: "", manager: "", address: "", segment: "комфорт" }; } catch { return { name: "", client: "", phone: "", master: "", master_id: "", manager: "", address: "", segment: "комфорт" }; } });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [lines, setLines] = useState([]); // { product_id, name, size, unit, qty, cost, checked, manual }
+  const [lines, setLines] = useState(() => { try { return JSON.parse(localStorage.getItem(WZ_KEY) || "{}").lines || []; } catch { return []; } });
   const [catF, setCatF] = useState("");
-  const [delLine, setDelLine] = useState(null); // line pending delete confirmation
+  const [delLine, setDelLine] = useState(null);
   const [markupModal, setMarkupModal] = useState(false);
   const [markup, setMarkup] = useState(15);
   const [markupCustom, setMarkupCustom] = useState("");
@@ -830,6 +912,11 @@ function RequestWizard({ data, reload, toast, openObject }) {
   const [newMasterName, setNewMasterName] = useState("");
   const [newMasterPhone, setNewMasterPhone] = useState("");
   const [savingMaster, setSavingMaster] = useState(false);
+  // Persist draft to localStorage
+  useEffect(() => {
+    try { localStorage.setItem(WZ_KEY, JSON.stringify({ step, objId, newObj, lines })); } catch {}
+  }, [step, objId, newObj, lines]);
+  const clearDraft = () => { try { localStorage.removeItem(WZ_KEY); } catch {} };
 
   const activeObjects = objects.filter((o) => !["closed", "cancelled"].includes(o.status));
   const selObj = objects.find((o) => o.id === objId);
@@ -899,7 +986,7 @@ function RequestWizard({ data, reload, toast, openObject }) {
         const cost = p ? p.cost : (Number(l.cost) || 0);
         return {
           id: uuid(), product_id: p ? p.id : null, name: p ? p.name : l.name, size: p ? p.size : l.size, unit: p ? p.unit : l.unit,
-          qty: l.qty, price: Math.round(cost * saleK * 100) / 100, cost, supplier_id: p ? p.supplier_id : null,
+          qty: l.qty, price: l.manualPrice != null ? l.manualPrice : Math.round(cost * saleK * 100) / 100, cost, supplier_id: p ? p.supplier_id : null,
           source_text: p ? p.name : l.name, confidence: 100,
           batch_no: batchNo, batch_date: today(),
         };
@@ -912,6 +999,7 @@ function RequestWizard({ data, reload, toast, openObject }) {
       await logAction("Заявка сохранена", "object:" + obj.name, "поставка №" + batchNo + ", позиций: " + items.length);
       toast("Поставка №" + batchNo + " сохранена: " + items.length + " поз. → «" + obj.name + "»");
       setStep(0); setLines([]); setObjId(""); setMarkupModal(false);
+      clearDraft();
       await reload();
       openObject(obj.id);
     } catch (e) { setErr("Ошибка сохранения: " + e.message); }
@@ -953,9 +1041,9 @@ function RequestWizard({ data, reload, toast, openObject }) {
             </div>
             {!objId && (
               <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                <Fld label="Название объекта"><input className="inp" value={newObj.name} onChange={(e) => setNewObj({ ...newObj, name: e.target.value })} placeholder="Дом, ул. Чиланзар 12" /></Fld>
-                <Fld label="Клиент"><input className="inp" value={newObj.client} onChange={(e) => setNewObj({ ...newObj, client: e.target.value })} /></Fld>
-                <Fld label="Телефон клиента"><input className="inp" value={newObj.phone} onChange={(e) => setNewObj({ ...newObj, phone: e.target.value })} /></Fld>
+                <Fld label="Название объекта"><input className="inp" value={newObj.name} onChange={(e) => setNewObj({ ...newObj, name: e.target.value })} placeholder="Дом, ул. Чиланзар 12" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.target.closest(".grid").querySelectorAll("input,select")[1]?.focus(); }}} /></Fld>
+                <Fld label="Клиент"><input className="inp" value={newObj.client} onChange={(e) => setNewObj({ ...newObj, client: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.target.closest(".grid").querySelectorAll("input,select")[2]?.focus(); }}} /></Fld>
+                <Fld label="Телефон клиента"><input className="inp" value={newObj.phone} onChange={(e) => setNewObj({ ...newObj, phone: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.target.closest(".grid").querySelectorAll("input,select")[3]?.focus(); }}} /></Fld>
                 <div className="fld">
                   <label>Мастер</label>
                   {!addingMaster ? (
@@ -998,7 +1086,7 @@ function RequestWizard({ data, reload, toast, openObject }) {
       {step === 1 && (
         <div className="card">
           <div className="row" style={{ marginBottom: 12 }}>
-            <h3 style={{ marginRight: "auto" }}>Подбор товаров · сегмент <Badge c="#ffffff">{segment}</Badge></h3>
+            <h3 style={{ marginRight: "auto" }}>Подбор товаров</h3>
           </div>
 
           <div className="row" style={{ marginBottom: 12, gap: 10 }}>
@@ -1022,7 +1110,7 @@ function RequestWizard({ data, reload, toast, openObject }) {
                   <th style={{ width: 30 }}>
                     <input type="checkbox" checked={allChecked} onChange={(e) => setLines((prev) => prev.map((l) => ({ ...l, checked: e.target.checked })))} title="Отметить все как проверенные" />
                   </th>
-                  <th>Товар</th><th style={{ width: 90 }}>Кол-во</th><th style={{ width: 70 }}>Ед.</th><th style={{ textAlign: "right" }}>Себестоимость</th><th style={{ textAlign: "right" }}>Сумма (себест.)</th><th>Ост.</th><th></th>
+                  <th>Товар</th><th style={{ width: 90 }}>Кол-во</th><th style={{ width: 70 }}>Ед.</th><th style={{ textAlign: "right" }}>Себестоимость</th><th style={{ textAlign: "right", color: "var(--ok)" }}>Цена продажи</th><th style={{ textAlign: "right" }}>Сумма (себест.)</th><th>Ост.</th><th></th>
                 </tr></thead>
                 <tbody>
                   {lines.map((l) => {
@@ -1056,6 +1144,7 @@ function RequestWizard({ data, reload, toast, openObject }) {
                             : <span className="mut">{l.unit}</span>}
                         </td>
                         <td className="num">{fmt2(p ? p.cost : l.cost)}</td>
+                        <td><input type="number" className="inp" style={{ width: 100, textAlign: "right", color: "var(--ok)", fontWeight: 700 }} placeholder="авто" value={l.manualPrice != null ? l.manualPrice : ""} onChange={(e) => setLine(l.id, { manualPrice: e.target.value === "" ? null : Number(e.target.value) })} title="Цена продажи (оставьте пустым — рассчитается по наценке)" /></td>
                         <td className="num" style={{ fontWeight: 700 }}>{fmt(l.qty * (p ? p.cost : l.cost))}</td>
                         <td className="num" style={{ color: p && p.stock < l.qty ? "var(--bad)" : "var(--ok)" }}>{p ? p.stock : "—"}</td>
                         <td><button className="btn xs dng" onClick={() => setDelLine(l.id)}>✕</button></td>
@@ -2476,6 +2565,49 @@ function FinanceTab({ data, reload, toast }) {
           </tbody>
         </table>
       </div>
+      <VozvratSection objects={objects} finance_ops={finance_ops} suppliers={suppliers} />
+    </div>
+  );
+}
+function VozvratSection({ objects, finance_ops, suppliers }) {
+  const returns = finance_ops.filter((o) => !o.voided && o.type === "return");
+  const totalSale = returns.reduce((a, o) => a + (o.amount || 0), 0);
+  const totalCost = returns.reduce((a, o) => a + (o.cost_amount || 0), 0);
+  const bySupplier = {};
+  returns.forEach((o) => {
+    const key = o.supplier_id || "__none__";
+    if (!bySupplier[key]) bySupplier[key] = { name: o.supplier_id ? ((suppliers.find((s) => s.id === o.supplier_id) || {}).name || "Неизвестно") : "—", sale: 0, cost: 0, cnt: 0 };
+    bySupplier[key].sale += o.amount || 0;
+    bySupplier[key].cost += o.cost_amount || 0;
+    bySupplier[key].cnt++;
+  });
+  return (
+    <div className="card sect" style={{ marginTop: 18 }}>
+      <h3 style={{ marginBottom: 12 }}>Возвраты товаров</h3>
+      <div className="kpis" style={{ marginBottom: 14 }}>
+        <div className="kpi"><div className="l">Всего возвратов</div><div className="v">{returns.length}</div></div>
+        <div className="kpi"><div className="l">Сумма (продажа)</div><div className="v" style={{ color: "var(--warn)" }}>{fmt(totalSale)}</div></div>
+        <div className="kpi"><div className="l">Сумма (себест.)</div><div className="v">{fmt(totalCost)}</div></div>
+      </div>
+      <div className="split">
+        <div>
+          <div className="sm" style={{ fontWeight: 700, marginBottom: 6 }}>По поставщикам</div>
+          <table className="t"><thead><tr><th>Поставщик</th><th style={{textAlign:"right"}}>Кол-во</th><th style={{textAlign:"right"}}>Себест.</th></tr></thead>
+            <tbody>{Object.values(bySupplier).map((r, i) => <tr key={i}><td>{r.name}</td><td className="num">{r.cnt}</td><td className="num" style={{color:"var(--warn)"}}>{fmt(r.cost)}</td></tr>)}
+            {!Object.keys(bySupplier).length && <tr><td colSpan={3} className="mut sm" style={{padding:12}}>Возвратов нет</td></tr>}</tbody>
+          </table>
+        </div>
+        <div style={{ overflow: "auto", maxHeight: 320 }}>
+          <div className="sm" style={{ fontWeight: 700, marginBottom: 6 }}>Все возвраты</div>
+          <table className="t"><thead><tr><th>Дата</th><th>Объект</th><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th style={{textAlign:"right"}}>Сумма</th><th>Причина</th></tr></thead>
+            <tbody>{returns.slice().reverse().map((o) => {
+              const obj = objects.find((x) => x.id === o.object_id);
+              return <tr key={o.id}><td className="xs mono mut">{dt(o.op_date||o.created_at)}</td><td className="sm">{obj ? obj.name : "—"}</td><td className="sm">{o.product_name||"—"}<div className="xs mut">{o.size||""}</div></td><td className="num">{o.qty||"—"}</td><td className="num" style={{color:"var(--warn)",fontWeight:700}}>{fmt(o.cost_amount||0)}</td><td className="xs mut">{o.reason||o.note||""}</td></tr>;
+            })}
+            {!returns.length && <tr><td colSpan={6} className="mut sm" style={{padding:14}}>Возвратов нет</td></tr>}</tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2730,6 +2862,11 @@ function AppInner() {
     setCurrentUser(null); CURRENT_USER = null;
     try { localStorage.removeItem("te:session"); } catch (e) {}
   };
+  const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("te:dark") === "1"; } catch { return false; } });
+  const [lang, setLang] = useState(() => { try { return localStorage.getItem("te:lang") || "ru"; } catch { return "ru"; } });
+  const toggleDark = () => { setDarkMode((v) => { const n = !v; try { localStorage.setItem("te:dark", n ? "1" : "0"); } catch {} return n; }); };
+  const toggleLang = () => { setLang((v) => { const n = v === "ru" ? "uz" : "ru"; try { localStorage.setItem("te:lang", n); } catch {} return n; }); };
+  const L = (ru, uz) => lang === "uz" ? uz : ru;
   const [backupOpen, setBackupOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hdrHidden, setHdrHidden] = useState(false);
@@ -2756,7 +2893,9 @@ function AppInner() {
   };
 
   const roleTabs = (ROLES.find((r) => r.id === role) || ROLES[0]).tabs;
-  const TAB_LABELS = { request: "Новая заявка", dash: "Дашборд", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", admin: "Аккаунты" };
+  const TAB_LABELS_RU = { request: "Новая заявка", dash: "Дашборд", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", admin: "Аккаунты" };
+  const TAB_LABELS_UZ = { request: "Yangi ariza", dash: "Boshqaruv", objects: "Ob'ektlar", products: "Tovarlar", wh: "Ombor Thermo", suppliers: "Ta'minotchilar", masters: "Ustalar", finance: "Moliya", log: "Jurnal", admin: "Hisoblar" };
+  const TAB_LABELS = lang === "uz" ? TAB_LABELS_UZ : TAB_LABELS_RU;
   const allTabs = roleTabs.map((id) => ({ id, label: TAB_LABELS[id] }));
   useEffect(() => { if (currentUser) { setTab(roleTabs[0]); setOpenId(null); } }, [currentUser]);
 
@@ -2768,16 +2907,18 @@ function AppInner() {
   );
   if (!currentUser) return <LoginScreen users={data.users || []} onLogin={doLogin} />;
   return (
-    <div className="te">
+    <div className={"te" + (darkMode ? " dark" : "")}>
       <style>{CSS}</style>
       <div className={"hdr" + (hdrHidden ? " hide-on-scroll" : "")}>
         <div className="logo">THERMO<span>•</span>ENGINEERING<small>AI procurement & finance OS</small></div>
         <div className="row" style={{ gap: 8 }}>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontWeight: 700, fontSize: 13 }}>{currentUser.name || currentUser.username}</div>
-            <div className="xs mut">{role === "boss" ? "Руководитель" : "Менеджер"}</div>
+            <div className="xs mut">{role === "boss" ? (lang === "uz" ? "Rahbar" : "Руководитель") : (lang === "uz" ? "Menejer" : "Менеджер")}</div>
           </div>
-          <button className="btn xs" onClick={doLogout} title="Выйти">Выйти</button>
+          <button className="btn xs" onClick={toggleLang} title={lang === "ru" ? "Переключить на узбекский" : "Ruscha tilga o'tish"} style={{ fontWeight: 800 }}>{lang === "ru" ? "UZ" : "RU"}</button>
+          <button className="btn xs" onClick={toggleDark} title={darkMode ? "Светлая тема" : "Тёмная тема"}>{darkMode ? "☀️" : "🌙"}</button>
+          <button className="btn xs" onClick={doLogout} title={lang === "uz" ? "Chiqish" : "Выйти"}>{lang === "uz" ? "Chiqish" : "Выйти"}</button>
         </div>
         <div className={"tabs" + (mobileMenuOpen ? " open" : "")}>
           {allTabs.map((t) => <button key={t.id} className={"tab " + (tab === t.id ? "on" : "")} onClick={() => { setTab(t.id); if (t.id !== "objects") setOpenId(null); setMobileMenuOpen(false); }}>{t.label}</button>)}
