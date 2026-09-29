@@ -208,7 +208,7 @@ function calcObject(obj, ops) {
     sale, cost, retSale, retCost, discount, expense, bonus, paidClient, paidSup,
     saleNet, costNet, gross, net,
     margin: saleNet > 0 ? (gross / saleNet) * 100 : 0,
-    clientDebt: Math.max(0, saleNet - paidClient),
+    clientDebt: saleNet - paidClient,
     supplierDebt: Math.max(0, costNet - paidSup),
   };
 }
@@ -315,11 +315,17 @@ function Modal({ title, onClose, children, w = 640 }) {
 function ProductPicker({ products, onPick, placeholder }) {
   const [q, setQ] = useState("");
   const [activeIdx, setActiveIdx] = useState(-1);
+  const listRef = useRef(null);
   const hits = useMemo(() => {
     if (q.length < 2) return [];
     const s = q.toLowerCase();
     return products.filter((p) => p.status !== "archive" && (p.name + " " + (p.alt_names || "") + " " + p.code).toLowerCase().includes(s)).slice(0, 8);
   }, [q, products]);
+  useEffect(() => {
+    if (activeIdx >= 0 && listRef.current) {
+      listRef.current.children[activeIdx]?.scrollIntoView({ block: "nearest" });
+    }
+  }, [activeIdx]);
   const pick = (p) => { onPick(p); setQ(""); setActiveIdx(-1); };
   const onKeyDown = (e) => {
     if (!hits.length) return;
@@ -334,7 +340,7 @@ function ProductPicker({ products, onPick, placeholder }) {
         onChange={(e) => { setQ(e.target.value); setActiveIdx(-1); }}
         onKeyDown={onKeyDown} />
       {hits.length > 0 && (
-        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, maxHeight: 260, overflow: "auto", boxShadow: "0 16px 44px rgba(0,0,0,.18), 0 0 0 1px rgba(255,31,48,.15)", isolation: "isolate" }}>
+        <div ref={listRef} style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, maxHeight: 260, overflow: "auto", boxShadow: "0 16px 44px rgba(0,0,0,.18), 0 0 0 1px rgba(255,31,48,.15)", isolation: "isolate" }}>
           {hits.map((p, idx) => (
             <div key={p.id} className="clk pick-row" style={{ padding: "9px 11px", borderBottom: "1px solid var(--line)", backgroundColor: idx === activeIdx ? "rgba(255,31,48,.08)" : "var(--panel)" }}
               onClick={() => pick(p)}>
@@ -352,7 +358,6 @@ function ProductPicker({ products, onPick, placeholder }) {
 function ProductsTab({ data, reload, toast }) {
   const { products, suppliers } = data;
   const [q, setQ] = useState("");
-  const [seg, setSeg] = useState("");
   const [supF, setSupF] = useState("");
   const [brandF, setBrandF] = useState("");
   const [edit, setEdit] = useState(null);
@@ -361,7 +366,6 @@ function ProductsTab({ data, reload, toast }) {
   const [confirmDel, setConfirmDel] = useState(false);
   const brands = useMemo(() => [...new Set(products.map((p) => p.brand).filter(Boolean))].sort(), [products]);
   const list = products.filter((p) =>
-    (!seg || p.segment === seg) &&
     (!supF || p.supplier_id === supF) &&
     (!brandF || p.brand === brandF) &&
     (!q || (p.name + " " + (p.alt_names || "") + " " + p.code + " " + (p.category || "")).toLowerCase().includes(q.toLowerCase()))
@@ -379,10 +383,6 @@ function ProductsTab({ data, reload, toast }) {
       <div className="row sect">
         <h2 style={{ marginRight: "auto" }}>База товаров <span className="mut sm">({products.length})</span></h2>
         <input className="inp" style={{ maxWidth: 200 }} placeholder="Поиск…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select className="inp" style={{ maxWidth: 140 }} value={seg} onChange={(e) => setSeg(e.target.value)}>
-          <option value="">Все сегменты</option>
-          {SEGMENTS.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
         <select className="inp" style={{ maxWidth: 170 }} value={supF} onChange={(e) => setSupF(e.target.value)}>
           <option value="">Все поставщики</option>
           {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -393,11 +393,11 @@ function ProductsTab({ data, reload, toast }) {
         </select>
         {sel.length > 0 && <button className="btn dng" onClick={() => setConfirmDel(true)}>🗑 Удалить ({sel.length})</button>}
         <button className="btn" onClick={() => setImp(true)}>Импорт Excel/CSV</button>
-        <button className="btn pri" onClick={() => setEdit({ segment: "комфорт", unit: "шт", status: "active", stock: 0, cost: 0, price: 0 })}>+ Товар</button>
+        <button className="btn pri" onClick={() => setEdit({ unit: "шт", status: "active", stock: 0, cost: 0, price: 0 })}>+ Товар</button>
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
-          <thead><tr><th style={{width:28}}><input type="checkbox" checked={allSel} onChange={toggleAll} title="Выбрать все отфильтрованные" /></th><th>Код</th><th>Бренд</th><th>Поставщик</th><th>Наименование</th><th>Размер/Ø</th><th>Ед.изм</th><th style={{textAlign:"right"}}>Себестоимость</th><th style={{textAlign:"right"}}>Розничная</th><th>Сегмент</th><th></th></tr></thead>
+          <thead><tr><th style={{width:28}}><input type="checkbox" checked={allSel} onChange={toggleAll} title="Выбрать все отфильтрованные" /></th><th>Код</th><th>Бренд</th><th>Поставщик</th><th>Наименование</th><th>Размер/Ø</th><th>Ед.изм</th><th style={{textAlign:"right"}}>Себестоимость</th><th style={{textAlign:"right"}}>Розничная</th><th></th></tr></thead>
           <tbody>
             {list.map((p) => (
               <tr key={p.id} style={{ opacity: p.status === "archive" ? 0.45 : 1, background: sel.includes(p.id) ? "rgba(255,31,48,.07)" : "none" }}>
@@ -410,11 +410,10 @@ function ProductsTab({ data, reload, toast }) {
                 <td className="sm">{p.unit}</td>
                 <td className="num">{fmt2(p.cost)}</td>
                 <td className="num">{fmt2(p.price)}</td>
-                <td><Badge c="#ffffff">{p.segment}</Badge></td>
                 <td><button className="btn xs" onClick={() => setEdit(p)}>ред.</button></td>
               </tr>
             ))}
-            {!list.length && <tr><td colSpan={11} className="mut" style={{ textAlign: "center", padding: 26 }}>Ничего не найдено</td></tr>}
+            {!list.length && <tr><td colSpan={10} className="mut" style={{ textAlign: "center", padding: 26 }}>Ничего не найдено</td></tr>}
           </tbody>
         </table>
       </div>
@@ -451,7 +450,6 @@ function ProductForm({ p, suppliers, onClose, onSave }) {
         <div style={{ gridColumn: "1/-1" }}><Fld label="Альтернативные названия (для AI-поиска)"><input className="inp" value={v.alt_names || ""} onChange={set("alt_names")} placeholder="через запятую: батарея, радиатор…" /></Fld></div>
         <Fld label="Размер"><input className="inp" value={v.size || ""} onChange={set("size")} /></Fld>
         <Fld label="Ед. изм."><input className="inp" value={v.unit || ""} onChange={set("unit")} /></Fld>
-        <Fld label="Сегмент"><select className="inp" value={v.segment} onChange={set("segment")}>{SEGMENTS.map((s) => <option key={s}>{s}</option>)}</select></Fld>
         <Fld label="Поставщик"><select className="inp" value={v.supplier_id || ""} onChange={set("supplier_id")}><option value="">—</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>
         <Fld label="Закупочная цена"><input type="number" className="inp" value={v.cost || 0} onChange={setN("cost")} /></Fld>
         <Fld label="Цена продажи"><input type="number" className="inp" value={v.price || 0} onChange={setN("price")} /></Fld>
@@ -728,11 +726,11 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
     <div>
       <div className="row sect">
         <h2 style={{ marginRight: "auto" }}>Поставщики</h2>
-        <button className="btn pri" onClick={() => setEdit({ status: "active", segment: "комфорт", currency: "сум" })}>+ Поставщик</button>
+        <button className="btn pri" onClick={() => setEdit({ status: "active", currency: "сум" })}>+ Поставщик</button>
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
-          <thead><tr><th>Поставщик</th><th>Контакт</th><th>Сегмент</th><th>Условия</th><th style={{textAlign:"right"}}>Закупки</th><th style={{textAlign:"right"}}>Оплачено</th><th style={{textAlign:"right"}}>Возвраты</th><th style={{textAlign:"right"}}>Долг</th><th style={{textAlign:"right"}}>Товаров</th><th></th></tr></thead>
+          <thead><tr><th>Поставщик</th><th>Контакт</th><th>Условия</th><th style={{textAlign:"right"}}>Закупки</th><th style={{textAlign:"right"}}>Оплачено</th><th style={{textAlign:"right"}}>Возвраты</th><th style={{textAlign:"right"}}>Долг</th><th style={{textAlign:"right"}}>Товаров</th><th></th></tr></thead>
           <tbody>
             {suppliers.map((s) => {
               const st = supplierStats(s, objects, finance_ops);
@@ -741,7 +739,6 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
                 <tr key={s.id}>
                   <td style={{ fontWeight: 700 }}>{s.name}</td>
                   <td className="sm">{s.contact}<div className="xs mut mono">{s.phone}</div></td>
-                  <td><Badge c="#ffffff">{s.segment}</Badge></td>
                   <td className="sm mut">{s.terms}</td>
                   <td className="num">{fmt(st.purchases)}</td>
                   <td className="num" style={{ color: "var(--ok)" }}>{fmt(st.paid)}</td>
@@ -872,7 +869,7 @@ function SupplierPayModal({ s, objects, ops, onClose, onSave, onEditPay, onVoidP
   );
 }
 function SupplierForm({ s, onSave }) {
-  const [v, setV] = useState({ segment: "комфорт", status: "active", terms: "", contact: "", phone: "", note: "", ...s });
+  const [v, setV] = useState({ status: "active", terms: "", contact: "", phone: "", note: "", ...s });
   const set = (k) => (e) => setV({ ...v, [k]: e.target.value });
   return (
     <div>
@@ -880,7 +877,6 @@ function SupplierForm({ s, onSave }) {
         <Fld label="Название"><input className="inp" value={v.name || ""} onChange={set("name")} /></Fld>
         <Fld label="Контактное лицо"><input className="inp" value={v.contact || ""} onChange={set("contact")} /></Fld>
         <Fld label="Телефон"><input className="inp" value={v.phone || ""} onChange={set("phone")} /></Fld>
-        <Fld label="Сегмент"><select className="inp" value={v.segment || "комфорт"} onChange={set("segment")}>{SEGMENTS.map((x) => <option key={x}>{x}</option>)}</select></Fld>
         <Fld label="Условия оплаты"><input className="inp" value={v.terms || ""} onChange={set("terms")} /></Fld>
         <Fld label="Статус"><select className="inp" value={v.status || "active"} onChange={set("status")}><option value="active">активен</option><option value="inactive">неактивен</option></select></Fld>
         <Fld label="Примечание" style={{ gridColumn: "span 2" }}><input className="inp" value={v.note || ""} onChange={set("note")} /></Fld>
@@ -898,7 +894,7 @@ function RequestWizard({ data, reload, toast, openObject }) {
   const { products, suppliers, objects, masters } = data;
   const [step, setStep] = useState(() => { try { return JSON.parse(localStorage.getItem(WZ_KEY) || "{}").step || 0; } catch { return 0; } });
   const [objId, setObjId] = useState(() => { try { return JSON.parse(localStorage.getItem(WZ_KEY) || "{}").objId || ""; } catch { return ""; } });
-  const [newObj, setNewObj] = useState(() => { try { return JSON.parse(localStorage.getItem(WZ_KEY) || "{}").newObj || { name: "", client: "", phone: "", master: "", master_id: "", manager: "", address: "", segment: "комфорт" }; } catch { return { name: "", client: "", phone: "", master: "", master_id: "", manager: "", address: "", segment: "комфорт" }; } });
+  const [newObj, setNewObj] = useState(() => { try { return JSON.parse(localStorage.getItem(WZ_KEY) || "{}").newObj || { name: "", client: "", phone: "", master: "", master_id: "", manager: "", address: "" }; } catch { return { name: "", client: "", phone: "", master: "", master_id: "", manager: "", address: "" }; } });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [lines, setLines] = useState(() => { try { return JSON.parse(localStorage.getItem(WZ_KEY) || "{}").lines || []; } catch { return []; } });
@@ -920,7 +916,6 @@ function RequestWizard({ data, reload, toast, openObject }) {
 
   const activeObjects = objects.filter((o) => !["closed", "cancelled"].includes(o.status));
   const selObj = objects.find((o) => o.id === objId);
-  const segment = selObj ? selObj.segment : newObj.segment;
   const prodById = (id) => products.find((p) => p.id === id);
   const categories = useMemo(() => [...new Set(products.map((p) => p.category).filter(Boolean))].sort(), [products]);
 
@@ -993,12 +988,14 @@ function RequestWizard({ data, reload, toast, openObject }) {
       });
       await db.from("objects").update({ items: [...(obj.items || []), ...items] }).eq("id", obj.id);
       await db.from("requests").insert(cleanUuids({
-        object_id: obj.id, segment, mode: "manual", source: "manual",
+        object_id: obj.id, mode: "manual", source: "manual",
         lines: lines.map((l) => ({ source: l.name, ai_product_id: null, final_product_id: l.product_id, confidence: 100, corrected: false })),
       }));
       await logAction("Заявка сохранена", "object:" + obj.name, "поставка №" + batchNo + ", позиций: " + items.length);
       toast("Поставка №" + batchNo + " сохранена: " + items.length + " поз. → «" + obj.name + "»");
       setStep(0); setLines([]); setObjId(""); setMarkupModal(false);
+      setNewObj({ name: "", client: "", phone: "", master: "", master_id: "", manager: "", address: "" });
+      setCatF("");
       clearDraft();
       await reload();
       openObject(obj.id);
@@ -1023,7 +1020,7 @@ function RequestWizard({ data, reload, toast, openObject }) {
     <div>
       <h2>Новая заявка</h2>
       <div className="steps">
-        {["Объект и сегмент", "Подбор товаров"].map((s, i) => (
+        {["Объект", "Подбор товаров"].map((s, i) => (
           <div key={i} className={"step " + (i === step ? "on" : i < step ? "done" : "")}>{i + 1}. {s}</div>
         ))}
       </div>
@@ -1073,7 +1070,6 @@ function RequestWizard({ data, reload, toast, openObject }) {
                 </div>
                 <Fld label="Менеджер"><input className="inp" value={newObj.manager} onChange={(e) => setNewObj({ ...newObj, manager: e.target.value })} /></Fld>
                 <Fld label="Адрес"><input className="inp" value={newObj.address} onChange={(e) => setNewObj({ ...newObj, address: e.target.value })} /></Fld>
-                <Fld label="Сегмент"><select className="inp" value={newObj.segment} onChange={(e) => setNewObj({ ...newObj, segment: e.target.value })}>{SEGMENTS.map((s) => <option key={s}>{s}</option>)}</select></Fld>
               </div>
             )}
           </div>
@@ -1235,7 +1231,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
-          <thead><tr><th>Объект</th><th>Клиент</th><th>Мастер</th><th>Сегмент</th><th>Статус</th><th style={{textAlign:"right"}}>Сумма товара</th>{fin && <th style={{textAlign:"right"}}>Прибыль</th>}<th style={{textAlign:"right"}}>Долг клиента</th><th>Дата</th><th></th></tr></thead>
+          <thead><tr><th>Объект</th><th>Клиент</th><th>Мастер</th><th>Статус</th><th style={{textAlign:"right"}}>Сумма товара</th>{fin && <th style={{textAlign:"right"}}>Прибыль</th>}<th style={{textAlign:"right"}}>Долг клиента</th><th>Дата</th><th></th></tr></thead>
           <tbody>
             {objects.map((o) => {
               const f = calcObject(o, finance_ops);
@@ -1245,17 +1241,16 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
                   <td style={{ fontWeight: 700 }}>{o.name}<div className="xs mut">{o.address}</div></td>
                   <td className="sm">{o.client}</td>
                   <td className="sm">{o.master}</td>
-                  <td><Badge c="#ffffff">{o.segment}</Badge></td>
                   <td><Badge c={st.c}>{st.label}</Badge></td>
                   <td className="num">{fmt(f.saleNet)}</td>
                   {fin && <td className="num" style={{ color: f.net >= 0 ? "var(--ok)" : "var(--bad)" }}>{fmt(f.net)}</td>}
-                  <td className="num" style={{ color: f.clientDebt > 0 ? "var(--bad)" : "var(--mut)" }}>{fmt(f.clientDebt)}</td>
+                  <td className="num" style={{ color: f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--ok)" : "var(--mut)" }}>{f.clientDebt < 0 ? "−" + fmt(Math.abs(f.clientDebt)) : fmt(f.clientDebt)}</td>
                   <td className="xs mut mono">{dt(o.created_at)}</td>
                   <td><button className="btn xs dng" onClick={(e) => { e.stopPropagation(); setDelObj(o); }}>✕</button></td>
                 </tr>
               );
             })}
-            {!objects.length && <tr><td colSpan={fin ? 10 : 9} className="mut" style={{ textAlign: "center", padding: 30 }}>Объектов пока нет — создайте через «Новая заявка»</td></tr>}
+            {!objects.length && <tr><td colSpan={fin ? 9 : 8} className="mut" style={{ textAlign: "center", padding: 30 }}>Объектов пока нет — создайте через «Новая заявка»</td></tr>}
           </tbody>
         </table>
       </div>
@@ -1401,7 +1396,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
         <div style={{ marginRight: "auto" }}>
           <h2>{obj.name}</h2>
           <div className="sm mut">
-            {obj.client} · {obj.phone} · менеджер: {obj.manager || "—"} · <Badge c="#ffffff">{obj.segment}</Badge> · мастер:{" "}
+            {obj.client} · {obj.phone} · менеджер: {obj.manager || "—"} · мастер:{" "}
             <select className="inp" style={{ display: "inline-block", width: "auto", padding: "2px 6px", fontSize: 12 }} value={obj.master_id || ""}
               onChange={async (e) => { const m = masters.find((x) => x.id === e.target.value); await db.from("objects").update({ master_id: e.target.value || null, master: m ? m.name : obj.master }).eq("id", obj.id); await reload(); }}>
               <option value="">{obj.master && !obj.master_id ? obj.master + " (без привязки)" : "—"}</option>
