@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useDeferredValue, memo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useRef, useDeferredValue, memo, useCallback, createContext, useContext } from "react";
 import * as XLSX from "xlsx";
 import * as dbModule from "./db.js";
 const db = dbModule.db;
@@ -18,6 +18,7 @@ const OBJ_STATUSES = [
   { id: "partial", label: "Частично оплачено", c: "#ff707b" },
   { id: "paid", label: "Оплачено", c: "#3ddc7d" },
   { id: "shipped", label: "Отгружено", c: "#d6d6d6" },
+  { id: "settled", label: "Рассчитано", c: "#4db8ff" },
   { id: "closed", label: "Закрыто", c: "#3ddc7d" },
   { id: "cancelled", label: "Отменено", c: "#ff4d5e" },
 ];
@@ -357,42 +358,133 @@ function Modal({ title, onClose, children, w = 640 }) {
     </div>
   );
 }
+/* ============ ЛЮДИ (менеджеры / ответственные) ============
+   Список собирается из того, что уже есть в базе: аккаунты, менеджеры объектов, ответственные в операциях.
+   «+ добавить нового…» — новое имя сразу выбирается и сохраняется вместе с записью, после чего оно
+   появляется в списке у всех. Отдельная таблица в базе не нужна. */
+const PeopleCtx = createContext({ people: [], addPerson: () => {} });
+const curUserName = () => (CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username || "") : "");
+function PersonSelect({ value, onChange, placeholder = "—", compact = false }) {
+  const { people, addPerson } = useContext(PeopleCtx);
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const opts = value && !people.includes(value) ? [value, ...people] : people;
+  const cancel = () => { setAdding(false); setName(""); };
+  const save = () => { const n = name.trim().replace(/\s+/g, " "); if (!n) return; addPerson(n); onChange(n); cancel(); };
+  const small = { display: "inline-block", width: "auto", padding: "2px 6px", fontSize: 12 };
+  if (adding && compact) return (
+    <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+      <input className="inp" style={{ ...small, width: 150 }} autoFocus placeholder="Имя и фамилия" value={name} onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } else if (e.key === "Escape") cancel(); }} />
+      <button className="btn xs pri" disabled={!name.trim()} onClick={save}>OK</button>
+      <button className="btn xs" onClick={cancel}>✕</button>
+    </span>
+  );
+  if (adding) return (
+    <div className="card" style={{ padding: 8 }}>
+      <input className="inp" autoFocus placeholder="Имя и фамилия" value={name} onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); save(); } else if (e.key === "Escape") { e.stopPropagation(); cancel(); } }} />
+      <div className="row" style={{ marginTop: 6, justifyContent: "flex-end", gap: 6 }}>
+        <button className="btn xs" onClick={cancel}>Отмена</button>
+        <button className="btn xs pri" disabled={!name.trim()} onClick={save}>Добавить</button>
+      </div>
+    </div>
+  );
+  return (
+    <select className="inp" style={compact ? small : undefined} value={value || ""} onChange={(e) => { if (e.target.value === "__add__") setAdding(true); else onChange(e.target.value); }}>
+      <option value="">{placeholder}</option>
+      {opts.map((p) => <option key={p} value={p}>{p}</option>)}
+      <option value="__add__">+ добавить нового…</option>
+    </select>
+  );
+}
+
+/* Подтверждение отмены: введённые позиции не сохранятся */
+function DiscardConfirm({ text, onStay, onDiscard }) {
+  return (
+    <div className="modal-bg" style={{ zIndex: 200 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onStay(); }}>
+      <div className="modal" style={{ maxWidth: 420, marginTop: "18vh" }}>
+        <h3 style={{ marginBottom: 10 }}>Отменить добавление товаров?</h3>
+        <p className="sm mut">{text}</p>
+        <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
+          <button className="btn" autoFocus onClick={onStay}>Нет, продолжить</button>
+          <button className="btn dng" onClick={onDiscard}>Да, отменить</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 function ProductPicker({ products, onPick, placeholder }) {
+  // показываем ВСЕ найденные товары (без лимита). Список прокручивается, рисуются только видимые строки.
+  // Поиск по словам: «труба 25» найдёт «ХВС ТРУБА PN16 - 25» (все слова, в любом порядке).
+  const ROW = 50, BOX_H = 380;
   const [q, setQ] = useState("");
   const [activeIdx, setActiveIdx] = useState(-1);
+  const [top, setTop] = useState(0);
   const listRef = useRef(null);
+  const idx = useMemo(() => products.map((p) => (p.name + " " + (p.alt_names || "") + " " + (p.code || "")).toLowerCase()), [products]);
   const hits = useMemo(() => {
-    if (q.length < 2) return [];
-    const s = q.toLowerCase();
-    return products.filter((p) => p.status !== "archive" && (p.name + " " + (p.alt_names || "") + " " + p.code).toLowerCase().includes(s)).slice(0, 8);
-  }, [q, products]);
-  useEffect(() => {
-    if (activeIdx >= 0 && listRef.current) {
-      listRef.current.children[activeIdx]?.scrollIntoView({ block: "nearest" });
+    const words = q.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    if (q.trim().length < 2) return [];
+    const out = [];
+    for (let i = 0; i < products.length; i++) {
+      const p = products[i];
+      if (p.status === "archive") continue;
+      const s = idx[i];
+      if (words.every((w) => s.includes(w))) out.push(p);
     }
+    return out;
+  }, [q, products, idx]);
+  useEffect(() => { setTop(0); if (listRef.current) listRef.current.scrollTop = 0; }, [q]);
+  // при навигации стрелками держим активную строку в видимой области
+  useEffect(() => {
+    const el = listRef.current;
+    if (activeIdx < 0 || !el) return;
+    const y = activeIdx * ROW;
+    if (y < el.scrollTop) el.scrollTop = y;
+    else if (y + ROW > el.scrollTop + el.clientHeight) el.scrollTop = y + ROW - el.clientHeight;
   }, [activeIdx]);
   const pick = (p) => { onPick(p); setQ(""); setActiveIdx(-1); };
   const onKeyDown = (e) => {
     if (!hits.length) return;
     if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, hits.length - 1)); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, 0)); }
+    else if (e.key === "PageDown") { e.preventDefault(); setActiveIdx((i) => Math.min(i + 7, hits.length - 1)); }
+    else if (e.key === "PageUp") { e.preventDefault(); setActiveIdx((i) => Math.max(i - 7, 0)); }
     else if (e.key === "Enter" && activeIdx >= 0) { e.preventDefault(); pick(hits[activeIdx]); }
     else if (e.key === "Escape") { setQ(""); setActiveIdx(-1); }
   };
+  const start = Math.max(0, Math.floor(top / ROW) - 8);
+  const end = Math.min(hits.length, Math.ceil((top + BOX_H) / ROW) + 8);
+  const noHits = q.trim().length >= 2 && !hits.length;
   return (
-    <div style={{ position: "relative", minWidth: 220, flex: 1, zIndex: hits.length ? 999 : "auto" }}>
+    <div style={{ position: "relative", minWidth: 220, flex: 1, zIndex: hits.length || noHits ? 999 : "auto" }}>
       <input className="inp" placeholder={placeholder || "Поиск товара для добавления…"} value={q}
         onChange={(e) => { setQ(e.target.value); setActiveIdx(-1); }}
         onKeyDown={onKeyDown} />
-      {hits.length > 0 && (
-        <div ref={listRef} style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, maxHeight: 260, overflow: "auto", boxShadow: "0 16px 44px rgba(0,0,0,.18), 0 0 0 1px rgba(255,31,48,.15)", isolation: "isolate" }}>
-          {hits.map((p, idx) => (
-            <div key={p.id} className="clk pick-row" style={{ padding: "9px 11px", borderBottom: "1px solid var(--line)", backgroundColor: idx === activeIdx ? "rgba(255,31,48,.08)" : "var(--panel)" }}
-              onClick={() => pick(p)}>
-              <div style={{ fontWeight: 600, fontSize: 13, color: "var(--txt)" }}>{p.name}</div>
-              <div className="xs mono" style={{ color: "var(--mut)" }}>{p.size} · {money(p.price)} · ост. {p.stock}</div>
+      {(hits.length > 0 || noHits) && (
+        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, boxShadow: "0 16px 44px rgba(0,0,0,.18), 0 0 0 1px rgba(255,31,48,.15)", isolation: "isolate", overflow: "hidden" }}>
+          <div className="xs mut" style={{ padding: "6px 11px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between" }}>
+            <span>{noHits ? "Ничего не найдено" : "Найдено: " + hits.length}</span>
+            {hits.length > 1 && <span>↑↓ выбор · Enter добавить</span>}
+          </div>
+          {hits.length > 0 && (
+            <div ref={listRef} onScroll={(e) => setTop(e.currentTarget.scrollTop)} style={{ maxHeight: BOX_H, overflow: "auto" }}>
+              <div style={{ height: hits.length * ROW, position: "relative" }}>
+                {hits.slice(start, end).map((p, k) => {
+                  const i = start + k;
+                  return (
+                    <div key={p.id} className="clk pick-row" title={p.name}
+                      style={{ position: "absolute", top: i * ROW, left: 0, right: 0, height: ROW, boxSizing: "border-box", padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === activeIdx ? "rgba(255,31,48,.08)" : "var(--panel)", overflow: "hidden" }}
+                      onClick={() => pick(p)}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: "var(--txt)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, p.size].filter(Boolean).join(" · ")} · {money(p.price)} · ост. {p.stock}</div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>
@@ -769,6 +861,52 @@ function AktSverkaModal({ s, objects, ops, products, onClose }) {
   const totalReturns = returns.reduce((a, o) => a + (o.cost_amount || 0), 0);
   const totalPaid = payments.reduce((a, o) => a + (o.amount || 0), 0);
   const debt = Math.max(0, totalReceived - totalReturns - totalPaid);
+  // группировка полученных товаров: объект + номер поставки
+  const batches = useMemo(() => {
+    const m = new Map();
+    received.forEach((it) => {
+      const no = it.batch_no || 1;
+      const key = it.obj_id + "#" + no;
+      if (!m.has(key)) m.set(key, { key, obj_name: it.obj_name, no, date: it.date, items: [], sum: 0 });
+      const g = m.get(key);
+      g.items.push(it); g.sum += (it.qty || 0) * (it.cost || 0);
+      if (it.date && (!g.date || it.date < g.date)) g.date = it.date;
+    });
+    return [...m.values()].sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || a.obj_name.localeCompare(b.obj_name) || a.no - b.no);
+  }, [objects, s.id]);
+  // группировка возвратов по тем же поставкам: возврат с объекта хранит item_id → у позиции есть номер поставки
+  const retGroups = useMemo(() => {
+    const itemIdx = {};
+    objects.forEach((ob) => (ob.items || []).forEach((it) => { itemIdx[it.id] = { ob, it }; }));
+    const m = new Map();
+    returns.forEach((o) => {
+      let key, label, date, obName = "", no = null;
+      let hit = o.item_id && itemIdx[o.item_id];
+      if (!hit && o.object_id) {
+        const ob = objects.find((x) => x.id === o.object_id);
+        const it = ob && (ob.items || []).find((i) => i.product_id && i.product_id === o.product_id && i.supplier_id === s.id);
+        if (it) hit = { ob, it };
+        else if (ob) { key = ob.id + "#?"; obName = ob.name; label = ob.name + " · поставка не указана"; }
+      }
+      if (hit) {
+        no = hit.it.batch_no || 1; obName = hit.ob.name;
+        key = hit.ob.id + "#" + no; label = hit.ob.name + " · Поставка №" + no;
+        date = hit.it.batch_date || hit.ob.created_at;
+      }
+      if (!key) { key = "wh"; label = "Со склада Thermo (возврат поставщику)"; }
+      if (!m.has(key)) m.set(key, { key, label, obName, no, date, ops: [], sum: 0 });
+      const g = m.get(key);
+      g.ops.push(o); g.sum += o.cost_amount || 0;
+      const d = o.op_date || o.created_at;
+      if (!g.date || (g.no == null && d && d < g.date)) g.date = d;
+    });
+    return [...m.values()].sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || a.label.localeCompare(b.label));
+  }, [objects, ops, s.id]);
+  const retByKey = useMemo(() => { const r = {}; retGroups.forEach((g) => { r[g.key] = g.sum; }); return r; }, [retGroups]);
+  const [closed, setClosed] = useState({});
+  const [rClosed, setRClosed] = useState({});
+  const allClosed = batches.length > 0 && batches.every((g) => closed[g.key]);
+  const toggleAll = () => { const n = {}; if (!allClosed) batches.forEach((g) => { n[g.key] = true; }); setClosed(n); };
   return (
     <Modal title={"Акт-сверка: " + s.name} onClose={onClose} w={860}>
       <div className="kpis" style={{ marginBottom: 16 }}>
@@ -778,20 +916,73 @@ function AktSverkaModal({ s, objects, ops, products, onClose }) {
         <div className="kpi"><div className="l">Долг</div><div className="v" style={{ color: debt > 0 ? "var(--bad)" : "var(--mut)" }}>{fmt(debt)}</div></div>
       </div>
       <details open>
-        <summary className="sm" style={{ cursor: "pointer", fontWeight: 700, marginBottom: 8 }}>Полученные товары ({received.length})</summary>
-        <div style={{ overflow: "auto", maxHeight: 260 }}>
-          <table className="t"><thead><tr><th>Объект</th><th>Товар</th><th>Кол-во</th><th>Ед.</th><th style={{textAlign:"right"}}>Себест.</th><th style={{textAlign:"right"}}>Сумма</th><th>Дата</th></tr></thead>
-            <tbody>{received.map((it, i) => <tr key={i}><td className="sm">{it.obj_name}</td><td className="sm">{it.name}<div className="xs mut">{it.size}</div></td><td className="num">{it.qty}</td><td className="xs mut">{it.unit}</td><td className="num">{fmt(it.cost)}</td><td className="num" style={{fontWeight:700}}>{fmt((it.qty||0)*(it.cost||0))}</td><td className="xs mono mut">{dt(it.date)}</td></tr>)}
-            {!received.length && <tr><td colSpan={7} className="mut sm" style={{padding:14}}>Нет поступлений</td></tr>}</tbody>
+        <summary className="sm" style={{ cursor: "pointer", fontWeight: 700, marginBottom: 8 }}>
+          Полученные товары по поставкам ({batches.length} {batches.length === 1 ? "поставка" : batches.length > 1 && batches.length < 5 ? "поставки" : "поставок"}, {received.length} поз.)
+          {batches.length > 1 && <button className="btn xs" style={{ marginLeft: 10 }} onClick={(e) => { e.preventDefault(); toggleAll(); }}>{allClosed ? "Развернуть все" : "Свернуть все"}</button>}
+        </summary>
+        <div style={{ overflow: "auto", maxHeight: 440 }}>
+          <table className="t"><thead><tr><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"right"}}>Себест.</th><th style={{textAlign:"right"}}>Сумма</th></tr></thead>
+            <tbody>
+              {batches.map((g) => (
+                <React.Fragment key={g.key}>
+                  <tr className="clk" onClick={() => setClosed((c) => ({ ...c, [g.key]: !c[g.key] }))} style={{ background: "rgba(255,31,48,.06)" }}>
+                    <td colSpan={4} style={{ fontWeight: 700 }}>
+                      <span className="mut" style={{ display: "inline-block", width: 14 }}>{closed[g.key] ? "▸" : "▾"}</span>
+                      🚚 {g.obj_name} · Поставка №{g.no} · <span className="mono">{dt(g.date)}</span>
+                      <span className="xs mut" style={{ fontWeight: 400 }}> · позиций: {g.items.length}</span>
+                      {retByKey[g.key] > 0 && <span className="xs" style={{ fontWeight: 600, color: "var(--warn)" }}> · возврат −{fmt(retByKey[g.key])}</span>}
+                    </td>
+                    <td className="num" style={{ fontWeight: 800 }}>{fmt(g.sum)}</td>
+                  </tr>
+                  {!closed[g.key] && g.items.map((it, i) => (
+                    <tr key={g.key + i}>
+                      <td className="sm" style={{ paddingLeft: 28 }}>{it.name}{it.size && <div className="xs mut">{it.size}</div>}</td>
+                      <td className="num">{it.qty}</td>
+                      <td className="xs mut">{it.unit}</td>
+                      <td className="num">{fmt(it.cost)}</td>
+                      <td className="num">{fmt((it.qty || 0) * (it.cost || 0))}</td>
+                    </tr>
+                  ))}
+                </React.Fragment>
+              ))}
+              {!received.length && <tr><td colSpan={5} className="mut sm" style={{padding:14}}>Нет поступлений</td></tr>}
+              {received.length > 0 && <tr><td colSpan={4} style={{ fontWeight: 800, textAlign: "right" }}>Итого получено:</td><td className="num" style={{ fontWeight: 800 }}>{fmt(totalReceived)}</td></tr>}
+            </tbody>
           </table>
         </div>
       </details>
       <details style={{ marginTop: 12 }}>
-        <summary className="sm" style={{ cursor: "pointer", fontWeight: 700, marginBottom: 8 }}>Возвраты ({returns.length})</summary>
-        <table className="t"><thead><tr><th>Дата</th><th>Товар</th><th>Кол-во</th><th style={{textAlign:"right"}}>Сумма</th><th>Примечание</th></tr></thead>
-          <tbody>{returns.map((o) => <tr key={o.id}><td className="xs mono mut">{dt(o.op_date||o.created_at)}</td><td className="sm">{o.product_name || "—"}</td><td className="num">{o.qty||"—"}</td><td className="num" style={{color:"var(--warn)"}}>{fmt(o.cost_amount||0)}</td><td className="xs mut">{o.note}</td></tr>)}
-          {!returns.length && <tr><td colSpan={5} className="mut sm" style={{padding:14}}>Нет возвратов</td></tr>}</tbody>
+        <summary className="sm" style={{ cursor: "pointer", fontWeight: 700, marginBottom: 8 }}>Возвраты по поставкам ({returns.length})</summary>
+        <div style={{ overflow: "auto", maxHeight: 360 }}>
+        <table className="t"><thead><tr><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th style={{textAlign:"right"}}>Сумма (себест.)</th><th>Дата возврата</th><th>Причина</th></tr></thead>
+          <tbody>
+            {retGroups.map((g) => (
+              <React.Fragment key={g.key}>
+                <tr className="clk" onClick={() => setRClosed((c) => ({ ...c, [g.key]: !c[g.key] }))} style={{ background: "rgba(255,176,32,.09)" }}>
+                  <td colSpan={2} style={{ fontWeight: 700 }}>
+                    <span className="mut" style={{ display: "inline-block", width: 14 }}>{rClosed[g.key] ? "▸" : "▾"}</span>
+                    ↩ {g.label}{g.no != null && g.date ? <> · <span className="mono">{dt(g.date)}</span></> : null}
+                    <span className="xs mut" style={{ fontWeight: 400 }}> · позиций: {g.ops.length}</span>
+                  </td>
+                  <td className="num" style={{ fontWeight: 800, color: "var(--warn)" }}>−{fmt(g.sum)}</td>
+                  <td colSpan={2}></td>
+                </tr>
+                {!rClosed[g.key] && g.ops.map((o) => (
+                  <tr key={o.id}>
+                    <td className="sm" style={{ paddingLeft: 28 }}>{o.product_name || "—"}{o.size && <div className="xs mut">{o.size}</div>}</td>
+                    <td className="num">{o.qty || "—"}{o.unit ? <span className="xs mut"> {o.unit}</span> : null}</td>
+                    <td className="num" style={{ color: "var(--warn)" }}>{fmt(o.cost_amount || 0)}</td>
+                    <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
+                    <td className="xs mut">{[o.reason, o.note].filter(Boolean).join(" · ")}</td>
+                  </tr>
+                ))}
+              </React.Fragment>
+            ))}
+            {!returns.length && <tr><td colSpan={5} className="mut sm" style={{padding:14}}>Нет возвратов</td></tr>}
+            {returns.length > 0 && <tr><td colSpan={2} style={{ fontWeight: 800, textAlign: "right" }}>Итого возвраты:</td><td className="num" style={{ fontWeight: 800, color: "var(--warn)" }}>−{fmt(totalReturns)}</td><td colSpan={2}></td></tr>}
+          </tbody>
         </table>
+        </div>
       </details>
       <details style={{ marginTop: 12 }}>
         <summary className="sm" style={{ cursor: "pointer", fontWeight: 700, marginBottom: 8 }}>Платежи ({payments.length})</summary>
@@ -909,7 +1100,7 @@ function SupplierPayModal({ s, objects, ops, onClose, onSave, onEditPay, onVoidP
         <Fld label="Сумма оплаты"><input type="number" className="inp" value={amount} onChange={(e) => setAmount(Number(e.target.value) || 0)} /></Fld>
         <Fld label="Дата оплаты"><input type="date" className="inp" value={opDate} onChange={(e) => setOpDate(e.target.value)} /></Fld>
         <Fld label="Комментарий"><input className="inp" value={note} onChange={(e) => setNote(e.target.value)} placeholder="часть / аванс / закрытие…" /></Fld>
-        <Fld label="Кто оплатил"><input className="inp" value={user} onChange={(e) => setUser(e.target.value)} /></Fld>
+        <Fld label="Кто оплатил"><PersonSelect value={user} onChange={setUser} /></Fld>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
         <button className="btn xs" onClick={() => setAmount(st.debt)}>= весь долг</button>
@@ -1092,6 +1283,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   const [markupModal, setMarkupModal] = useState(false);
   const [markup, setMarkup] = useState(15);
   const [markupCustom, setMarkupCustom] = useState("");
+  const [saveStatus, setSaveStatus] = useState("");
   // добавление нового мастера прямо тут
   const [addingMaster, setAddingMaster] = useState(false);
   const [newMasterName, setNewMasterName] = useState("");
@@ -1117,7 +1309,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
     });
   };
   const addManualLine = () => {
-    setLines((prev) => [...prev, { id: uuid(), product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: 0, manual: true }]);
+    setLines((prev) => [...prev, { id: uuid(), product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: 0, supplier_id: null, manual: true }]);
   };
   const setLine = (id, patch) => setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const confirmRemoveLine = () => { if (delLine) { setLines((prev) => prev.filter((l) => l.id !== delLine)); setDelLine(null); } };
@@ -1148,7 +1340,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
     try {
       let obj = selObj;
       if (!obj) {
-        const objData = cleanUuids({ ...newObj, status: "draft", items: [] });
+        const objData = cleanUuids({ ...newObj, status: saveStatus || "draft", items: [] });
         const { data: ins, error: insErr } = await db.from("objects").insert(objData);
         if (insErr) throw new Error("Ошибка создания объекта: " + insErr.message);
         if (ins && ins[0]) {
@@ -1166,12 +1358,14 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
         const cost = p ? p.cost : (Number(l.cost) || 0);
         return {
           id: uuid(), product_id: p ? p.id : null, name: p ? p.name : l.name, size: p ? p.size : l.size, unit: p ? p.unit : l.unit,
-          qty: l.qty, price: l.manualPrice != null ? l.manualPrice : Math.round(cost * saleK * 100) / 100, cost, supplier_id: p ? p.supplier_id : null,
+          qty: l.qty, price: l.manualPrice != null ? l.manualPrice : Math.round(cost * saleK * 100) / 100, cost, supplier_id: p ? p.supplier_id : (l.supplier_id || null),
           source_text: p ? p.name : l.name, confidence: 100,
           batch_no: batchNo, batch_date: today(),
         };
       });
-      await db.from("objects").update({ items: [...(obj.items || []), ...items] }).eq("id", obj.id);
+      const patch = { items: [...(obj.items || []), ...items] };
+      if (saveStatus && saveStatus !== obj.status) patch.status = saveStatus;
+      await db.from("objects").update(patch).eq("id", obj.id);
       await db.from("requests").insert(cleanUuids({
         object_id: obj.id, mode: "manual", source: "manual",
         lines: lines.map((l) => ({ source: l.name, ai_product_id: null, final_product_id: l.product_id, confidence: 100, corrected: false })),
@@ -1193,6 +1387,8 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
     const incomplete = lines.find((l) => !l.product_id && (!l.name || !l.name.trim()));
     if (incomplete) { setErr("Заполните название для всех ручных позиций"); return; }
     setErr("");
+    // статус спрашиваем при каждом сохранении: у нового объекта — выбрать обязательно, у существующего — текущий по умолчанию
+    setSaveStatus(selObj ? (selObj.status || "draft") : "");
     setMarkupModal(true);
   };
 
@@ -1251,7 +1447,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                     </div>
                   )}
                 </div>
-                <Fld label="Менеджер"><input className="inp" value={newObj.manager} onChange={(e) => setNewObj({ ...newObj, manager: e.target.value })} /></Fld>
+                <Fld label="Менеджер"><PersonSelect value={newObj.manager} onChange={(m) => setNewObj({ ...newObj, manager: m })} /></Fld>
                 <Fld label="Адрес"><input className="inp" value={newObj.address} onChange={(e) => setNewObj({ ...newObj, address: e.target.value })} /></Fld>
               </div>
             )}
@@ -1297,6 +1493,10 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                                 <input className="inp" style={{ width: 90 }} placeholder="размер" value={l.size} onChange={(e) => setLine(l.id, { size: e.target.value })} />
                                 <input type="number" className="inp" style={{ width: 100 }} placeholder="себестоимость" value={l.cost} onChange={(e) => setLine(l.id, { cost: Number(e.target.value) || 0 })} />
                               </div>
+                              <select className="inp" style={{ marginTop: 4 }} value={l.supplier_id || ""} onChange={(e) => setLine(l.id, { supplier_id: e.target.value || null })} title="Поставщик">
+                                <option value="">— поставщик —</option>
+                                {suppliers.filter((s) => s.status !== "inactive" || s.id === l.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                              </select>
                               <div className="xs mut" style={{ marginTop: 3 }}>добавлено вручную</div>
                             </>
                           ) : (
@@ -1350,7 +1550,15 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
           )}
 
           {markupModal && (
-            <Modal title="Наценка на розничную цену" onClose={() => setMarkupModal(false)} w={460}>
+            <Modal title="Сохранение в объект" onClose={() => setMarkupModal(false)} w={460}>
+              <Fld label={"Статус объекта" + (selObj ? " «" + selObj.name + "»" : "")}>
+                <select className="inp" autoFocus value={saveStatus} onChange={(e) => setSaveStatus(e.target.value)}
+                  style={{ fontWeight: 700, color: saveStatus ? stById(saveStatus).c === "#ffffff" ? "var(--txt)" : stById(saveStatus).c : "var(--bad)", borderColor: saveStatus ? undefined : "var(--bad)" }}>
+                  {!saveStatus && <option value="">— выберите статус —</option>}
+                  {OBJ_STATUSES.map((st) => <option key={st.id} value={st.id} style={{ color: "var(--txt)" }}>{st.label}</option>)}
+                </select>
+              </Fld>
+              <h3 style={{ margin: "14px 0 6px" }}>Наценка на розничную цену</h3>
               <p className="sm mut" style={{ marginBottom: 12 }}>Розничная цена каждой позиции = себестоимость + наценка. Применяется ко всему списку. После сохранения цены можно поправить вручную на странице объекта.</p>
               <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
                 <Fld label="Наценка, %">
@@ -1370,7 +1578,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
               </div>
               <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
                 <button className="btn" onClick={() => setMarkupModal(false)}>Отмена</button>
-                <button className="btn pri" disabled={busy} onClick={() => doSave(saleK)}>{busy ? "Сохраняю…" : "Применить и сохранить ✓"}</button>
+                <button className="btn pri" disabled={busy || !saveStatus} title={!saveStatus ? "Выберите статус объекта" : ""} onClick={() => doSave(saleK)}>{busy ? "Сохраняю…" : "Применить и сохранить ✓"}</button>
               </div>
             </Modal>
           )}
@@ -1565,7 +1773,9 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
         <div style={{ marginRight: "auto" }}>
           <h2>{obj.name}</h2>
           <div className="sm mut">
-            {obj.client} · {obj.phone} · менеджер: {obj.manager || "—"} · мастер:{" "}
+            {obj.client} · {obj.phone} · менеджер:{" "}
+            <PersonSelect compact value={obj.manager || ""} onChange={async (m) => { await db.from("objects").update({ manager: m }).eq("id", obj.id); await reload(); }} />
+            {" "}· мастер:{" "}
             <select className="inp" style={{ display: "inline-block", width: "auto", padding: "2px 6px", fontSize: 12 }} value={obj.master_id || ""}
               onChange={async (e) => { const m = masters.find((x) => x.id === e.target.value); await db.from("objects").update({ master_id: e.target.value || null, master: m ? m.name : obj.master }).eq("id", obj.id); await reload(); }}>
               <option value="">{obj.master && !obj.master_id ? obj.master + " (без привязки)" : "—"}</option>
@@ -1807,8 +2017,11 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
   const preview = rows ? build() : [];
   const matched = preview.filter((p) => p._matched).length;
 
+  const [askCancel, setAskCancel] = useState(false);
+  const tryClose = () => setAskCancel(true);
   return (
-    <Modal title="Импорт позиций на объект из Excel" onClose={onClose} w={900}>
+    <>
+    <Modal title="Импорт позиций на объект из Excel" onClose={tryClose} w={900}>
       {err && <div className="card sect" style={{ borderColor: "var(--bad)", color: "var(--bad)", padding: 10 }}>{err}</div>}
       {!rows && (
         <div>
@@ -1818,6 +2031,9 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
             <div className="xs mut" style={{ marginTop: 4 }}>Список материалов по объекту. Совпавшие по названию товары подтянут цены из базы; цена/себестоимость из файла, если есть, имеют приоритет.</div>
           </div>
           <input ref={fRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={onFile} />
+          <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
+            <button className="btn" onClick={tryClose}>Отмена</button>
+          </div>
         </div>
       )}
       {rows && (
@@ -1859,11 +2075,16 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
             </table>
           </div>
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
+            <button className="btn" onClick={tryClose}>Отмена</button>
             <button className="btn pri" disabled={map.name == null || !preview.length} onClick={run}>Добавить {preview.length} поз. на объект →</button>
           </div>
         </div>
       )}
     </Modal>
+    {askCancel && <DiscardConfirm
+      text={rows ? "Загруженный файл «" + fname + "» (" + dataRows.length + " строк) не будет добавлен в объект." : "Окно будет закрыто, в объект ничего не добавится."}
+      onStay={() => setAskCancel(false)} onDiscard={onClose} />}
+    </>
   );
 }
 function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
@@ -1873,8 +2094,11 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
   const upd = (i, k, val) => setRows(rows.map((r, j) => (j === i ? { ...r, [k]: val } : r)));
   const del = (i) => setRows(rows.filter((_, j) => j !== i));
   const total = rows.reduce((a, r) => a + (Number(r.qty) || 0) * (Number(r.price) || 0), 0);
+  const [askCancel, setAskCancel] = useState(false);
+  const tryClose = () => setAskCancel(true);
   return (
-    <Modal title={newBatch ? "Новая поставка" : "Добавить позиции вручную"} onClose={onClose} w={860}>
+    <>
+    <Modal title={newBatch ? "Новая поставка" : "Добавить позиции вручную"} onClose={tryClose} w={860}>
       <div className="row" style={{ marginBottom: 10 }}>
         <ProductPicker products={products} placeholder="найти товар в базе и добавить строку…" onPick={(p) => addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, cost: p.cost, price: p.price, supplier_id: p.supplier_id })} />
         <button className="btn" onClick={blank}>+ Пустая строка (товара нет в базе)</button>
@@ -1902,11 +2126,15 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
       <div className="row" style={{ justifyContent: "space-between", marginTop: 14 }}>
         <div className="mono" style={{ fontWeight: 700 }}>Позиций: {rows.length} · Сумма: <span style={{ color: "var(--acc2)" }}>{money(total)}</span></div>
         <div className="row">
-          <button className="btn" onClick={onClose}>Отмена</button>
+          <button className="btn" onClick={tryClose}>Отмена</button>
           <button className="btn pri" disabled={!rows.filter((r) => r.name).length} onClick={() => onSave(rows.filter((r) => r.name))}>{newBatch ? "Создать новую поставку" : "Добавить в текущую поставку"}</button>
         </div>
       </div>
     </Modal>
+    {askCancel && <DiscardConfirm
+      text={rows.length ? "Добавленные строки (" + rows.length + ") не будут сохранены в объект." : "Окно будет закрыто, в объект ничего не добавится."}
+      onStay={() => setAskCancel(false)} onDiscard={onClose} />}
+    </>
   );
 }
 function EditOpModal({ op, suppliers, isReturn, onClose, onSave }) {
@@ -1924,7 +2152,7 @@ function EditOpModal({ op, suppliers, isReturn, onClose, onSave }) {
         {op.type === "bonus" && <Fld label="Предмет"><input className="inp" value={v.item_name} onChange={(e) => setV({ ...v, item_name: e.target.value })} /></Fld>}
         {(isReturn || op.reason != null) && <Fld label="Причина"><input className="inp" value={v.reason} onChange={(e) => setV({ ...v, reason: e.target.value })} /></Fld>}
         <Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} /></Fld>
-        <Fld label="Ответственный"><input className="inp" value={v.user} onChange={(e) => setV({ ...v, user: e.target.value })} /></Fld>
+        <Fld label="Ответственный"><PersonSelect value={v.user} onChange={(u) => setV({ ...v, user: u })} /></Fld>
       </div>
       {op.edit_log && op.edit_log.length > 0 && (
         <div className="xs mut" style={{ marginTop: 10 }}>
@@ -1958,7 +2186,7 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
   }));
   const [reason, setReason] = useState("");
   const [opDate, setOpDate] = useState(today());
-  const [user, setUser] = useState(obj.manager || "manager");
+  const [user, setUser] = useState(obj.manager || curUserName());
   const setRet = (idx, val) => setRows(rows.map((r, j) => (j === idx ? { ...r, ret: Math.max(0, Math.min(Number(val) || 0, r.avail)) } : r)));
   const totalSum = rows.reduce((a, r) => a + r.ret * (r.item.price || 0), 0);
   const totalCnt = rows.filter((r) => r.ret > 0).length;
@@ -1997,7 +2225,7 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
       <div className="grid" style={{ gridTemplateColumns: "2fr 1fr 1fr" }}>
         <Fld label="Причина (общая)"><input className="inp" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="брак / не подошло / излишек" /></Fld>
         <Fld label="Дата возврата"><input type="date" className="inp" value={opDate} onChange={(e) => setOpDate(e.target.value)} /></Fld>
-        <Fld label="Ответственный"><input className="inp" value={user} onChange={(e) => setUser(e.target.value)} /></Fld>
+        <Fld label="Ответственный"><PersonSelect value={user} onChange={setUser} /></Fld>
       </div>
       <div className="row" style={{ justifyContent: "space-between", marginTop: 16 }}>
         <div className="mono" style={{ fontWeight: 700 }}>Позиций: {totalCnt} · Итого возврат: <span style={{ color: "var(--bad)" }}>{money(totalSum)}</span></div>
@@ -2011,7 +2239,7 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
 }
 function OpForm({ obj, type, suppliers, onClose, onSave }) {
   const items = obj.items || [];
-  const [v, setV] = useState({ amount: 0, note: "", reason: "", supplier_id: "", item_id: items[0] ? items[0].id : "", qty: 1, item_name: "", op_date: today(), user: obj.manager || "manager" });
+  const [v, setV] = useState({ amount: 0, note: "", reason: "", supplier_id: "", item_id: items[0] ? items[0].id : "", qty: 1, item_name: "", op_date: today(), user: obj.manager || curUserName() });
   const isReturn = type === "return";
   const isSupPay = type === "supplier_payment";
   const isBonus = type === "bonus";
@@ -2047,7 +2275,7 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
           </>
         )}
         <Fld label="Дата операции"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
-        <Fld label="Ответственный"><input className="inp" value={v.user} onChange={(e) => setV({ ...v, user: e.target.value })} /></Fld>
+        <Fld label="Ответственный"><PersonSelect value={v.user} onChange={(u) => setV({ ...v, user: u })} /></Fld>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
@@ -2459,7 +2687,7 @@ function SupplierReturnForm({ row, suppliers, onCancel, onSave }) {
 function IssueForm({ stock, objects, onClose, onSave }) {
   const targets = objects.filter((o) => !["closed", "cancelled"].includes(o.status));
   const [objId, setObjId] = useState(targets[0] ? targets[0].id : "");
-  const [user, setUser] = useState("manager");
+  const [user, setUser] = useState(curUserName());
   const [rows, setRows] = useState(stock.map((w) => ({ row: w, qty: 0 })));
   const setQty = (i, v) => setRows(rows.map((r, j) => (j === i ? { ...r, qty: Math.max(0, Math.min(Number(v) || 0, r.row.qty)) } : r)));
   const lines = rows.filter((r) => r.qty > 0);
@@ -2473,7 +2701,7 @@ function IssueForm({ stock, objects, onClose, onSave }) {
             {targets.map((o) => <option key={o.id} value={o.id}>{o.name} ({o.client})</option>)}
           </select>
         </Fld>
-        <Fld label="Ответственный"><input className="inp" value={user} onChange={(e) => setUser(e.target.value)} /></Fld>
+        <Fld label="Ответственный"><PersonSelect value={user} onChange={setUser} /></Fld>
       </div>
       <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, maxHeight: 320 }}>
         <table className="t">
@@ -2615,7 +2843,7 @@ function CompanyExpenseForm({ onClose, onSave }) {
         <Fld label="Категория"><select className="inp" value={v.category} onChange={(e) => setV({ ...v, category: e.target.value })}>{EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></Fld>
         <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: Number(e.target.value) || 0 })} /></Fld>
         <Fld label="Дата"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
-        <Fld label="Кто внёс"><input className="inp" value={v.user} onChange={(e) => setV({ ...v, user: e.target.value })} /></Fld>
+        <Fld label="Кто внёс"><PersonSelect value={v.user} onChange={(u) => setV({ ...v, user: u })} /></Fld>
         <div style={{ gridColumn: "1/-1" }}><Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} placeholder="за июнь / Шерзоду / свет+вода…" /></Fld></div>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
@@ -2993,6 +3221,22 @@ function AppInner() {
   };
   const [bootErr, setBootErr] = useState("");
   const restoreRef = useRef(null);
+  // список людей для полей «Менеджер» / «Ответственный»
+  const [extraPeople, setExtraPeople] = useState(() => { try { return JSON.parse(localStorage.getItem("te:people") || "[]"); } catch { return []; } });
+  const people = useMemo(() => {
+    const set = new Set();
+    const add = (n) => { const t = String(n || "").trim(); if (t && !["manager", "boss", "—", "-"].includes(t.toLowerCase())) set.add(t); };
+    (data.users || []).filter((u) => u.status !== "inactive").forEach((u) => add(u.name || u.username));
+    (data.objects || []).forEach((o) => add(o.manager));
+    (data.finance_ops || []).forEach((o) => add(o.user));
+    (data.wh_moves || []).forEach((m) => add(m.user));
+    extraPeople.forEach(add);
+    return [...set].sort((a, b) => a.localeCompare(b, "ru"));
+  }, [data.users, data.objects, data.finance_ops, data.wh_moves, extraPeople]);
+  const peopleCtx = useMemo(() => ({
+    people,
+    addPerson: (n) => setExtraPeople((prev) => { if (prev.includes(n)) return prev; const next = [...prev, n]; try { localStorage.setItem("te:people", JSON.stringify(next)); } catch {} return next; }),
+  }), [people]);
   useEffect(() => {
     (async () => {
       try {
@@ -3024,6 +3268,7 @@ function AppInner() {
   const toggleLang = () => { setLang((v) => { const n = v === "ru" ? "uz" : "ru"; try { localStorage.setItem("te:lang", n); } catch {} return n; }); };
   const L = (ru, uz) => lang === "uz" ? uz : ru;
   const [backupOpen, setBackupOpen] = useState(false);
+  const [wipeOpen, setWipeOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hdrHidden, setHdrHidden] = useState(false);
   const lastScrollY = useRef(0);
@@ -3063,6 +3308,7 @@ function AppInner() {
   );
   if (!currentUser) return <LoginScreen users={data.users || []} onLogin={doLogin} />;
   return (
+    <PeopleCtx.Provider value={peopleCtx}>
     <div className={"te" + (darkMode ? " dark" : "")}>
       <style>{CSS}</style>
       <div className={"hdr" + (hdrHidden ? " hide-on-scroll" : "")}>
@@ -3099,12 +3345,87 @@ function AppInner() {
       {backupOpen && <BackupModal data={data} onClose={() => setBackupOpen(false)} toast={toast} onFilePick={() => restoreRef.current.click()} onRestoreText={async (text) => {
         const dump = JSON.parse(text);
         await restoreFromSupabase(dump); await reload(); setBackupOpen(false); toast("База восстановлена");
+      }} onWipe={role === "boss" ? () => { setBackupOpen(false); setWipeOpen(true); } : null} />}
+      {wipeOpen && role === "boss" && <WipeModal data={data} onClose={() => setWipeOpen(false)} onDone={async () => {
+        await reload(); setWipeOpen(false); setOpenId(null); toast("База очищена. Товары, поставщики и мастера сохранены.");
       }} />}
       {msg && <div className="toast">{msg}</div>}
     </div>
+    </PeopleCtx.Provider>
   );
 }
-function BackupModal({ data, onClose, toast, onFilePick, onRestoreText }) {
+/* ============ ОЧИСТКА БАЗЫ ============
+   Удаляет рабочие данные (объекты, финансовые операции, заявки) → все долги клиентов и поставщикам = 0.
+   Справочники сохраняются: товары (названия, цены), поставщики, мастера, аккаунты.
+   Перед удалением автоматически скачивается бэкап. */
+const WIPE_WORD = "ОЧИСТИТЬ";
+function WipeModal({ data, onClose, onDone }) {
+  const [wh, setWh] = useState(false);
+  const [log, setLog] = useState(false);
+  const [word, setWord] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState("");
+  const [err, setErr] = useState("");
+  const n = (t) => (data[t] || []).length;
+  const ok = word.trim().toUpperCase() === WIPE_WORD;
+  const run = async () => {
+    setBusy(true); setErr("");
+    try {
+      setStep("Скачиваю бэкап…");
+      const dump = { _app: "ThermoAI", _date: new Date().toISOString(), _note: "автобэкап перед очисткой", tables: {} };
+      TABLES.forEach((t) => { dump.tables[t] = data[t] || []; });
+      tryDownloadBackup(JSON.stringify(dump));
+      const tables = ["finance_ops", "requests", "objects"];
+      if (wh) tables.push("wh_moves", "warehouse");
+      if (log) tables.push("audit_log");
+      for (const t of tables) {
+        setStep("Удаляю: " + t + "…");
+        const rows = await fetchAllRows(t);
+        await deleteByIds(t, rows.map((r) => r.id));
+      }
+      await logAction("База очищена", "", "удалено: " + tables.join(", "));
+      setStep("");
+      await onDone();
+    } catch (e) { setErr("Ошибка очистки: " + e.message + ". Часть данных могла быть удалена — бэкап скачан, его можно восстановить."); }
+    setBusy(false);
+  };
+  const Li = ({ children }) => <li style={{ margin: "3px 0" }}>{children}</li>;
+  return (
+    <Modal title="Очистка базы" onClose={busy ? () => {} : onClose} w={560}>
+      <div className="card sect" style={{ borderColor: "var(--bad)", padding: 12, marginBottom: 12 }}>
+        <div style={{ fontWeight: 800, color: "var(--bad)", marginBottom: 6 }}>Будет удалено безвозвратно:</div>
+        <ul className="sm" style={{ paddingLeft: 18, margin: 0 }}>
+          <Li>Объекты вместе с материалами и поставками — <b>{n("objects")}</b></Li>
+          <Li>Финансовые операции: оплаты клиентов и поставщикам, возвраты, скидки, бонусы, расходы — <b>{n("finance_ops")}</b></Li>
+          <Li>История заявок — <b>{n("requests")}</b></Li>
+        </ul>
+        <div className="sm" style={{ marginTop: 8 }}>→ Долги клиентов и долги поставщикам станут <b>0</b>.</div>
+      </div>
+      <div className="card sect" style={{ padding: 12, marginBottom: 12 }}>
+        <div style={{ fontWeight: 800, color: "var(--ok)", marginBottom: 6 }}>Сохранится:</div>
+        <ul className="sm" style={{ paddingLeft: 18, margin: 0 }}>
+          <Li>Товары — названия и цены ({n("products")})</Li>
+          <Li>Поставщики ({n("suppliers")}), мастера ({n("masters")}), аккаунты ({n("users")})</Li>
+        </ul>
+      </div>
+      <div className="sm" style={{ marginBottom: 12 }}>
+        <label className="clk" style={{ display: "block", marginBottom: 4 }}><input type="checkbox" checked={wh} disabled={busy} onChange={(e) => setWh(e.target.checked)} /> Также очистить Склад Thermo (остатки {n("warehouse")} и движения {n("wh_moves")})</label>
+        <label className="clk" style={{ display: "block" }}><input type="checkbox" checked={log} disabled={busy} onChange={(e) => setLog(e.target.checked)} /> Также очистить журнал действий ({n("audit_log")})</label>
+      </div>
+      <p className="xs mut" style={{ marginBottom: 10 }}>Перед очисткой автоматически скачается файл бэкапа — из него всё можно восстановить через «💾 Бэкап → выбрать файл .json».</p>
+      <Fld label={"Для подтверждения введите слово " + WIPE_WORD}>
+        <input className="inp" value={word} disabled={busy} onChange={(e) => setWord(e.target.value)} placeholder={WIPE_WORD} autoFocus />
+      </Fld>
+      {err && <p className="sm" style={{ color: "var(--bad)", marginTop: 8 }}>{err}</p>}
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
+        {step && <span className="sm mut" style={{ marginRight: "auto" }}><span className="spin" /> {step}</span>}
+        <button className="btn" disabled={busy} onClick={onClose}>Отмена</button>
+        <button className="btn dng" disabled={!ok || busy} onClick={run}>{busy ? "Очищаю…" : "Очистить базу"}</button>
+      </div>
+    </Modal>
+  );
+}
+function BackupModal({ data, onClose, toast, onFilePick, onRestoreText, onWipe }) {
   const [json] = useState(() => {
     const dump = { _app: "ThermoAI", _date: new Date().toISOString(), tables: {} };
     TABLES.forEach((t) => { dump.tables[t] = data[t] || []; });
@@ -3137,6 +3458,13 @@ function BackupModal({ data, onClose, toast, onFilePick, onRestoreText }) {
         <button className="btn" onClick={onFilePick}>…или выбрать файл .json</button>
       </div>
       <p className="xs mut" style={{ marginTop: 10 }}>Восстановление полностью заменяет текущую базу содержимым бэкапа.</p>
+      {onWipe && (
+        <div style={{ marginTop: 22, paddingTop: 14, borderTop: "1px dashed var(--bad)" }}>
+          <h3 style={{ marginBottom: 6, color: "var(--bad)" }}>Опасная зона</h3>
+          <p className="xs mut" style={{ marginBottom: 8 }}>Очистка базы: удаляются объекты, оплаты и все долги клиентов и поставщикам. Товары (названия и цены), поставщики, мастера и аккаунты сохраняются.</p>
+          <button className="btn dng" onClick={onWipe}>🧹 Очистить базу…</button>
+        </div>
+      )}
     </Modal>
   );
 }
