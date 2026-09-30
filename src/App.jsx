@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useDeferredValue, memo, useCallback } from "react";
 import * as XLSX from "xlsx";
 import * as dbModule from "./db.js";
 const db = dbModule.db;
@@ -97,6 +97,11 @@ textarea.inp{min-height:120px;font-family:var(--mono);font-size:12px;resize:vert
 table.t{width:100%;border-collapse:collapse;font-size:13px}
 table.t th{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--mut);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);font-weight:700}
 table.t td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+.vt-box{overflow:auto;max-height:calc(100vh - 210px);min-height:320px}
+table.vt{table-layout:fixed;width:100%;min-width:1040px}
+table.vt thead th{position:sticky;top:0;z-index:2;background:var(--panel)}
+table.vt td{padding:4px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.vt td div{overflow:hidden;text-overflow:ellipsis}
 table.t tr:hover td{background:rgba(0,0,0,.025)}
 .num{font-family:var(--mono);font-size:12px;text-align:right;white-space:nowrap}
 .bdg{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid}
@@ -395,6 +400,24 @@ function ProductPicker({ products, onPick, placeholder }) {
 }
 
 /* ============ PRODUCTS TAB ============ */
+const PROD_ROW_H = 46;
+// строка таблицы товаров — memo: при отметке одной галочки не перерисовываются остальные тысячи строк
+const ProductRow = memo(function ProductRow({ p, checked, sup, onToggle, onEdit }) {
+  return (
+    <tr style={{ height: PROD_ROW_H, opacity: p.status === "archive" ? 0.45 : 1, background: checked ? "rgba(255,31,48,.07)" : "none" }}>
+      <td><input type="checkbox" checked={checked} onChange={() => onToggle(p.id)} /></td>
+      <td className="mono xs">{p.code}</td>
+      <td className="sm">{p.brand}</td>
+      <td className="sm">{sup}</td>
+      <td title={p.name}><div style={{ fontWeight: 600 }}>{p.name}</div>{(p.category || p.alt_names) && <div className="xs mut">{[p.category, p.alt_names].filter(Boolean).join(" · ")}</div>}</td>
+      <td className="mono xs">{p.size}</td>
+      <td className="sm">{p.unit}</td>
+      <td className="num">{fmt2(p.cost)}</td>
+      <td className="num">{fmt2(p.price)}</td>
+      <td><button className="btn xs" onClick={() => onEdit(p)}>ред.</button></td>
+    </tr>
+  );
+});
 function ProductsTab({ data, reload, toast }) {
   const { products, suppliers } = data;
   const [q, setQ] = useState("");
@@ -405,20 +428,27 @@ function ProductsTab({ data, reload, toast }) {
   const [sel, setSel] = useState([]);
   const [confirmDel, setConfirmDel] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  // на экране рисуем порциями — 15 000 строк сразу тормозят браузер; поиск/фильтры работают по всей базе
-  const STEP = 300;
-  const [shown, setShown] = useState(STEP);
-  useEffect(() => { setShown(STEP); }, [q, supF, brandF]);
+  // показываем ВСЕ товары одним списком с прокруткой; браузер рисует только видимые строки
+  // (15 000 строк таблицы сразу — это секунды на каждое действие). Поиск откладывается, чтобы ввод не тормозил.
+  const dq = useDeferredValue(q);
+  const boxRef = useRef(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewH, setViewH] = useState(700);
+  useEffect(() => {
+    const upd = () => { if (boxRef.current) setViewH(boxRef.current.clientHeight || 700); };
+    upd(); window.addEventListener("resize", upd); return () => window.removeEventListener("resize", upd);
+  }, []);
+  useEffect(() => { if (boxRef.current) boxRef.current.scrollTop = 0; setScrollTop(0); }, [dq, supF, brandF]);
   const brands = useMemo(() => [...new Set(products.map((p) => p.brand).filter(Boolean))].sort(), [products]);
   const searchIdx = useMemo(() => products.map((p) => (p.name + " " + (p.alt_names || "") + " " + p.code + " " + (p.category || "")).toLowerCase()), [products]);
   const list = useMemo(() => {
-    const ql = q.toLowerCase();
+    const ql = dq.toLowerCase();
     return products.filter((p, i) =>
       (!supF || p.supplier_id === supF) &&
       (!brandF || p.brand === brandF) &&
       (!ql || searchIdx[i].includes(ql))
     );
-  }, [products, searchIdx, q, supF, brandF]);
+  }, [products, searchIdx, dq, supF, brandF]);
   const supById = useMemo(() => { const m = {}; suppliers.forEach((s) => { m[s.id] = s.name; }); return m; }, [suppliers]);
   const supName = (id) => supById[id] || "—";
   const selSet = useMemo(() => new Set(sel), [sel]);
@@ -427,7 +457,7 @@ function ProductsTab({ data, reload, toast }) {
     if (allSel) { const ids = new Set(list.map((p) => p.id)); setSel(sel.filter((id) => !ids.has(id))); }
     else setSel([...new Set([...sel, ...list.map((p) => p.id)])]);
   };
-  const toggle = (id) => setSel(selSet.has(id) ? sel.filter((x) => x !== id) : [...sel, id]);
+  const toggle = useCallback((id) => setSel((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])), []);
   const doDelete = async () => {
     setDeleting(true);
     try {
@@ -439,7 +469,7 @@ function ProductsTab({ data, reload, toast }) {
   return (
     <div>
       <div className="row sect">
-        <h2 style={{ marginRight: "auto" }}>База товаров <span className="mut sm">({products.length})</span></h2>
+        <h2 style={{ marginRight: "auto" }}>База товаров <span className="mut sm">({list.length !== products.length ? list.length + " из " + products.length : products.length})</span></h2>
         <input className="inp" style={{ maxWidth: 200 }} placeholder="Поиск…" value={q} onChange={(e) => setQ(e.target.value)} />
         <select className="inp" style={{ maxWidth: 170 }} value={supF} onChange={(e) => setSupF(e.target.value)}>
           <option value="">Все поставщики</option>
@@ -453,34 +483,25 @@ function ProductsTab({ data, reload, toast }) {
         <button className="btn" onClick={() => setImp(true)}>Импорт Excel/CSV</button>
         <button className="btn pri" onClick={() => setEdit({ unit: "шт", status: "active", stock: 0, cost: 0, price: 0 })}>+ Товар</button>
       </div>
-      <div className="card" style={{ padding: 0, overflow: "auto" }}>
-        <table className="t">
-          <thead><tr><th style={{width:28}}><input type="checkbox" checked={allSel} onChange={toggleAll} title="Выбрать все отфильтрованные" /></th><th>Код</th><th>Бренд</th><th>Поставщик</th><th>Наименование</th><th>Размер/Ø</th><th>Ед.изм</th><th style={{textAlign:"right"}}>Себестоимость</th><th style={{textAlign:"right"}}>Розничная</th><th></th></tr></thead>
+      <div className="card vt-box" ref={boxRef} style={{ padding: 0 }} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
+        <table className="t vt">
+          <colgroup><col style={{ width: 36 }} /><col style={{ width: 110 }} /><col style={{ width: 110 }} /><col style={{ width: 140 }} /><col /><col style={{ width: 90 }} /><col style={{ width: 70 }} /><col style={{ width: 120 }} /><col style={{ width: 110 }} /><col style={{ width: 64 }} /></colgroup>
+          <thead><tr><th><input type="checkbox" checked={allSel} onChange={toggleAll} title="Выбрать все отфильтрованные" /></th><th>Код</th><th>Бренд</th><th>Поставщик</th><th>Наименование</th><th>Размер/Ø</th><th>Ед.изм</th><th style={{textAlign:"right"}}>Себестоимость</th><th style={{textAlign:"right"}}>Розничная</th><th></th></tr></thead>
           <tbody>
-            {list.slice(0, shown).map((p) => (
-              <tr key={p.id} style={{ opacity: p.status === "archive" ? 0.45 : 1, background: selSet.has(p.id) ? "rgba(255,31,48,.07)" : "none" }}>
-                <td><input type="checkbox" checked={selSet.has(p.id)} onChange={() => toggle(p.id)} /></td>
-                <td className="mono xs">{p.code}</td>
-                <td className="sm">{p.brand}</td>
-                <td className="sm">{supName(p.supplier_id)}</td>
-                <td><div style={{ fontWeight: 600 }}>{p.name}</div>{(p.category || p.alt_names) && <div className="xs mut">{[p.category, p.alt_names].filter(Boolean).join(" · ")}</div>}</td>
-                <td className="mono xs">{p.size}</td>
-                <td className="sm">{p.unit}</td>
-                <td className="num">{fmt2(p.cost)}</td>
-                <td className="num">{fmt2(p.price)}</td>
-                <td><button className="btn xs" onClick={() => setEdit(p)}>ред.</button></td>
-              </tr>
-            ))}
+            {(() => {
+              const start = Math.max(0, Math.floor(scrollTop / PROD_ROW_H) - 15);
+              const end = Math.min(list.length, Math.ceil((scrollTop + viewH) / PROD_ROW_H) + 15);
+              return (<>
+                {start > 0 && <tr style={{ height: start * PROD_ROW_H }}><td colSpan={10} style={{ padding: 0, border: 0 }} /></tr>}
+                {list.slice(start, end).map((p) => (
+                  <ProductRow key={p.id} p={p} checked={selSet.has(p.id)} sup={supName(p.supplier_id)} onToggle={toggle} onEdit={setEdit} />
+                ))}
+                {end < list.length && <tr style={{ height: (list.length - end) * PROD_ROW_H }}><td colSpan={10} style={{ padding: 0, border: 0 }} /></tr>}
+              </>);
+            })()}
             {!list.length && <tr><td colSpan={10} className="mut" style={{ textAlign: "center", padding: 26 }}>Ничего не найдено</td></tr>}
           </tbody>
         </table>
-        {list.length > shown && (
-          <div className="row" style={{ justifyContent: "center", gap: 10, padding: 14, borderTop: "1px solid var(--line)" }}>
-            <span className="sm mut">Показано {shown} из {list.length}</span>
-            <button className="btn xs" onClick={() => setShown((n) => n + 1000)}>Показать ещё 1000</button>
-            <button className="btn xs" onClick={() => setShown(list.length)}>Показать все</button>
-          </div>
-        )}
       </div>
       {edit && <ProductForm p={edit} suppliers={suppliers} onClose={() => setEdit(null)} onSave={async (vals) => {
         if (vals.id) await db.from("products").update(vals).eq("id", vals.id);
