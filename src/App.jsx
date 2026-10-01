@@ -102,7 +102,9 @@ const OP_TYPES = [
   { id: "bonus", label: "Бонус мастеру (начисление)" },
   { id: "bonus_payment", label: "Выплата бонуса мастеру" },
 ];
-const OBJECT_OP_TYPES = ["client_payment", "supplier_payment", "return", "discount", "expense", "bonus"];
+// бонусы мастеру начисляются и показываются только в разделе «Мастера»
+const OBJECT_OP_TYPES = ["client_payment", "supplier_payment", "return", "discount", "expense"];
+const MASTER_ONLY_OPS = ["bonus", "bonus_payment"];
 const ROLES = [
   { id: "manager", label: "Менеджер", tabs: ["request", "objects", "products", "wh", "suppliers", "masters", "finance"] },
   { id: "boss", label: "Руководитель", tabs: ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "admin"] },
@@ -284,15 +286,34 @@ async function deleteByIds(t, ids) {
     if (error) throw new Error(error.message);
   }
 }
+/* Восстановление из бэкапа.
+   Раньше каждая таблица удалялась целиком и вставлялась заново, по порядку TABLES (товары раньше поставщиков).
+   В базе связь products.supplier_id → suppliers стоит с ON DELETE SET NULL, поэтому удаление поставщиков
+   обнуляло поставщика у ВСЕХ товаров (так 01.10 пропали 11 561 привязка).
+   Теперь: записи бэкапа записываются поверх существующих (upsert по id), «родители» раньше зависимых,
+   а удаляются только лишние записи, которых нет в бэкапе, — зависимые раньше «родителей». */
+const RESTORE_ORDER = ["suppliers", "masters", "users", "products", "objects", "warehouse", "finance_ops", "requests", "wh_moves", "audit_log"];
 async function restoreFromSupabase(dump) {
-  if (!dump.tables) throw new Error("Неверный формат бэкапа");
-  for (const t of TABLES) {
-    if (!Array.isArray(dump.tables[t])) continue;
-    // Удаляем все существующие записи и вставляем из бэкапа
-    const existing = await fetchAllRows(t);
-    await deleteByIds(t, existing.map((r) => r.id));
-    if (dump.tables[t].length) await batchInsert(t, dump.tables[t]);
+  if (!dump || !dump.tables) throw new Error("Неверный формат бэкапа");
+  const tables = RESTORE_ORDER.filter((t) => Array.isArray(dump.tables[t]));
+  if (sb) {
+    for (const t of tables) {
+      const rows = dump.tables[t];
+      for (let i = 0; i < rows.length; i += 500) {
+        const { error } = await sb.from(t).upsert(rows.slice(i, i + 500), { onConflict: "id" });
+        if (error) throw new Error(t + ": " + error.message);
+      }
+    }
+    for (const t of [...tables].reverse()) {
+      const keep = new Set(dump.tables[t].map((r) => r.id));
+      const existing = await fetchAllRows(t);
+      await deleteByIds(t, existing.filter((r) => !keep.has(r.id)).map((r) => r.id));
+    }
+    return;
   }
+  // без прямого клиента Supabase: удаляем зависимые → «родителей», вставляем «родителей» → зависимые
+  for (const t of [...tables].reverse()) { const ex = await fetchAllRows(t); await deleteByIds(t, ex.map((r) => r.id)); }
+  for (const t of tables) if (dump.tables[t].length) await batchInsert(t, dump.tables[t]);
 }
 async function importBackup(file) {
   const text = await file.text();
@@ -502,6 +523,71 @@ function PersonSelect({ value, onChange, placeholder = "—", compact = false })
       {opts.map((p) => <option key={p} value={p}>{p}</option>)}
       <option value="__add__">+ добавить нового…</option>
     </select>
+  );
+}
+
+/* ============ СПОСОБЫ ОПЛАТЫ КЛИЕНТА ============
+   Учёт ведётся в $. Оплата в сумах (наличные сум, перечисление, карта в сумах) вводится в сумах + курс;
+   в долг клиента идёт сумма, пересчитанная в $. Способ, сумма в сумах и курс сохраняются в операции
+   (колонки pay_method / pay_currency / pay_amount / pay_rate, если они есть в базе) и всегда — текстом в reason. */
+const PAY_METHODS = [
+  { id: "usd", label: "Наличные $", cur: "usd" },
+  { id: "transfer", label: "Перечисление", cur: "uzs" },
+  { id: "card", label: "Карта", cur: null }, // валюту выбирают
+  { id: "uzs", label: "Наличные сум", cur: "uzs" },
+];
+const RATE_KEY = "te:usd_rate";
+const lastRate = () => { try { return Number(localStorage.getItem(RATE_KEY)) || ""; } catch (e) { return ""; } };
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+const parseNum = (x) => Number(String(x || "").replace(/[\s\u00a0\u202f]/g, "").replace(",", ".")) || 0;
+const payMethod = (id) => PAY_METHODS.find((m) => m.id === id) || PAY_METHODS[0];
+function payInit(op) {
+  const byLabel = op && PAY_METHODS.find((m) => m.label === op.category || (op.reason && String(op.reason).startsWith(m.label)));
+  const method = (op && op.pay_method) || (byLabel && byLabel.id) || "usd";
+  let cur = op && op.pay_currency ? String(op.pay_currency).toLowerCase() : payMethod(method).cur || "usd";
+  let uzs = op && op.pay_amount && cur === "uzs" ? op.pay_amount : "", rate = op && op.pay_rate ? op.pay_rate : "";
+  const m = op && op.reason && /([\d\s\u00a0\u202f.,]+)\s*\u0441\u0443\u043c\s*\u00d7\s*\u043a\u0443\u0440\u0441\s*([\d\s\u00a0\u202f.,]+)/.exec(op.reason);
+  if (m) { cur = "uzs"; if (!uzs) uzs = parseNum(m[1]); if (!rate) rate = parseNum(m[2]); }
+  return { method, cur, usd: op ? op.amount || "" : "", uzs, rate: rate || lastRate() };
+}
+const payUsd = (p) => (p.cur === "uzs" ? (Number(p.rate) > 0 ? round2(Number(p.uzs) / Number(p.rate)) : 0) : round2(p.usd));
+function payPatch(p) {
+  const m = payMethod(p.method), usd = payUsd(p);
+  const reason = p.cur === "uzs" ? m.label + ": " + fmt(p.uzs) + " сум × курс " + fmt(p.rate) : m.label + (m.id === "card" ? " ($)" : "");
+  if (p.cur === "uzs" && Number(p.rate) > 0) { try { localStorage.setItem(RATE_KEY, String(p.rate)); } catch (e) {} }
+  return { amount: usd, category: m.label, reason, pay_method: m.id, pay_currency: p.cur.toUpperCase(),
+    pay_amount: p.cur === "uzs" ? Number(p.uzs) || 0 : usd, pay_rate: p.cur === "uzs" ? Number(p.rate) || null : null };
+}
+function PayFields({ p, setP }) {
+  const m = payMethod(p.method);
+  const setMethod = (id) => { const mm = payMethod(id); setP({ ...p, method: id, cur: mm.cur || p.cur || "usd" }); };
+  const usd = payUsd(p);
+  return (
+    <div style={{ gridColumn: "1/-1" }}>
+      <Fld label="Способ оплаты">
+        <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>
+          {PAY_METHODS.map((x) => <button key={x.id} type="button" className={"btn xs " + (p.method === x.id ? "pri" : "")} onClick={() => setMethod(x.id)}>{x.label}</button>)}
+          {m.cur === null && (
+            <span className="row" style={{ gap: 4, marginLeft: 8 }}>
+              <span className="xs mut">валюта карты:</span>
+              <button type="button" className={"btn xs " + (p.cur === "usd" ? "pri" : "")} onClick={() => setP({ ...p, cur: "usd" })}>$</button>
+              <button type="button" className={"btn xs " + (p.cur === "uzs" ? "pri" : "")} onClick={() => setP({ ...p, cur: "uzs" })}>сум</button>
+            </span>
+          )}
+        </div>
+      </Fld>
+      {p.cur === "uzs" ? (
+        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginTop: 8 }}>
+          <Fld label="Сумма, сум"><input type="number" className="inp" value={p.uzs} onChange={(e) => setP({ ...p, uzs: e.target.value })} placeholder="1 250 000" autoFocus /></Fld>
+          <Fld label="Курс, сум за $1"><input type="number" className="inp" value={p.rate} onChange={(e) => setP({ ...p, rate: e.target.value })} placeholder="12 600" style={{ borderColor: Number(p.rate) > 0 ? undefined : "var(--bad)" }} /></Fld>
+          <div className="fld"><label>В долг клиента, $</label><div className="inp mono" style={{ background: "var(--panel2)", fontWeight: 800, color: usd > 0 ? "var(--ok)" : "var(--mut)" }}>{Number(p.rate) > 0 ? money(usd) : "введите курс"}</div></div>
+        </div>
+      ) : (
+        <div className="grid" style={{ gridTemplateColumns: "1fr 2fr", marginTop: 8 }}>
+          <Fld label="Сумма, $"><input type="number" className="inp" value={p.usd} onChange={(e) => setP({ ...p, usd: e.target.value })} autoFocus /></Fld>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1248,9 +1334,9 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
           toast(noLog ? "Оплата изменена (история изменений не сохраняется: в базе нет колонки edit_log)" : "Оплата изменена"); return true;
         }}
         onVoidPay={async (o) => {
-          const r = await db.from("finance_ops").update({ voided: true }).eq("id", o.id);
+          const r = await db.from("finance_ops").delete().eq("id", o.id);
           if (r.error) return false;
-          await logAction("Сторно оплаты поставщику", "supplier:" + pay.name, fmt(o.amount)); await reload(); toast("Оплата сторнирована"); return true;
+          await logAction("Удалена оплата поставщику", "supplier:" + pay.name, fmt(o.amount) + " от " + dt(o.op_date || o.created_at) + (o.note ? " · " + o.note : "")); await reload(); toast("Оплата удалена"); return true;
         }} />}
       {del && (() => {
         const st = supplierStats(del, objects, finance_ops, wh_moves);
@@ -1341,17 +1427,17 @@ function SupplierPayModal({ s, objects, ops, whMoves, onClose, onSave, onEditPay
                 <td className="sm">{o.type === "supplier_payment" ? "Оплата" : "Возврат (−долг)"}{o.edited && <span className="xs" style={{ color: "var(--warn)" }}> изм.</span>}</td>
                 <td className="num" style={{ fontWeight: 700, color: o.type === "supplier_payment" ? "var(--ok)" : "var(--acc2)" }}>{fmt(o.type === "return" ? o.cost_amount : o.amount)}</td>
                 <td className="xs mut">{[o.type === "return" ? (o.object_id ? "с объекта " + objName(o.object_id) : "со склада Thermo") : (o.object_id ? objName(o.object_id) : ""), o.product_name ? o.product_name + (o.qty ? " × " + o.qty : "") : "", o.note].filter(Boolean).join(" · ")}</td>
-                <td>{o.type === "supplier_payment" && !o.voided && (
+                <td>{o.type === "supplier_payment" && (
                   voidAsk === o.id ? (
                     <div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
-                      <span className="xs" style={{ color: "var(--bad)" }}>Сторно?</span>
+                      <span className="xs" style={{ color: "var(--bad)" }}>Удалить?</span>
                       <button className="btn xs dng" onClick={async () => { if (await onVoidPay(o)) setVoidAsk(null); }}>Да</button>
                       <button className="btn xs" onClick={() => setVoidAsk(null)}>Нет</button>
                     </div>
                   ) : (
                     <div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
-                      <button className="btn xs" onClick={() => setEdit({ id: o.id, amount: o.amount, op_date: (o.op_date || o.created_at || "").slice(0,10), note: o.note })}>ред.</button>
-                      {fin && <button className="btn xs dng" onClick={() => setVoidAsk(o.id)}>сторно</button>}
+                      {!o.voided && <button className="btn xs" onClick={() => setEdit({ id: o.id, amount: o.amount, op_date: (o.op_date || o.created_at || "").slice(0,10), note: o.note })}>ред.</button>}
+                      {fin && <button className="btn xs dng" onClick={() => setVoidAsk(o.id)}>удалить</button>}
                     </div>
                   )
                 )}</td>
@@ -1883,6 +1969,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
   const [opForm, setOpForm] = useState(null);
   const [closedBatches, setClosedBatches] = useState({});
   const [editOp, setEditOp] = useState(null);
+  const [delAsk, setDelAsk] = useState(null);
   const toggleBatch = (no) => setClosedBatches({ ...closedBatches, [no]: !closedBatches[no] });
   const [editItem, setEditItem] = useState(null);
   const [addItems, setAddItems] = useState(false);
@@ -1922,18 +2009,20 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
     await db.from("objects").update({ items: [...(obj.items || []), ...items] }).eq("id", obj.id);
     await reload(); toast((newBatch ? "Новая поставка №" + batchNo + ": " : "Добавлено в поставку №" + batchNo + ": ") + items.length + " поз.");
   };
-  const voidOp = async (id) => {
-    const op = ops.find((x) => x.id === id);
-    // возврат «сразу поставщику» на склад не приходовался — со склада его списывать не нужно
-    const wentToWh = op && op.type === "return" && !supplierReturnIds(finance_ops, data.wh_moves).has(op.id);
-    const vr = await db.from("finance_ops").update({ voided: true }).eq("id", id);
-    if (vr.error) return;
-    if (op && op.type === "return" && op.product_id && wentToWh) {
+  // удаление операции (вместо сторно). След остаётся в «Журнале».
+  const deleteOp = async (op) => {
+    // возврат, оприходованный на склад, — убираем со склада (если он не был сторнирован раньше)
+    const wentToWh = op.type === "return" && !op.voided && !supplierReturnIds(finance_ops, data.wh_moves).has(op.id);
+    const r = await db.from("finance_ops").delete().eq("id", op.id);
+    if (r.error) return;
+    if (wentToWh && op.product_id) {
       const { data: ex } = await db.from("warehouse").select().eq("product_id", op.product_id);
-      if (ex.length) await db.from("warehouse").update({ qty: Math.max(0, (ex[0].qty || 0) - (op.qty || 0)) }).eq("id", ex[0].id);
-      await db.from("wh_moves").insert({ product_id: op.product_id, name: op.product_name, qty: op.qty, dir: "out", object_id: obj.id, object_name: obj.name, op_date: today(), user: "boss", note: "сторно возврата" });
+      if (ex && ex.length) await db.from("warehouse").update({ qty: Math.max(0, (ex[0].qty || 0) - (op.qty || 0)) }).eq("id", ex[0].id);
+      await db.from("wh_moves").insert({ product_id: op.product_id, name: op.product_name, qty: op.qty, dir: "out", object_id: obj.id, object_name: obj.name, op_date: today(), user: curUserName(), note: "удалён возврат" });
     }
-    await reload(); toast("Операция сторнирована (след сохранён)");
+    await logAction("Удалена операция: " + opLabel(op.type), "object:" + obj.name,
+      fmt(op.amount) + " от " + dt(op.op_date || op.created_at) + [op.product_name, op.reason, op.note].filter(Boolean).map((x) => " · " + x).join(""));
+    setDelAsk(null); await reload(); toast("Операция удалена");
   };
   const safe = (s) => String(s || "object").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
   const exportClient = () => {
@@ -2027,7 +2116,6 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
         <KPI l="Сумма товара (нетто)" v={f.saleNet} />
         <KPI l="Оплачено клиентом" v={f.paidClient} c="var(--ok)" />
         <KPI l={f.clientDebt < 0 ? "Переплата клиента" : "Долг клиента"} v={f.clientDebt} c={f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--ok)" : "var(--mut)"} />
-        {fin && <KPI l="Бонус мастеру" v={f.bonus} />}
       </div>
 
       <div className="row sect" style={{ marginBottom: 8 }}>
@@ -2068,7 +2156,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
         <table className="t">
           <thead><tr><th>Дата</th><th>Тип</th><th style={{textAlign:"right"}}>Сумма</th><th>Детали</th><th></th></tr></thead>
           <tbody>
-            {ops.filter((o) => fin || MANAGER_OP_TYPES.includes(o.type)).slice().reverse().map((o) => (
+            {ops.filter((o) => !MASTER_ONLY_OPS.includes(o.type) && (fin || MANAGER_OP_TYPES.includes(o.type))).slice().reverse().map((o) => (
               <tr key={o.id} style={{ opacity: o.voided ? 0.4 : 1, textDecoration: o.voided ? "line-through" : "none" }}>
                 <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
                 <td>{opLabel(o.type)}{o.type === "return" && o.product_name ? <div className="xs mut">{o.product_name} × {o.qty}</div> : null}{o.edited && <div className="xs" style={{ color: "var(--warn)" }}>изменено</div>}</td>
@@ -2076,11 +2164,17 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
                 <td className="xs mut">{[o.supplier_id ? supName(o.supplier_id) : "", o.item_name, o.reason, o.note].filter(Boolean).join(" · ")}</td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
                   {!o.voided && (fin || MANAGER_OP_TYPES.includes(o.type)) && <button className="btn xs" onClick={() => setEditOp(o)}>✎</button>}
-                  {fin && !o.voided && <button className="btn xs dng" onClick={() => voidOp(o.id)}>сторно</button>}
+                  {fin && (delAsk === o.id ? (
+                    <>
+                      <span className="xs" style={{ color: "var(--bad)", textDecoration: "none" }}>Удалить?</span>
+                      <button className="btn xs dng" onClick={() => deleteOp(o)}>Да</button>
+                      <button className="btn xs" onClick={() => setDelAsk(null)}>Нет</button>
+                    </>
+                  ) : <button className="btn xs dng" onClick={() => setDelAsk(o.id)}>удалить</button>)}
                 </div></td>
               </tr>
             ))}
-            {!ops.length && <tr><td colSpan={5} className="mut" style={{ textAlign: "center", padding: 20 }}>Операций нет</td></tr>}
+            {!ops.filter((o) => !MASTER_ONLY_OPS.includes(o.type)).length && <tr><td colSpan={5} className="mut" style={{ textAlign: "center", padding: 20 }}>Операций нет</td></tr>}
           </tbody>
         </table>
       </div>
@@ -2108,7 +2202,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
       {impItems && <ObjectExcelImport products={products} suppliers={suppliers} onClose={() => setImpItems(false)} onSave={async (rows) => { await addManualItems(rows); setImpItems(false); }} />}
       {editOp && <EditOpModal op={editOp} suppliers={suppliers} isReturn={editOp.type === "return"} onClose={() => setEditOp(null)} onSave={async (patch) => {
         const log = [...(editOp.edit_log || []), { at: new Date().toISOString(), before: { amount: editOp.amount, op_date: editOp.op_date, note: editOp.note, reason: editOp.reason } }];
-        await db.from("finance_ops").update({ ...patch, edited: true, edit_log: log }).eq("id", editOp.id);
+        const r = await db.from("finance_ops").update({ ...patch, edited: true, edit_log: log }).eq("id", editOp.id);
+        if (r.error) return;
         await logAction("Изменена операция: " + opLabel(editOp.type), "object", "было " + fmt(editOp.amount) + (patch.amount != null ? " → " + fmt(patch.amount) : ""));
         setEditOp(null); await reload(); toast("Операция изменена (история сохранена)");
       }} />}
@@ -2376,19 +2471,22 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
   );
 }
 function EditOpModal({ op, suppliers, isReturn, onClose, onSave }) {
+  const isClientPay = op.type === "client_payment";
+  const [pay, setPay] = useState(() => payInit(op));
   const [v, setV] = useState({
     amount: op.amount || 0, op_date: (op.op_date || op.created_at || "").slice(0, 10),
     note: op.note || "", reason: op.reason || "", supplier_id: op.supplier_id || "", item_name: op.item_name || "", user: op.user || "",
   });
   return (
     <Modal title={"Редактировать: " + opLabel(op.type)} onClose={onClose} w={520}>
-      {isReturn && <p className="sm" style={{ color: "var(--warn)", marginBottom: 10 }}>⚠ У возврата можно изменить только дату, причину и комментарий. Количество/сумму меняйте через сторно и новый возврат — иначе разойдётся склад.</p>}
+      {isReturn && <p className="sm" style={{ color: "var(--warn)", marginBottom: 10 }}>⚠ У возврата можно изменить только дату, причину и комментарий. Количество/сумму меняйте так: удалите возврат и оформите новый — иначе разойдётся склад.</p>}
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        {!isReturn && <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: Number(e.target.value) || 0 })} /></Fld>}
+        {isClientPay && <PayFields p={pay} setP={setPay} />}
+        {!isReturn && !isClientPay && <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: Number(e.target.value) || 0 })} /></Fld>}
         <Fld label="Дата операции"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
         {op.type === "supplier_payment" && <Fld label="Поставщик"><select className="inp" value={v.supplier_id} onChange={(e) => setV({ ...v, supplier_id: e.target.value })}><option value="">—</option>{activeSuppliers(suppliers, v.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>}
         {op.type === "bonus" && <Fld label="Предмет"><input className="inp" value={v.item_name} onChange={(e) => setV({ ...v, item_name: e.target.value })} /></Fld>}
-        {(isReturn || op.reason != null) && <Fld label="Причина"><input className="inp" value={v.reason} onChange={(e) => setV({ ...v, reason: e.target.value })} /></Fld>}
+        {!isClientPay && (isReturn || op.reason != null) && <Fld label="Причина"><input className="inp" value={v.reason} onChange={(e) => setV({ ...v, reason: e.target.value })} /></Fld>}
         <Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} /></Fld>
         <Fld label="Ответственный"><PersonSelect value={v.user} onChange={(u) => setV({ ...v, user: u })} /></Fld>
       </div>
@@ -2404,8 +2502,9 @@ function EditOpModal({ op, suppliers, isReturn, onClose, onSave }) {
           if (!isReturn) patch.amount = v.amount;
           if (op.type === "supplier_payment") patch.supplier_id = v.supplier_id || null;
           if (op.type === "bonus") patch.item_name = v.item_name || null;
+          if (isClientPay) Object.assign(patch, payPatch(pay));
           onSave(patch);
-        }}>Сохранить</button>
+        }} disabled={isClientPay && !(payUsd(pay) > 0)}>Сохранить</button>
       </div>
     </Modal>
   );
@@ -2498,12 +2597,16 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
   const isReturn = type === "return";
   const isSupPay = type === "supplier_payment";
   const isBonus = type === "bonus";
+  const isClientPay = type === "client_payment";
+  const [pay, setPay] = useState(() => payInit(null));
   const item = items.find((i) => i.id === v.item_id);
   const retAmount = item ? v.qty * item.price : 0;
   const submit = () => {
     const base = { object_id: obj.id, type, note: v.note, reason: v.reason, user: v.user, op_date: v.op_date || today() };
     if (isReturn && item) {
       onSave({ ...base, amount: retAmount, cost_amount: v.qty * item.cost, qty: v.qty, product_id: item.product_id, product_name: item.name, supplier_id: item.supplier_id });
+    } else if (isClientPay) {
+      onSave({ ...base, ...payPatch(pay), supplier_id: null });
     } else {
       onSave({ ...base, amount: Number(v.amount) || 0, supplier_id: isSupPay ? v.supplier_id || null : null, item_name: isBonus && v.item_name ? v.item_name : null });
     }
@@ -2523,7 +2626,7 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
           </>
         ) : (
           <>
-            <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: e.target.value })} /></Fld>
+            {isClientPay ? <PayFields p={pay} setP={setPay} /> : <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: e.target.value })} /></Fld>}
             {isSupPay && <Fld label="Поставщик (обязательно)"><select className="inp" value={v.supplier_id} onChange={(e) => setV({ ...v, supplier_id: e.target.value })} style={{ borderColor: v.supplier_id ? undefined : "var(--bad)" }}><option value="">— выберите поставщика —</option>{supOpts.map((s) => <option key={s.id} value={s.id}>{s.name}{objSupIds.includes(s.id) ? " · в этом объекте" : ""}</option>)}</select></Fld>}
             {isBonus && <Fld label="Предмет (если бонус вещью)"><input className="inp" value={v.item_name} onChange={(e) => setV({ ...v, item_name: e.target.value })} placeholder="инструмент / предмет — опц." /></Fld>}
             <div style={{ gridColumn: "1/-1" }}><Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} /></Fld></div>
@@ -2534,7 +2637,7 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
-        <button className="btn pri" onClick={submit} disabled={isReturn ? !item || !v.qty : !Number(v.amount) || (isSupPay && !v.supplier_id)} title={isSupPay && !v.supplier_id ? "Выберите поставщика — иначе оплата не уменьшит его долг" : ""}>Сохранить</button>
+        <button className="btn pri" onClick={submit} disabled={isReturn ? !item || !v.qty : isClientPay ? !(payUsd(pay) > 0) : !Number(v.amount) || (isSupPay && !v.supplier_id)} title={isSupPay && !v.supplier_id ? "Выберите поставщика — иначе оплата не уменьшит его долг" : ""}>Сохранить</button>
       </div>
     </Modal>
   );
@@ -3485,6 +3588,7 @@ function FinanceTab({ data, reload, toast }) {
   const supName = (id) => (suppliers.find((s) => s.id === id) || {}).name || "";
   const clientDebts = objects.map((o) => ({ o, f: calcObject(o, finance_ops) })).filter((x) => x.f.clientDebt > 0 && x.o.status !== "cancelled");
   const [expForm, setExpForm] = useState(false);
+  const [delExp, setDelExp] = useState(null);
   const monthStart = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10); };
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -3534,7 +3638,11 @@ function FinanceTab({ data, reload, toast }) {
                 <td className="num" style={{ fontWeight: 700, color: "var(--bad)" }}>{fmt(o.amount)}</td>
                 <td className="xs mut">{o.note}</td>
                 <td className="xs mut">{o.user}</td>
-                <td><button className="btn xs dng" onClick={async () => { await db.from("finance_ops").update({ voided: true }).eq("id", o.id); await logAction("Сторно расхода", "company:" + (o.category || ""), fmt(o.amount)); await reload(); toast("Расход сторнирован"); }}>сторно</button></td>
+                <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>{delExp === o.id ? (<>
+                  <span className="xs" style={{ color: "var(--bad)" }}>Удалить?</span>
+                  <button className="btn xs dng" onClick={async () => { const r = await db.from("finance_ops").delete().eq("id", o.id); if (r.error) return; await logAction("Удалён расход", "company:" + (o.category || ""), fmt(o.amount) + " от " + dt(o.op_date || o.created_at) + (o.note ? " · " + o.note : "")); setDelExp(null); await reload(); toast("Расход удалён"); }}>Да</button>
+                  <button className="btn xs" onClick={() => setDelExp(null)}>Нет</button>
+                </>) : <button className="btn xs dng" onClick={() => setDelExp(o.id)}>удалить</button>}</div></td>
               </tr>
             ))}
             {!genExpenses.length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 22 }}>Расходов нет — добавьте через «+ Добавить расход»</td></tr>}
@@ -3926,11 +4034,20 @@ function AppInner() {
   }, []);
   // при открытии мобильного меню шапка всегда видна, чтобы не закрывать список вкладок
   useEffect(() => { if (mobileMenuOpen) setHdrHidden(false); }, [mobileMenuOpen]);
+  // перед восстановлением: подтверждение + автоматически скачиваем бэкап текущей базы
+  const confirmRestore = () => {
+    if (!window.confirm("Восстановить базу из бэкапа?\n\nТекущие данные будут заменены содержимым бэкапа. Перед этим автоматически скачается бэкап текущей базы.")) return false;
+    const cur = { _app: "ThermoAI", _date: new Date().toISOString(), _note: "автобэкап перед восстановлением", tables: {} };
+    TABLES.forEach((t) => { cur.tables[t] = data[t] || []; });
+    tryDownloadBackup(JSON.stringify(cur));
+    return true;
+  };
   const onRestore = async (e) => {
     const f = e.target.files[0]; if (!f) return;
+    e.target.value = "";
+    if (!confirmRestore()) return;
     try { await importBackup(f); await reload(); toast("База восстановлена из бэкапа"); setBootErr(""); }
     catch (err) { toast("Ошибка: " + err.message); }
-    e.target.value = "";
   };
 
   const roleTabs = (ROLES.find((r) => r.id === role) || ROLES[0]).tabs;
@@ -3984,6 +4101,7 @@ function AppInner() {
       </div>
       {backupOpen && <BackupModal data={data} onClose={() => setBackupOpen(false)} toast={toast} onFilePick={() => restoreRef.current.click()} onRestoreText={async (text) => {
         const dump = JSON.parse(text);
+        if (!confirmRestore()) return;
         await restoreFromSupabase(dump); await reload(); setBackupOpen(false); toast("База восстановлена");
       }} onWipe={role === "boss" ? () => { setBackupOpen(false); setWipeOpen(true); } : null} />}
       {wipeOpen && role === "boss" && <WipeModal data={data} onClose={() => setWipeOpen(false)} onDone={async () => {
