@@ -3426,28 +3426,33 @@ function WipeModal({ data, onClose, onDone }) {
   );
 }
 function BackupModal({ data, onClose, toast, onFilePick, onRestoreText, onWipe }) {
-  const [json] = useState(() => {
+  // JSON бэкапа собирается только по кнопке — при большой базе (15 000+ товаров это несколько МБ)
+  // вывод всего текста в поле при открытии окна подвешивал браузер
+  const buildJson = () => {
     const dump = { _app: "ThermoAI", _date: new Date().toISOString(), tables: {} };
     TABLES.forEach((t) => { dump.tables[t] = data[t] || []; });
     return JSON.stringify(dump);
-  });
+  };
+  const totalRows = TABLES.reduce((a, t) => a + (data[t] || []).length, 0);
+  const [manualJson, setManualJson] = useState("");
   const [restoreTxt, setRestoreTxt] = useState("");
   const [err, setErr] = useState("");
   const taRef = useRef(null);
+  const download = () => { const ok = tryDownloadBackup(buildJson()); toast(ok ? "Файл бэкапа скачан" : "Скачивание заблокировано — используйте «Копировать»"); };
   const copy = async () => {
-    try { await navigator.clipboard.writeText(json); toast("Скопировано в буфер"); return; } catch (e) {}
-    try { taRef.current.select(); document.execCommand("copy"); toast("Скопировано в буфер"); } catch (e) { toast("Выделите текст и скопируйте вручную"); }
+    const json = buildJson();
+    try { await navigator.clipboard.writeText(json); toast("Бэкап скопирован в буфер (" + Math.round(json.length / 1024) + " КБ)"); return; } catch (e) {}
+    setManualJson(json); toast("Автокопирование недоступно — выделите текст в поле и скопируйте вручную");
   };
   return (
     <Modal title="Бэкап и восстановление базы" onClose={onClose} w={680}>
       <h3 style={{ marginBottom: 6 }}>Сохранить</h3>
-      <p className="xs mut" style={{ marginBottom: 8 }}>Скопируйте текст бэкапа и сохраните в заметки/файл, или попробуйте скачать файлом.</p>
-      <textarea ref={taRef} readOnly className="inp" style={{ minHeight: 110, fontSize: 10 }} value={json} onFocus={(e) => e.target.select()} />
-      <div className="row" style={{ marginTop: 8, marginBottom: 18 }}>
-        <button className="btn pri" onClick={copy}>📋 Копировать бэкап</button>
-        <button className="btn" onClick={() => { tryDownloadBackup(json) ? toast("Файл скачан") : toast("Скачивание заблокировано — используйте «Копировать»"); }}>⬇ Скачать файлом</button>
-        <span className="xs mut">{Math.round(json.length / 1024)} КБ</span>
+      <p className="xs mut" style={{ marginBottom: 8 }}>Скачайте файл бэкапа (рекомендуется) или скопируйте его текст. В бэкап входит вся база: {totalRows.toLocaleString("ru-RU")} записей, из них товаров {(data.products || []).length.toLocaleString("ru-RU")}.</p>
+      <div className="row" style={{ marginTop: 8, marginBottom: manualJson ? 8 : 18 }}>
+        <button className="btn pri" onClick={download}>⬇ Скачать файлом</button>
+        <button className="btn" onClick={copy}>📋 Копировать бэкап</button>
       </div>
+      {manualJson && <textarea ref={taRef} readOnly className="inp" style={{ minHeight: 90, fontSize: 10, marginBottom: 18 }} value={manualJson} onFocus={(e) => e.target.select()} />}
       <h3 style={{ marginBottom: 6 }}>Восстановить</h3>
       {err && <p className="sm" style={{ color: "var(--bad)", marginBottom: 6 }}>{err}</p>}
       <textarea className="inp" style={{ minHeight: 90, fontSize: 10 }} placeholder="Вставьте сюда текст бэкапа…" value={restoreTxt} onChange={(e) => setRestoreTxt(e.target.value)} />
