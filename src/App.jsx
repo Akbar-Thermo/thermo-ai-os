@@ -1,9 +1,80 @@
 import React, { useState, useEffect, useMemo, useRef, useDeferredValue, memo, useCallback, createContext, useContext } from "react";
 import * as XLSX from "xlsx";
 import * as dbModule from "./db.js";
-const db = dbModule.db;
 // «сырой» клиент Supabase (db.js экспортирует его рядом с db) — нужен для постраничной загрузки (.range) и массового удаления (.in)
 const sb = dbModule.supabase || null;
+/* ---- Надёжная запись в базу ----
+   1) Если в таблице Supabase нет какой-то колонки (ошибка PGRST204), запись повторяется без неё.
+      Раньше такая запись целиком молча не сохранялась, а на экране всё равно писалось «Сохранено».
+   2) Любая оставшаяся ошибка показывается на экране (событие te-db-error), а не только в консоли. */
+const DB_MISSING = {};
+let _lastDbErr = { m: "", at: 0 };
+function dbErrText(t, e) {
+  const m = String((e && e.message) || e || "");
+  if ((e && e.code === "23503") || /foreign key/i.test(m)) return "Запись в «" + t + "» не изменена: на неё ссылаются другие данные.";
+  if (/row-level security|permission denied/i.test(m) || (e && e.code === "42501")) return "Нет прав на запись в таблицу «" + t + "» (проверьте RLS в Supabase).";
+  if (e && e.code === "NO_COLUMNS") return "Не сохранено: " + m + ".";
+  return "Ошибка базы («" + t + "»): " + m;
+}
+function dbReport(t, e) {
+  const msg = dbErrText(t, e), now = Date.now();
+  if (msg === _lastDbErr.m && now - _lastDbErr.at < 4000) return;
+  _lastDbErr = { m: msg, at: now };
+  try { window.dispatchEvent(new CustomEvent("te-db-error", { detail: msg })); } catch (x) {}
+}
+function dbWrap(real) {
+  return {
+    from(t) {
+      const calls = [];
+      const strip = (col) => {
+        let hit = false;
+        calls.forEach(([m, a]) => {
+          if (m !== "insert" && m !== "update") return;
+          (Array.isArray(a[0]) ? a[0] : [a[0]]).forEach((o) => { if (o && Object.prototype.hasOwnProperty.call(o, col)) { delete o[col]; hit = true; } });
+        });
+        return hit;
+      };
+      const run = async () => {
+        const miss = DB_MISSING[t] || (DB_MISSING[t] = new Set());
+        const dropped = [];
+        miss.forEach((c) => { if (strip(c)) dropped.push(c); });
+        for (let attempt = 0; attempt < 15; attempt++) {
+          // запись, у которой не осталось ни одной колонки, не отправляем — это ошибка, а не «успех»
+          const w = calls.find(([m]) => m === "insert" || m === "update");
+          if (w && (Array.isArray(w[1][0]) ? w[1][0].some((o) => !Object.keys(o).length) : !Object.keys(w[1][0] || {}).length)) {
+            const r = { data: [], error: { message: "в таблице «" + t + "» нет колонок: " + dropped.join(", "), code: "NO_COLUMNS" }, dropped };
+            dbReport(t, r.error); return r;
+          }
+          let qq = real.from(t);
+          for (const [m, a] of calls) qq = qq[m](...a);
+          const r = await qq;
+          const e = r && r.error;
+          const mm = e && /Could not find the '([^']+)' column/i.exec(e.message || "");
+          if (mm && strip(mm[1])) { miss.add(mm[1]); dropped.push(mm[1]); console.warn("[db] в таблице " + t + " нет колонки «" + mm[1] + "» — запись повторена без неё"); continue; }
+          if (e) dbReport(t, e);
+          if (r && dropped.length) r.dropped = dropped;
+          return r;
+        }
+        return { data: [], error: { message: "слишком много отсутствующих колонок в «" + t + "»" } };
+      };
+      const q = new Proxy({}, {
+        get(_, prop) {
+          if (prop === "then") return (res, rej) => run().then(res, rej);
+          if (prop === "catch") return (rej) => run().catch(rej);
+          if (typeof prop === "symbol") return undefined;
+          return (...args) => {
+            // копия данных записи: при повторе без колонки не портим объект вызывающего кода
+            if ((prop === "insert" || prop === "update") && args[0] && typeof args[0] === "object")
+              args = [Array.isArray(args[0]) ? args[0].map((r) => ({ ...r })) : { ...args[0] }, ...args.slice(1)];
+            calls.push([prop, args]); return q;
+          };
+        },
+      });
+      return q;
+    },
+  };
+}
+const db = dbWrap(dbModule.db);
 
 /* ============================================================
    THERMO ENGINEERING — AI Procurement & Finance OS
@@ -52,6 +123,9 @@ const CSS = `
   --bg:#111115; --panel:#1a1a20; --panel2:#222228; --line:#2e2e36; --line2:#3a3a44;
   --txt:#e8e8f0; --mut:#8888a0; --ok:#3ddc7d; --warn:#e6a020; --bad:#ff4d5e;
 }
+.te{--viz-s1:#2a78d6;--viz-s2:#eb6834;--viz-grid:#e1e0d9;--viz-axis:#c3c2b7}
+.te.dark{--viz-s1:#3987e5;--viz-s2:#d95926;--viz-grid:#2c2c2a;--viz-axis:#383835}
+@media(max-width:820px){.dash .kpi[style*="span 2"]{grid-column:auto!important}}
 .te.dark table.t tr:hover td{background:rgba(255,255,255,.04)}
 .te.dark .pick-row:hover{background-color:#2a1a1c !important}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -230,7 +304,11 @@ async function importBackup(file) {
 /* ============ HELPERS ============ */
 const fmt = (n) => (Number(n) || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
 const fmt2 = (n) => (Number(n) || 0).toLocaleString("ru-RU", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const money = (n) => fmt(n) + " сум";
+// валюта учёта — доллар США (себестоимость и цены в базе в $)
+// розничная цена: если в базе не задана (0), берём себестоимость + стандартная наценка (как в «Новая заявка»)
+const DEFAULT_MARKUP = 15;
+const retailOf = (p) => (Number(p && p.price) > 0 ? Number(p.price) : Math.round((Number(p && p.cost) || 0) * (1 + DEFAULT_MARKUP / 100) * 100) / 100);
+const money = (n) => ((Number(n) || 0) < 0 ? "−$" + fmt(-(Number(n) || 0)) : "$" + fmt(n));
 const dt = (s) => (s ? new Date(s).toLocaleDateString("ru-RU") : "—");
 const today = () => new Date().toISOString().slice(0, 10);
 const stById = (id) => OBJ_STATUSES.find((s) => s.id === id) || OBJ_STATUSES[0];
@@ -257,16 +335,44 @@ function calcObject(obj, ops) {
     supplierDebt: Math.max(0, costNet - paidSup),
   };
 }
-function supplierStats(sup, objects, ops) {
+/* Какие возвраты уменьшают долг поставщику.
+   · Возврат со склада поставщику (Склад → «↩ поставщику», операция без object_id) — уменьшает.
+   · Возврат с объекта «сразу поставщику» (в операции есть supplier_id, на склад не приходовался) — уменьшает.
+   · Возврат клиента с объекта на Склад Thermo — НЕ уменьшает: товар остался у нас.
+     Раньше он уменьшал долг, а при последующем возврате со склада поставщику долг уменьшался второй раз.
+   Старые возвраты на склад хранили supplier_id в операции; их узнаём по записи прихода на склад (wh_moves)
+   с тем же объектом, товаром, количеством и датой. */
+let _retCache = { ops: null, wh: null, ids: null };
+function supplierReturnIds(ops, whMoves) {
+  if (_retCache.ops === ops && _retCache.wh === whMoves && _retCache.ids) return _retCache.ids;
+  const key = (o) => o.object_id + "|" + (o.product_id || "") + "|" + Number(o.qty || 0) + "|" + String(o.op_date || o.created_at || "").slice(0, 10);
+  const inWh = {};
+  (whMoves || []).forEach((w) => { if (w.dir === "in" && w.object_id) { const k = key(w); inWh[k] = (inWh[k] || 0) + 1; } });
+  const rets = (ops || []).filter((x) => x.type === "return");
+  const take = (x) => { const k = key(x); if (inWh[k]) { inWh[k]--; return true; } return false; };
+  rets.forEach((x) => { if (x.object_id && !x.supplier_id) take(x); });              // новые возвраты на склад
+  rets.forEach((x) => { if (x.object_id && x.supplier_id && x.voided) take(x); });    // сторнированные
+  const ids = new Set();
+  rets.forEach((x) => {
+    if (x.voided || !x.supplier_id) return;
+    if (!x.object_id) { ids.add(x.id); return; }
+    if (!take(x)) ids.add(x.id);
+  });
+  _retCache = { ops, wh: whMoves, ids };
+  return ids;
+}
+function supplierStats(sup, objects, ops, whMoves) {
   let purchases = 0;
   objects.forEach((ob) => {
     if (ob.status === "cancelled") return;
     (ob.items || []).forEach((i) => { if (i.supplier_id === sup.id && !i.from_warehouse) purchases += (i.qty || 0) * (i.cost || 0); });
   });
+  const ids = supplierReturnIds(ops, whMoves);
   const o = ops.filter((x) => !x.voided && x.supplier_id === sup.id);
   const paid = o.filter((x) => x.type === "supplier_payment").reduce((a, x) => a + (x.amount || 0), 0);
-  const returns = o.filter((x) => x.type === "return").reduce((a, x) => a + (x.cost_amount || 0), 0);
-  return { purchases, paid, returns, debt: Math.max(0, purchases - returns - paid) };
+  const returns = o.filter((x) => x.type === "return" && ids.has(x.id)).reduce((a, x) => a + (x.cost_amount || 0), 0);
+  const balance = purchases - returns - paid; // < 0 — переплата (аванс поставщику)
+  return { purchases, paid, returns, balance, debt: Math.max(0, balance) };
 }
 function masterStats(m, objects, ops) {
   const objs = objects.filter((o) => o.status !== "cancelled" && (o.master_id === m.id || (o.master && o.master === m.name)));
@@ -478,7 +584,7 @@ function ProductPicker({ products, onPick, placeholder }) {
                       style={{ position: "absolute", top: i * ROW, left: 0, right: 0, height: ROW, boxSizing: "border-box", padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === activeIdx ? "rgba(255,31,48,.08)" : "var(--panel)", overflow: "hidden" }}
                       onClick={() => pick(p)}>
                       <div style={{ fontWeight: 600, fontSize: 13, color: "var(--txt)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
-                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, p.size].filter(Boolean).join(" · ")} · {money(p.price)} · ост. {p.stock}</div>
+                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, p.size].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))} · ост. {p.stock}</div>
                     </div>
                   );
                 })}
@@ -505,7 +611,7 @@ const ProductRow = memo(function ProductRow({ p, checked, sup, onToggle, onEdit 
       <td className="mono xs">{p.size}</td>
       <td className="sm">{p.unit}</td>
       <td className="num">{fmt2(p.cost)}</td>
-      <td className="num">{fmt2(p.price)}</td>
+      <td className="num">{Number(p.price) > 0 ? fmt2(p.price) : <span className="mut" title={"Розничная цена не задана — при добавлении в объект: себестоимость + " + DEFAULT_MARKUP + "%"}>≈ {fmt2(retailOf(p))}</span>}</td>
       <td><button className="btn xs" onClick={() => onEdit(p)}>ред.</button></td>
     </tr>
   );
@@ -628,7 +734,7 @@ function ProductForm({ p, suppliers, onClose, onSave }) {
         <div style={{ gridColumn: "1/-1" }}><Fld label="Альтернативные названия (для AI-поиска)"><input className="inp" value={v.alt_names || ""} onChange={set("alt_names")} placeholder="через запятую: батарея, радиатор…" /></Fld></div>
         <Fld label="Размер"><input className="inp" value={v.size || ""} onChange={set("size")} /></Fld>
         <Fld label="Ед. изм."><input className="inp" value={v.unit || ""} onChange={set("unit")} /></Fld>
-        <Fld label="Поставщик"><select className="inp" value={v.supplier_id || ""} onChange={set("supplier_id")}><option value="">—</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>
+        <Fld label="Поставщик"><select className="inp" value={v.supplier_id || ""} onChange={set("supplier_id")}><option value="">—</option>{activeSuppliers(suppliers, v.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>
         <Fld label="Закупочная цена"><input type="number" className="inp" value={v.cost || 0} onChange={setN("cost")} /></Fld>
         <Fld label="Цена продажи"><input type="number" className="inp" value={v.price || 0} onChange={setN("price")} /></Fld>
         <Fld label="Остаток"><input type="number" className="inp" value={v.stock || 0} onChange={setN("stock")} /></Fld>
@@ -774,7 +880,7 @@ function ImportModal({ suppliers, onClose, onDone }) {
           <details>
             <summary className="sm mut clk" style={{ marginBottom: 8 }}>…или вставить текстом (TAB / « ; »)</summary>
             <Fld label="Поставщик для всех строк (опционально)">
-              <select className="inp" value={sid} onChange={(e) => setSid(e.target.value)}><option value="">—</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+              <select className="inp" value={sid} onChange={(e) => setSid(e.target.value)}><option value="">—</option>{activeSuppliers(suppliers).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
             </Fld>
             <textarea className="inp" style={{ marginTop: 10, minHeight: 140 }} value={txt} onChange={(e) => setTxt(e.target.value)} placeholder={"TRB-040\tТруба PPR Ø40\tТрубы PPR\t40 мм\tм\tкомфорт\t30000\t45000\t500\tValtec"} />
             <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
@@ -806,7 +912,7 @@ function ImportModal({ suppliers, onClose, onDone }) {
           </div>
           {sid === "" && map.supplier == null && (
             <Fld label="Поставщик для всех строк (колонка не найдена)">
-              <select className="inp" style={{ maxWidth: 280 }} value={sid} onChange={(e) => setSid(e.target.value)}><option value="">—</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+              <select className="inp" style={{ maxWidth: 280 }} value={sid} onChange={(e) => setSid(e.target.value)}><option value="">—</option>{activeSuppliers(suppliers).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
             </Fld>
           )}
           <h3 style={{ margin: "12px 0 8px" }}>Предпросмотр (первые 5)</h3>
@@ -842,7 +948,7 @@ function ImportModal({ suppliers, onClose, onDone }) {
 }
 
 /* ============ SUPPLIERS TAB ============ */
-function AktSverkaModal({ s, objects, ops, products, onClose }) {
+function AktSverkaModal({ s, objects, ops, whMoves, products, onClose }) {
   // Received items (purchases) from all non-cancelled objects
   const received = [];
   objects.forEach((ob) => {
@@ -853,14 +959,19 @@ function AktSverkaModal({ s, objects, ops, products, onClose }) {
       }
     });
   });
-  // Returns by this supplier
-  const returns = ops.filter((o) => !o.voided && o.type === "return" && o.supplier_id === s.id);
+  // Возвраты поставщику (уменьшают долг). Возвраты клиентов на Склад Thermo долг не уменьшают — показаны отдельно
+  const retIdsAkt = supplierReturnIds(ops, whMoves);
+  const returns = ops.filter((o) => !o.voided && o.type === "return" && o.supplier_id === s.id && retIdsAkt.has(o.id));
+  const itemSup = {};
+  objects.forEach((ob) => (ob.items || []).forEach((it) => { itemSup[it.id] = it.supplier_id; }));
+  const toWh = ops.filter((o) => !o.voided && o.type === "return" && o.object_id && !retIdsAkt.has(o.id) && (o.supplier_id === s.id || (o.item_id && itemSup[o.item_id] === s.id)));
+  const toWhCost = toWh.reduce((a, o) => a + (o.cost_amount || 0), 0);
   // Payments to this supplier
   const payments = ops.filter((o) => !o.voided && o.type === "supplier_payment" && o.supplier_id === s.id);
   const totalReceived = received.reduce((a, it) => a + (it.qty || 0) * (it.cost || 0), 0);
   const totalReturns = returns.reduce((a, o) => a + (o.cost_amount || 0), 0);
   const totalPaid = payments.reduce((a, o) => a + (o.amount || 0), 0);
-  const debt = Math.max(0, totalReceived - totalReturns - totalPaid);
+  const balance = totalReceived - totalReturns - totalPaid; // < 0 — переплата (аванс)
   // группировка полученных товаров: объект + номер поставки
   const batches = useMemo(() => {
     const m = new Map();
@@ -901,7 +1012,7 @@ function AktSverkaModal({ s, objects, ops, products, onClose }) {
       if (!g.date || (g.no == null && d && d < g.date)) g.date = d;
     });
     return [...m.values()].sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || a.label.localeCompare(b.label));
-  }, [objects, ops, s.id]);
+  }, [objects, ops, s.id, whMoves]);
   const retByKey = useMemo(() => { const r = {}; retGroups.forEach((g) => { r[g.key] = g.sum; }); return r; }, [retGroups]);
   const [closed, setClosed] = useState({});
   const [rClosed, setRClosed] = useState({});
@@ -913,7 +1024,7 @@ function AktSverkaModal({ s, objects, ops, products, onClose }) {
         <div className="kpi"><div className="l">Получено товаров</div><div className="v">{fmt(totalReceived)}</div></div>
         <div className="kpi"><div className="l">Возвраты</div><div className="v" style={{ color: "var(--warn)" }}>{fmt(totalReturns)}</div></div>
         <div className="kpi"><div className="l">Оплачено</div><div className="v" style={{ color: "var(--ok)" }}>{fmt(totalPaid)}</div></div>
-        <div className="kpi"><div className="l">Долг</div><div className="v" style={{ color: debt > 0 ? "var(--bad)" : "var(--mut)" }}>{fmt(debt)}</div></div>
+        <div className="kpi"><div className="l">{balance < 0 ? "Аванс (переплата)" : "Долг"}</div><div className="v" style={{ color: balColor(balance) }}>{signedMoney(balance)}</div></div>
       </div>
       <details open>
         <summary className="sm" style={{ cursor: "pointer", fontWeight: 700, marginBottom: 8 }}>
@@ -952,7 +1063,8 @@ function AktSverkaModal({ s, objects, ops, products, onClose }) {
         </div>
       </details>
       <details style={{ marginTop: 12 }}>
-        <summary className="sm" style={{ cursor: "pointer", fontWeight: 700, marginBottom: 8 }}>Возвраты по поставкам ({returns.length})</summary>
+        <summary className="sm" style={{ cursor: "pointer", fontWeight: 700, marginBottom: 8 }}>Возвраты поставщику по поставкам ({returns.length})</summary>
+        {toWh.length > 0 && <p className="xs mut" style={{ margin: "0 0 8px" }}>Ещё возвращено клиентами на Склад Thermo: {toWh.length} поз. на {fmt(toWhCost)} по себестоимости — долг поставщику они не уменьшают, пока товар не вернут поставщику (Склад Thermo → «↩ поставщику»).</p>}
         <div style={{ overflow: "auto", maxHeight: 360 }}>
         <table className="t"><thead><tr><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th style={{textAlign:"right"}}>Сумма (себест.)</th><th>Дата возврата</th><th>Причина</th></tr></thead>
           <tbody>
@@ -994,107 +1106,206 @@ function AktSverkaModal({ s, objects, ops, products, onClose }) {
     </Modal>
   );
 }
+// поставщики для выбора в формах: неактивные скрыты (кроме уже выбранного)
+const activeSuppliers = (suppliers, keepId) => suppliers.filter((s) => s.status !== "inactive" || (keepId && s.id === keepId));
+const signedMoney = (b) => (b < 0 ? "−" + fmt(-b) : fmt(b));
+const balColor = (b) => (b > 0 ? "var(--bad)" : b < 0 ? "var(--ok)" : "var(--mut)");
+
 function SuppliersTab({ data, reload, toast, fin = true }) {
-  const { suppliers, objects, finance_ops, products } = data;
+  const { suppliers, objects, finance_ops, products, wh_moves } = data;
   const [edit, setEdit] = useState(null);
   const [del, setDel] = useState(null);
+  const [delErr, setDelErr] = useState("");
+  const [delBusy, setDelBusy] = useState(false);
   const [pay, setPay] = useState(null);
   const [akt, setAkt] = useState(null);
+  const [q, setQ] = useState("");
+  const prodCnt = useMemo(() => { const m = {}; products.forEach((p) => { if (p.supplier_id) m[p.supplier_id] = (m[p.supplier_id] || 0) + 1; }); return m; }, [products]);
+  const rows = useMemo(() => suppliers.map((s) => ({ s, st: supplierStats(s, objects, finance_ops, wh_moves) }))
+    .sort((a, b) => ((a.s.status === "inactive") - (b.s.status === "inactive")) || String(a.s.name || "").localeCompare(String(b.s.name || ""), "ru")),
+    [suppliers, objects, finance_ops, wh_moves]);
+  const shown = rows.filter(({ s }) => !q || (String(s.name || "") + " " + (s.contact || "") + " " + (s.phone || "")).toLowerCase().includes(q.toLowerCase()));
+  const tot = shown.reduce((a, { st }) => ({ purchases: a.purchases + st.purchases, paid: a.paid + st.paid, returns: a.returns + st.returns, debt: a.debt + st.debt }), { purchases: 0, paid: 0, returns: 0, debt: 0 });
+  // оплаты поставщикам без указанного поставщика (форма объекта раньше это позволяла) — не уменьшают ничей долг
+  const orphan = finance_ops.filter((o) => o.type === "supplier_payment" && !o.voided && !o.supplier_id);
+  const objName = (id) => (objects.find((o) => o.id === id) || {}).name || "—";
+
+  const assignOrphan = async (op, sid) => {
+    if (!sid) return;
+    const r = await db.from("finance_ops").update({ supplier_id: sid }).eq("id", op.id);
+    if (r.error) return;
+    await logAction("Оплате указан поставщик", "supplier:" + ((suppliers.find((x) => x.id === sid) || {}).name || ""), fmt(op.amount) + " · " + objName(op.object_id));
+    await reload(); toast("Оплата привязана к поставщику");
+  };
+  const saveSupplier = async (v) => {
+    const { id, created_at, ...vals } = v;
+    const r = id ? await db.from("suppliers").update(vals).eq("id", id) : await db.from("suppliers").insert(vals);
+    if (r.error) return r.error; // форма покажет ошибку и останется открытой
+    await logAction(id ? "Изменён поставщик" : "Добавлен поставщик", "supplier:" + (vals.name || ""), "");
+    setEdit(null); await reload();
+    // предупреждаем, только если пользователь что-то ввёл в поле, которого нет в базе
+    const lost = (r.dropped || []).filter((c) => vals[c] != null && String(vals[c]).trim() !== "");
+    toast(lost.length ? "Поставщик сохранён. Не сохранено поле «" + lost.join(", ") + "» — такой колонки нет в базе" : "Поставщик сохранён");
+    return null;
+  };
+  const deactivate = async (s) => {
+    const r = await db.from("suppliers").update({ status: "inactive" }).eq("id", s.id);
+    if (r.error) return;
+    await logAction("Поставщик отключён", "supplier:" + s.name, "");
+    setDel(null); setDelErr(""); await reload(); toast("«" + s.name + "» отмечен как неактивный — история и долги сохранены");
+  };
+  const doDelete = async (s) => {
+    setDelBusy(true); setDelErr("");
+    const ids = products.filter((p) => p.supplier_id === s.id).map((p) => p.id);
+    let r = ids.length ? await db.from("products").update({ supplier_id: null }).eq("supplier_id", s.id) : { error: null };
+    if (!r.error) r = await db.from("suppliers").delete().eq("id", s.id);
+    if (r.error) {
+      // откат: база не дала удалить — возвращаем товарам их поставщика
+      if (ids.length) {
+        if (sb) { for (let i = 0; i < ids.length; i += 200) await sb.from("products").update({ supplier_id: s.id }).in("id", ids.slice(i, i + 200)); }
+        else { for (const pid of ids) await db.from("products").update({ supplier_id: s.id }).eq("id", pid); }
+      }
+      setDelErr("База не дала удалить поставщика (на него ссылаются оплаты или возвраты). Ничего не изменено. Можно отметить его как «неактивен» — он пропадёт из списков выбора, а история останется.");
+      setDelBusy(false); await reload(); return;
+    }
+    await logAction("Удалён поставщик", "supplier:" + s.name, "товаров отвязано: " + ids.length);
+    setDelBusy(false); setDel(null); await reload(); toast("Поставщик удалён");
+  };
+
   return (
     <div>
       <div className="row sect">
-        <h2 style={{ marginRight: "auto" }}>Поставщики</h2>
-        <button className="btn pri" onClick={() => setEdit({ status: "active", currency: "сум" })}>+ Поставщик</button>
+        <h2 style={{ marginRight: "auto" }}>Поставщики <span className="mut sm">({suppliers.length})</span></h2>
+        <input className="inp" style={{ maxWidth: 220 }} placeholder="Поиск поставщика…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button className="btn pri" onClick={() => setEdit({ status: "active" })}>+ Поставщик</button>
       </div>
+      {orphan.length > 0 && (
+        <div className="card sect" style={{ borderColor: "var(--warn)" }}>
+          <div style={{ fontWeight: 800, color: "var(--warn)", marginBottom: 4 }}>⚠ Оплаты поставщикам без указанного поставщика: {orphan.length} на {fmt(orphan.reduce((a, o) => a + (o.amount || 0), 0))}</div>
+          <p className="xs mut" style={{ marginBottom: 8 }}>Эти оплаты сделаны со страницы объекта без выбора поставщика, поэтому не уменьшают ничей долг. Укажите поставщика — долг пересчитается.</p>
+          <table className="t"><thead><tr><th>Дата</th><th>Объект</th><th style={{ textAlign: "right" }}>Сумма</th><th>Комментарий</th><th>Поставщик</th></tr></thead>
+            <tbody>{orphan.map((o) => (
+              <tr key={o.id}>
+                <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
+                <td className="sm">{objName(o.object_id)}</td>
+                <td className="num" style={{ fontWeight: 700 }}>{fmt(o.amount)}</td>
+                <td className="xs mut">{o.note}</td>
+                <td><select className="inp" defaultValue="" onChange={(e) => assignOrphan(o, e.target.value)}><option value="">— выбрать —</option>{activeSuppliers(suppliers).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></td>
+              </tr>
+            ))}</tbody></table>
+        </div>
+      )}
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
           <thead><tr><th>Поставщик</th><th>Контакт</th><th>Условия</th><th style={{textAlign:"right"}}>Закупки</th><th style={{textAlign:"right"}}>Оплачено</th><th style={{textAlign:"right"}}>Возвраты</th><th style={{textAlign:"right"}}>Долг</th><th style={{textAlign:"right"}}>Товаров</th><th></th></tr></thead>
           <tbody>
-            {suppliers.map((s) => {
-              const st = supplierStats(s, objects, finance_ops);
-              const cnt = products.filter((p) => p.supplier_id === s.id).length;
-              return (
-                <tr key={s.id}>
-                  <td style={{ fontWeight: 700 }}>{s.name}</td>
-                  <td className="sm">{s.contact}<div className="xs mut mono">{s.phone}</div></td>
-                  <td className="sm mut">{s.terms}</td>
-                  <td className="num">{fmt(st.purchases)}</td>
-                  <td className="num" style={{ color: "var(--ok)" }}>{fmt(st.paid)}</td>
-                  <td className="num">{fmt(st.returns)}</td>
-                  <td className="num" style={{ color: st.debt > 0 ? "var(--bad)" : "var(--mut)", fontWeight: 700 }}>{fmt(st.debt)}</td>
-                  <td className="num">{cnt}</td>
-                  <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
-                    <button className="btn xs" style={{ color: "var(--ok)" }} onClick={() => setPay(s)}>💵 оплата</button>
-                    <button className="btn xs" onClick={() => setAkt(s)}>📋 акт</button>
-                    <button className="btn xs" onClick={() => setEdit(s)}>ред.</button>
-                    {fin && <button className="btn xs dng" onClick={() => setDel(s)}>✕</button>}
-                  </div></td>
-                </tr>
-              );
-            })}
+            {shown.map(({ s, st }) => (
+              <tr key={s.id} style={{ opacity: s.status === "inactive" ? 0.55 : 1 }}>
+                <td style={{ fontWeight: 700 }}>{s.name}{s.status === "inactive" && <> <Badge c="#9a9a9a">неактивен</Badge></>}</td>
+                <td className="sm">{s.contact}<div className="xs mut mono">{s.phone}</div></td>
+                <td className="sm mut">{s.terms}</td>
+                <td className="num">{fmt(st.purchases)}</td>
+                <td className="num" style={{ color: "var(--ok)" }}>{fmt(st.paid)}</td>
+                <td className="num">{fmt(st.returns)}</td>
+                <td className="num" style={{ color: balColor(st.balance), fontWeight: 700 }} title={st.balance < 0 ? "переплата (аванс поставщику)" : ""}>{signedMoney(st.balance)}</td>
+                <td className="num">{prodCnt[s.id] || 0}</td>
+                <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
+                  <button className="btn xs" style={{ color: "var(--ok)" }} onClick={() => setPay(s)}>💵 оплата</button>
+                  <button className="btn xs" onClick={() => setAkt(s)}>📋 акт</button>
+                  <button className="btn xs" onClick={() => setEdit(s)}>ред.</button>
+                  {fin && <button className="btn xs dng" onClick={() => { setDelErr(""); setDel(s); }}>✕</button>}
+                </div></td>
+              </tr>
+            ))}
+            {!shown.length && <tr><td colSpan={9} className="mut" style={{ textAlign: "center", padding: 24 }}>{suppliers.length ? "Ничего не найдено" : "Поставщиков пока нет — добавьте через «+ Поставщик»"}</td></tr>}
+            {shown.length > 1 && (
+              <tr style={{ background: "var(--panel2)" }}>
+                <td colSpan={3} style={{ fontWeight: 800 }}>Итого{q ? " (по найденным)" : ""}</td>
+                <td className="num" style={{ fontWeight: 800 }}>{fmt(tot.purchases)}</td>
+                <td className="num" style={{ fontWeight: 800, color: "var(--ok)" }}>{fmt(tot.paid)}</td>
+                <td className="num" style={{ fontWeight: 800 }}>{fmt(tot.returns)}</td>
+                <td className="num" style={{ fontWeight: 800, color: tot.debt > 0 ? "var(--bad)" : "var(--mut)" }} title="сумма долгов (переплаты не вычитаются)">{fmt(tot.debt)}</td>
+                <td colSpan={2}></td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
-      {akt && <AktSverkaModal s={akt} objects={objects} ops={finance_ops} products={products} onClose={() => setAkt(null)} />}
-      {pay && <SupplierPayModal s={pay} objects={objects} ops={finance_ops} fin={fin} onClose={() => setPay(null)}
-        onSave={async (op) => { await db.from("finance_ops").insert(cleanUuids(op)); await logAction("Оплата поставщику", "supplier:" + pay.name, fmt(op.amount) + " · " + (op.note || "")); await reload(); toast("Оплата поставщику записана"); }}
+      {akt && <AktSverkaModal s={akt} objects={objects} ops={finance_ops} whMoves={wh_moves} products={products} onClose={() => setAkt(null)} />}
+      {pay && <SupplierPayModal s={pay} objects={objects} ops={finance_ops} whMoves={wh_moves} fin={fin} onClose={() => setPay(null)}
+        onSave={async (op) => {
+          const r = await db.from("finance_ops").insert(cleanUuids(op));
+          if (r.error) return false;
+          await logAction("Оплата поставщику", "supplier:" + pay.name, fmt(op.amount) + " · " + (op.note || "")); await reload(); toast("Оплата поставщику записана: " + fmt(op.amount)); return true;
+        }}
         onEditPay={async (o, patch) => {
           const log = [...(o.edit_log || []), { at: new Date().toISOString(), before: { amount: o.amount, op_date: o.op_date, note: o.note } }];
-          await db.from("finance_ops").update({ ...patch, edited: true, edit_log: log }).eq("id", o.id);
-          await logAction("Изменена оплата поставщику", "supplier:" + pay.name, "было " + fmt(o.amount) + " → стало " + fmt(patch.amount)); await reload(); toast("Оплата изменена");
+          const r = await db.from("finance_ops").update({ ...patch, edited: true, edit_log: log }).eq("id", o.id);
+          if (r.error) return false;
+          await logAction("Изменена оплата поставщику", "supplier:" + pay.name, "было " + fmt(o.amount) + " → стало " + fmt(patch.amount)); await reload();
+          const noLog = r.dropped && r.dropped.includes("edit_log") && !window.__teNoLogWarned;
+          if (noLog) window.__teNoLogWarned = true;
+          toast(noLog ? "Оплата изменена (история изменений не сохраняется: в базе нет колонки edit_log)" : "Оплата изменена"); return true;
         }}
         onVoidPay={async (o) => {
-          await db.from("finance_ops").update({ voided: true }).eq("id", o.id);
-          await logAction("Сторно оплаты поставщику", "supplier:" + pay.name, fmt(o.amount)); await reload(); toast("Оплата сторнирована");
+          const r = await db.from("finance_ops").update({ voided: true }).eq("id", o.id);
+          if (r.error) return false;
+          await logAction("Сторно оплаты поставщику", "supplier:" + pay.name, fmt(o.amount)); await reload(); toast("Оплата сторнирована"); return true;
         }} />}
       {del && (() => {
-        const st = supplierStats(del, objects, finance_ops);
-        const cnt = products.filter((p) => p.supplier_id === del.id).length;
+        const st = supplierStats(del, objects, finance_ops, wh_moves);
+        const cnt = prodCnt[del.id] || 0;
+        const nOps = finance_ops.filter((o) => o.supplier_id === del.id).length;
         return (
-          <Modal title="Удалить поставщика" onClose={() => setDel(null)} w={480}>
+          <Modal title="Удалить поставщика" onClose={() => { if (!delBusy) { setDel(null); setDelErr(""); } }} w={500}>
             <p style={{ marginBottom: 8 }}>Удалить поставщика <b style={{ color: "var(--bad)" }}>{del.name}</b>?</p>
             {st.debt > 0 && <p className="sm" style={{ color: "var(--warn)", marginBottom: 6 }}>⚠ Текущий долг поставщику: {fmt(st.debt)} — он исчезнет из учёта долгов.</p>}
             {cnt > 0 && <p className="sm mut" style={{ marginBottom: 6 }}>К нему привязано товаров: {cnt} — они останутся в базе без поставщика.</p>}
-            <p className="sm mut" style={{ marginBottom: 12 }}>История финансовых операций сохранится. Действие необратимо.</p>
-            <div className="row" style={{ justifyContent: "flex-end" }}>
-              <button className="btn" onClick={() => setDel(null)}>Отмена</button>
-              <button className="btn" style={{ background: "var(--bad)", borderColor: "var(--bad)", color: "#fff" }} onClick={async () => {
-                await db.from("products").update({ supplier_id: null }).eq("supplier_id", del.id);
-                await db.from("suppliers").delete().eq("id", del.id);
-                setDel(null); await reload(); toast("Поставщик удалён");
-              }}>Удалить</button>
+            {nOps > 0 && <p className="sm mut" style={{ marginBottom: 6 }}>У поставщика есть операции (оплаты/возвраты): {nOps}. Если нужно только убрать его из списков — лучше «Сделать неактивным»: история и долг сохранятся.</p>}
+            {delErr && <p className="sm" style={{ color: "var(--bad)", marginBottom: 8 }}>{delErr}</p>}
+            <p className="sm mut" style={{ marginBottom: 12 }}>Удаление необратимо.</p>
+            <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
+              <button className="btn" disabled={delBusy} onClick={() => { setDel(null); setDelErr(""); }}>Отмена</button>
+              {del.status !== "inactive" && <button className="btn" disabled={delBusy} onClick={() => deactivate(del)}>Сделать неактивным</button>}
+              <button className="btn" disabled={delBusy} style={{ background: "var(--bad)", borderColor: "var(--bad)", color: "#fff" }} onClick={() => doDelete(del)}>{delBusy ? "Удаляю…" : "Удалить"}</button>
             </div>
           </Modal>
         );
       })()}
       {edit && (
         <Modal title={edit.id ? "Поставщик" : "Новый поставщик"} onClose={() => setEdit(null)}>
-          <SupplierForm s={edit} onSave={async (v) => {
-            if (v.id) await db.from("suppliers").update(v).eq("id", v.id);
-            else await db.from("suppliers").insert(v);
-            setEdit(null); await reload(); toast("Сохранено");
-          }} />
+          <SupplierForm s={edit} all={suppliers} onSave={saveSupplier} />
         </Modal>
       )}
     </div>
   );
 }
-function SupplierPayModal({ s, objects, ops, onClose, onSave, onEditPay, onVoidPay, fin }) {
-  const st = supplierStats(s, objects, ops);
+function SupplierPayModal({ s, objects, ops, whMoves, onClose, onSave, onEditPay, onVoidPay, fin }) {
+  const st = supplierStats(s, objects, ops, whMoves);
+  const retIds = supplierReturnIds(ops, whMoves);
   const [amount, setAmount] = useState(st.debt || 0);
   const [opDate, setOpDate] = useState(today());
   const [note, setNote] = useState("");
-  const [user, setUser] = useState(CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username) : "");
+  const [user, setUser] = useState(curUserName());
   const [edit, setEdit] = useState(null);
-  const history = ops.filter((o) => o.supplier_id === s.id && (o.type === "supplier_payment" || o.type === "return"))
+  const [voidAsk, setVoidAsk] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const history = ops.filter((o) => o.supplier_id === s.id && (o.type === "supplier_payment" || (o.type === "return" && retIds.has(o.id))))
     .sort((a, b) => String(b.op_date || b.created_at).localeCompare(String(a.op_date || a.created_at)));
   const objName = (id) => (objects.find((o) => o.id === id) || {}).name || "—";
+  const save = async () => {
+    setBusy(true);
+    const ok = await onSave({ type: "supplier_payment", supplier_id: s.id, object_id: null, amount: Number(amount) || 0, op_date: opDate || today(), note, user });
+    if (ok) { setAmount(0); setNote(""); }
+    setBusy(false);
+  };
   return (
-    <Modal title={"Оплата поставщику — " + s.name} onClose={onClose} w={640}>
-      <div className="kpis sect" style={{ gridTemplateColumns: "repeat(3,1fr)" }}>
+    <Modal title={"Оплата поставщику — " + s.name} onClose={onClose} w={660}>
+      <div className="kpis sect" style={{ gridTemplateColumns: "repeat(4,1fr)" }}>
         <div className="kpi"><div className="l">Закупки</div><div className="v">{fmt(st.purchases)}</div></div>
+        <div className="kpi"><div className="l">Возвраты</div><div className="v">{fmt(st.returns)}</div></div>
         <div className="kpi"><div className="l">Оплачено</div><div className="v" style={{ color: "var(--ok)" }}>{fmt(st.paid)}</div></div>
-        <div className="kpi"><div className="l">Текущий долг</div><div className="v" style={{ color: st.debt > 0 ? "var(--bad)" : "var(--mut)" }}>{fmt(st.debt)}</div></div>
+        <div className="kpi"><div className="l">{st.balance < 0 ? "Аванс (переплата)" : "Текущий долг"}</div><div className="v" style={{ color: balColor(st.balance) }}>{signedMoney(st.balance)}</div></div>
       </div>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
         <Fld label="Сумма оплаты"><input type="number" className="inp" value={amount} onChange={(e) => setAmount(Number(e.target.value) || 0)} /></Fld>
@@ -1103,12 +1314,12 @@ function SupplierPayModal({ s, objects, ops, onClose, onSave, onEditPay, onVoidP
         <Fld label="Кто оплатил"><PersonSelect value={user} onChange={setUser} /></Fld>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-        <button className="btn xs" onClick={() => setAmount(st.debt)}>= весь долг</button>
-        <button className="btn xs" onClick={() => setAmount(Math.round(st.debt / 2 * 100) / 100)}>= половина</button>
-        <button className="btn pri" disabled={!amount} onClick={() => { onSave({ type: "supplier_payment", supplier_id: s.id, object_id: null, amount, op_date: opDate || today(), note, user }); setAmount(0); }}>Записать оплату</button>
+        <button className="btn xs" disabled={st.debt <= 0} onClick={() => setAmount(st.debt)}>= весь долг</button>
+        <button className="btn xs" disabled={st.debt <= 0} onClick={() => setAmount(Math.round(st.debt / 2 * 100) / 100)}>= половина</button>
+        <button className="btn pri" disabled={!Number(amount) || busy} onClick={save}>{busy ? "Записываю…" : "Записать оплату"}</button>
       </div>
-      <h3 style={{ margin: "16px 0 8px" }}>История оплат и возвратов</h3>
-      <div style={{ maxHeight: 240, overflow: "auto", border: "1px solid var(--line)", borderRadius: 8 }}>
+      <h3 style={{ margin: "16px 0 8px" }}>История оплат и возвратов поставщику</h3>
+      <div style={{ maxHeight: 260, overflow: "auto", border: "1px solid var(--line)", borderRadius: 8 }}>
         <table className="t">
           <thead><tr><th>Дата</th><th>Тип</th><th style={{textAlign:"right"}}>Сумма</th><th>Детали</th><th></th></tr></thead>
           <tbody>
@@ -1120,7 +1331,7 @@ function SupplierPayModal({ s, objects, ops, onClose, onSave, onEditPay, onVoidP
                   <td><input type="number" className="inp num" style={{ width: 100 }} value={edit.amount} onChange={(e) => setEdit({ ...edit, amount: Number(e.target.value) || 0 })} /></td>
                   <td><input className="inp" style={{ fontSize: 11 }} value={edit.note || ""} onChange={(e) => setEdit({ ...edit, note: e.target.value })} /></td>
                   <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
-                    <button className="btn xs pri" onClick={async () => { await onEditPay(o, { amount: edit.amount, op_date: edit.op_date, note: edit.note }); setEdit(null); }}>✓</button>
+                    <button className="btn xs pri" disabled={!edit.amount} onClick={async () => { if (await onEditPay(o, { amount: edit.amount, op_date: edit.op_date || today(), note: edit.note })) setEdit(null); }}>✓</button>
                     <button className="btn xs" onClick={() => setEdit(null)}>✕</button>
                   </div></td>
                 </tr>
@@ -1129,12 +1340,20 @@ function SupplierPayModal({ s, objects, ops, onClose, onSave, onEditPay, onVoidP
                 <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
                 <td className="sm">{o.type === "supplier_payment" ? "Оплата" : "Возврат (−долг)"}{o.edited && <span className="xs" style={{ color: "var(--warn)" }}> изм.</span>}</td>
                 <td className="num" style={{ fontWeight: 700, color: o.type === "supplier_payment" ? "var(--ok)" : "var(--acc2)" }}>{fmt(o.type === "return" ? o.cost_amount : o.amount)}</td>
-                <td className="xs mut">{[o.object_id ? objName(o.object_id) : "", o.product_name, o.note].filter(Boolean).join(" · ")}</td>
+                <td className="xs mut">{[o.type === "return" ? (o.object_id ? "с объекта " + objName(o.object_id) : "со склада Thermo") : (o.object_id ? objName(o.object_id) : ""), o.product_name ? o.product_name + (o.qty ? " × " + o.qty : "") : "", o.note].filter(Boolean).join(" · ")}</td>
                 <td>{o.type === "supplier_payment" && !o.voided && (
-                  <div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
-                    <button className="btn xs" onClick={() => setEdit({ id: o.id, amount: o.amount, op_date: (o.op_date || o.created_at || "").slice(0,10), note: o.note })}>ред.</button>
-                    {fin && <button className="btn xs dng" onClick={() => onVoidPay(o)}>сторно</button>}
-                  </div>
+                  voidAsk === o.id ? (
+                    <div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
+                      <span className="xs" style={{ color: "var(--bad)" }}>Сторно?</span>
+                      <button className="btn xs dng" onClick={async () => { if (await onVoidPay(o)) setVoidAsk(null); }}>Да</button>
+                      <button className="btn xs" onClick={() => setVoidAsk(null)}>Нет</button>
+                    </div>
+                  ) : (
+                    <div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
+                      <button className="btn xs" onClick={() => setEdit({ id: o.id, amount: o.amount, op_date: (o.op_date || o.created_at || "").slice(0,10), note: o.note })}>ред.</button>
+                      {fin && <button className="btn xs dng" onClick={() => setVoidAsk(o.id)}>сторно</button>}
+                    </div>
+                  )
                 )}</td>
               </tr>
               )
@@ -1146,21 +1365,32 @@ function SupplierPayModal({ s, objects, ops, onClose, onSave, onEditPay, onVoidP
     </Modal>
   );
 }
-function SupplierForm({ s, onSave }) {
+function SupplierForm({ s, all = [], onSave }) {
   const [v, setV] = useState({ status: "active", terms: "", contact: "", phone: "", note: "", ...s });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
   const set = (k) => (e) => setV({ ...v, [k]: e.target.value });
+  const name = String(v.name || "").trim();
+  const dup = name && all.find((x) => x.id !== v.id && String(x.name || "").trim().toLowerCase() === name.toLowerCase());
+  const save = async () => {
+    setBusy(true); setErr("");
+    const e = await onSave({ ...v, name });
+    if (e) { setErr(dbErrText("suppliers", e)); setBusy(false); }
+  };
   return (
     <div>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        <Fld label="Название"><input className="inp" value={v.name || ""} onChange={set("name")} /></Fld>
+        <Fld label="Название"><input className="inp" value={v.name || ""} onChange={set("name")} autoFocus /></Fld>
         <Fld label="Контактное лицо"><input className="inp" value={v.contact || ""} onChange={set("contact")} /></Fld>
         <Fld label="Телефон"><input className="inp" value={v.phone || ""} onChange={set("phone")} /></Fld>
         <Fld label="Условия оплаты"><input className="inp" value={v.terms || ""} onChange={set("terms")} /></Fld>
-        <Fld label="Статус"><select className="inp" value={v.status || "active"} onChange={set("status")}><option value="active">активен</option><option value="inactive">неактивен</option></select></Fld>
-        <Fld label="Примечание" style={{ gridColumn: "span 2" }}><input className="inp" value={v.note || ""} onChange={set("note")} /></Fld>
+        <Fld label="Статус"><select className="inp" value={v.status || "active"} onChange={set("status")}><option value="active">активен</option><option value="inactive">неактивен (скрыт из списков выбора)</option></select></Fld>
+        <Fld label="Примечание"><input className="inp" value={v.note || ""} onChange={set("note")} /></Fld>
       </div>
+      {dup && <p className="sm" style={{ color: "var(--warn)", marginTop: 10 }}>Поставщик «{dup.name}» уже есть — выберите другое название, чтобы закупки и долги не разделились на два поставщика.</p>}
+      {err && <p className="sm" style={{ color: "var(--bad)", marginTop: 10 }}>{err}</p>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
-        <button className="btn pri" disabled={!v.name} onClick={() => onSave(v)}>Сохранить</button>
+        <button className="btn pri" disabled={!name || !!dup || busy} onClick={save}>{busy ? "Сохраняю…" : "Сохранить"}</button>
       </div>
     </div>
   );
@@ -1694,8 +1924,11 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
   };
   const voidOp = async (id) => {
     const op = ops.find((x) => x.id === id);
-    await db.from("finance_ops").update({ voided: true }).eq("id", id);
-    if (op && op.type === "return" && op.product_id) {
+    // возврат «сразу поставщику» на склад не приходовался — со склада его списывать не нужно
+    const wentToWh = op && op.type === "return" && !supplierReturnIds(finance_ops, data.wh_moves).has(op.id);
+    const vr = await db.from("finance_ops").update({ voided: true }).eq("id", id);
+    if (vr.error) return;
+    if (op && op.type === "return" && op.product_id && wentToWh) {
       const { data: ex } = await db.from("warehouse").select().eq("product_id", op.product_id);
       if (ex.length) await db.from("warehouse").update({ qty: Math.max(0, (ex[0].qty || 0) - (op.qty || 0)) }).eq("id", ex[0].id);
       await db.from("wh_moves").insert({ product_id: op.product_id, name: op.product_name, qty: op.qty, dir: "out", object_id: obj.id, object_name: obj.name, op_date: today(), user: "boss", note: "сторно возврата" });
@@ -1880,10 +2113,15 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
         setEditOp(null); await reload(); toast("Операция изменена (история сохранена)");
       }} />}
       {opForm && opForm.type === "return" && <ReturnForm obj={obj} ops={ops} onClose={() => setOpForm(null)} onSave={async (list) => {
-        await db.from("finance_ops").insert(list.map(cleanUuids));
-        await warehouseIn(list, obj.name);
-        await logAction("Возврат товара", "object:" + obj.name, "позиций: " + list.length + ", сумма: " + fmt(list.reduce((a,x)=>a+(x.amount||0),0)));
-        setOpForm(null); await reload(); toast("Возврат оформлен: " + list.length + " поз. → Склад Thermo");
+        const rows = list.map(({ _toWh, _supplier, ...op }) => cleanUuids(op));
+        const r = await db.from("finance_ops").insert(rows);
+        if (r.error) return; // ошибка уже показана на экране, окно остаётся открытым
+        const toWh = list.filter((x) => x._toWh).map(({ _toWh, _supplier, ...op }) => ({ ...op, supplier_id: _supplier }));
+        const toSup = list.length - toWh.length;
+        if (toWh.length) await warehouseIn(toWh, obj.name);
+        await logAction("Возврат товара", "object:" + obj.name, "позиций: " + list.length + (toWh.length ? ", на склад: " + toWh.length : "") + (toSup ? ", поставщику: " + toSup : "") + ", сумма: " + fmt(list.reduce((a,x)=>a+(x.amount||0),0)));
+        setOpForm(null); await reload();
+        toast("Возврат оформлен: " + list.length + " поз." + (toWh.length ? " → Склад Thermo: " + toWh.length : "") + (toSup ? " → поставщику: " + toSup + " (долг уменьшен)" : ""));
       }} />}
       {opForm && opForm.type !== "return" && <OpForm obj={obj} type={opForm.type} suppliers={suppliers} onClose={() => setOpForm(null)}
         onSave={async (op) => {
@@ -1935,7 +2173,7 @@ function ItemEditModal({ item, suppliers, fin, onClose, onSave }) {
         <Fld label="Количество"><input type="number" className="inp" value={v.qty || 0} onChange={setN("qty")} /></Fld>
         {fin && <Fld label="Себестоимость"><input type="number" className="inp" value={v.cost || 0} onChange={setN("cost")} /></Fld>}
         <Fld label="Цена продажи"><input type="number" className="inp" value={v.price || 0} onChange={setN("price")} /></Fld>
-        <Fld label="Поставщик"><select className="inp" value={v.supplier_id || ""} onChange={set("supplier_id")}><option value="">—</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>
+        <Fld label="Поставщик"><select className="inp" value={v.supplier_id || ""} onChange={set("supplier_id")}><option value="">—</option>{activeSuppliers(suppliers, v.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>
       </div>
       <p className="xs mut" style={{ marginTop: 8 }}>Сумма позиции: {fmt(v.qty * v.price)}</p>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
@@ -2003,7 +2241,7 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
       unit: String(cell(row, "unit") || (prod ? prod.unit : "шт")).trim() || "шт",
       qty: num(cell(row, "qty")) || 1,
       cost: map.cost != null ? num(cell(row, "cost")) : (prod ? prod.cost : 0),
-      price: map.price != null ? num(cell(row, "price")) : (prod ? prod.price : 0),
+      price: map.price != null ? num(cell(row, "price")) : (prod ? retailOf(prod) : 0),
       supplier_id: supByName(cell(row, "supplier")) || (prod ? prod.supplier_id : null),
       _matched: !!prod,
     };
@@ -2100,7 +2338,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
     <>
     <Modal title={newBatch ? "Новая поставка" : "Добавить позиции вручную"} onClose={tryClose} w={860}>
       <div className="row" style={{ marginBottom: 10 }}>
-        <ProductPicker products={products} placeholder="найти товар в базе и добавить строку…" onPick={(p) => addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, cost: p.cost, price: p.price, supplier_id: p.supplier_id })} />
+        <ProductPicker products={products} placeholder="найти товар в базе и добавить строку…" onPick={(p) => addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, cost: p.cost, price: retailOf(p), supplier_id: p.supplier_id })} />
         <button className="btn" onClick={blank}>+ Пустая строка (товара нет в базе)</button>
       </div>
       <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, maxHeight: 360 }}>
@@ -2115,7 +2353,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
                 <td><input type="number" className="inp" value={r.qty} onChange={(e) => upd(i, "qty", Number(e.target.value) || 0)} /></td>
                 <td><input type="number" className="inp num" value={r.cost} onChange={(e) => upd(i, "cost", Number(e.target.value) || 0)} /></td>
                 <td><input type="number" className="inp num" value={r.price} onChange={(e) => upd(i, "price", Number(e.target.value) || 0)} /></td>
-                <td><select className="inp" value={r.supplier_id || ""} onChange={(e) => upd(i, "supplier_id", e.target.value)}><option value="">—</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></td>
+                <td><select className="inp" value={r.supplier_id || ""} onChange={(e) => upd(i, "supplier_id", e.target.value)}><option value="">—</option>{activeSuppliers(suppliers, r.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></td>
                 <td><button className="btn xs dng" onClick={() => del(i)}>✕</button></td>
               </tr>
             ))}
@@ -2148,7 +2386,7 @@ function EditOpModal({ op, suppliers, isReturn, onClose, onSave }) {
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         {!isReturn && <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: Number(e.target.value) || 0 })} /></Fld>}
         <Fld label="Дата операции"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
-        {op.type === "supplier_payment" && <Fld label="Поставщик"><select className="inp" value={v.supplier_id} onChange={(e) => setV({ ...v, supplier_id: e.target.value })}><option value="">—</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>}
+        {op.type === "supplier_payment" && <Fld label="Поставщик"><select className="inp" value={v.supplier_id} onChange={(e) => setV({ ...v, supplier_id: e.target.value })}><option value="">—</option>{activeSuppliers(suppliers, v.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>}
         {op.type === "bonus" && <Fld label="Предмет"><input className="inp" value={v.item_name} onChange={(e) => setV({ ...v, item_name: e.target.value })} /></Fld>}
         {(isReturn || op.reason != null) && <Fld label="Причина"><input className="inp" value={v.reason} onChange={(e) => setV({ ...v, reason: e.target.value })} /></Fld>}
         <Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} /></Fld>
@@ -2187,18 +2425,26 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
   const [reason, setReason] = useState("");
   const [opDate, setOpDate] = useState(today());
   const [user, setUser] = useState(obj.manager || curUserName());
+  // куда уходит товар: на Склад Thermo (долг поставщику не меняется) или сразу поставщику (долг уменьшается)
+  const [dest, setDest] = useState("wh");
   const setRet = (idx, val) => setRows(rows.map((r, j) => (j === idx ? { ...r, ret: Math.max(0, Math.min(Number(val) || 0, r.avail)) } : r)));
   const totalSum = rows.reduce((a, r) => a + r.ret * (r.item.price || 0), 0);
   const totalCnt = rows.filter((r) => r.ret > 0).length;
   const batch = uuid();
+  const noSup = rows.filter((r) => r.ret > 0 && !r.item.supplier_id).length;
   const submit = () => {
-    const list = rows.filter((r) => r.ret > 0).map((r) => ({
-      object_id: obj.id, type: "return", batch_id: batch,
-      item_id: r.item.id, product_id: r.item.product_id, product_name: r.item.name,
-      unit: r.item.unit, size: r.item.size,
-      qty: r.ret, amount: r.ret * (r.item.price || 0), cost_amount: r.ret * (r.item.cost || 0),
-      supplier_id: r.item.supplier_id || null, reason, op_date: opDate || today(), user,
-    }));
+    const list = rows.filter((r) => r.ret > 0).map((r) => {
+      const toSup = dest === "sup" && !!r.item.supplier_id;
+      return {
+        object_id: obj.id, type: "return", batch_id: batch,
+        item_id: r.item.id, product_id: r.item.product_id, product_name: r.item.name,
+        unit: r.item.unit, size: r.item.size,
+        qty: r.ret, amount: r.ret * (r.item.price || 0), cost_amount: r.ret * (r.item.cost || 0),
+        // supplier_id в операции = товар ушёл поставщику (уменьшает его долг); у возврата на склад — пусто
+        supplier_id: toSup ? r.item.supplier_id : null, reason, op_date: opDate || today(), user,
+        _toWh: !toSup, _supplier: r.item.supplier_id || null,
+      };
+    });
     onSave(list);
   };
   return (
@@ -2222,6 +2468,12 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
           </tbody>
         </table>
       </div>
+      <div className="card sect" style={{ padding: 10, marginBottom: 12 }}>
+        <div className="sm" style={{ fontWeight: 700, marginBottom: 6 }}>Куда вернуть товар?</div>
+        <label className="clk sm" style={{ display: "block" }}><input type="radio" name="retdest" checked={dest === "wh"} onChange={() => setDest("wh")} /> <b>На склад Thermo</b> <span className="mut">— товар остаётся у вас, долг поставщику не меняется (вернуть поставщику можно позже: Склад Thermo → «↩ поставщику»)</span></label>
+        <label className="clk sm" style={{ display: "block", marginTop: 4 }}><input type="radio" name="retdest" checked={dest === "sup"} onChange={() => setDest("sup")} /> <b>Сразу поставщику</b> <span className="mut">— товар уходит поставщику, его долг уменьшится на себестоимость</span></label>
+        {dest === "sup" && noSup > 0 && <div className="xs" style={{ color: "var(--warn)", marginTop: 6 }}>У {noSup} поз. не указан поставщик — они будут оприходованы на склад.</div>}
+      </div>
       <div className="grid" style={{ gridTemplateColumns: "2fr 1fr 1fr" }}>
         <Fld label="Причина (общая)"><input className="inp" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="брак / не подошло / излишек" /></Fld>
         <Fld label="Дата возврата"><input type="date" className="inp" value={opDate} onChange={(e) => setOpDate(e.target.value)} /></Fld>
@@ -2239,7 +2491,10 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
 }
 function OpForm({ obj, type, suppliers, onClose, onSave }) {
   const items = obj.items || [];
-  const [v, setV] = useState({ amount: 0, note: "", reason: "", supplier_id: "", item_id: items[0] ? items[0].id : "", qty: 1, item_name: "", op_date: today(), user: obj.manager || curUserName() });
+  // поставщики этого объекта — первыми в списке; если он один, выбран сразу
+  const objSupIds = [...new Set(items.filter((i) => i.supplier_id && !i.from_warehouse).map((i) => i.supplier_id))];
+  const supOpts = [...suppliers.filter((s) => objSupIds.includes(s.id)), ...activeSuppliers(suppliers).filter((s) => !objSupIds.includes(s.id))];
+  const [v, setV] = useState({ amount: 0, note: "", reason: "", supplier_id: type === "supplier_payment" && objSupIds.length === 1 ? objSupIds[0] : "", item_id: items[0] ? items[0].id : "", qty: 1, item_name: "", op_date: today(), user: obj.manager || curUserName() });
   const isReturn = type === "return";
   const isSupPay = type === "supplier_payment";
   const isBonus = type === "bonus";
@@ -2269,7 +2524,7 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
         ) : (
           <>
             <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: e.target.value })} /></Fld>
-            {isSupPay && <Fld label="Поставщик"><select className="inp" value={v.supplier_id} onChange={(e) => setV({ ...v, supplier_id: e.target.value })}><option value="">—</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>}
+            {isSupPay && <Fld label="Поставщик (обязательно)"><select className="inp" value={v.supplier_id} onChange={(e) => setV({ ...v, supplier_id: e.target.value })} style={{ borderColor: v.supplier_id ? undefined : "var(--bad)" }}><option value="">— выберите поставщика —</option>{supOpts.map((s) => <option key={s.id} value={s.id}>{s.name}{objSupIds.includes(s.id) ? " · в этом объекте" : ""}</option>)}</select></Fld>}
             {isBonus && <Fld label="Предмет (если бонус вещью)"><input className="inp" value={v.item_name} onChange={(e) => setV({ ...v, item_name: e.target.value })} placeholder="инструмент / предмет — опц." /></Fld>}
             <div style={{ gridColumn: "1/-1" }}><Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} /></Fld></div>
           </>
@@ -2279,7 +2534,7 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
-        <button className="btn pri" onClick={submit} disabled={isReturn ? !item || !v.qty : !Number(v.amount)}>Сохранить</button>
+        <button className="btn pri" onClick={submit} disabled={isReturn ? !item || !v.qty : !Number(v.amount) || (isSupPay && !v.supplier_id)} title={isSupPay && !v.supplier_id ? "Выберите поставщика — иначе оплата не уменьшит его долг" : ""}>Сохранить</button>
       </div>
     </Modal>
   );
@@ -2534,13 +2789,15 @@ function WarehouseTab({ data, reload, toast, openObject }) {
   // привязанную к supplier_id — она автоматически вычитается из долга поставщику (см. supplierStats: returns по cost_amount).
   const submitSupplierReturn = async (row, qty, supplierId, reason) => {
     const newQty = Math.max(0, row.qty - qty);
-    await db.from("warehouse").update({ qty: newQty }).eq("id", row.id);
     const costAmount = qty * (row.cost || 0);
-    await db.from("finance_ops").insert(cleanUuids({
+    // сначала финансовая операция: если она не сохранится, склад не трогаем
+    const r = await db.from("finance_ops").insert(cleanUuids({
       type: "return", object_id: null, supplier_id: supplierId, product_id: row.product_id, product_name: row.name,
       qty, amount: qty * (row.price || 0), cost_amount: costAmount, reason: reason || "возврат поставщику со склада",
       op_date: today(), user: CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username) : "",
     }));
+    if (r.error) return;
+    await db.from("warehouse").update({ qty: newQty }).eq("id", row.id);
     await db.from("wh_moves").insert(cleanUuids({ product_id: row.product_id, name: row.name, qty, dir: "out", object_id: null, object_name: null, op_date: today(), user: CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username) : "", note: "возврат поставщику" }));
     await logAction("Возврат поставщику со склада", row.name, "кол-во " + qty + ", на сумму себест. " + fmt(costAmount));
     setRetForm(null); await reload(); toast("Возврат поставщику оформлен: −" + fmt(costAmount) + " к долгу");
@@ -2668,7 +2925,7 @@ function SupplierReturnForm({ row, suppliers, onCancel, onSave }) {
         <Fld label="Поставщик">
           <select className="inp" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
             <option value="">—</option>
-            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            {activeSuppliers(suppliers, supplierId).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </Fld>
         <Fld label={"Количество (на складе: " + row.qty + ")"}>
@@ -2731,103 +2988,472 @@ function IssueForm({ stock, objects, onClose, onSave }) {
 }
 
 /* ============ DASHBOARD ============ */
-function Dashboard({ data }) {
-  const { objects, finance_ops, products, suppliers } = data;
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [mgr, setMgr] = useState("");
-  const inRange = (s) => {
-    const d = (s || "").slice(0, 10);
-    if (from && d < from) return false;
-    if (to && d > to) return false;
-    return true;
-  };
-  const objs = objects.filter((o) =>
-    o.status !== "cancelled" &&
-    inRange(o.created_at) &&
-    (!mgr || o.manager === mgr)
-  );
-  const tot = { sale: 0, gross: 0, net: 0, cdebt: 0 };
-  const byMgr = {}, byMaster = {}, byProd = {};
-  objs.forEach((o) => {
-    const f = calcObject(o, finance_ops);
-    tot.sale += f.saleNet; tot.gross += f.gross; tot.net += f.net; tot.cdebt += Math.max(0, f.clientDebt);
-    const m = o.manager || "—", ms = o.master || "—";
-    byMgr[m] = (byMgr[m] || { sale: 0, net: 0, n: 0 }); byMgr[m].sale += f.saleNet; byMgr[m].net += f.net; byMgr[m].n++;
-    byMaster[ms] = (byMaster[ms] || { sale: 0, n: 0 }); byMaster[ms].sale += f.saleNet; byMaster[ms].n++;
+/* ============ DASHBOARD (в стиле BILLZ) ============
+   Период + сравнение с предыдущим периодом той же длины, плитки с изменением в %,
+   динамика продаж (выручка и валовая прибыль), рейтинги, остатки долгов и склада, выгрузка в Excel.
+   Продажа датируется датой поставки (batch_date), возвраты / скидки / оплаты — датой операции. */
+const DASH_PRESETS = [
+  { id: "today", label: "Сегодня" }, { id: "yesterday", label: "Вчера" }, { id: "7d", label: "7 дней" },
+  { id: "30d", label: "30 дней" }, { id: "month", label: "Этот месяц" }, { id: "prevmonth", label: "Прошлый месяц" },
+  { id: "year", label: "Этот год" }, { id: "all", label: "Весь период" },
+];
+const RU_MON = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+const dIso = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+const dToday = () => dIso(new Date());
+const dAdd = (s, n) => { const d = new Date(s + "T00:00:00"); d.setDate(d.getDate() + n); return dIso(d); };
+const dDiff = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000);
+const dLabel = (s) => s.slice(8, 10) + "." + s.slice(5, 7);
+function dashPreset(id) {
+  const t = dToday(), d = new Date(t + "T00:00:00");
+  switch (id) {
+    case "today": return [t, t];
+    case "yesterday": { const y = dAdd(t, -1); return [y, y]; }
+    case "7d": return [dAdd(t, -6), t];
+    case "30d": return [dAdd(t, -29), t];
+    case "month": return [dIso(new Date(d.getFullYear(), d.getMonth(), 1)), t];
+    case "prevmonth": return [dIso(new Date(d.getFullYear(), d.getMonth() - 1, 1)), dIso(new Date(d.getFullYear(), d.getMonth(), 0))];
+    case "year": return [dIso(new Date(d.getFullYear(), 0, 1)), t];
+    default: return ["", ""];
+  }
+}
+const fmtShort = (n) => {
+  const a = Math.abs(n), s = n < 0 ? "−" : "";
+  if (a >= 1e9) return s + (a / 1e9).toLocaleString("ru-RU", { maximumFractionDigits: 1 }) + " млрд";
+  if (a >= 1e6) return s + (a / 1e6).toLocaleString("ru-RU", { maximumFractionDigits: 1 }) + " млн";
+  if (a >= 1e4) return s + Math.round(a / 1e3).toLocaleString("ru-RU") + " тыс";
+  return s + a.toLocaleString("ru-RU", { maximumFractionDigits: 1 });
+};
+const clientKey = (o) => {
+  const ph = String(o.phone || "").replace(/\D/g, "");
+  if (ph.length >= 7) return "p" + ph.slice(-9);
+  const n = String(o.client || "").trim().toLowerCase();
+  return n ? "n" + n : "o" + o.id;
+};
+
+// все события (продажи по позициям, операции) один раз; итоги по любому периоду считаются из них
+function dashEvents(objects, ops, mgr) {
+  const objById = {}, sales = [];
+  objects.forEach((o) => {
+    objById[o.id] = o;
+    if (o.status === "cancelled" || (mgr && (o.manager || "") !== mgr)) return;
     (o.items || []).forEach((i) => {
-      byProd[i.name] = byProd[i.name] || { qty: 0, sale: 0, margin: 0 };
-      byProd[i.name].qty += i.qty; byProd[i.name].sale += i.qty * i.price;
-      byProd[i.name].margin += i.qty * (i.price - i.cost);
+      sales.push({ d: String(i.batch_date || o.created_at || "").slice(0, 10), o, i,
+        rev: (i.qty || 0) * (i.price || 0), cost: (i.qty || 0) * (i.cost || 0), key: o.id + "#" + (i.batch_no || 1) });
     });
   });
-  const sdebt = suppliers.reduce((a, s) => a + supplierStats(s, objs, finance_ops).debt, 0);
-  const companyExp = finance_ops.filter((o) => o.type === "company_expense" && !o.voided && inRange(o.op_date || o.created_at)).reduce((a, o) => a + (o.amount || 0), 0);
-  const topProd = Object.entries(byProd).sort((a, b) => b[1].sale - a[1].sale).slice(0, 7);
-  const lowMargin = Object.entries(byProd).filter(([, v]) => v.sale > 0).sort((a, b) => (a[1].margin / a[1].sale) - (b[1].margin / b[1].sale)).slice(0, 5);
-  const managers = [...new Set(objects.map((o) => o.manager).filter(Boolean))];
-  const objByProfit = objs.map((o) => ({ o, f: calcObject(o, finance_ops) })).sort((a, b) => b.f.net - a.f.net).slice(0, 7);
-  const KPI = ({ l, v, c, suf }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}{suf || ""}</div></div>;
+  const objOps = [], compExp = [];
+  ops.forEach((x) => {
+    if (x.voided) return;
+    const d = String(x.op_date || x.created_at || "").slice(0, 10);
+    if (x.type === "company_expense") { if (!mgr) compExp.push({ ...x, d }); return; }
+    const o = x.object_id && objById[x.object_id];
+    if (!o || o.status === "cancelled" || (mgr && (o.manager || "") !== mgr)) return;
+    objOps.push({ ...x, d, o });
+  });
+  // первая покупка клиента — по всем объектам, чтобы «новый клиент» не зависел от фильтра менеджера
+  const firstBuy = {};
+  objects.forEach((o) => {
+    if (o.status === "cancelled") return;
+    (o.items || []).forEach((i) => {
+      const d = String(i.batch_date || o.created_at || "").slice(0, 10), k = clientKey(o);
+      if (d && (!firstBuy[k] || d < firstBuy[k])) firstBuy[k] = d;
+    });
+  });
+  return { sales, objOps, compExp, firstBuy };
+}
+function dashTotals(ev, from, to) {
+  const inR = (d) => (!from || d >= from) && (!to || d <= to);
+  let rev = 0, cost = 0, ret = 0, retCost = 0, retN = 0, disc = 0, exp = 0, bonus = 0, paid = 0, cexp = 0;
+  const deals = new Set(), clients = new Set();
+  ev.sales.forEach((s) => { if (!inR(s.d)) return; rev += s.rev; cost += s.cost; deals.add(s.key); clients.add(clientKey(s.o)); });
+  ev.objOps.forEach((x) => {
+    if (!inR(x.d)) return;
+    const a = x.amount || 0;
+    if (x.type === "return") { ret += a; retCost += x.cost_amount || 0; retN++; }
+    else if (x.type === "discount") disc += a;
+    else if (x.type === "expense") exp += a;
+    else if (x.type === "bonus") bonus += a;
+    else if (x.type === "client_payment") paid += a;
+  });
+  ev.compExp.forEach((x) => { if (inR(x.d)) cexp += x.amount || 0; });
+  let newC = 0;
+  clients.forEach((k) => { const f = ev.firstBuy[k]; if (f && inR(f)) newC++; });
+  const netRev = rev - ret - disc, gross = netRev - (cost - retCost), net = gross - exp - bonus - cexp;
+  return { rev, netRev, gross, net, margin: netRev > 0 ? (gross / netRev) * 100 : 0, deals: deals.size,
+    avg: deals.size ? netRev / deals.size : 0, ret, retN, disc, paid, cexp, clients: clients.size, newC, repeatC: clients.size - newC };
+}
+
+function DashTile({ label, value, prev, good = "up", suffix = "", hero, note, compare, pp }) {
+  let delta = null;
+  if (compare && prev != null && pp) {
+    const d = value - prev;
+    delta = { t: (d >= 0 ? "▲ " : "▼ ") + Math.abs(d).toLocaleString("ru-RU", { maximumFractionDigits: 1 }) + " п.п.", c: Math.abs(d) < 0.05 ? "var(--mut)" : d > 0 ? "var(--ok)" : "var(--bad)" };
+  } else if (compare && prev != null) {
+    if (!prev && !value) delta = { t: "без изменений", c: "var(--mut)" };
+    else if (!prev) delta = { t: "▲ новое", c: good === "up" ? "var(--ok)" : "var(--bad)" };
+    else {
+      const p = ((value - prev) / Math.abs(prev)) * 100, up = p >= 0;
+      const isGood = Math.abs(p) < 0.05 ? null : (up === (good === "up"));
+      delta = isGood == null ? { t: "= без изменений", c: "var(--mut)" } : { t: (up ? "▲ " : "▼ ") + Math.abs(p).toLocaleString("ru-RU", { maximumFractionDigits: 1 }) + "%",
+        c: isGood == null ? "var(--mut)" : isGood ? "var(--ok)" : "var(--bad)" };
+    }
+  }
   return (
-    <div>
-      <div className="row sect">
-        <h2 style={{ marginRight: "auto" }}>Дашборд руководителя</h2>
-        <select className="inp" style={{ maxWidth: 180 }} value={mgr} onChange={(e) => setMgr(e.target.value)}>
-          <option value="">Все менеджеры</option>{managers.map((m) => <option key={m}>{m}</option>)}
-        </select>
+    <div className="kpi" style={hero ? { gridColumn: "span 2" } : null}>
+      <div className="l">{label}</div>
+      <div className="v" style={hero ? { fontFamily: "var(--sans)", fontSize: 34, fontWeight: 800, lineHeight: 1.15 } : null}>
+        {fmt(value)}{suffix}
       </div>
-      <div className="row sect" style={{ gap: 8, padding: "8px 10px", background: "var(--panel2)", borderRadius: 8 }}>
-        <span className="sm" style={{ fontWeight: 700 }}>Период:</span>
-        <Fld label="С даты"><input type="date" className="inp" style={{ width: 150 }} value={from} onChange={(e) => setFrom(e.target.value)} /></Fld>
-        <Fld label="По дату"><input type="date" className="inp" style={{ width: 150 }} value={to} onChange={(e) => setTo(e.target.value)} /></Fld>
-        <div style={{ display: "flex", gap: 4, alignSelf: "flex-end", flexWrap: "wrap" }}>
-          <button className="btn xs" onClick={() => { const d = new Date(); setFrom(new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0,10)); setTo(today()); }}>Этот месяц</button>
-          <button className="btn xs" onClick={() => { setFrom(new Date(Date.now() - 7 * 86400000).toISOString().slice(0,10)); setTo(today()); }}>7 дней</button>
-          <button className="btn xs" onClick={() => { setFrom(new Date(Date.now() - 30 * 86400000).toISOString().slice(0,10)); setTo(today()); }}>30 дней</button>
-          <button className="btn xs" onClick={() => { setFrom(""); setTo(""); }}>Весь период</button>
+      {delta && (
+        <div className="xs" style={{ marginTop: 4 }}>
+          <b style={{ color: delta.c }}>{delta.t}</b>
+          <span className="mut"> · было {fmt(prev)}{suffix}</span>
         </div>
+      )}
+      {note && <div className="xs mut" style={{ marginTop: 4 }}>{note}</div>}
+    </div>
+  );
+}
+
+// столбчатая диаграмма: выручка и валовая прибыль по дням / неделям / месяцам, подсказка при наведении
+function DashChart({ buckets }) {
+  const boxRef = useRef(null);
+  const [w, setW] = useState(800);
+  const [hov, setHov] = useState(-1);
+  useEffect(() => {
+    const el = boxRef.current; if (!el) return;
+    const upd = () => setW(Math.max(260, el.clientWidth));
+    upd();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(upd) : null;
+    if (ro) ro.observe(el); else window.addEventListener("resize", upd);
+    return () => { if (ro) ro.disconnect(); else window.removeEventListener("resize", upd); };
+  }, []);
+  const H = 260, ml = 62, mr = 10, mt = 10, mb = 26;
+  const pw = w - ml - mr, ph = H - mt - mb, n = buckets.length || 1;
+  let hi = 0, lo = 0;
+  buckets.forEach((b) => { hi = Math.max(hi, b.rev, b.gross); lo = Math.min(lo, b.gross); });
+  if (hi === 0 && lo === 0) hi = 1;
+  const rawStep = (hi - lo) / 4, mag = Math.pow(10, Math.floor(Math.log10(rawStep || 1)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= rawStep) || 10 * mag;
+  const top = Math.ceil(hi / step) * step, bot = Math.floor(lo / step) * step;
+  const y = (v) => mt + ((top - v) / (top - bot || 1)) * ph;
+  const ticks = []; for (let v = bot; v <= top + step / 2; v += step) ticks.push(v);
+  const band = pw / n, barW = Math.max(2, Math.min(24, (band * 0.72 - 2) / 2));
+  const bar = (x, v) => {
+    const y0 = y(0), y1 = y(v), h = Math.abs(y1 - y0); if (h < 0.5) return "";
+    const r = Math.min(4, h, barW / 2);
+    if (v >= 0) return `M${x},${y0}V${y1 + r}Q${x},${y1} ${x + r},${y1}H${x + barW - r}Q${x + barW},${y1} ${x + barW},${y1 + r}V${y0}Z`;
+    return `M${x},${y0}V${y1 - r}Q${x},${y1} ${x + r},${y1}H${x + barW - r}Q${x + barW},${y1} ${x + barW},${y1 - r}V${y0}Z`;
+  };
+  const every = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(pw / 58))));
+  const hb = buckets[hov];
+  // подсказка сбоку от столбца, чтобы не закрывать его
+  const bandR = ml + (hov + 1) * band, bandL = ml + hov * band;
+  const tipLeft = hov < 0 ? 0 : bandR + 8 + 180 <= w ? bandR + 8 : Math.max(0, bandL - 188);
+  return (
+    <div ref={boxRef} style={{ position: "relative" }} onMouseLeave={() => setHov(-1)}>
+      <svg width={w} height={H} style={{ display: "block" }} role="img" aria-label="Динамика выручки и валовой прибыли">
+        {ticks.map((v) => (
+          <g key={v}>
+            <line x1={ml} x2={w - mr} y1={y(v)} y2={y(v)} stroke={v === 0 ? "var(--viz-axis)" : "var(--viz-grid)"} strokeWidth="1" />
+            <text x={ml - 8} y={y(v) + 4} textAnchor="end" fontSize="11" fill="var(--mut)" style={{ fontVariantNumeric: "tabular-nums" }}>{fmtShort(v)}</text>
+          </g>
+        ))}
+        {hov >= 0 && <rect x={ml + hov * band} y={mt} width={band} height={ph} fill="var(--txt)" opacity="0.05" />}
+        {buckets.map((b, i) => {
+          const gx = ml + i * band + (band - (barW * 2 + 2)) / 2;
+          return (
+            <g key={b.key}>
+              <path d={bar(gx, b.rev)} fill="var(--viz-s1)" />
+              <path d={bar(gx + barW + 2, b.gross)} fill="var(--viz-s2)" />
+              {i % every === 0 && <text x={ml + i * band + band / 2} y={H - 8} textAnchor="middle" fontSize="11" fill="var(--mut)">{b.label}</text>}
+              <rect x={ml + i * band} y={mt} width={band} height={ph} fill="transparent" tabIndex={0}
+                onMouseEnter={() => setHov(i)} onFocus={() => setHov(i)} onBlur={() => setHov(-1)} />
+            </g>
+          );
+        })}
+      </svg>
+      {hb && (
+        <div style={{ position: "absolute", top: 4, left: tipLeft, width: 180, pointerEvents: "none", background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 8, padding: "8px 10px", boxShadow: "0 8px 24px rgba(0,0,0,.15)", fontSize: 12, zIndex: 5 }}>
+          <div className="mut" style={{ marginBottom: 4 }}>{hb.title}</div>
+          <div className="row" style={{ gap: 6 }}><span style={{ width: 12, height: 2, background: "var(--viz-s1)", display: "inline-block" }} /><b className="mono">{fmt(hb.rev)}</b><span className="mut">выручка</span></div>
+          <div className="row" style={{ gap: 6 }}><span style={{ width: 12, height: 2, background: "var(--viz-s2)", display: "inline-block" }} /><b className="mono">{fmt(hb.gross)}</b><span className="mut">вал. прибыль</span></div>
+          <div className="mut" style={{ marginTop: 4 }}>поставок: {hb.deals}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// таблица рейтинга с полосой доли от лидера
+function DashRank({ rows, cols, empty }) {
+  const [all, setAll] = useState(false);
+  const max = Math.max(1, ...rows.map((r) => Math.abs(r.rev)));
+  const shown = all ? rows : rows.slice(0, 10);
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table className="t">
+        <thead><tr><th>#</th>{cols.map((c) => <th key={c.k} style={c.num ? { textAlign: "right" } : null}>{c.l}</th>)}</tr></thead>
+        <tbody>
+          {shown.map((r, i) => (
+            <tr key={r.key}>
+              <td className="xs mut">{i + 1}</td>
+              {cols.map((c, j) => (
+                <td key={c.k} className={c.num ? "num" : "sm"} style={j === 0 ? { minWidth: 140 } : null}>
+                  {c.f ? c.f(r) : r[c.k]}
+                  {j === 0 && <div style={{ height: 4, borderRadius: 2, marginTop: 4, background: "var(--viz-s1)", width: Math.max(2, (Math.abs(r.rev) / max) * 100) + "%", opacity: 0.85 }} />}
+                </td>
+              ))}
+            </tr>
+          ))}
+          {!rows.length && <tr><td colSpan={cols.length + 1} className="mut sm" style={{ padding: 14 }}>{empty || "Нет данных за период"}</td></tr>}
+        </tbody>
+      </table>
+      {rows.length > 10 && <button className="btn xs" style={{ marginTop: 8 }} onClick={() => setAll(!all)}>{all ? "Только топ-10" : "Показать все (" + rows.length + ")"}</button>}
+    </div>
+  );
+}
+function DashSeg({ value, onChange, opts }) {
+  return (
+    <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>
+      {opts.map(([id, l]) => <button key={id} className={"btn xs " + (value === id ? "pri" : "")} onClick={() => onChange(id)}>{l}</button>)}
+    </div>
+  );
+}
+
+function Dashboard({ data }) {
+  const { objects, finance_ops, products, suppliers, warehouse = [] } = data;
+  const [preset, setPreset] = useState("30d");
+  const [range, setRange] = useState(() => dashPreset("30d"));
+  const [mgr, setMgr] = useState("");
+  const [prodView, setProdView] = useState("prod");
+  const [peopleView, setPeopleView] = useState("mgr");
+  const [showTable, setShowTable] = useState(false);
+  const [from, to] = range;
+  const pick = (id) => { setPreset(id); setRange(dashPreset(id)); };
+  const setCustom = (f, t) => { setPreset("custom"); setRange([f, t]); };
+
+  const prodMap = useMemo(() => { const m = {}; products.forEach((p) => { m[p.id] = p; }); return m; }, [products]);
+  const supName = useMemo(() => { const m = {}; suppliers.forEach((s) => { m[s.id] = s.name; }); return m; }, [suppliers]);
+  const ev = useMemo(() => dashEvents(objects, finance_ops, mgr), [objects, finance_ops, mgr]);
+  const managers = useMemo(() => [...new Set(objects.map((o) => o.manager).filter(Boolean))].sort(), [objects]);
+
+  // предыдущий период той же длины
+  const compare = !!(from && to);
+  const len = compare ? dDiff(from, to) + 1 : 0;
+  const pFrom = compare ? dAdd(from, -len) : "", pTo = compare ? dAdd(from, -1) : "";
+  const cur = useMemo(() => dashTotals(ev, from, to), [ev, from, to]);
+  const prev = useMemo(() => (compare ? dashTotals(ev, pFrom, pTo) : null), [ev, pFrom, pTo, compare]);
+
+  // корзины для графика
+  const buckets = useMemo(() => {
+    const dates = ev.sales.map((s) => s.d).filter(Boolean).sort();
+    const f = from || dates[0] || dToday(), t = to || (dates.length && dates[dates.length - 1] > dToday() ? dates[dates.length - 1] : dToday());
+    const days = dDiff(f, t) + 1;
+    const gran = days <= 45 ? "day" : days <= 210 ? "week" : "month";
+    const keyOf = (d) => {
+      if (gran === "day") return d;
+      if (gran === "month") return d.slice(0, 7);
+      const dt = new Date(d + "T00:00:00"), wd = (dt.getDay() + 6) % 7; return dAdd(d, -wd);
+    };
+    const list = [], idx = {};
+    let c = keyOf(f);
+    for (let guard = 0; guard < 800; guard++) {
+      if (c > t) break;
+      let label, title;
+      if (gran === "day") { label = dLabel(c); title = dt(c); }
+      else if (gran === "week") { label = dLabel(c); title = "неделя с " + dt(c); }
+      else { label = RU_MON[Number(c.slice(5, 7)) - 1] + " " + c.slice(2, 4); title = RU_MON[Number(c.slice(5, 7)) - 1] + " " + c.slice(0, 4); }
+      idx[c] = list.length; list.push({ key: c, label, title, rev: 0, gross: 0, deals: 0, _d: new Set() });
+      if (gran === "day") c = dAdd(c, 1);
+      else if (gran === "week") c = dAdd(c, 7);
+      else { const [yy, mm] = c.split("-").map(Number); c = mm === 12 ? (yy + 1) + "-01" : yy + "-" + String(mm + 1).padStart(2, "0"); }
+    }
+    const inR = (d) => d && d >= f && d <= t;
+    ev.sales.forEach((s) => { if (!inR(s.d)) return; const b = list[idx[keyOf(s.d)]]; if (!b) return; b.rev += s.rev; b.gross += s.rev - s.cost; b._d.add(s.key); });
+    ev.objOps.forEach((x) => {
+      if (!inR(x.d)) return; const b = list[idx[keyOf(x.d)]]; if (!b) return;
+      if (x.type === "return") { b.rev -= x.amount || 0; b.gross -= (x.amount || 0) - (x.cost_amount || 0); }
+      else if (x.type === "discount") { b.rev -= x.amount || 0; b.gross -= x.amount || 0; }
+    });
+    list.forEach((b) => { b.deals = b._d.size; delete b._d; });
+    return { list, gran };
+  }, [ev, from, to]);
+
+  // рейтинги за период
+  const ranks = useMemo(() => {
+    const inR = (d) => (!from || d >= from) && (!to || d <= to);
+    const acc = (m, key, name, add) => { const r = m[key] || (m[key] = { key, name, rev: 0, cost: 0, qty: 0, _deals: new Set(), extra: {} }); add(r); };
+    const prod = {}, cat = {}, brand = {}, mg = {}, ms = {}, cl = {}, sp = {};
+    ev.sales.forEach((s) => {
+      if (!inR(s.d)) return;
+      const p = s.i.product_id ? prodMap[s.i.product_id] : null, q = s.i.qty || 0;
+      const add = (r) => { r.rev += s.rev; r.cost += s.cost; r.qty += q; r._deals.add(s.key); };
+      acc(prod, s.i.product_id || "n:" + s.i.name, s.i.name, (r) => { add(r); r.unit = s.i.unit; });
+      acc(cat, (p && p.category) || "—", (p && p.category) || "Без категории", add);
+      acc(brand, (p && p.brand) || "—", (p && p.brand) || "Без бренда", add);
+      acc(mg, s.o.manager || "—", s.o.manager || "Без менеджера", add);
+      acc(ms, s.o.master_id || s.o.master || "—", s.o.master || "Без мастера", add);
+      acc(cl, clientKey(s.o), s.o.client || s.o.name, (r) => { add(r); r.phone = s.o.phone; });
+      if (s.i.supplier_id && !s.i.from_warehouse) acc(sp, s.i.supplier_id, supName[s.i.supplier_id] || "—", add);
+    });
+    // возвраты и скидки уменьшают выручку того, к кому относятся
+    ev.objOps.forEach((x) => {
+      if (!inR(x.d) || (x.type !== "return" && x.type !== "discount")) return;
+      const a = x.amount || 0, c = x.type === "return" ? x.cost_amount || 0 : 0, o = x.o;
+      const sub = (m, key) => { if (m[key]) { m[key].rev -= a; m[key].cost -= c; } };
+      sub(mg, o.manager || "—"); sub(ms, o.master_id || o.master || "—"); sub(cl, clientKey(o));
+      if (x.type === "return") {
+        const p = x.product_id ? prodMap[x.product_id] : null;
+        sub(prod, x.product_id || "n:" + x.product_name); sub(cat, (p && p.category) || "—"); sub(brand, (p && p.brand) || "—");
+        if (prod[x.product_id || "n:" + x.product_name]) prod[x.product_id || "n:" + x.product_name].qty -= x.qty || 0;
+      }
+    });
+    const fin = (m) => Object.values(m).map((r) => ({ ...r, deals: r._deals.size, gross: r.rev - r.cost, margin: r.rev > 0 ? ((r.rev - r.cost) / r.rev) * 100 : 0, avg: r._deals.size ? r.rev / r._deals.size : 0 })).sort((a, b) => b.rev - a.rev);
+    // долги клиентов и поставщикам — текущие, за всё время
+    const cdebt = {};
+    objects.forEach((o) => { if (o.status === "cancelled") return; const k = clientKey(o); cdebt[k] = (cdebt[k] || 0) + calcObject(o, finance_ops).clientDebt; });
+    const clients = fin(cl).map((r) => ({ ...r, debt: cdebt[r.key] || 0 }));
+    const sups = fin(sp).map((r) => { const s = suppliers.find((x) => x.id === r.key); return { ...r, debt: s ? supplierStats(s, objects, finance_ops, data.wh_moves).debt : 0 }; });
+    return { prod: fin(prod), cat: fin(cat), brand: fin(brand), mgr: fin(mg), master: fin(ms), client: clients, sup: sups };
+  }, [ev, from, to, prodMap, supName, objects, finance_ops, suppliers, data.wh_moves]);
+
+  // остатки на сегодня (не зависят от периода)
+  const bal = useMemo(() => {
+    let cdebt = 0, overpay = 0;
+    objects.forEach((o) => {
+      if (o.status === "cancelled" || (mgr && (o.manager || "") !== mgr)) return;
+      const d = calcObject(o, finance_ops).clientDebt; if (d > 0) cdebt += d; else overpay -= d;
+    });
+    const sdebt = suppliers.reduce((a, s) => a + supplierStats(s, objects, finance_ops, data.wh_moves).debt, 0);
+    const whCost = warehouse.reduce((a, w) => a + (w.qty || 0) * (w.cost || 0), 0);
+    const whQty = warehouse.filter((w) => (w.qty || 0) > 0).length;
+    const active = objects.filter((o) => !["closed", "cancelled"].includes(o.status) && (!mgr || (o.manager || "") === mgr)).length;
+    return { cdebt, overpay, sdebt, whCost, whQty, active };
+  }, [objects, finance_ops, suppliers, warehouse, mgr, data.wh_moves]);
+
+  const lowMargin = ranks.prod.filter((r) => r.rev > 0 && r.margin < 10).sort((a, b) => a.margin - b.margin).slice(0, 8);
+
+  const periodTitle = compare ? (from === to ? dt(from) : dt(from) + " — " + dt(to)) : "весь период";
+  const prevTitle = compare ? (pFrom === pTo ? dt(pFrom) : dt(pFrom) + " — " + dt(pTo)) : "";
+
+  const exportXlsx = () => {
+    try {
+      const wb = XLSX.utils.book_new();
+      const add = (name, rows) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name);
+      const K = [["Показатель", "Период: " + periodTitle].concat(compare ? ["Пред. период: " + prevTitle, "Изменение, %"] : [])];
+      const kp = [["Выручка (нетто)", "netRev"], ["Валовая прибыль", "gross"], ["Чистая прибыль", "net"], ["Маржа, %", "margin"], ["Поставок (продаж)", "deals"], ["Средний чек", "avg"], ["Клиентов", "clients"], ["Новых клиентов", "newC"], ["Поступило оплат", "paid"], ["Возвраты", "ret"], ["Скидки", "disc"], ["Расходы компании", "cexp"]];
+      kp.forEach(([l, k]) => { const a = Math.round(cur[k] * 100) / 100; const row = [l, a]; if (compare) { const b = Math.round(prev[k] * 100) / 100; row.push(b, b ? Math.round(((a - b) / Math.abs(b)) * 1000) / 10 : ""); } K.push(row); });
+      K.push([], ["На сегодня"], ["Долги клиентов", bal.cdebt], ["Переплаты клиентов", bal.overpay], ["Долги поставщикам", bal.sdebt], ["Склад (по себестоимости)", bal.whCost], ["Объектов в работе", bal.active]);
+      add("Показатели", K);
+      add("Динамика", [["Период", "Выручка", "Валовая прибыль", "Поставок"]].concat(buckets.list.map((b) => [b.title, b.rev, b.gross, b.deals])));
+      const sheet = (rows, extra = []) => [["Название", "Выручка", "Себестоимость", "Валовая прибыль", "Маржа, %", "Кол-во", "Поставок"].concat(extra.map((e) => e[0]))]
+        .concat(rows.map((r) => [r.name, r.rev, r.cost, r.gross, Math.round(r.margin * 10) / 10, r.qty, r.deals].concat(extra.map((e) => e[1](r)))));
+      add("Товары", sheet(ranks.prod)); add("Категории", sheet(ranks.cat)); add("Бренды", sheet(ranks.brand));
+      add("Менеджеры", sheet(ranks.mgr)); add("Мастера", sheet(ranks.master));
+      add("Клиенты", sheet(ranks.client, [["Телефон", (r) => r.phone || ""], ["Долг сейчас", (r) => r.debt]]));
+      add("Поставщики", sheet(ranks.sup, [["Долг сейчас", (r) => r.debt]]));
+      XLSX.writeFile(wb, "dashboard_" + (from || "all") + "_" + (to || dToday()) + ".xlsx");
+    } catch (e) { console.error(e); alert("Не удалось выгрузить Excel: " + e.message); }
+  };
+
+  const money0 = (r) => fmt(r.rev);
+  const prodCols = [
+    { k: "name", l: prodView === "prod" ? "Товар" : prodView === "cat" ? "Категория" : "Бренд" },
+    ...(prodView === "prod" ? [{ k: "qty", l: "Кол-во", num: true, f: (r) => fmt(r.qty) + (r.unit ? " " + r.unit : "") }] : [{ k: "deals", l: "Поставок", num: true }]),
+    { k: "rev", l: "Выручка", num: true, f: money0 },
+    { k: "gross", l: "Вал. прибыль", num: true, f: (r) => <span style={{ color: r.gross < 0 ? "var(--bad)" : undefined }}>{fmt(r.gross)}</span> },
+    { k: "margin", l: "Маржа", num: true, f: (r) => r.margin.toLocaleString("ru-RU", { maximumFractionDigits: 1 }) + "%" },
+  ];
+  const peopleCols = {
+    mgr: [{ k: "name", l: "Менеджер" }, { k: "deals", l: "Поставок", num: true }, { k: "rev", l: "Выручка", num: true, f: money0 }, { k: "avg", l: "Ср. чек", num: true, f: (r) => fmt(Math.round(r.avg)) }, { k: "gross", l: "Вал. прибыль", num: true, f: (r) => fmt(r.gross) }],
+    master: [{ k: "name", l: "Мастер" }, { k: "deals", l: "Поставок", num: true }, { k: "rev", l: "Выручка", num: true, f: money0 }, { k: "avg", l: "Ср. чек", num: true, f: (r) => fmt(Math.round(r.avg)) }],
+    client: [{ k: "name", l: "Клиент", f: (r) => <>{r.name}{r.phone && <div className="xs mut mono">{r.phone}</div>}</> }, { k: "deals", l: "Поставок", num: true }, { k: "rev", l: "Выручка", num: true, f: money0 }, { k: "debt", l: "Долг сейчас", num: true, f: (r) => <span style={{ color: r.debt > 0 ? "var(--bad)" : r.debt < 0 ? "var(--ok)" : "var(--mut)" }}>{r.debt < 0 ? "−" + fmt(-r.debt) : fmt(r.debt)}</span> }],
+    sup: [{ k: "name", l: "Поставщик" }, { k: "deals", l: "Поставок", num: true }, { k: "rev", l: "Закуплено на продажу", num: true, f: (r) => fmt(r.cost) }, { k: "debt", l: "Долг сейчас", num: true, f: (r) => <span style={{ color: r.debt > 0 ? "var(--warn)" : "var(--mut)" }}>{fmt(r.debt)}</span> }],
+  };
+  const peopleRows = { mgr: ranks.mgr, master: ranks.master, client: ranks.client, sup: ranks.sup.map((r) => ({ ...r, rev: r.cost })) }[peopleView];
+
+  return (
+    <div className="dash">
+      <div className="row sect" style={{ alignItems: "baseline" }}>
+        <h2 style={{ marginRight: "auto" }}>Дашборд <span className="sm mut" style={{ fontWeight: 500 }}>· {periodTitle}{mgr ? " · " + mgr : ""}</span></h2>
+        <button className="btn" onClick={exportXlsx}>⬇ Excel</button>
       </div>
+
+      {/* фильтры — одна строка над всеми показателями */}
+      <div className="card sect" style={{ padding: "10px 12px" }}>
+        <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+          {DASH_PRESETS.map((p) => <button key={p.id} className={"btn xs " + (preset === p.id ? "pri" : "")} onClick={() => pick(p.id)}>{preset === p.id ? "✓ " : ""}{p.label}</button>)}
+          <span className="row" style={{ gap: 4, marginLeft: "auto" }}>
+            <input type="date" className="inp" style={{ width: 140, padding: "4px 8px" }} value={from} onChange={(e) => setCustom(e.target.value, to || e.target.value)} aria-label="С даты" />
+            <span className="mut">—</span>
+            <input type="date" className="inp" style={{ width: 140, padding: "4px 8px" }} value={to} onChange={(e) => setCustom(from || e.target.value, e.target.value)} aria-label="По дату" />
+            <select className="inp" style={{ width: 170, padding: "4px 8px" }} value={mgr} onChange={(e) => setMgr(e.target.value)}>
+              <option value="">Все менеджеры</option>{managers.map((m) => <option key={m}>{m}</option>)}
+            </select>
+          </span>
+        </div>
+        {compare && <div className="xs mut" style={{ marginTop: 6 }}>Сравнение с предыдущим периодом: {prevTitle}{mgr ? " · расходы компании не учитываются при фильтре по менеджеру" : ""}</div>}
+      </div>
+
       <div className="kpis sect">
-        <KPI l="Выручка" v={tot.sale} />
-        <KPI l="Валовая прибыль" v={tot.gross} c="#fff" />
-        <KPI l="Прибыль по объектам" v={tot.net} c={tot.net >= 0 ? "var(--ok)" : "var(--bad)"} />
-        <KPI l="Расходы компании" v={companyExp} c={companyExp > 0 ? "var(--bad)" : "var(--mut)"} />
-        <KPI l="Чистая прибыль (итог)" v={tot.net - companyExp} c={(tot.net - companyExp) >= 0 ? "var(--ok)" : "var(--bad)"} />
-        <KPI l="Маржа" v={tot.sale ? (tot.gross / tot.sale) * 100 : 0} suf="%" />
-        <KPI l="Долги клиентов" v={tot.cdebt} c={tot.cdebt > 0 ? "var(--bad)" : "var(--mut)"} />
-        <KPI l="Долги поставщикам" v={sdebt} c={sdebt > 0 ? "var(--warn)" : "var(--mut)"} />
-        <KPI l="Объектов" v={objs.length} />
+        <DashTile hero label="Выручка" value={cur.netRev} prev={prev && prev.netRev} compare={compare} note={cur.ret || cur.disc ? "продажи " + fmt(cur.rev) + " − возвраты " + fmt(cur.ret) + " − скидки " + fmt(cur.disc) : null} />
+        <DashTile label="Валовая прибыль" value={cur.gross} prev={prev && prev.gross} compare={compare} />
+        <DashTile label="Чистая прибыль" value={cur.net} prev={prev && prev.net} compare={compare} note="после доп. расходов, бонусов и расходов компании" />
+        <DashTile label="Маржа" value={Math.round(cur.margin * 10) / 10} prev={prev && Math.round(prev.margin * 10) / 10} suffix="%" compare={compare} pp />
+        <DashTile label="Поставок (продаж)" value={cur.deals} prev={prev && prev.deals} compare={compare} />
+        <DashTile label="Средний чек" value={Math.round(cur.avg)} prev={prev && Math.round(prev.avg)} compare={compare} />
+        <DashTile label="Клиентов" value={cur.clients} prev={prev && prev.clients} compare={compare} note={"новых " + cur.newC + " · повторных " + cur.repeatC} />
+        <DashTile label="Поступило оплат" value={cur.paid} prev={prev && prev.paid} compare={compare} />
+        <DashTile label="Возвраты" value={cur.ret} prev={prev && prev.ret} good="down" compare={compare} note={cur.retN ? "операций: " + cur.retN : null} />
       </div>
-      <div className="split sect">
-        <div className="card">
-          <h3 style={{ marginBottom: 8 }}>Продажи по менеджерам</h3>
-          <table className="t"><thead><tr><th>Менеджер</th><th style={{textAlign:"right"}}>Объектов</th><th style={{textAlign:"right"}}>Выручка</th><th style={{textAlign:"right"}}>Прибыль</th></tr></thead>
-            <tbody>{Object.entries(byMgr).sort((a,b)=>b[1].sale-a[1].sale).map(([m, v]) => <tr key={m}><td>{m}</td><td className="num">{v.n}</td><td className="num">{fmt(v.sale)}</td><td className="num" style={{color:"var(--ok)"}}>{fmt(v.net)}</td></tr>)}
-            {!Object.keys(byMgr).length && <tr><td colSpan={4} className="mut sm" style={{padding:14}}>Нет данных</td></tr>}</tbody></table>
+
+      <div className="card sect">
+        <div className="row" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+          <h3 style={{ marginRight: "auto" }}>Динамика продаж <span className="xs mut" style={{ fontWeight: 500 }}>по {buckets.gran === "day" ? "дням" : buckets.gran === "week" ? "неделям" : "месяцам"}</span></h3>
+          <span className="row xs" style={{ gap: 12 }}>
+            <span className="row" style={{ gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: "var(--viz-s1)", display: "inline-block" }} />Выручка</span>
+            <span className="row" style={{ gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: "var(--viz-s2)", display: "inline-block" }} />Валовая прибыль</span>
+          </span>
+          <button className="btn xs" onClick={() => setShowTable(!showTable)}>{showTable ? "График" : "Таблица"}</button>
         </div>
-        <div className="card">
-          <h3 style={{ marginBottom: 8 }}>Продажи по мастерам</h3>
-          <table className="t"><thead><tr><th>Мастер</th><th style={{textAlign:"right"}}>Объектов</th><th style={{textAlign:"right"}}>Выручка</th></tr></thead>
-            <tbody>{Object.entries(byMaster).sort((a,b)=>b[1].sale-a[1].sale).map(([m, v]) => <tr key={m}><td>{m}</td><td className="num">{v.n}</td><td className="num">{fmt(v.sale)}</td></tr>)}
-            {!Object.keys(byMaster).length && <tr><td colSpan={3} className="mut sm" style={{padding:14}}>Нет данных</td></tr>}</tbody></table>
+        {!showTable ? <DashChart buckets={buckets.list} /> : (
+          <div style={{ overflow: "auto", maxHeight: 300 }}>
+            <table className="t"><thead><tr><th>Период</th><th style={{ textAlign: "right" }}>Выручка</th><th style={{ textAlign: "right" }}>Вал. прибыль</th><th style={{ textAlign: "right" }}>Поставок</th></tr></thead>
+              <tbody>{buckets.list.map((b) => <tr key={b.key}><td className="sm">{b.title}</td><td className="num">{fmt(b.rev)}</td><td className="num">{fmt(b.gross)}</td><td className="num">{b.deals}</td></tr>)}</tbody></table>
+          </div>
+        )}
+      </div>
+
+      <div className="kpis sect">
+        <DashTile label="Долги клиентов" value={bal.cdebt} note={bal.overpay > 0 ? "переплаты: " + fmt(bal.overpay) + " · на сегодня" : "на сегодня"} />
+        <DashTile label="Долги поставщикам" value={bal.sdebt} note="на сегодня" />
+        <DashTile label="Склад Thermo" value={bal.whCost} note={"по себестоимости · позиций " + bal.whQty} />
+        <DashTile label="Объектов в работе" value={bal.active} note="кроме закрытых и отменённых" />
+      </div>
+
+      <div className="split sect" style={{ alignItems: "start" }}>
+        <div className="card" style={{ minWidth: 0 }}>
+          <div className="row" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+            <h3 style={{ marginRight: "auto" }}>Что продаётся</h3>
+            <DashSeg value={prodView} onChange={setProdView} opts={[["prod", "Товары"], ["cat", "Категории"], ["brand", "Бренды"]]} />
+          </div>
+          <DashRank key={prodView} rows={ranks[prodView]} cols={prodCols} />
+        </div>
+        <div className="card" style={{ minWidth: 0 }}>
+          <div className="row" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+            <h3 style={{ marginRight: "auto" }}>Лучшие</h3>
+            <DashSeg value={peopleView} onChange={setPeopleView} opts={[["mgr", "Менеджеры"], ["master", "Мастера"], ["client", "Клиенты"], ["sup", "Поставщики"]]} />
+          </div>
+          <DashRank key={peopleView} rows={peopleRows} cols={peopleCols[peopleView]} />
         </div>
       </div>
-      <div className="split sect">
-        <div className="card">
-          <h3 style={{ marginBottom: 8 }}>Топ товары по выручке</h3>
-          <table className="t"><tbody>{topProd.map(([n, v]) => <tr key={n}><td className="sm">{n}</td><td className="num">{v.qty} ед</td><td className="num">{fmt(v.sale)}</td></tr>)}
-          {!topProd.length && <tr><td className="mut sm" style={{padding:14}}>Нет данных</td></tr>}</tbody></table>
-        </div>
-        <div className="card">
-          <h3 style={{ marginBottom: 8 }}>Объекты по прибыли</h3>
-          <table className="t"><tbody>{objByProfit.map(({ o, f }) => <tr key={o.id}><td className="sm">{o.name}</td><td><Badge c={stById(o.status).c}>{stById(o.status).label}</Badge></td><td className="num" style={{color:f.net>=0?"var(--ok)":"var(--bad)"}}>{fmt(f.net)}</td></tr>)}
-          {!objByProfit.length && <tr><td className="mut sm" style={{padding:14}}>Нет данных</td></tr>}</tbody></table>
-        </div>
-      </div>
+
       {lowMargin.length > 0 && (
-        <div className="card">
-          <h3 style={{ marginBottom: 8 }}>⚠ Товары с низкой маржей</h3>
-          <table className="t"><tbody>{lowMargin.map(([n, v]) => <tr key={n}><td className="sm">{n}</td><td className="num">{((v.margin / v.sale) * 100).toFixed(1)}%</td><td className="num">{fmt(v.margin)}</td></tr>)}</tbody></table>
+        <div className="card sect">
+          <h3 style={{ marginBottom: 8 }}>⚠ Низкая маржа (меньше 10%) за период</h3>
+          <table className="t"><thead><tr><th>Товар</th><th style={{ textAlign: "right" }}>Выручка</th><th style={{ textAlign: "right" }}>Вал. прибыль</th><th style={{ textAlign: "right" }}>Маржа</th></tr></thead>
+            <tbody>{lowMargin.map((r) => <tr key={r.key}><td className="sm">{r.name}</td><td className="num">{fmt(r.rev)}</td><td className="num" style={{ color: r.gross < 0 ? "var(--bad)" : undefined }}>{fmt(r.gross)}</td><td className="num" style={{ color: r.margin < 0 ? "var(--bad)" : "var(--warn)" }}>{r.margin.toLocaleString("ru-RU", { maximumFractionDigits: 1 })}%</td></tr>)}</tbody></table>
         </div>
       )}
     </div>
@@ -2930,7 +3556,7 @@ function FinanceTab({ data, reload, toast }) {
         <div className="card">
           <h3 style={{ marginBottom: 8 }}>Долги поставщикам</h3>
           <table className="t"><thead><tr><th>Поставщик</th><th style={{textAlign:"right"}}>Закупки</th><th style={{textAlign:"right"}}>Оплачено</th><th style={{textAlign:"right"}}>Долг</th></tr></thead>
-            <tbody>{suppliers.map((s) => { const st = supplierStats(s, objects, finance_ops); return <tr key={s.id}><td>{s.name}<div className="xs mut">{s.terms}</div></td><td className="num">{fmt(st.purchases)}</td><td className="num">{fmt(st.paid)}</td><td className="num" style={{color:st.debt>0?"var(--bad)":"var(--mut)",fontWeight:700}}>{fmt(st.debt)}</td></tr>; })}</tbody></table>
+            <tbody>{suppliers.map((s) => { const st = supplierStats(s, objects, finance_ops, data.wh_moves); return <tr key={s.id}><td>{s.name}<div className="xs mut">{s.terms}</div></td><td className="num">{fmt(st.purchases)}</td><td className="num">{fmt(st.paid)}</td><td className="num" style={{color:st.balance>0?"var(--bad)":st.balance<0?"var(--ok)":"var(--mut)",fontWeight:700}} title={st.balance<0?"переплата (аванс поставщику)":""}>{st.balance<0?"−"+fmt(-st.balance):fmt(st.balance)}</td></tr>; })}</tbody></table>
         </div>
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
@@ -2951,16 +3577,21 @@ function FinanceTab({ data, reload, toast }) {
           </tbody>
         </table>
       </div>
-      <VozvratSection objects={objects} finance_ops={finance_ops} suppliers={suppliers} />
+      <VozvratSection objects={objects} finance_ops={finance_ops} suppliers={suppliers} whMoves={data.wh_moves} />
     </div>
   );
 }
-function VozvratSection({ objects, finance_ops, suppliers }) {
+function VozvratSection({ objects, finance_ops, suppliers, whMoves }) {
   const returns = finance_ops.filter((o) => !o.voided && o.type === "return");
-  const totalSale = returns.reduce((a, o) => a + (o.amount || 0), 0);
-  const totalCost = returns.reduce((a, o) => a + (o.cost_amount || 0), 0);
+  // уменьшают долг поставщику только возвраты поставщику; возврат клиента на склад — нет
+  const supIds = supplierReturnIds(finance_ops, whMoves);
+  const kind = (o) => (supIds.has(o.id) ? (o.object_id ? "с объекта → поставщику" : "со склада → поставщику") : "от клиента → на склад");
+  const fromClients = returns.filter((o) => o.object_id);
+  const totalSale = fromClients.reduce((a, o) => a + (o.amount || 0), 0);
+  const toSup = returns.filter((o) => supIds.has(o.id));
+  const totalCost = toSup.reduce((a, o) => a + (o.cost_amount || 0), 0);
   const bySupplier = {};
-  returns.forEach((o) => {
+  toSup.forEach((o) => {
     const key = o.supplier_id || "__none__";
     if (!bySupplier[key]) bySupplier[key] = { name: o.supplier_id ? ((suppliers.find((s) => s.id === o.supplier_id) || {}).name || "Неизвестно") : "—", sale: 0, cost: 0, cnt: 0 };
     bySupplier[key].sale += o.amount || 0;
@@ -2972,12 +3603,12 @@ function VozvratSection({ objects, finance_ops, suppliers }) {
       <h3 style={{ marginBottom: 12 }}>Возвраты товаров</h3>
       <div className="kpis" style={{ marginBottom: 14 }}>
         <div className="kpi"><div className="l">Всего возвратов</div><div className="v">{returns.length}</div></div>
-        <div className="kpi"><div className="l">Сумма (продажа)</div><div className="v" style={{ color: "var(--warn)" }}>{fmt(totalSale)}</div></div>
-        <div className="kpi"><div className="l">Сумма (себест.)</div><div className="v">{fmt(totalCost)}</div></div>
+        <div className="kpi"><div className="l">От клиентов (сумма продажи)</div><div className="v" style={{ color: "var(--warn)" }}>{fmt(totalSale)}</div></div>
+        <div className="kpi"><div className="l">Поставщикам (себест., −долг)</div><div className="v">{fmt(totalCost)}</div></div>
       </div>
       <div className="split">
         <div>
-          <div className="sm" style={{ fontWeight: 700, marginBottom: 6 }}>По поставщикам</div>
+          <div className="sm" style={{ fontWeight: 700, marginBottom: 6 }}>Возвращено поставщикам</div>
           <table className="t"><thead><tr><th>Поставщик</th><th style={{textAlign:"right"}}>Кол-во</th><th style={{textAlign:"right"}}>Себест.</th></tr></thead>
             <tbody>{Object.values(bySupplier).map((r, i) => <tr key={i}><td>{r.name}</td><td className="num">{r.cnt}</td><td className="num" style={{color:"var(--warn)"}}>{fmt(r.cost)}</td></tr>)}
             {!Object.keys(bySupplier).length && <tr><td colSpan={3} className="mut sm" style={{padding:12}}>Возвратов нет</td></tr>}</tbody>
@@ -2985,12 +3616,12 @@ function VozvratSection({ objects, finance_ops, suppliers }) {
         </div>
         <div style={{ overflow: "auto", maxHeight: 320 }}>
           <div className="sm" style={{ fontWeight: 700, marginBottom: 6 }}>Все возвраты</div>
-          <table className="t"><thead><tr><th>Дата</th><th>Объект</th><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th style={{textAlign:"right"}}>Сумма</th><th>Причина</th></tr></thead>
+          <table className="t"><thead><tr><th>Дата</th><th>Объект</th><th>Товар</th><th>Куда</th><th style={{textAlign:"right"}}>Кол-во</th><th style={{textAlign:"right"}}>Себест.</th><th>Причина</th></tr></thead>
             <tbody>{returns.slice().reverse().map((o) => {
               const obj = objects.find((x) => x.id === o.object_id);
-              return <tr key={o.id}><td className="xs mono mut">{dt(o.op_date||o.created_at)}</td><td className="sm">{obj ? obj.name : "—"}</td><td className="sm">{o.product_name||"—"}<div className="xs mut">{o.size||""}</div></td><td className="num">{o.qty||"—"}</td><td className="num" style={{color:"var(--warn)",fontWeight:700}}>{fmt(o.cost_amount||0)}</td><td className="xs mut">{o.reason||o.note||""}</td></tr>;
+              return <tr key={o.id}><td className="xs mono mut">{dt(o.op_date||o.created_at)}</td><td className="sm">{obj ? obj.name : "—"}</td><td className="sm">{o.product_name||"—"}<div className="xs mut">{o.size||""}</div></td><td className="xs">{kind(o)}</td><td className="num">{o.qty||"—"}</td><td className="num" style={{color:"var(--warn)",fontWeight:700}}>{fmt(o.cost_amount||0)}</td><td className="xs mut">{o.reason||o.note||""}</td></tr>;
             })}
-            {!returns.length && <tr><td colSpan={6} className="mut sm" style={{padding:14}}>Возвратов нет</td></tr>}</tbody>
+            {!returns.length && <tr><td colSpan={7} className="mut sm" style={{padding:14}}>Возвратов нет</td></tr>}</tbody>
           </table>
         </div>
       </div>
@@ -3212,7 +3843,16 @@ function AppInner() {
   const [openId, setOpenId] = useState(null);
   const [msg, setMsg] = useState("");
 
-  const toast = (m) => { setMsg(m); setTimeout(() => setMsg(""), 3500); };
+  const toastTm = useRef(null);
+  const toast = (m) => { setMsg(m); clearTimeout(toastTm.current); toastTm.current = setTimeout(() => setMsg(""), 3500); };
+  // ошибки записи в базу — отдельным красным сообщением, его не перекрывает обычное «Сохранено»
+  const [dbErr, setDbErr] = useState("");
+  useEffect(() => {
+    let tm;
+    const h = (e) => { setDbErr(e.detail); clearTimeout(tm); tm = setTimeout(() => setDbErr(""), 9000); };
+    window.addEventListener("te-db-error", h);
+    return () => { window.removeEventListener("te-db-error", h); clearTimeout(tm); };
+  }, []);
   const reload = async () => {
     const res = await Promise.all(TABLES.map((t) => fetchAllRows(t)));
     const out = {};
@@ -3350,6 +3990,8 @@ function AppInner() {
         await reload(); setWipeOpen(false); setOpenId(null); toast("База очищена. Товары, поставщики и мастера сохранены.");
       }} />}
       {msg && <div className="toast">{msg}</div>}
+      {dbErr && <div className="toast" role="alert" title="Нажмите, чтобы закрыть" onClick={() => setDbErr("")}
+        style={{ bottom: msg ? 84 : 20, borderColor: "var(--bad)", color: "var(--bad)", maxWidth: 460, cursor: "pointer" }}>⚠ {dbErr}</div>}
     </div>
     </PeopleCtx.Provider>
   );
