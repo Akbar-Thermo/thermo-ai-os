@@ -537,7 +537,7 @@ const PAY_METHODS = [
   { id: "usd", label: "Наличные $", cur: "usd" },
   { id: "uzs", label: "Наличные сум", cur: "uzs" },
   { id: "card", label: "Карта", cur: null }, // валюту выбирают
-  { id: "transfer", label: "Перечисление", cur: "uzs" },
+  { id: "transfer", label: "Перечисление", cur: null, def: "uzs" }, // валюту выбирают, по умолчанию сум
 ];
 const OUT_METHODS = PAY_METHODS; // выплаты — теми же способами, что и поступления
 const PAY_GROUPS = [
@@ -575,7 +575,7 @@ function payInfo(op) {
 function payText(op) {
   const i = payInfo(op);
   if (!i.id) return "";
-  return i.cur === "uzs" ? i.label + ": " + fmt(i.uzs) + " сум" + (i.rate ? " × курс " + fmt(i.rate) : "") : i.label + (i.id === "card" ? " ($)" : "");
+  return i.cur === "uzs" ? i.label + ": " + fmt(i.uzs) + " сум" + (i.rate ? " × курс " + fmt(i.rate) : "") : i.label + (payMethod(i.id).cur === null ? " ($)" : "");
 }
 // детали операции без повтора способа оплаты (он уже записан в reason)
 const opDetails = (o, extra = []) => [...extra, o.item_name, payInfo(o).id ? payText(o) : o.reason, o.note].filter(Boolean).join(" · ");
@@ -591,7 +591,7 @@ const paySetUsd = (p, usd) => ({ ...p, usd: round2(usd), uzs: p.cur === "uzs" &&
 // remember=false при исправлении старой операции: её курс не становится курсом по умолчанию для новых оплат
 function payPatch(p, type = "client_payment", remember = true) {
   const m = payMethod(p.method), usd = payUsd(p);
-  const reason = p.cur === "uzs" ? m.label + ": " + fmt(p.uzs) + " сум × курс " + fmt(p.rate) : m.label + (m.id === "card" ? " ($)" : "");
+  const reason = p.cur === "uzs" ? m.label + ": " + fmt(p.uzs) + " сум × курс " + fmt(p.rate) : m.label + (m.cur === null ? " ($)" : "");
   if (remember && p.cur === "uzs" && Number(p.rate) > 0) { try { localStorage.setItem(RATE_KEY, String(p.rate)); } catch (e) {} }
   const out = { amount: usd, reason, pay_method: m.id, pay_currency: p.cur.toUpperCase(),
     pay_amount: p.cur === "uzs" ? Number(p.uzs) || 0 : usd, pay_rate: p.cur === "uzs" ? Number(p.rate) || null : null };
@@ -607,7 +607,7 @@ function PayFields({ p, setP, methods = PAY_METHODS, usdLabel = "В долг к�
   // наличные: валюта задаёт способ (usd / uzs); карта: валюта отдельно; перечисление — всегда сум
   const pickGroup = (g) => {
     if (g.key === "cash") { const id = p.cur === "uzs" && g.ids.includes("uzs") ? "uzs" : g.ids[0]; setP({ ...p, method: id, cur: payMethod(id).cur }); return; }
-    const mm = payMethod(g.ids[0]); setP({ ...p, method: mm.id, cur: mm.cur || p.cur || "usd" });
+    const mm = payMethod(g.ids[0]); setP({ ...p, method: mm.id, cur: mm.cur || mm.def || p.cur || "usd" });
   };
   const setCur = (cur) => {
     if (isCash) { const id = cur === "uzs" ? "uzs" : "usd"; if (ids.includes(id)) setP({ ...p, method: id, cur }); return; }
