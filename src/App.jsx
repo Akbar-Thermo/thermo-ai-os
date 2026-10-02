@@ -3280,7 +3280,28 @@ function DashTile({ label, value, prev, good = "up", suffix = "", hero, note, co
   );
 }
 
-// столбчатая диаграмма: выручка и валовая прибыль по дням / неделям / месяцам, подсказка при наведении
+// плавная кривая через точки (монотонная кубическая: без «выбросов» выше/ниже реальных значений)
+function smoothPath(pts) {
+  const n = pts.length;
+  if (!n) return "";
+  if (n === 1) return "M" + pts[0][0] + "," + pts[0][1];
+  const sl = [], t = [];
+  for (let i = 0; i < n - 1; i++) sl.push((pts[i + 1][1] - pts[i][1]) / (pts[i + 1][0] - pts[i][0] || 1));
+  t[0] = sl[0]; t[n - 1] = sl[n - 2];
+  for (let i = 1; i < n - 1; i++) t[i] = sl[i - 1] * sl[i] <= 0 ? 0 : (sl[i - 1] + sl[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (sl[i] === 0) { t[i] = 0; t[i + 1] = 0; continue; }
+    const a = t[i] / sl[i], b = t[i + 1] / sl[i], h = a * a + b * b;
+    if (h > 9) { const k = 3 / Math.sqrt(h); t[i] = k * a * sl[i]; t[i + 1] = k * b * sl[i]; }
+  }
+  let d = "M" + pts[0][0] + "," + pts[0][1];
+  for (let i = 0; i < n - 1; i++) {
+    const [x0, y0] = pts[i], [x1, y1] = pts[i + 1], dx = (x1 - x0) / 3;
+    d += "C" + (x0 + dx) + "," + (y0 + t[i] * dx) + " " + (x1 - dx) + "," + (y1 - t[i + 1] * dx) + " " + x1 + "," + y1;
+  }
+  return d;
+}
+// волнистый график: выручка и валовая прибыль по дням / неделям / месяцам, перекрестие и подсказка при наведении
 function DashChart({ buckets }) {
   const boxRef = useRef(null);
   const [w, setW] = useState(800);
@@ -3293,50 +3314,61 @@ function DashChart({ buckets }) {
     if (ro) ro.observe(el); else window.addEventListener("resize", upd);
     return () => { if (ro) ro.disconnect(); else window.removeEventListener("resize", upd); };
   }, []);
-  const H = 260, ml = 62, mr = 10, mt = 10, mb = 26;
+  const H = 260, ml = 62, mr = 14, mt = 12, mb = 26;
   const pw = w - ml - mr, ph = H - mt - mb, n = buckets.length || 1;
   let hi = 0, lo = 0;
-  buckets.forEach((b) => { hi = Math.max(hi, b.rev, b.gross); lo = Math.min(lo, b.gross); });
+  buckets.forEach((b) => { hi = Math.max(hi, b.rev, b.gross); lo = Math.min(lo, b.rev, b.gross); });
   if (hi === 0 && lo === 0) hi = 1;
   const rawStep = (hi - lo) / 4, mag = Math.pow(10, Math.floor(Math.log10(rawStep || 1)));
   const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= rawStep) || 10 * mag;
   const top = Math.ceil(hi / step) * step, bot = Math.floor(lo / step) * step;
   const y = (v) => mt + ((top - v) / (top - bot || 1)) * ph;
   const ticks = []; for (let v = bot; v <= top + step / 2; v += step) ticks.push(v);
-  const band = pw / n, barW = Math.max(2, Math.min(24, (band * 0.72 - 2) / 2));
-  const bar = (x, v) => {
-    const y0 = y(0), y1 = y(v), h = Math.abs(y1 - y0); if (h < 0.5) return "";
-    const r = Math.min(4, h, barW / 2);
-    if (v >= 0) return `M${x},${y0}V${y1 + r}Q${x},${y1} ${x + r},${y1}H${x + barW - r}Q${x + barW},${y1} ${x + barW},${y1 + r}V${y0}Z`;
-    return `M${x},${y0}V${y1 - r}Q${x},${y1} ${x + r},${y1}H${x + barW - r}Q${x + barW},${y1} ${x + barW},${y1 - r}V${y0}Z`;
-  };
+  const band = pw / n;
+  const x = (i) => ml + i * band + band / 2;
+  const y0 = y(0);
+  const series = [
+    { k: "rev", c: "var(--viz-s1)", g: "dashGradRev" },
+    { k: "gross", c: "var(--viz-s2)", g: "dashGradGross" },
+  ].map((sr) => {
+    const pts = buckets.map((b, i) => [x(i), y(b[sr.k])]);
+    const line = smoothPath(pts);
+    const area = pts.length > 1 ? line + "L" + pts[pts.length - 1][0] + "," + y0 + "L" + pts[0][0] + "," + y0 + "Z" : "";
+    return { ...sr, pts, line, area };
+  });
   const every = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(pw / 58))));
   const hb = buckets[hov];
-  // подсказка сбоку от столбца, чтобы не закрывать его
-  const bandR = ml + (hov + 1) * band, bandL = ml + hov * band;
-  const tipLeft = hov < 0 ? 0 : bandR + 8 + 180 <= w ? bandR + 8 : Math.max(0, bandL - 188);
+  const hx = hov >= 0 ? x(hov) : 0;
+  const tipLeft = hov < 0 ? 0 : hx + 12 + 180 <= w ? hx + 12 : Math.max(0, hx - 192);
   return (
     <div ref={boxRef} style={{ position: "relative" }} onMouseLeave={() => setHov(-1)}>
       <svg width={w} height={H} style={{ display: "block" }} role="img" aria-label="Динамика выручки и валовой прибыли">
+        <defs>
+          {series.map((sr) => (
+            <linearGradient key={sr.g} id={sr.g} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={sr.c} stopOpacity="0.28" />
+              <stop offset="100%" stopColor={sr.c} stopOpacity="0.02" />
+            </linearGradient>
+          ))}
+        </defs>
         {ticks.map((v) => (
           <g key={v}>
             <line x1={ml} x2={w - mr} y1={y(v)} y2={y(v)} stroke={v === 0 ? "var(--viz-axis)" : "var(--viz-grid)"} strokeWidth="1" />
             <text x={ml - 8} y={y(v) + 4} textAnchor="end" fontSize="11" fill="var(--mut)" style={{ fontVariantNumeric: "tabular-nums" }}>{fmtShort(v)}</text>
           </g>
         ))}
-        {hov >= 0 && <rect x={ml + hov * band} y={mt} width={band} height={ph} fill="var(--txt)" opacity="0.05" />}
-        {buckets.map((b, i) => {
-          const gx = ml + i * band + (band - (barW * 2 + 2)) / 2;
-          return (
-            <g key={b.key}>
-              <path d={bar(gx, b.rev)} fill="var(--viz-s1)" />
-              <path d={bar(gx + barW + 2, b.gross)} fill="var(--viz-s2)" />
-              {i % every === 0 && <text x={ml + i * band + band / 2} y={H - 8} textAnchor="middle" fontSize="11" fill="var(--mut)">{b.label}</text>}
-              <rect x={ml + i * band} y={mt} width={band} height={ph} fill="transparent" tabIndex={0}
-                onMouseEnter={() => setHov(i)} onFocus={() => setHov(i)} onBlur={() => setHov(-1)} />
-            </g>
-          );
-        })}
+        {series.map((sr) => sr.area && <path key={"a" + sr.k} d={sr.area} fill={"url(#" + sr.g + ")"} stroke="none" />)}
+        {series.map((sr) => <path key={"l" + sr.k} d={sr.line} fill="none" stroke={sr.c} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />)}
+        {n === 1 && series.map((sr) => <circle key={"d" + sr.k} cx={sr.pts[0][0]} cy={sr.pts[0][1]} r="4" fill={sr.c} stroke="var(--panel)" strokeWidth="2" />)}
+        {hov >= 0 && <line x1={hx} x2={hx} y1={mt} y2={mt + ph} stroke="var(--mut)" strokeWidth="1" strokeDasharray="3 3" />}
+        {hov >= 0 && series.map((sr) => <circle key={"h" + sr.k} cx={sr.pts[hov][0]} cy={sr.pts[hov][1]} r="4.5" fill={sr.c} stroke="var(--panel)" strokeWidth="2" />)}
+        {buckets.map((b, i) => (
+          <g key={b.key}>
+            {i % every === 0 && <text x={x(i)} y={H - 8} textAnchor="middle" fontSize="11" fill="var(--mut)">{b.label}</text>}
+            <rect x={ml + i * band} y={mt} width={band} height={ph} fill="transparent" tabIndex={0}
+              onMouseEnter={() => setHov(i)} onFocus={() => setHov(i)} onBlur={() => setHov(-1)} />
+          </g>
+        ))}
       </svg>
       {hb && (
         <div style={{ position: "absolute", top: 4, left: tipLeft, width: 180, pointerEvents: "none", background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 8, padding: "8px 10px", boxShadow: "0 8px 24px rgba(0,0,0,.15)", fontSize: 12, zIndex: 5 }}>
@@ -3666,8 +3698,8 @@ function Dashboard({ data }) {
         <div className="row" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
           <h3 style={{ marginRight: "auto" }}>Динамика продаж <span className="xs mut" style={{ fontWeight: 500 }}>по {buckets.gran === "day" ? "дням" : buckets.gran === "week" ? "неделям" : "месяцам"}</span></h3>
           <span className="row xs" style={{ gap: 12 }}>
-            <span className="row" style={{ gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: "var(--viz-s1)", display: "inline-block" }} />Выручка</span>
-            <span className="row" style={{ gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: "var(--viz-s2)", display: "inline-block" }} />Валовая прибыль</span>
+            <span className="row" style={{ gap: 5 }}><span style={{ width: 14, height: 3, borderRadius: 2, background: "var(--viz-s1)", display: "inline-block" }} />Выручка</span>
+            <span className="row" style={{ gap: 5 }}><span style={{ width: 14, height: 3, borderRadius: 2, background: "var(--viz-s2)", display: "inline-block" }} />Валовая прибыль</span>
           </span>
           <button className="btn xs" onClick={() => setShowTable(!showTable)}>{showTable ? "График" : "Таблица"}</button>
         </div>
