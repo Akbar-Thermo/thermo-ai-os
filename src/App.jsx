@@ -531,13 +531,19 @@ function PersonSelect({ value, onChange, placeholder = "—", compact = false })
    в учёт идёт сумма, пересчитанная в $. Способ, сумма в сумах и курс сохраняются в операции
    (колонки pay_method / pay_currency / pay_amount / pay_rate, если они есть в базе) и всегда — текстом в reason.
    Поступления от клиентов — 4 способа; выплаты (поставщикам, расходы, бонусы мастерам) — $, карта, перечисление. */
+// «Наличные» — одна кнопка с выбором валюты ($ / сум); внутри это два способа: usd и uzs
 const PAY_METHODS = [
   { id: "usd", label: "Наличные $", cur: "usd" },
-  { id: "transfer", label: "Перечисление", cur: "uzs" },
-  { id: "card", label: "Карта", cur: null }, // валюту выбирают
   { id: "uzs", label: "Наличные сум", cur: "uzs" },
+  { id: "card", label: "Карта", cur: null }, // валюту выбирают
+  { id: "transfer", label: "Перечисление", cur: "uzs" },
 ];
-const OUT_METHODS = PAY_METHODS.filter((m) => m.id !== "uzs");
+const OUT_METHODS = PAY_METHODS; // выплаты — теми же способами, что и поступления
+const PAY_GROUPS = [
+  { key: "cash", label: "Наличные", ids: ["usd", "uzs"] },
+  { key: "card", label: "Карта", ids: ["card"] },
+  { key: "transfer", label: "Перечисление", ids: ["transfer"] },
+];
 const PAY_IN_TYPES = ["client_payment"];
 const PAY_OUT_TYPES = ["supplier_payment", "expense", "company_expense", "bonus_payment"];
 const isPayType = (t) => PAY_IN_TYPES.includes(t) || PAY_OUT_TYPES.includes(t);
@@ -593,18 +599,30 @@ function payPatch(p, type = "client_payment", remember = true) {
 }
 function PayFields({ p, setP, methods = PAY_METHODS, usdLabel = "В долг клиента, $" }) {
   const m = payMethod(p.method);
-  const setMethod = (id) => { const mm = payMethod(id); setP({ ...p, method: id, cur: mm.cur || p.cur || "usd" }); };
+  const ids = methods.map((x) => x.id);
+  const groups = PAY_GROUPS.map((g) => ({ ...g, ids: g.ids.filter((id) => ids.includes(id)) })).filter((g) => g.ids.length);
+  const group = groups.find((g) => g.ids.includes(p.method));
+  const isCash = group && group.key === "cash";
+  // наличные: валюта задаёт способ (usd / uzs); карта: валюта отдельно; перечисление — всегда сум
+  const pickGroup = (g) => {
+    if (g.key === "cash") { const id = p.cur === "uzs" && g.ids.includes("uzs") ? "uzs" : g.ids[0]; setP({ ...p, method: id, cur: payMethod(id).cur }); return; }
+    const mm = payMethod(g.ids[0]); setP({ ...p, method: mm.id, cur: mm.cur || p.cur || "usd" });
+  };
+  const setCur = (cur) => {
+    if (isCash) { const id = cur === "uzs" ? "uzs" : "usd"; if (ids.includes(id)) setP({ ...p, method: id, cur }); return; }
+    setP({ ...p, cur });
+  };
   const usd = payUsd(p);
   return (
     <div style={{ gridColumn: "1/-1" }}>
       <Fld label="Способ оплаты">
         <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>
-          {methods.map((x) => <button key={x.id} type="button" className={"btn xs " + (p.method === x.id ? "pri" : "")} onClick={() => setMethod(x.id)}>{x.label}</button>)}
-          {m.cur === null && (
+          {groups.map((g) => <button key={g.key} type="button" className={"btn xs " + (group && group.key === g.key ? "pri" : "")} onClick={() => pickGroup(g)}>{g.label}</button>)}
+          {(m.cur === null || (isCash && group.ids.length > 1)) && (
             <span className="row" style={{ gap: 4, marginLeft: 8 }}>
-              <span className="xs mut">валюта карты:</span>
-              <button type="button" className={"btn xs " + (p.cur === "usd" ? "pri" : "")} onClick={() => setP({ ...p, cur: "usd" })}>$</button>
-              <button type="button" className={"btn xs " + (p.cur === "uzs" ? "pri" : "")} onClick={() => setP({ ...p, cur: "uzs" })}>сум</button>
+              <span className="xs mut">валюта:</span>
+              <button type="button" className={"btn xs " + (p.cur === "usd" ? "pri" : "")} onClick={() => setCur("usd")}>$</button>
+              <button type="button" className={"btn xs " + (p.cur === "uzs" ? "pri" : "")} onClick={() => setCur("uzs")}>сум</button>
             </span>
           )}
         </div>
@@ -3465,6 +3483,9 @@ function Dashboard({ data }) {
   const pFrom = compare ? dAdd(from, -len) : "", pTo = compare ? dAdd(from, -1) : "";
   const cur = useMemo(() => dashTotals(ev, from, to), [ev, from, to]);
   const prev = useMemo(() => (compare ? dashTotals(ev, pFrom, pTo) : null), [ev, pFrom, pTo, compare]);
+  // поступления по способам оплаты (плитки): текущий и предыдущий период
+  const payCur = useMemo(() => payReport(objects, finance_ops, from, to, mgr), [objects, finance_ops, from, to, mgr]);
+  const payPrev = useMemo(() => (compare ? payReport(objects, finance_ops, pFrom, pTo, mgr) : null), [objects, finance_ops, pFrom, pTo, mgr, compare]);
 
   // корзины для графика
   const buckets = useMemo(() => {
@@ -3630,6 +3651,15 @@ function Dashboard({ data }) {
         <DashTile label="Клиентов" value={cur.clients} prev={prev && prev.clients} compare={compare} note={"новых " + cur.newC + " · повторных " + cur.repeatC} />
         <DashTile label="Поступило оплат" value={cur.paid} prev={prev && prev.paid} compare={compare} />
         <DashTile label="Возвраты" value={cur.ret} prev={prev && prev.ret} good="down" compare={compare} note={cur.retN ? "операций: " + cur.retN : null} />
+      </div>
+
+      <h3 style={{ margin: "4px 0 8px" }}>Поступило по способам оплаты <span className="xs mut" style={{ fontWeight: 500 }}>· в $, оплаты в сумах — по курсу операции</span></h3>
+      <div className="kpis sect">
+        {payCur.list.filter((r) => r.id !== "none").map((r) => {
+          const pr = payPrev && payPrev.list.find((x) => x.id === r.id);
+          const parts = [r.inUzs > 0 ? "в т.ч. " + fmt(r.inUzs) + " сум" : "", "выплачено " + fmt(r.outUsd) + (r.outUzs > 0 ? " (" + fmt(r.outUzs) + " сум)" : "")].filter(Boolean);
+          return <DashTile key={r.id} label={r.label} value={round2(r.inUsd)} prev={pr ? round2(pr.inUsd) : null} compare={compare} note={parts.join(" · ")} />;
+        })}
       </div>
 
       <div className="card sect">
