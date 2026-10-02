@@ -83,15 +83,15 @@ const db = dbWrap(dbModule.db);
 
 const SEGMENTS = ["эконом", "комфорт", "премиум"];
 const OBJ_STATUSES = [
-  { id: "draft", label: "Черновик", c: "#9a9a9a" },
-  { id: "review", label: "На проверке", c: "#ffb020" },
-  { id: "approved", label: "Согласовано", c: "#ffffff" },
-  { id: "partial", label: "Частично оплачено", c: "#ff707b" },
-  { id: "paid", label: "Оплачено", c: "#3ddc7d" },
-  { id: "shipped", label: "Отгружено", c: "#d6d6d6" },
-  { id: "settled", label: "Рассчитано", c: "#4db8ff" },
-  { id: "closed", label: "Закрыто", c: "#3ddc7d" },
-  { id: "cancelled", label: "Отменено", c: "#ff4d5e" },
+  { id: "draft", label: "Черновик", c: "var(--t-neutral)" },
+  { id: "review", label: "На проверке", c: "var(--t-warn)" },
+  { id: "approved", label: "Согласовано", c: "var(--t-strong)" },
+  { id: "partial", label: "Частично оплачено", c: "var(--t-bad)" },
+  { id: "paid", label: "Оплачено", c: "var(--t-ok)" },
+  { id: "shipped", label: "Отгружено", c: "var(--t-violet)" },
+  { id: "settled", label: "Рассчитано", c: "var(--t-info)" },
+  { id: "closed", label: "Закрыто", c: "var(--t-ok)" },
+  { id: "cancelled", label: "Отменено", c: "var(--t-bad)" },
 ];
 const OP_TYPES = [
   { id: "client_payment", label: "Оплата клиента" },
@@ -115,93 +115,110 @@ const CONF_THRESHOLD = 80;
 const EXPENSE_CATEGORIES = ["Зарплата", "Аренда", "Коммунальные", "Обед / питание", "Транспорт / ГСМ", "Связь / интернет", "Налоги", "Реклама", "Хозрасходы", "Прочее"];
 
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+/* Тема «графит и гранат»: приглушённые холодные нейтральные тона без чистого белого и чистого чёрного,
+   фирменный красный Thermo — только у главного действия и активной вкладки. Цифры — табличные, без моноширинного шрифта. */
 :root{
-  --bg:#f7f7f8; --panel:#ffffff; --panel2:#f1f1f3; --line:#e2e2e6; --line2:#d4d4da;
-  --txt:#15151a; --mut:#6b6b73; --acc:#ff1f30; --acc2:#d6001a; --ok:#1f9d52; --warn:#b97300; --bad:#d6283b;
-  --mono:'JetBrains Mono',monospace; --sans:'Manrope',sans-serif;
-  --hdr-bg:#0c0c0c; --hdr-txt:#ffffff; --hdr-mut:#9a9a9a; --hdr-line:#262626; --hdr-panel2:#1a1a1a;
+  --bg:#eef0ee; --panel:#fbfbfa; --panel2:#f3f5f3; --line:#e0e4e1; --line2:#cfd5d1;
+  --txt:#1f2629; --mut:#66706f; --acc:#b02a3c; --acc2:#93202f; --acc-tint:rgba(176,42,60,.07); --acc-ring:rgba(176,42,60,.22);
+  --ok:#2c7a52; --warn:#99650f; --bad:#b33a3a;
+  --t-neutral:#66706f; --t-ok:#2c7a52; --t-warn:#99650f; --t-bad:#b33a3a; --t-info:#2f6a9e; --t-violet:#6a55a3; --t-strong:#1f2629;
+  --mono:'JetBrains Mono',ui-monospace,monospace; --sans:'Onest',system-ui,sans-serif;
+  --hdr-bg:#1f2629; --hdr-txt:#eef1ef; --hdr-mut:#9aa5a3; --hdr-line:#334046; --hdr-panel2:#28323a;
+  --shadow:0 1px 2px rgba(31,38,41,.05),0 2px 8px rgba(31,38,41,.04); --hover:rgba(31,38,41,.035);
 }
 .te.dark{
-  --bg:#111115; --panel:#1a1a20; --panel2:#222228; --line:#2e2e36; --line2:#3a3a44;
-  --txt:#e8e8f0; --mut:#8888a0; --ok:#3ddc7d; --warn:#e6a020; --bad:#ff4d5e;
+  --bg:#15191b; --panel:#1b2023; --panel2:#21282b; --line:#2b3438; --line2:#374247;
+  --txt:#dfe4e2; --mut:#8d9896; --acc:#d0566a; --acc2:#e07083; --acc-tint:rgba(208,86,106,.10); --acc-ring:rgba(208,86,106,.30);
+  --ok:#5fb88a; --warn:#d4a24c; --bad:#e07272;
+  --t-neutral:#9aa5a3; --t-ok:#5fb88a; --t-warn:#d4a24c; --t-bad:#e07272; --t-info:#6ea9de; --t-violet:#a597de; --t-strong:#dfe4e2;
+  --hdr-bg:#101416; --hdr-line:#253035; --hdr-panel2:#1b2327;
+  --shadow:0 1px 2px rgba(0,0,0,.25); --hover:rgba(255,255,255,.035);
 }
-.te{--viz-s1:#2a78d6;--viz-s2:#eb6834;--viz-grid:#e1e0d9;--viz-axis:#c3c2b7}
-.te.dark{--viz-s1:#3987e5;--viz-s2:#d95926;--viz-grid:#2c2c2a;--viz-axis:#383835}
+.te{--viz-s1:#2a78d6;--viz-s2:#eb6834;--viz-grid:#e1e4e1;--viz-axis:#c4cac6}
+.te.dark{--viz-s1:#3987e5;--viz-s2:#d95926;--viz-grid:#2a3236;--viz-axis:#3a454a}
 @media(max-width:820px){.dash .kpi[style*="span 2"]{grid-column:auto!important}}
-.te.dark table.t tr:hover td{background:rgba(255,255,255,.04)}
-.te.dark .pick-row:hover{background-color:#2a1a1c !important}
 *{box-sizing:border-box;margin:0;padding:0}
-.te{font-family:var(--sans);background:var(--bg);color:var(--txt);min-height:100vh;font-size:14px}
-.hdr{display:flex;align-items:center;gap:14px;padding:14px 22px;border-bottom:2px solid var(--acc);flex-wrap:wrap;position:sticky;top:0;background:var(--hdr-bg);z-index:50;box-shadow:0 6px 24px rgba(0,0,0,.18);transition:transform .25s ease}
+.te{font-family:var(--sans);background:var(--bg);color:var(--txt);min-height:100vh;font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;font-feature-settings:"tnum" 1}
+.te ::selection{background:var(--acc-ring)}
+.hdr{display:flex;align-items:center;gap:14px;padding:12px 22px;border-bottom:2px solid var(--acc);flex-wrap:wrap;position:sticky;top:0;background:var(--hdr-bg);z-index:50;transition:transform .25s ease}
 @media(max-width:820px){.hdr.hide-on-scroll{transform:translateY(-100%)}}
-.logo{font-weight:800;letter-spacing:.5px;font-size:17px;color:var(--hdr-txt)}
+.logo{font-weight:800;letter-spacing:.4px;font-size:17px;color:var(--hdr-txt)}
 .logo span{color:var(--acc)}
+.te.dark .logo span{color:var(--acc)}
 .logo small{display:block;font-weight:500;color:var(--hdr-mut);font-size:10px;letter-spacing:2px;text-transform:uppercase}
-.tabs{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto}
-.tab{padding:8px 14px;border-radius:8px;border:1px solid transparent;color:var(--hdr-mut);cursor:pointer;font-weight:600;font-size:13px;background:none;font-family:var(--sans)}
+.tabs{display:flex;gap:2px;flex-wrap:wrap;margin-left:auto}
+.tab{position:relative;padding:8px 12px;border-radius:8px;border:0;color:var(--hdr-mut);cursor:pointer;font-weight:600;font-size:13px;background:none;font-family:var(--sans)}
 .burger{display:none;align-items:center;justify-content:center;width:38px;height:38px;border-radius:8px;border:1px solid var(--hdr-line);background:var(--hdr-panel2);color:var(--hdr-txt);cursor:pointer;font-size:18px;margin-left:auto}
+.tab:hover{color:var(--hdr-txt);background:var(--hdr-panel2)}
+.tab.on{color:var(--hdr-txt);background:var(--hdr-panel2)}
+.tab.on::after{content:"";position:absolute;left:12px;right:12px;bottom:2px;height:2px;border-radius:2px;background:var(--acc)}
 @media(max-width:820px){
-  .tabs{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;flex-wrap:nowrap;gap:0;margin:0;background:var(--hdr-bg);border-bottom:2px solid var(--acc);box-shadow:0 16px 30px rgba(0,0,0,.6);padding:6px;z-index:60}
+  .tabs{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;flex-wrap:nowrap;gap:0;margin:0;background:var(--hdr-bg);border-bottom:2px solid var(--acc);box-shadow:0 16px 30px rgba(0,0,0,.35);padding:6px;z-index:60}
   .tabs.open{display:flex}
   .tab{width:100%;text-align:left;padding:12px 14px;border-radius:6px}
+  .tab.on::after{left:0;right:auto;top:10px;bottom:10px;width:3px;height:auto}
   .burger{display:flex}
 }
-.tab:hover{color:var(--hdr-txt);background:var(--hdr-panel2)}
-.tab.on{color:#fff;border-color:var(--acc);background:var(--acc);box-shadow:0 4px 16px rgba(255,31,48,.35)}
 .hdr .btn{background:var(--hdr-panel2);border-color:var(--hdr-line);color:var(--hdr-txt)}
-.hdr .btn:hover{border-color:var(--acc);color:var(--acc)}
+.hdr .btn:hover{border-color:var(--hdr-mut);color:var(--hdr-txt)}
 .hdr .mut{color:var(--hdr-mut)}
-.body{padding:20px 22px;max-width:1280px;margin:0 auto}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.body{padding:22px 24px 40px;max-width:1300px;margin:0 auto}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:var(--shadow)}
 .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
 .grid{display:grid;gap:12px}
-h2{font-size:18px;font-weight:800;margin-bottom:4px}
-h3{font-size:14px;font-weight:700}
-.mut{color:var(--mut)}.sm{font-size:12px}.xs{font-size:11px}
-.mono{font-family:var(--mono)}
-.btn{padding:8px 14px;border-radius:8px;border:1px solid var(--line2);background:var(--panel2);color:var(--txt);cursor:pointer;font-weight:700;font-size:13px;font-family:var(--sans);white-space:nowrap}
-.btn:hover{border-color:var(--acc);color:var(--acc2)}
-.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff;box-shadow:0 4px 14px rgba(255,31,48,.3)}
-.btn.pri:hover{background:#ff3b4a;color:#fff}
+h2{font-size:20px;font-weight:700;letter-spacing:-.2px;margin-bottom:4px}
+h3{font-size:15px;font-weight:650}
+.mut{color:var(--mut)}.sm{font-size:12.5px}.xs{font-size:11.5px}
+.mono{font-family:var(--sans);font-variant-numeric:tabular-nums}
+.btn{padding:8px 14px;border-radius:9px;border:1px solid var(--line2);background:var(--panel);color:var(--txt);cursor:pointer;font-weight:600;font-size:13px;font-family:var(--sans);white-space:nowrap;transition:background .12s,border-color .12s,color .12s}
+.btn:hover{border-color:var(--mut);background:var(--panel2)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:hover{background:var(--acc2);border-color:var(--acc2);color:#fff}
 .btn.dng{color:var(--bad)}
+.btn.dng:hover{border-color:var(--bad)}
 .btn:disabled{opacity:.45;cursor:default}
-.btn.xs{padding:4px 9px;font-size:11px;border-radius:6px}
-.inp,select.inp,textarea.inp{background:var(--panel2);border:1px solid var(--line2);border-radius:8px;color:var(--txt);padding:8px 10px;font-size:13px;font-family:var(--sans);outline:none;width:100%}
-.inp:focus{border-color:var(--acc)}
+.btn.xs{padding:4px 9px;font-size:11.5px;border-radius:7px}
+.btn:focus-visible,.tab:focus-visible,.inp:focus-visible,.burger:focus-visible{outline:2px solid var(--acc-ring);outline-offset:2px}
+.inp,select.inp,textarea.inp{background:var(--panel);border:1px solid var(--line2);border-radius:9px;color:var(--txt);padding:8px 10px;font-size:13px;font-family:var(--sans);outline:none;width:100%;transition:border-color .12s,box-shadow .12s}
+.inp:focus{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-ring)}
 textarea.inp{min-height:120px;font-family:var(--mono);font-size:12px;resize:vertical}
-.fld{display:flex;flex-direction:column;gap:4px;min-width:0}
-.fld label{font-size:11px;color:var(--mut);font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.fld{display:flex;flex-direction:column;gap:5px;min-width:0}
+.fld label{font-size:12px;color:var(--mut);font-weight:600}
 table.t{width:100%;border-collapse:collapse;font-size:13px}
-table.t th{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:var(--mut);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);font-weight:700}
+table.t th{font-size:11.5px;color:var(--mut);text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);font-weight:600;background:var(--panel2)}
 table.t td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+table.t tbody tr:last-child td{border-bottom:0}
 .vt-box{overflow:auto;max-height:calc(100vh - 210px);min-height:320px}
 table.vt{table-layout:fixed;width:100%;min-width:1040px}
-table.vt thead th{position:sticky;top:0;z-index:2;background:var(--panel)}
+table.vt thead th{position:sticky;top:0;z-index:2;background:var(--panel2)}
 table.vt td{padding:4px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 table.vt td div{overflow:hidden;text-overflow:ellipsis}
-table.t tr:hover td{background:rgba(0,0,0,.025)}
-.num{font-family:var(--mono);font-size:12px;text-align:right;white-space:nowrap}
-.bdg{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid}
+table.t tr:hover td{background:var(--hover)}
+.num{font-variant-numeric:tabular-nums;font-size:13px;text-align:right;white-space:nowrap}
+.bdg{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:600;border:1px solid}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
-.kpi{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
-.kpi .v{font-family:var(--mono);font-size:20px;font-weight:700;margin-top:4px}
-.kpi .l{font-size:11px;color:var(--mut);font-weight:700;text-transform:uppercase;letter-spacing:.6px}
-.modal-bg{position:fixed;inset:0;background:rgba(8,9,12,.7);display:flex;align-items:flex-start;justify-content:center;z-index:100;padding:30px 14px;overflow:auto;backdrop-filter:blur(3px)}
-.modal{background:var(--panel);border:1px solid var(--line2);border-radius:14px;padding:20px;width:100%;box-shadow:0 30px 80px rgba(0,0,0,.6)}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow)}
+.kpi .v{font-family:var(--sans);font-variant-numeric:tabular-nums;font-size:22px;font-weight:700;letter-spacing:-.3px;margin-top:4px}
+.kpi .l{font-size:12px;color:var(--mut);font-weight:600}
+.modal-bg{position:fixed;inset:0;background:rgba(18,24,27,.45);display:flex;align-items:flex-start;justify-content:center;z-index:100;padding:30px 14px;overflow:auto;backdrop-filter:blur(2px)}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px;width:100%;box-shadow:0 24px 60px rgba(18,24,27,.22)}
+.te.dark .modal{box-shadow:0 24px 60px rgba(0,0,0,.5)}
 .steps{display:flex;gap:6px;margin:10px 0 18px;flex-wrap:wrap}
-.step{padding:6px 12px;border-radius:20px;font-size:12px;font-weight:700;border:1px solid var(--line);color:var(--mut)}
+.step{padding:6px 12px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid var(--line);color:var(--mut)}
 .step.on{border-color:var(--acc);color:#fff;background:var(--acc)}
-.step.done{color:var(--ok);border-color:rgba(98,196,98,.4)}
-.toast{position:fixed;bottom:20px;right:20px;background:var(--panel2);border:1px solid var(--acc);border-radius:10px;padding:12px 18px;font-weight:700;z-index:200;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.step.done{color:var(--ok);border-color:var(--ok)}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--panel);color:var(--txt);border:1px solid var(--line2);border-left:3px solid var(--ok);border-radius:10px;padding:12px 18px;font-weight:600;z-index:200;box-shadow:0 12px 32px rgba(18,24,27,.18)}
+.toast[role=alert]{border-left-color:var(--bad)}
 .clk{cursor:pointer}
 .sect{margin-bottom:18px}
 .split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-@media(max-width:820px){.split{grid-template-columns:1fr}.body{padding:14px}}
-.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--mut);border-top-color:var(--acc);border-radius:50%;animation:sp 0.8s linear infinite;vertical-align:-2px}
+@media(max-width:820px){.split{grid-template-columns:1fr}.body{padding:14px 14px 32px}}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line2);border-top-color:var(--acc);border-radius:50%;animation:sp 0.8s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
-.conf{font-family:var(--mono);font-weight:700;font-size:12px}
-.pick-row:hover{background-color:#fff0f1 !important}
+@media(prefers-reduced-motion:reduce){.hdr,.btn,.inp{transition:none}.spin{animation-duration:2s}}
+.conf{font-variant-numeric:tabular-nums;font-weight:700;font-size:12px}
+.pick-row:hover{background-color:var(--acc-tint) !important}
 table.t td{position:static}
 `;
 
@@ -592,7 +609,12 @@ async function batchInsert(table, rows, chunkSize = 500, onProgress) {
 
 /* ============ SHARED UI ============ */
 const Fld = ({ label, children }) => (<div className="fld"><label>{label}</label>{children}</div>);
-const Badge = ({ c, children }) => (<span className="bdg" style={{ color: c, borderColor: c + "66", background: c + "14" }}>{children}</span>);
+// бейдж: старые яркие hex-цвета переводятся в спокойные тона темы (читаются и в светлой, и в тёмной теме)
+const BADGE_TONE = { "#fff": "--t-strong", "#ffffff": "--t-strong", "#9a9a9a": "--t-neutral", "#d6d6d6": "--t-neutral", "#ffb020": "--t-warn", "#ff707b": "--t-bad", "#ff4d5e": "--t-bad", "#3ddc7d": "--t-ok", "#4db8ff": "--t-info" };
+const Badge = ({ c, children }) => {
+  const col = String(c || "").startsWith("var(") ? c : BADGE_TONE[String(c || "").toLowerCase()] ? "var(" + BADGE_TONE[String(c).toLowerCase()] + ")" : c;
+  return <span className="bdg" style={{ color: col, borderColor: "color-mix(in srgb, " + col + " 35%, transparent)", background: "color-mix(in srgb, " + col + " 9%, transparent)" }}>{children}</span>;
+};
 const Conf = ({ v }) => {
   const c = v >= CONF_THRESHOLD ? "var(--ok)" : v >= 50 ? "var(--warn)" : "var(--bad)";
   return <span className="conf" style={{ color: c }}>{v}%</span>;
@@ -843,7 +865,7 @@ function ProductPicker({ products, onPick, placeholder }) {
                   const i = start + k;
                   return (
                     <div key={p.id} className="clk pick-row" title={p.name}
-                      style={{ position: "absolute", top: i * ROW, left: 0, right: 0, height: ROW, boxSizing: "border-box", padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === activeIdx ? "rgba(255,31,48,.08)" : "var(--panel)", overflow: "hidden" }}
+                      style={{ position: "absolute", top: i * ROW, left: 0, right: 0, height: ROW, boxSizing: "border-box", padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === activeIdx ? "var(--acc-tint)" : "var(--panel)", overflow: "hidden" }}
                       onClick={() => pick(p)}>
                       <div style={{ fontWeight: 600, fontSize: 13, color: "var(--txt)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
                       <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, p.size].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))} · ост. {p.stock}</div>
@@ -878,7 +900,7 @@ const codesNeedRenumber = (products) => { const s = [...products].sort(productOr
 // строка таблицы товаров — memo: при отметке одной галочки не перерисовываются остальные тысячи строк
 const ProductRow = memo(function ProductRow({ p, checked, sup, onToggle, onEdit }) {
   return (
-    <tr style={{ height: PROD_ROW_H, opacity: p.status === "archive" ? 0.45 : 1, background: checked ? "rgba(255,31,48,.07)" : "none" }}>
+    <tr style={{ height: PROD_ROW_H, opacity: p.status === "archive" ? 0.45 : 1, background: checked ? "var(--acc-tint)" : "none" }}>
       <td><input type="checkbox" checked={checked} onChange={() => onToggle(p.id)} /></td>
       <td className="mono xs">{p.code}</td>
       <td className="sm">{p.brand}</td>
@@ -1361,7 +1383,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose }) {
             <tbody>
               {batches.map((g) => (
                 <React.Fragment key={g.key}>
-                  <tr className="clk" onClick={() => setClosed((c) => ({ ...c, [g.key]: !c[g.key] }))} style={{ background: "rgba(255,31,48,.06)" }}>
+                  <tr className="clk" onClick={() => setClosed((c) => ({ ...c, [g.key]: !c[g.key] }))} style={{ background: "var(--acc-tint)" }}>
                     <td colSpan={4} style={{ fontWeight: 700 }}>
                       <span className="mut" style={{ display: "inline-block", width: 14 }}>{closed[g.key] ? "▸" : "▾"}</span>
                       🚚 {g.obj_name} · Поставка №{g.no} · <span className="mono">{dt(g.date)}</span>
@@ -1650,7 +1672,7 @@ function SupplierPayModal({ s, objects, ops, whMoves, onClose, onSave, onEditPay
           <tbody>
             {history.map((o) => (
               edit && edit.id === o.id ? (
-                <tr key={o.id} style={{ background: "rgba(255,31,48,.06)" }}>
+                <tr key={o.id} style={{ background: "var(--acc-tint)" }}>
                   <td colSpan={5} style={{ padding: 10 }}>
                     <div className="sm" style={{ fontWeight: 700, marginBottom: 6 }}>Изменить оплату от {dt(o.op_date || o.created_at)}</div>
                     <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
@@ -1802,7 +1824,7 @@ function RequestTabs(props) {
           return (
             <div key={t.id} className="clk" onClick={() => switchTab(t.id)}
               style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px 7px 12px", borderRadius: 8, maxWidth: 240,
-                border: "1px solid " + (on ? "var(--acc)" : "var(--line)"), background: on ? "rgba(255,31,48,.08)" : "var(--panel)", fontWeight: on ? 700 : 500 }}>
+                border: "1px solid " + (on ? "var(--acc)" : "var(--line)"), background: on ? "var(--acc-tint)" : "var(--panel)", fontWeight: on ? 700 : 500 }}>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13 }}>
                 {m.title || "Заявка " + t.n}
               </span>
@@ -2112,7 +2134,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
             <Modal title="Сохранение в объект" onClose={() => setMarkupModal(false)} w={460}>
               <Fld label={"Статус объекта" + (selObj ? " «" + selObj.name + "»" : "")}>
                 <select className="inp" autoFocus value={saveStatus} onChange={(e) => setSaveStatus(e.target.value)}
-                  style={{ fontWeight: 700, color: saveStatus ? stById(saveStatus).c === "#ffffff" ? "var(--txt)" : stById(saveStatus).c : "var(--bad)", borderColor: saveStatus ? undefined : "var(--bad)" }}>
+                  style={{ fontWeight: 700, color: saveStatus ? stById(saveStatus).c : "var(--bad)", borderColor: saveStatus ? undefined : "var(--bad)" }}>
                   {!saveStatus && <option value="">— выберите статус —</option>}
                   {OBJ_STATUSES.map((st) => <option key={st.id} value={st.id} style={{ color: "var(--txt)" }}>{st.label}</option>)}
                 </select>
@@ -2382,7 +2404,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
               <React.Fragment key={b.no}>
                 {batches.length > 1 || (obj.items || []).some((i) => i.batch_no) ? (
                   <tr className="clk" onClick={() => toggleBatch(b.no)}>
-                    <td colSpan={fin ? 9 : 8} style={{ background: "rgba(255,31,48,.08)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
+                    <td colSpan={fin ? 9 : 8} style={{ background: "var(--acc-tint)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
                       {closedBatches[b.no] ? "▸" : "▾"} 🚚 ПОСТАВКА №{b.no} · {dt(b.date)} · позиций: {b.items.length} · на сумму {fmt(b.items.reduce((a, i) => a + i.qty * i.price, 0))}
                       <span className="xs mut" style={{ fontWeight: 500 }}>  — нажмите чтобы {closedBatches[b.no] ? "раскрыть" : "свернуть"}</span>
                     </td>
@@ -2805,7 +2827,7 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
           <thead><tr><th>Товар</th><th style={{textAlign:"right"}}>В объекте</th><th style={{textAlign:"right"}}>Уже возвр.</th><th style={{textAlign:"right"}}>Доступно</th><th style={{width:100}}>Вернуть</th><th style={{textAlign:"right"}}>Сумма</th></tr></thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={r.item.id} style={{ background: r.ret > 0 ? "rgba(255,31,48,.07)" : "none", opacity: r.avail === 0 ? 0.45 : 1 }}>
+              <tr key={r.item.id} style={{ background: r.ret > 0 ? "var(--acc-tint)" : "none", opacity: r.avail === 0 ? 0.45 : 1 }}>
                 <td className="sm" style={{ fontWeight: 600 }}>{r.item.name}<div className="xs mut">{fmt(r.item.price)} / {r.item.unit}</div></td>
                 <td className="num">{r.item.qty}</td>
                 <td className="num mut">{r.done}</td>
@@ -2965,7 +2987,7 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
       <div className="kpis sect">
         <KPI l="Объектов" v={st.count} />
         <KPI l="Сумма товаров по объектам" v={st.sale} />
-        {fin && <KPI l="Валовая прибыль" v={st.gross} c="#fff" />}
+        {fin && <KPI l="Валовая прибыль" v={st.gross} c="var(--txt)" />}
         {fin && <KPI l="Бонус начислен" v={st.accrued} />}
         {fin && <KPI l={"Расчётный (" + (m.bonus_percent || 0) + "%)"} v={st.suggested} c="var(--mut)" />}
         {fin && <KPI l="Выплачено" v={st.paid} c="var(--ok)" />}
@@ -3171,7 +3193,7 @@ function WarehouseTab({ data, reload, toast, openObject }) {
         <KPI l="Позиций на складе" v={stock.length} />
         <KPI l="Единиц всего" v={stock.reduce((a, w) => a + w.qty, 0)} />
         <KPI l="Склад по закупу" v={totalCost} />
-        <KPI l="Склад по продаже" v={totalSale} c="#fff" />
+        <KPI l="Склад по продаже" v={totalSale} c="var(--txt)" />
       </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
@@ -4289,7 +4311,7 @@ function LoginScreen({ users, onLogin }) {
   return (
     <div className="te" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
       <style>{CSS}</style>
-      <div className="card" style={{ width: 360, borderColor: "var(--acc)", boxShadow: "0 20px 60px rgba(255,31,48,.2)" }}>
+      <div className="card" style={{ width: 360, boxShadow: "0 24px 60px rgba(18,24,27,.16)" }}>
         <div className="logo" style={{ textAlign: "center", marginBottom: 4 }}>THERMO<span>•</span>ENGINEERING<small>AI procurement & finance OS</small></div>
         <h3 style={{ textAlign: "center", margin: "16px 0 14px" }}>Вход в систему</h3>
         {err && <p className="sm" style={{ color: "var(--bad)", textAlign: "center", marginBottom: 10 }}>{err}</p>}
