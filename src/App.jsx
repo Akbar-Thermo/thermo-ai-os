@@ -861,6 +861,20 @@ function ProductPicker({ products, onPick, placeholder }) {
 
 /* ============ PRODUCTS TAB ============ */
 const PROD_ROW_H = 46;
+// коды товаров — порядковые номера 1, 2, 3…; новый товар получает «самый большой номер + 1»
+const isSeqCode = (c) => /^\d+$/.test(String(c == null ? "" : c).trim());
+const nextProductCode = (products) => (products || []).reduce((m, p) => (isSeqCode(p.code) ? Math.max(m, Number(p.code)) : m), 0) + 1;
+const RU_COLLATOR = new Intl.Collator("ru");
+// порядок для нумерации/сортировки: уже пронумерованные — по номеру, остальные — по дате добавления и названию
+const productOrder = (a, b) => {
+  const na = isSeqCode(a.code), nb = isSeqCode(b.code);
+  if (na && nb) return Number(a.code) - Number(b.code);
+  if (na !== nb) return na ? -1 : 1;
+  const da = String(a.created_at || ""), db_ = String(b.created_at || "");
+  return (da < db_ ? -1 : da > db_ ? 1 : 0) || RU_COLLATOR.compare(String(a.name || ""), String(b.name || ""));
+};
+// нужна ли перенумерация: коды не идут ровно 1…N
+const codesNeedRenumber = (products) => { const s = [...products].sort(productOrder); return s.some((p, i) => String(p.code || "").trim() !== String(i + 1)); };
 // строка таблицы товаров — memo: при отметке одной галочки не перерисовываются остальные тысячи строк
 const ProductRow = memo(function ProductRow({ p, checked, sup, onToggle, onEdit }) {
   return (
@@ -900,15 +914,47 @@ function ProductsTab({ data, reload, toast }) {
   }, []);
   useEffect(() => { if (boxRef.current) boxRef.current.scrollTop = 0; setScrollTop(0); }, [dq, supF, brandF]);
   const brands = useMemo(() => [...new Set(products.map((p) => p.brand).filter(Boolean))].sort(), [products]);
-  const searchIdx = useMemo(() => products.map((p) => (p.name + " " + (p.alt_names || "") + " " + p.code + " " + (p.category || "")).toLowerCase()), [products]);
+  const sorted = useMemo(() => [...products].sort(productOrder), [products]); // по коду: 1, 2, 3…
+  const needRenum = useMemo(() => codesNeedRenumber(products), [products]);
+  const [renum, setRenum] = useState(null); // null | { busy, done, total, err }
+  const searchIdx = useMemo(() => sorted.map((p) => (p.name + " " + (p.alt_names || "") + " " + p.code + " " + (p.category || "")).toLowerCase()), [products]);
   const list = useMemo(() => {
     const ql = dq.toLowerCase();
-    return products.filter((p, i) =>
+    return sorted.filter((p, i) =>
       (!supF || p.supplier_id === supF) &&
       (!brandF || p.brand === brandF) &&
       (!ql || searchIdx[i].includes(ql))
     );
-  }, [products, searchIdx, dq, supF, brandF]);
+  }, [sorted, searchIdx, dq, supF, brandF]);
+  // перенумеровать все коды 1…N (порядок: уже пронумерованные, затем по дате добавления и названию)
+  const doRenumber = async () => {
+    const all = [...products].sort(productOrder).map((p, i) => ({ p, code: String(i + 1) })).filter((x) => String(x.p.code || "").trim() !== x.code);
+    const total = all.length;
+    setRenum({ busy: true, done: 0, total, err: "" });
+    const cur = { _app: "ThermoAI", _date: new Date().toISOString(), _note: "автобэкап перед нумерацией кодов", tables: {} };
+    TABLES.forEach((t) => { cur.tables[t] = data[t] || []; });
+    tryDownloadBackup(JSON.stringify(cur));
+    try {
+      if (sb) {
+        for (let i = 0; i < total; i += 500) {
+          const chunk = all.slice(i, i + 500).map((x) => ({ ...x.p, code: x.code }));
+          const { error } = await sb.from("products").upsert(chunk, { onConflict: "id" });
+          if (error) throw new Error(error.message);
+          setRenum({ busy: true, done: Math.min(total, i + 500), total, err: "" });
+        }
+      } else {
+        for (let i = 0; i < total; i++) {
+          const r = await db.from("products").update({ code: all[i].code }).eq("id", all[i].p.id);
+          if (r.error) throw new Error(r.error.message);
+          if (i % 50 === 0) setRenum({ busy: true, done: i + 1, total, err: "" });
+        }
+      }
+      await logAction("Коды товаров пронумерованы 1…" + products.length, "products", "изменено кодов: " + total);
+      setRenum(null); await reload(); toast("Коды товаров: 1 … " + products.length);
+    } catch (e) {
+      setRenum({ busy: false, done: 0, total, err: e.message }); await reload();
+    }
+  };
   const supById = useMemo(() => { const m = {}; suppliers.forEach((s) => { m[s.id] = s.name; }); return m; }, [suppliers]);
   const supName = (id) => supById[id] || "—";
   const selSet = useMemo(() => new Set(sel), [sel]);
@@ -940,8 +986,9 @@ function ProductsTab({ data, reload, toast }) {
           {brands.map((b) => <option key={b} value={b}>{b}</option>)}
         </select>
         {sel.length > 0 && <button className="btn dng" onClick={() => setConfirmDel(true)}>🗑 Удалить ({sel.length})</button>}
+        {needRenum && products.length > 0 && <button className="btn" onClick={() => setRenum({ busy: false, done: 0, total: 0, err: "" })} title="Коды станут 1, 2, 3 … по порядку">№ Пронумеровать коды</button>}
         <button className="btn" onClick={() => setImp(true)}>Импорт Excel/CSV</button>
-        <button className="btn pri" onClick={() => setEdit({ unit: "шт", status: "active", stock: 0, cost: 0, price: 0 })}>+ Товар</button>
+        <button className="btn pri" onClick={() => setEdit({ unit: "шт", status: "active", stock: 0, cost: 0, price: 0, code: String(nextProductCode(products)) })}>+ Товар</button>
       </div>
       <div className="card vt-box" ref={boxRef} style={{ padding: 0 }} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
         <table className="t vt">
@@ -968,7 +1015,20 @@ function ProductsTab({ data, reload, toast }) {
         else await db.from("products").insert({ ...vals, price_updated: new Date().toISOString() });
         setEdit(null); await reload(); toast("Товар сохранён");
       }} />}
-      {imp && <ImportModal suppliers={suppliers} onClose={() => setImp(false)} onDone={async (n) => { setImp(false); await reload(); toast("Импортировано позиций: " + n); }} />}
+      {renum && (
+        <Modal title="Пронумеровать коды товаров" onClose={() => { if (!renum.busy) setRenum(null); }} w={500}>
+          <p style={{ marginBottom: 8 }}>Коды всех товаров ({products.length}) станут <b>1, 2, 3 … {products.length}</b> по порядку.</p>
+          <p className="sm mut" style={{ marginBottom: 8 }}>Порядок: товары, у которых уже есть номер, остаются по номеру; остальные — по дате добавления и по названию. Новые товары дальше получают следующий номер автоматически.</p>
+          <p className="sm mut" style={{ marginBottom: 12 }}>Старые коды (IMP-…) заменятся. Перед началом автоматически скачается бэкап базы. Названия, цены, поставщики и объекты не меняются.</p>
+          {renum.busy && <p className="sm" style={{ marginBottom: 10 }}>Записываю… {renum.done} / {renum.total}</p>}
+          {renum.err && <p className="sm" style={{ color: "var(--bad)", marginBottom: 10 }}>Ошибка: {renum.err}. Часть кодов могла измениться — нажмите ещё раз, чтобы закончить.</p>}
+          <div className="row" style={{ justifyContent: "flex-end" }}>
+            <button className="btn" disabled={renum.busy} onClick={() => setRenum(null)}>Отмена</button>
+            <button className="btn pri" disabled={renum.busy} onClick={doRenumber}>{renum.busy ? "Нумерую…" : "Пронумеровать"}</button>
+          </div>
+        </Modal>
+      )}
+      {imp && <ImportModal products={products} suppliers={suppliers} onClose={() => setImp(false)} onDone={async (n) => { setImp(false); await reload(); toast("Импортировано позиций: " + n); }} />}
       {confirmDel && (
         <Modal title="Подтверждение удаления" onClose={() => setConfirmDel(false)} w={440}>
           <p style={{ marginBottom: 6 }}>Удалить <b style={{ color: "var(--bad)" }}>{sel.length}</b> {sel.length === 1 ? "товар" : sel.length < 5 ? "товара" : "товаров"} из базы?</p>
@@ -1010,7 +1070,8 @@ function ProductForm({ p, suppliers, onClose, onSave }) {
     </Modal>
   );
 }
-function ImportModal({ suppliers, onClose, onDone }) {
+function ImportModal({ products = [], suppliers, onClose, onDone }) {
+  const prodList = products; // уже существующие товары (для следующего номера кода)
   const FIELDS = [
     { id: "name", label: "Название*", kw: ["наименован", "назван", "товар", "name", "номенклат"] },
     { id: "cost", label: "Закуп. цена", kw: ["закуп", "приход", "опт", "cost", "себест"] },
@@ -1078,7 +1139,7 @@ function ImportModal({ suppliers, onClose, onDone }) {
       const supCache = {};
       suppliers.forEach((s) => { supCache[s.name.toLowerCase().trim()] = s.id; });
       const products = [];
-      let newSups = 0;
+      let newSups = 0, code = nextProductCode(prodList);
       for (const row of dataRows) {
         const name = String(cell(row, "name") || "").trim();
         if (!name) continue;
@@ -1094,7 +1155,8 @@ function ImportModal({ suppliers, onClose, onDone }) {
         }
         const segRaw = String(cell(row, "segment") || "").toLowerCase().trim();
         products.push({
-          code: String(cell(row, "code") || "").trim() || "IMP-" + Math.random().toString(36).slice(2, 7).toUpperCase(),
+          code: String(code++), // порядковый номер; код из файла (артикул) сохраняется в sku
+          sku: String(cell(row, "code") || "").trim() || null,
           name, category: String(cell(row, "category") || "").trim(), size: String(cell(row, "size") || "").trim(),
           unit: String(cell(row, "unit") || "").trim() || "шт",
           segment: SEGMENTS.includes(segRaw) ? segRaw : "комфорт",
@@ -1112,11 +1174,12 @@ function ImportModal({ suppliers, onClose, onDone }) {
   const runPaste = async () => {
     const lines = txt.split("\n").map((l) => l.trim()).filter(Boolean);
     const out = [];
+    let code = nextProductCode(prodList);
     for (const l of lines) {
       const c = l.split(/\t|;/).map((x) => x.trim());
       if (c.length < 4) continue;
       out.push({
-        code: c[0] || "IMP-" + Math.random().toString(36).slice(2, 7).toUpperCase(),
+        code: String(code++), sku: c[0] || null,
         name: c[1], category: c[2] || "", size: c[3] || "", unit: c[4] || "шт",
         segment: SEGMENTS.includes(c[5]) ? c[5] : "комфорт",
         cost: num(c[6]), price: num(c[7]), stock: num(c[8]),
