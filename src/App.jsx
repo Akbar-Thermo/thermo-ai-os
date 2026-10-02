@@ -439,10 +439,30 @@ async function warehouseOut(lines, targetObj, user) {
     });
   }
 }
-function downloadXLSX(filename, rows, sheetName) {
+/* Лист Excel с нормальной вёрсткой:
+   cols  — ширина колонок в символах (иначе подбирается по содержимому);
+   money — номера колонок с суммами (формат 1 234,50);
+   строка из одной ячейки (заголовок, «Клиент: …») растягивается на всю ширину таблицы. */
+function makeSheet(rows, opts = {}) {
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  const nCols = opts.cols ? opts.cols.length : Math.max(1, ...rows.map((r) => r.length));
+  const widths = opts.cols || Array.from({ length: nCols }, (_, c) =>
+    Math.min(70, Math.max(6, ...rows.filter((r) => r.length > 1).map((r) => String(r[c] == null ? "" : r[c]).length + 2))));
+  ws["!cols"] = widths.map((wch) => ({ wch }));
+  const merges = [];
+  rows.forEach((r, i) => { if (r.length === 1 && r[0] !== "" && r[0] != null && nCols > 1) merges.push({ s: { r: i, c: 0 }, e: { r: i, c: nCols - 1 } }); });
+  (opts.merges || []).forEach((m) => merges.push(m));
+  if (merges.length) ws["!merges"] = merges;
+  (opts.money || []).forEach((c) => rows.forEach((r, i) => {
+    const cell = ws[XLSX.utils.encode_cell({ r: i, c })];
+    if (cell && cell.t === "n") cell.z = "#,##0.00";
+  }));
+  return ws;
+}
+function downloadXLSX(filename, rows, sheetName, opts) {
   try {
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), sheetName || "Лист1");
+    XLSX.utils.book_append_sheet(wb, makeSheet(rows, opts), sheetName || "Лист1");
     XLSX.writeFile(wb, filename);
     return "xlsx";
   } catch (e) {
@@ -2083,11 +2103,12 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
   const safe = (s) => String(s || "object").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
   const exportClient = () => {
     const rows = [
-      ["СПЕЦИФИКАЦИЯ", obj.name],
-      ["Клиент", obj.client || ""],
-      ["Дата", new Date().toLocaleDateString("ru-RU")],
+      ["СПЕЦИФИКАЦИЯ: " + (obj.name || "")],
+      ["Клиент: " + (obj.client || "—") + (obj.phone ? " · тел. " + obj.phone : "")],
+      ["Дата: " + new Date().toLocaleDateString("ru-RU")],
       [],
     ];
+    const tot = (label, v) => rows.push(["", label, "", "", "", v]); // подпись в широкой колонке «Наименование»
     let n = 1;
     batches.forEach((b) => {
       rows.push(["ПОСТАВКА №" + b.no + " от " + dt(b.date)]);
@@ -2097,28 +2118,28 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
         const s = Math.round(i.qty * i.price * 100) / 100; sub += s;
         rows.push([n++, i.name, i.qty, i.unit, i.price, s]);
       });
-      rows.push(["", "", "", "", "Итого по поставке №" + b.no, Math.round(sub * 100) / 100]);
+      tot("Итого по поставке №" + b.no, Math.round(sub * 100) / 100);
       rows.push([]);
     });
     const returns = ops.filter((o) => o.type === "return" && !o.voided);
     if (returns.length) {
       rows.push(["ВОЗВРАТЫ"]);
-      rows.push(["Дата", "Наименование", "Кол-во", "", "", "Сумма"]);
-      returns.forEach((o) => rows.push([dt(o.op_date || o.created_at), o.product_name || "", o.qty || "", "", "", -(o.amount || 0)]));
-      rows.push(["", "", "", "", "Итого возвратов", -f.retSale]);
+      rows.push(["№", "Наименование", "Кол-во", "Ед.", "Дата", "Сумма"]);
+      returns.forEach((o, k) => rows.push([k + 1, o.product_name || "", o.qty || "", o.unit || "", dt(o.op_date || o.created_at), -(o.amount || 0)]));
+      tot("Итого возвратов", -f.retSale);
       rows.push([]);
     }
-    rows.push(["", "", "", "", "Итого по объекту", f.sale]);
-    if (f.discount) rows.push(["", "", "", "", "Скидка", -f.discount]);
-    if (f.retSale) rows.push(["", "", "", "", "Возвраты", -f.retSale]);
-    rows.push(["", "", "", "", "К ОПЛАТЕ", f.saleNet]);
-    const r = downloadXLSX("Спецификация_" + safe(obj.name) + ".xlsx", rows, "Клиенту");
+    tot("Итого по объекту", f.sale);
+    if (f.discount) tot("Скидка", -f.discount);
+    if (f.retSale) tot("Возвраты", -f.retSale);
+    tot("К ОПЛАТЕ", f.saleNet);
+    const r = downloadXLSX("Спецификация_" + safe(obj.name) + ".xlsx", rows, "Клиенту", { cols: [5, 62, 9, 7, 12, 14], money: [4, 5] });
     toast(r === "xlsx" ? "Excel для клиента скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
   const exportDelivery = () => {
-    const rows = [["ЛИСТ ДОСТАВКИ", obj.name], ["Адрес", obj.address || ""], ["Клиент / тел.", (obj.client || "") + " / " + (obj.phone || "")], ["Мастер", obj.master || ""], []];
+    const rows = [["ЛИСТ ДОСТАВКИ: " + (obj.name || "")], ["Адрес: " + (obj.address || "—")], ["Клиент: " + (obj.client || "—") + (obj.phone ? " · тел. " + obj.phone : "")], ["Мастер: " + (obj.master || "—")], []];
     batches.forEach((b) => {
-      rows.push(["══ ПОСТАВКА №" + b.no + " · " + dt(b.date) + " ══"]);
+      rows.push(["ПОСТАВКА №" + b.no + " от " + dt(b.date)]);
       const g = {};
       b.items.forEach((i) => {
         const k = i.from_warehouse ? "СКЛАД THERMO" : supName(i.supplier_id);
@@ -2126,12 +2147,12 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
       });
       Object.entries(g).forEach(([s, items]) => {
         rows.push(["ПОСТАВЩИК: " + s]);
-        rows.push(["Наименование", "Размер", "Кол-во", "Ед."]);
-        items.forEach((i) => rows.push([i.name, i.size || "", i.qty, i.unit]));
+        rows.push(["№", "Наименование", "Размер", "Кол-во", "Ед.", "Получено ✓"]);
+        items.forEach((i, k) => rows.push([k + 1, i.name, i.size || "", i.qty, i.unit, ""]));
         rows.push([]);
       });
     });
-    const r = downloadXLSX("Доставка_" + safe(obj.name) + ".xlsx", rows, "Доставка");
+    const r = downloadXLSX("Доставка_" + safe(obj.name) + ".xlsx", rows, "Доставка", { cols: [5, 62, 14, 9, 7, 12] });
     toast(r === "xlsx" ? "Лист доставки скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
   const batches = useMemo(() => {
@@ -3614,7 +3635,7 @@ function Dashboard({ data }) {
   const exportXlsx = () => {
     try {
       const wb = XLSX.utils.book_new();
-      const add = (name, rows) => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name);
+      const add = (name, rows) => XLSX.utils.book_append_sheet(wb, makeSheet(rows), name);
       const K = [["Показатель", "Период: " + periodTitle].concat(compare ? ["Пред. период: " + prevTitle, "Изменение, %"] : [])];
       const kp = [["Выручка (нетто)", "netRev"], ["Валовая прибыль", "gross"], ["Чистая прибыль", "net"], ["Маржа, %", "margin"], ["Поставок (продаж)", "deals"], ["Средний чек", "avg"], ["Клиентов", "clients"], ["Новых клиентов", "newC"], ["Поступило оплат", "paid"], ["Возвраты", "ret"], ["Скидки", "disc"], ["Расходы компании", "cexp"]];
       kp.forEach(([l, k]) => { const a = Math.round(cur[k] * 100) / 100; const row = [l, a]; if (compare) { const b = Math.round(prev[k] * 100) / 100; row.push(b, b ? Math.round(((a - b) / Math.abs(b)) * 1000) / 10 : ""); } K.push(row); });
