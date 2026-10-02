@@ -116,11 +116,11 @@ const EXPENSE_CATEGORIES = ["Зарплата", "Аренда", "Коммуна�
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
-/* Тема «графит и гранат»: приглушённые холодные нейтральные тона без чистого белого и чистого чёрного,
-   фирменный красный Thermo — только у главного действия и активной вкладки. Цифры — табличные, без моноширинного шрифта. */
+/* Премиум-тема: спокойные графитовые нейтральные тона без чистого белого и чёрного + фирменный красный Thermo #ff1f30
+   (активная вкладка, главные кнопки, акценты). Цифры — табличные, без моноширинного шрифта. */
 :root{
   --bg:#eef0ee; --panel:#fbfbfa; --panel2:#f3f5f3; --line:#e0e4e1; --line2:#cfd5d1;
-  --txt:#1f2629; --mut:#66706f; --acc:#b02a3c; --acc2:#93202f; --acc-tint:rgba(176,42,60,.07); --acc-ring:rgba(176,42,60,.22);
+  --txt:#1f2629; --mut:#66706f; --acc:#ff1f30; --acc2:#d6001a; --acc-tint:rgba(255,31,48,.06); --acc-ring:rgba(255,31,48,.22);
   --ok:#2c7a52; --warn:#99650f; --bad:#b33a3a;
   --t-neutral:#66706f; --t-ok:#2c7a52; --t-warn:#99650f; --t-bad:#b33a3a; --t-info:#2f6a9e; --t-violet:#6a55a3; --t-strong:#1f2629;
   --mono:'JetBrains Mono',ui-monospace,monospace; --sans:'Onest',system-ui,sans-serif;
@@ -129,7 +129,7 @@ const CSS = `
 }
 .te.dark{
   --bg:#15191b; --panel:#1b2023; --panel2:#21282b; --line:#2b3438; --line2:#374247;
-  --txt:#dfe4e2; --mut:#8d9896; --acc:#d0566a; --acc2:#e07083; --acc-tint:rgba(208,86,106,.10); --acc-ring:rgba(208,86,106,.30);
+  --txt:#dfe4e2; --mut:#8d9896; --acc:#ff1f30; --acc2:#ff4553; --acc-tint:rgba(255,31,48,.09); --acc-ring:rgba(255,31,48,.32);
   --ok:#5fb88a; --warn:#d4a24c; --bad:#e07272;
   --t-neutral:#9aa5a3; --t-ok:#5fb88a; --t-warn:#d4a24c; --t-bad:#e07272; --t-info:#6ea9de; --t-violet:#a597de; --t-strong:#dfe4e2;
   --hdr-bg:#101416; --hdr-line:#253035; --hdr-panel2:#1b2327;
@@ -151,17 +151,15 @@ const CSS = `
 .tab{position:relative;padding:8px 12px;border-radius:8px;border:0;color:var(--hdr-mut);cursor:pointer;font-weight:600;font-size:13px;background:none;font-family:var(--sans)}
 .burger{display:none;align-items:center;justify-content:center;width:38px;height:38px;border-radius:8px;border:1px solid var(--hdr-line);background:var(--hdr-panel2);color:var(--hdr-txt);cursor:pointer;font-size:18px;margin-left:auto}
 .tab:hover{color:var(--hdr-txt);background:var(--hdr-panel2)}
-.tab.on{color:var(--hdr-txt);background:var(--hdr-panel2)}
-.tab.on::after{content:"";position:absolute;left:12px;right:12px;bottom:2px;height:2px;border-radius:2px;background:var(--acc)}
+.tab.on{color:#fff;background:var(--acc);box-shadow:0 4px 14px rgba(255,31,48,.28)}
 @media(max-width:820px){
   .tabs{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;flex-wrap:nowrap;gap:0;margin:0;background:var(--hdr-bg);border-bottom:2px solid var(--acc);box-shadow:0 16px 30px rgba(0,0,0,.35);padding:6px;z-index:60}
   .tabs.open{display:flex}
   .tab{width:100%;text-align:left;padding:12px 14px;border-radius:6px}
-  .tab.on::after{left:0;right:auto;top:10px;bottom:10px;width:3px;height:auto}
   .burger{display:flex}
 }
 .hdr .btn{background:var(--hdr-panel2);border-color:var(--hdr-line);color:var(--hdr-txt)}
-.hdr .btn:hover{border-color:var(--hdr-mut);color:var(--hdr-txt)}
+.hdr .btn:hover{border-color:var(--acc);color:#fff}
 .hdr .mut{color:var(--hdr-mut)}
 .body{padding:22px 24px 40px;max-width:1300px;margin:0 auto}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:var(--shadow)}
@@ -173,7 +171,7 @@ h3{font-size:15px;font-weight:650}
 .mono{font-family:var(--sans);font-variant-numeric:tabular-nums}
 .btn{padding:8px 14px;border-radius:9px;border:1px solid var(--line2);background:var(--panel);color:var(--txt);cursor:pointer;font-weight:600;font-size:13px;font-family:var(--sans);white-space:nowrap;transition:background .12s,border-color .12s,color .12s}
 .btn:hover{border-color:var(--mut);background:var(--panel2)}
-.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff;box-shadow:0 3px 10px rgba(255,31,48,.22)}
 .btn.pri:hover{background:var(--acc2);border-color:var(--acc2);color:#fff}
 .btn.dng{color:var(--bad)}
 .btn.dng:hover{border-color:var(--bad)}
