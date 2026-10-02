@@ -103,7 +103,8 @@ const OP_TYPES = [
   { id: "bonus_payment", label: "Выплата бонуса мастеру" },
 ];
 // бонусы мастеру начисляются и показываются только в разделе «Мастера»
-const OBJECT_OP_TYPES = ["client_payment", "supplier_payment", "return", "discount", "expense"];
+// оплата поставщику — только из раздела «Поставщики» (кнопка на странице объекта убрана)
+const OBJECT_OP_TYPES = ["client_payment", "return", "discount", "expense"];
 const MASTER_ONLY_OPS = ["bonus", "bonus_payment"];
 const ROLES = [
   { id: "manager", label: "Менеджер", tabs: ["request", "objects", "products", "wh", "suppliers", "masters", "finance"] },
@@ -2181,13 +2182,13 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
       </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
-          <thead><tr><th>Товар</th><th>Размер</th><th style={{width:90}}>Кол-во</th><th>Ед.</th>{fin && <th style={{textAlign:"right"}}>Закуп</th>}<th style={{textAlign:"right"}}>Цена</th><th style={{textAlign:"right"}}>Сумма</th><th>Поставщик</th><th>AI</th><th></th></tr></thead>
+          <thead><tr><th>Товар</th><th>Размер</th><th style={{width:90}}>Кол-во</th><th>Ед.</th>{fin && <th style={{textAlign:"right"}}>Закуп</th>}<th style={{textAlign:"right"}}>Цена</th><th style={{textAlign:"right"}}>Сумма</th><th>Поставщик</th><th></th></tr></thead>
           <tbody>
             {batches.map((b) => (
               <React.Fragment key={b.no}>
                 {batches.length > 1 || (obj.items || []).some((i) => i.batch_no) ? (
                   <tr className="clk" onClick={() => toggleBatch(b.no)}>
-                    <td colSpan={fin ? 10 : 9} style={{ background: "rgba(255,31,48,.08)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
+                    <td colSpan={fin ? 9 : 8} style={{ background: "rgba(255,31,48,.08)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
                       {closedBatches[b.no] ? "▸" : "▾"} 🚚 ПОСТАВКА №{b.no} · {dt(b.date)} · позиций: {b.items.length} · на сумму {fmt(b.items.reduce((a, i) => a + i.qty * i.price, 0))}
                       <span className="xs mut" style={{ fontWeight: 500 }}>  — нажмите чтобы {closedBatches[b.no] ? "раскрыть" : "свернуть"}</span>
                     </td>
@@ -2198,7 +2199,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
                 ))}
               </React.Fragment>
             ))}
-            {!(obj.items || []).length && <tr><td colSpan={fin ? 10 : 9} className="mut" style={{ textAlign: "center", padding: 22 }}>Материалов нет — добавьте через «Новая заявка»</td></tr>}
+            {!(obj.items || []).length && <tr><td colSpan={fin ? 9 : 8} className="mut" style={{ textAlign: "center", padding: 22 }}>Материалов нет — добавьте через «Новая заявка»</td></tr>}
           </tbody>
         </table>
       </div>
@@ -2305,7 +2306,6 @@ function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem,
         onBlur={() => { const v = Number(price) || 0; if (v !== i.price) setItemPrice(i.id, v); }} /></td>
       <td className="num" style={{ fontWeight: 700 }}>{fmt((Number(qty) || 0) * (Number(price) || 0))}</td>
       <td className="sm">{supName(i.supplier_id)}</td>
-      <td><Conf v={i.confidence || 100} /></td>
       <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
         <button className="btn xs" onClick={() => setEditItem(i)}>ред.</button>
         <button className="btn xs dng" onClick={() => setDelItemId(i.id)}>✕</button>
