@@ -477,6 +477,110 @@ function downloadCSV(filename, rows) {
   a.href = URL.createObjectURL(blob); a.download = filename; a.click();
   URL.revokeObjectURL(a.href);
 }
+/* ============ EXCEL С РАМКАМИ ============
+   Свой мини-генератор .xlsx (без сторонних библиотек): рамки, жирные заголовки, серая шапка,
+   ширина колонок, объединённые строки, формат сумм. Строки описываются видом:
+   title / info / section — одна ячейка на всю ширину; head — шапка таблицы; row — строка таблицы;
+   total — итог (подпись на колонки 2…n-1, сумма в последней); blank — пустая строка.
+   types — тип каждой колонки: c — по центру, t — текст, n — число, m — сумма. */
+const XL_CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const xlCrc32 = (b) => { let c = 0xffffffff; for (let i = 0; i < b.length; i++) c = XL_CRC[(c ^ b[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+function xlZip(files) { // ZIP без сжатия (stored)
+  const enc = new TextEncoder(), parts = [], central = [];
+  let off = 0;
+  const u16 = (v) => [v & 255, (v >>> 8) & 255], u32 = (v) => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
+  files.forEach(([name, text]) => {
+    const nb = enc.encode(name), data = enc.encode(text), crc = xlCrc32(data);
+    const head = [...u32(0x04034b50), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nb.length), ...u16(0)];
+    parts.push(new Uint8Array(head), nb, data);
+    central.push([...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nb.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(off)], nb);
+    off += head.length + nb.length + data.length;
+  });
+  let cenLen = 0;
+  central.forEach((c, i) => { const a = i % 2 === 0 ? new Uint8Array(c) : c; parts.push(a); cenLen += a.length; });
+  parts.push(new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(cenLen), ...u32(off), ...u16(0)]));
+  return new Blob(parts, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+const xlEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "");
+const xlCol = (c) => { let s = ""; c++; while (c) { const m = (c - 1) % 26; s = String.fromCharCode(65 + m) + s; c = Math.floor((c - 1) / 26); } return s; };
+// стили: 0 обычный, 1 заголовок 14 жирный, 2 жирный, 3 шапка, 4 текст в рамке, 5 число в рамке, 6 сумма в рамке,
+//        7 подпись итога (жирный, вправо, рамка), 8 сумма итога (жирная, рамка), 9 по центру в рамке
+const XL_STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+  + '<numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.00"/></numFmts>'
+  + '<fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="14"/><name val="Calibri"/></font></fonts>'
+  + '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE8E8E8"/><bgColor indexed="64"/></patternFill></fill></fills>'
+  + '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color auto="1"/></left><right style="thin"><color auto="1"/></right><top style="thin"><color auto="1"/></top><bottom style="thin"><color auto="1"/></bottom><diagonal/></border></borders>'
+  + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="10">'
+  + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+  + '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+  + '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+  + '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+  + '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>'
+  + '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
+  + '<xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>'
+  + '<xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>'
+  + '<xf numFmtId="164" fontId="1" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"/>'
+  + '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
+  + '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+function xlSheetXml(rows, cols, types) {
+  const n = cols.length, merges = [];
+  const cell = (r, c, v, s) => {
+    const ref = xlCol(c) + (r + 1);
+    if (v === "" || v == null) return '<c r="' + ref + '" s="' + s + '"/>';
+    if (typeof v === "number" && isFinite(v)) return '<c r="' + ref + '" s="' + s + '"><v>' + v + "</v></c>";
+    return '<c r="' + ref + '" s="' + s + '" t="inlineStr"><is><t xml:space="preserve">' + xlEsc(v) + "</t></is></c>";
+  };
+  const body = rows.map((row, r) => {
+    const k = row.k, v = row.v || [];
+    let cs = "";
+    if (k === "title" || k === "info" || k === "section") {
+      cs = cell(r, 0, v[0], k === "title" ? 1 : k === "section" ? 2 : 0);
+      if (n > 1) merges.push("A" + (r + 1) + ":" + xlCol(n - 1) + (r + 1));
+    } else if (k === "head") {
+      cs = v.map((x, c) => cell(r, c, x, 3)).join("");
+    } else if (k === "row") {
+      cs = cols.map((_, c) => { const t = types[c] || "t"; return cell(r, c, v[c], t === "m" ? 6 : t === "n" ? 5 : t === "c" ? 9 : 4); }).join("");
+    } else if (k === "total") {
+      cs = cell(r, 0, "", 0);
+      for (let c = 1; c < n - 1; c++) cs += cell(r, c, c === 1 ? v[0] : "", 7);
+      cs += cell(r, n - 1, v[1], 8);
+      if (n > 3) merges.push("B" + (r + 1) + ":" + xlCol(n - 2) + (r + 1));
+    }
+    const ht = k === "title" ? ' ht="22" customHeight="1"' : "";
+    return '<row r="' + (r + 1) + '"' + ht + ">" + cs + "</row>";
+  }).join("");
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+    + '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>'
+    + "<cols>" + cols.map((w, i) => '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>').join("") + "</cols>"
+    + "<sheetData>" + body + "</sheetData>"
+    + (merges.length ? '<mergeCells count="' + merges.length + '">' + merges.map((m) => '<mergeCell ref="' + m + '"/>').join("") + "</mergeCells>" : "")
+    + '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>'
+    + '<pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/></worksheet>';
+}
+function styledXlsxBlob(sheetName, rows, cols, types) {
+  const name = xlEsc(String(sheetName || "Лист1").replace(/[\\/?*[\]:]/g, " ").slice(0, 31));
+  return xlZip([
+    ["[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
+    ["_rels/.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+    ["xl/workbook.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="' + name + '" sheetId="1" r:id="rId1"/></sheets></workbook>'],
+    ["xl/_rels/workbook.xml.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'],
+    ["xl/styles.xml", XL_STYLES],
+    ["xl/worksheets/sheet1.xml", xlSheetXml(rows, cols, types)],
+  ]);
+}
+// скачать таблицу с рамками; при ошибке — CSV
+function downloadStyledXLSX(filename, sheetName, rows, cols, types) {
+  try {
+    const blob = styledXlsxBlob(sheetName, rows, cols, types);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    return "xlsx";
+  } catch (e) {
+    console.error(e);
+    try { downloadCSV(filename.replace(/\.xlsx$/i, ".csv"), rows.map((r) => (r.k === "total" ? ["", r.v[0], "", "", "", r.v[1]] : r.v || []))); return "csv"; } catch (e2) { console.error(e2); return false; }
+  }
+}
 async function batchInsert(table, rows, chunkSize = 500, onProgress) {
   for (let i = 0; i < rows.length; i += chunkSize) {
     const chunk = rows.slice(i, i + chunkSize);
@@ -2103,56 +2207,62 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
   const safe = (s) => String(s || "object").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
   const exportClient = () => {
     const rows = [
-      ["СПЕЦИФИКАЦИЯ: " + (obj.name || "")],
-      ["Клиент: " + (obj.client || "—") + (obj.phone ? " · тел. " + obj.phone : "")],
-      ["Дата: " + new Date().toLocaleDateString("ru-RU")],
-      [],
+      { k: "title", v: ["СПЕЦИФИКАЦИЯ: " + (obj.name || "")] },
+      { k: "info", v: ["Клиент: " + (obj.client || "—") + (obj.phone ? " · тел. " + obj.phone : "")] },
+      { k: "info", v: ["Дата: " + new Date().toLocaleDateString("ru-RU")] },
+      { k: "blank" },
     ];
-    const tot = (label, v) => rows.push(["", label, "", "", "", v]); // подпись в широкой колонке «Наименование»
+    const tot = (label, v) => rows.push({ k: "total", v: [label, v] });
     let n = 1;
     batches.forEach((b) => {
-      rows.push(["ПОСТАВКА №" + b.no + " от " + dt(b.date)]);
-      rows.push(["№", "Наименование", "Кол-во", "Ед.", "Цена", "Сумма"]);
+      rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
+      rows.push({ k: "head", v: ["№", "Наименование", "Кол-во", "Ед.", "Цена", "Сумма"] });
       let sub = 0;
       b.items.forEach((i) => {
         const s = Math.round(i.qty * i.price * 100) / 100; sub += s;
-        rows.push([n++, i.name, i.qty, i.unit, i.price, s]);
+        rows.push({ k: "row", v: [n++, i.name, i.qty, i.unit, i.price, s] });
       });
       tot("Итого по поставке №" + b.no, Math.round(sub * 100) / 100);
-      rows.push([]);
+      rows.push({ k: "blank" });
     });
     const returns = ops.filter((o) => o.type === "return" && !o.voided);
     if (returns.length) {
-      rows.push(["ВОЗВРАТЫ"]);
-      rows.push(["№", "Наименование", "Кол-во", "Ед.", "Дата", "Сумма"]);
-      returns.forEach((o, k) => rows.push([k + 1, o.product_name || "", o.qty || "", o.unit || "", dt(o.op_date || o.created_at), -(o.amount || 0)]));
+      rows.push({ k: "section", v: ["ВОЗВРАТЫ"] });
+      rows.push({ k: "head", v: ["№", "Наименование", "Кол-во", "Ед.", "Дата", "Сумма"] });
+      returns.forEach((o, k) => rows.push({ k: "row", v: [k + 1, o.product_name || "", o.qty || "", o.unit || "", dt(o.op_date || o.created_at), -(o.amount || 0)] }));
       tot("Итого возвратов", -f.retSale);
-      rows.push([]);
+      rows.push({ k: "blank" });
     }
     tot("Итого по объекту", f.sale);
     if (f.discount) tot("Скидка", -f.discount);
     if (f.retSale) tot("Возвраты", -f.retSale);
     tot("К ОПЛАТЕ", f.saleNet);
-    const r = downloadXLSX("Спецификация_" + safe(obj.name) + ".xlsx", rows, "Клиенту", { cols: [5, 62, 9, 7, 12, 14], money: [4, 5] });
+    const r = downloadStyledXLSX("Спецификация_" + safe(obj.name) + ".xlsx", "Клиенту", rows, [6, 60, 10, 7, 13, 15], ["c", "t", "n", "c", "m", "m"]);
     toast(r === "xlsx" ? "Excel для клиента скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
   const exportDelivery = () => {
-    const rows = [["ЛИСТ ДОСТАВКИ: " + (obj.name || "")], ["Адрес: " + (obj.address || "—")], ["Клиент: " + (obj.client || "—") + (obj.phone ? " · тел. " + obj.phone : "")], ["Мастер: " + (obj.master || "—")], []];
+    const rows = [
+      { k: "title", v: ["ЛИСТ ДОСТАВКИ: " + (obj.name || "")] },
+      { k: "info", v: ["Адрес: " + (obj.address || "—")] },
+      { k: "info", v: ["Клиент: " + (obj.client || "—") + (obj.phone ? " · тел. " + obj.phone : "")] },
+      { k: "info", v: ["Мастер: " + (obj.master || "—")] },
+      { k: "blank" },
+    ];
     batches.forEach((b) => {
-      rows.push(["ПОСТАВКА №" + b.no + " от " + dt(b.date)]);
+      rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
       const g = {};
       b.items.forEach((i) => {
         const k = i.from_warehouse ? "СКЛАД THERMO" : supName(i.supplier_id);
         (g[k] = g[k] || []).push(i);
       });
       Object.entries(g).forEach(([s, items]) => {
-        rows.push(["ПОСТАВЩИК: " + s]);
-        rows.push(["№", "Наименование", "Размер", "Кол-во", "Ед.", "Получено ✓"]);
-        items.forEach((i, k) => rows.push([k + 1, i.name, i.size || "", i.qty, i.unit, ""]));
-        rows.push([]);
+        rows.push({ k: "section", v: ["Поставщик: " + s] });
+        rows.push({ k: "head", v: ["№", "Наименование", "Размер", "Кол-во", "Ед.", "Получено ✓"] });
+        items.forEach((i, k) => rows.push({ k: "row", v: [k + 1, i.name, i.size || "", i.qty, i.unit, ""] }));
+        rows.push({ k: "blank" });
       });
     });
-    const r = downloadXLSX("Доставка_" + safe(obj.name) + ".xlsx", rows, "Доставка", { cols: [5, 62, 14, 9, 7, 12] });
+    const r = downloadStyledXLSX("Доставка_" + safe(obj.name) + ".xlsx", "Доставка", rows, [6, 60, 14, 10, 7, 13], ["c", "t", "c", "n", "c", "c"]);
     toast(r === "xlsx" ? "Лист доставки скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
   const batches = useMemo(() => {
