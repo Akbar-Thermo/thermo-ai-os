@@ -526,39 +526,72 @@ function PersonSelect({ value, onChange, placeholder = "—", compact = false })
   );
 }
 
-/* ============ СПОСОБЫ ОПЛАТЫ КЛИЕНТА ============
+/* ============ СПОСОБЫ ОПЛАТЫ ============
    Учёт ведётся в $. Оплата в сумах (наличные сум, перечисление, карта в сумах) вводится в сумах + курс;
-   в долг клиента идёт сумма, пересчитанная в $. Способ, сумма в сумах и курс сохраняются в операции
-   (колонки pay_method / pay_currency / pay_amount / pay_rate, если они есть в базе) и всегда — текстом в reason. */
+   в учёт идёт сумма, пересчитанная в $. Способ, сумма в сумах и курс сохраняются в операции
+   (колонки pay_method / pay_currency / pay_amount / pay_rate, если они есть в базе) и всегда — текстом в reason.
+   Поступления от клиентов — 4 способа; выплаты (поставщикам, расходы, бонусы мастерам) — $, карта, перечисление. */
 const PAY_METHODS = [
   { id: "usd", label: "Наличные $", cur: "usd" },
   { id: "transfer", label: "Перечисление", cur: "uzs" },
   { id: "card", label: "Карта", cur: null }, // валюту выбирают
   { id: "uzs", label: "Наличные сум", cur: "uzs" },
 ];
+const OUT_METHODS = PAY_METHODS.filter((m) => m.id !== "uzs");
+const PAY_IN_TYPES = ["client_payment"];
+const PAY_OUT_TYPES = ["supplier_payment", "expense", "company_expense", "bonus_payment"];
+const isPayType = (t) => PAY_IN_TYPES.includes(t) || PAY_OUT_TYPES.includes(t);
+const payMethodsFor = (type) => (PAY_IN_TYPES.includes(type) ? PAY_METHODS : OUT_METHODS);
+const PAY_USD_LABEL = { client_payment: "В долг клиента, $", supplier_payment: "В счёт долга поставщику, $", bonus_payment: "Выплата мастеру, $" };
+const payUsdLabel = (type) => PAY_USD_LABEL[type] || "Расход, $";
 const RATE_KEY = "te:usd_rate";
 const lastRate = () => { try { return Number(localStorage.getItem(RATE_KEY)) || ""; } catch (e) { return ""; } };
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const parseNum = (x) => Number(String(x || "").replace(/[\s\u00a0\u202f]/g, "").replace(",", ".")) || 0;
 const payMethod = (id) => PAY_METHODS.find((m) => m.id === id) || PAY_METHODS[0];
-function payInit(op) {
-  const byLabel = op && PAY_METHODS.find((m) => m.label === op.category || (op.reason && String(op.reason).startsWith(m.label)));
-  const method = (op && op.pay_method) || (byLabel && byLabel.id) || "usd";
-  let cur = op && op.pay_currency ? String(op.pay_currency).toLowerCase() : payMethod(method).cur || "usd";
-  let uzs = op && op.pay_amount && cur === "uzs" ? op.pay_amount : "", rate = op && op.pay_rate ? op.pay_rate : "";
-  const m = op && op.reason && /([\d\s\u00a0\u202f.,]+)\s*\u0441\u0443\u043c\s*\u00d7\s*\u043a\u0443\u0440\u0441\s*([\d\s\u00a0\u202f.,]+)/.exec(op.reason);
-  if (m) { cur = "uzs"; if (!uzs) uzs = parseNum(m[1]); if (!rate) rate = parseNum(m[2]); }
-  return { method, cur, usd: op ? op.amount || "" : "", uzs, rate: rate || lastRate() };
+// «… 1 260 000 сум × курс 12 600» в тексте операции
+const SUM_RATE_RE = /([\d\s\u00a0\u202f.,]+)\s*\u0441\u0443\u043c\s*\u00d7\s*\u043a\u0443\u0440\u0441\s*([\d\s\u00a0\u202f.,]+)/;
+// способ оплаты, записанный в операции: колонки pay_* или (если их нет в базе) текст в reason / category
+function payInfo(op) {
+  if (!op || (op.type && !isPayType(op.type))) return { id: null, cur: null, uzs: 0, rate: 0 }; // у возвратов/скидок reason — это причина
+  let m = op.pay_method ? PAY_METHODS.find((x) => x.id === op.pay_method) : null;
+  if (!m && op.type === "client_payment" && op.category) m = PAY_METHODS.find((x) => x.label === op.category);
+  if (!m && op.reason) m = PAY_METHODS.find((x) => String(op.reason).startsWith(x.label));
+  if (!m) return { id: null, cur: null, uzs: 0, rate: 0 };
+  const r = op.reason ? SUM_RATE_RE.exec(op.reason) : null;
+  const cur = op.pay_currency ? String(op.pay_currency).toLowerCase() : r ? "uzs" : m.cur || "usd";
+  const uzs = cur === "uzs" ? (op.pay_currency && Number(op.pay_amount)) || (r ? parseNum(r[1]) : 0) : 0;
+  const rate = cur === "uzs" ? Number(op.pay_rate) || (r ? parseNum(r[2]) : 0) : 0;
+  return { id: m.id, label: m.label, cur, uzs, rate };
+}
+// подпись способа для списков: «Перечисление: 1 260 000 сум × курс 12 600», «Карта ($)», «Наличные $»
+function payText(op) {
+  const i = payInfo(op);
+  if (!i.id) return "";
+  return i.cur === "uzs" ? i.label + ": " + fmt(i.uzs) + " сум" + (i.rate ? " × курс " + fmt(i.rate) : "") : i.label + (i.id === "card" ? " ($)" : "");
+}
+// детали операции без повтора способа оплаты (он уже записан в reason)
+const opDetails = (o, extra = []) => [...extra, o.item_name, payInfo(o).id ? payText(o) : o.reason, o.note].filter(Boolean).join(" · ");
+function payInit(op, defUsd) {
+  const i = payInfo(op);
+  const method = i.id || "usd";
+  const cur = i.id ? i.cur : payMethod(method).cur || "usd";
+  return { method, cur, usd: op ? op.amount || "" : defUsd || "", uzs: i.uzs || "", rate: i.rate || lastRate() };
 }
 const payUsd = (p) => (p.cur === "uzs" ? (Number(p.rate) > 0 ? round2(Number(p.uzs) / Number(p.rate)) : 0) : round2(p.usd));
-function payPatch(p) {
+// подставить сумму в $ (кнопки «весь долг» и т.п.): при оплате в сумах пересчитывает по курсу
+const paySetUsd = (p, usd) => ({ ...p, usd: round2(usd), uzs: p.cur === "uzs" && Number(p.rate) > 0 ? Math.round(usd * Number(p.rate)) : p.uzs });
+// remember=false при исправлении старой операции: её курс не становится курсом по умолчанию для новых оплат
+function payPatch(p, type = "client_payment", remember = true) {
   const m = payMethod(p.method), usd = payUsd(p);
   const reason = p.cur === "uzs" ? m.label + ": " + fmt(p.uzs) + " сум × курс " + fmt(p.rate) : m.label + (m.id === "card" ? " ($)" : "");
-  if (p.cur === "uzs" && Number(p.rate) > 0) { try { localStorage.setItem(RATE_KEY, String(p.rate)); } catch (e) {} }
-  return { amount: usd, category: m.label, reason, pay_method: m.id, pay_currency: p.cur.toUpperCase(),
+  if (remember && p.cur === "uzs" && Number(p.rate) > 0) { try { localStorage.setItem(RATE_KEY, String(p.rate)); } catch (e) {} }
+  const out = { amount: usd, reason, pay_method: m.id, pay_currency: p.cur.toUpperCase(),
     pay_amount: p.cur === "uzs" ? Number(p.uzs) || 0 : usd, pay_rate: p.cur === "uzs" ? Number(p.rate) || null : null };
+  if (type === "client_payment") out.category = m.label; // у расходов компании category — это статья расхода
+  return out;
 }
-function PayFields({ p, setP }) {
+function PayFields({ p, setP, methods = PAY_METHODS, usdLabel = "В долг клиента, $" }) {
   const m = payMethod(p.method);
   const setMethod = (id) => { const mm = payMethod(id); setP({ ...p, method: id, cur: mm.cur || p.cur || "usd" }); };
   const usd = payUsd(p);
@@ -566,7 +599,7 @@ function PayFields({ p, setP }) {
     <div style={{ gridColumn: "1/-1" }}>
       <Fld label="Способ оплаты">
         <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>
-          {PAY_METHODS.map((x) => <button key={x.id} type="button" className={"btn xs " + (p.method === x.id ? "pri" : "")} onClick={() => setMethod(x.id)}>{x.label}</button>)}
+          {methods.map((x) => <button key={x.id} type="button" className={"btn xs " + (p.method === x.id ? "pri" : "")} onClick={() => setMethod(x.id)}>{x.label}</button>)}
           {m.cur === null && (
             <span className="row" style={{ gap: 4, marginLeft: 8 }}>
               <span className="xs mut">валюта карты:</span>
@@ -580,7 +613,7 @@ function PayFields({ p, setP }) {
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginTop: 8 }}>
           <Fld label="Сумма, сум"><input type="number" className="inp" value={p.uzs} onChange={(e) => setP({ ...p, uzs: e.target.value })} placeholder="1 250 000" autoFocus /></Fld>
           <Fld label="Курс, сум за $1"><input type="number" className="inp" value={p.rate} onChange={(e) => setP({ ...p, rate: e.target.value })} placeholder="12 600" style={{ borderColor: Number(p.rate) > 0 ? undefined : "var(--bad)" }} /></Fld>
-          <div className="fld"><label>В долг клиента, $</label><div className="inp mono" style={{ background: "var(--panel2)", fontWeight: 800, color: usd > 0 ? "var(--ok)" : "var(--mut)" }}>{Number(p.rate) > 0 ? money(usd) : "введите курс"}</div></div>
+          <div className="fld"><label>{usdLabel}</label><div className="inp mono" style={{ background: "var(--panel2)", fontWeight: 800, color: usd > 0 ? "var(--ok)" : "var(--mut)" }}>{Number(p.rate) > 0 ? money(usd) : "введите курс"}</div></div>
         </div>
       ) : (
         <div className="grid" style={{ gridTemplateColumns: "1fr 2fr", marginTop: 8 }}>
@@ -1184,9 +1217,9 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose }) {
       </details>
       <details style={{ marginTop: 12 }}>
         <summary className="sm" style={{ cursor: "pointer", fontWeight: 700, marginBottom: 8 }}>Платежи ({payments.length})</summary>
-        <table className="t"><thead><tr><th>Дата</th><th style={{textAlign:"right"}}>Сумма</th><th>Кто</th><th>Примечание</th></tr></thead>
-          <tbody>{payments.map((o) => <tr key={o.id}><td className="xs mono mut">{dt(o.op_date||o.created_at)}</td><td className="num" style={{color:"var(--ok)",fontWeight:700}}>{fmt(o.amount)}</td><td className="xs mut">{o.user}</td><td className="xs mut">{o.note}</td></tr>)}
-          {!payments.length && <tr><td colSpan={4} className="mut sm" style={{padding:14}}>Нет платежей</td></tr>}</tbody>
+        <table className="t"><thead><tr><th>Дата</th><th style={{textAlign:"right"}}>Сумма, $</th><th>Способ оплаты</th><th>Кто</th><th>Примечание</th></tr></thead>
+          <tbody>{payments.map((o) => <tr key={o.id}><td className="xs mono mut">{dt(o.op_date||o.created_at)}</td><td className="num" style={{color:"var(--ok)",fontWeight:700}}>{fmt(o.amount)}</td><td className="xs">{payText(o) || <span className="mut">не указан</span>}</td><td className="xs mut">{o.user}</td><td className="xs mut">{o.note}</td></tr>)}
+          {!payments.length && <tr><td colSpan={5} className="mut sm" style={{padding:14}}>Нет платежей</td></tr>}</tbody>
         </table>
       </details>
     </Modal>
@@ -1322,13 +1355,13 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
         onSave={async (op) => {
           const r = await db.from("finance_ops").insert(cleanUuids(op));
           if (r.error) return false;
-          await logAction("Оплата поставщику", "supplier:" + pay.name, fmt(op.amount) + " · " + (op.note || "")); await reload(); toast("Оплата поставщику записана: " + fmt(op.amount)); return true;
+          await logAction("Оплата поставщику", "supplier:" + pay.name, fmt(op.amount) + " · " + payText(op) + (op.note ? " · " + op.note : "")); await reload(); toast("Оплата поставщику записана: " + fmt(op.amount) + " · " + payText(op)); return true;
         }}
         onEditPay={async (o, patch) => {
-          const log = [...(o.edit_log || []), { at: new Date().toISOString(), before: { amount: o.amount, op_date: o.op_date, note: o.note } }];
+          const log = [...(o.edit_log || []), { at: new Date().toISOString(), before: { amount: o.amount, op_date: o.op_date, note: o.note, reason: o.reason } }];
           const r = await db.from("finance_ops").update({ ...patch, edited: true, edit_log: log }).eq("id", o.id);
           if (r.error) return false;
-          await logAction("Изменена оплата поставщику", "supplier:" + pay.name, "было " + fmt(o.amount) + " → стало " + fmt(patch.amount)); await reload();
+          await logAction("Изменена оплата поставщику", "supplier:" + pay.name, "было " + fmt(o.amount) + " (" + (payText(o) || "способ не указан") + ") → стало " + fmt(patch.amount) + " (" + payText({ ...o, ...patch }) + ")"); await reload();
           const noLog = r.dropped && r.dropped.includes("edit_log") && !window.__teNoLogWarned;
           if (noLog) window.__teNoLogWarned = true;
           toast(noLog ? "Оплата изменена (история изменений не сохраняется: в базе нет колонки edit_log)" : "Оплата изменена"); return true;
@@ -1336,7 +1369,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
         onVoidPay={async (o) => {
           const r = await db.from("finance_ops").delete().eq("id", o.id);
           if (r.error) return false;
-          await logAction("Удалена оплата поставщику", "supplier:" + pay.name, fmt(o.amount) + " от " + dt(o.op_date || o.created_at) + (o.note ? " · " + o.note : "")); await reload(); toast("Оплата удалена"); return true;
+          await logAction("Удалена оплата поставщику", "supplier:" + pay.name, fmt(o.amount) + " от " + dt(o.op_date || o.created_at) + (payText(o) ? " · " + payText(o) : "") + (o.note ? " · " + o.note : "")); await reload(); toast("Оплата удалена"); return true;
         }} />}
       {del && (() => {
         const st = supplierStats(del, objects, finance_ops, wh_moves);
@@ -1369,11 +1402,11 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
 function SupplierPayModal({ s, objects, ops, whMoves, onClose, onSave, onEditPay, onVoidPay, fin }) {
   const st = supplierStats(s, objects, ops, whMoves);
   const retIds = supplierReturnIds(ops, whMoves);
-  const [amount, setAmount] = useState(st.debt || 0);
+  const [pay, setPay] = useState(() => payInit(null, st.debt > 0 ? st.debt : 0));
   const [opDate, setOpDate] = useState(today());
   const [note, setNote] = useState("");
   const [user, setUser] = useState(curUserName());
-  const [edit, setEdit] = useState(null);
+  const [edit, setEdit] = useState(null); // { id, pay, op_date, note }
   const [voidAsk, setVoidAsk] = useState(null);
   const [busy, setBusy] = useState(false);
   const history = ops.filter((o) => o.supplier_id === s.id && (o.type === "supplier_payment" || (o.type === "return" && retIds.has(o.id))))
@@ -1381,8 +1414,8 @@ function SupplierPayModal({ s, objects, ops, whMoves, onClose, onSave, onEditPay
   const objName = (id) => (objects.find((o) => o.id === id) || {}).name || "—";
   const save = async () => {
     setBusy(true);
-    const ok = await onSave({ type: "supplier_payment", supplier_id: s.id, object_id: null, amount: Number(amount) || 0, op_date: opDate || today(), note, user });
-    if (ok) { setAmount(0); setNote(""); }
+    const ok = await onSave({ type: "supplier_payment", supplier_id: s.id, object_id: null, ...payPatch(pay, "supplier_payment"), op_date: opDate || today(), note, user });
+    if (ok) { setPay({ ...pay, usd: 0, uzs: "" }); setNote(""); }
     setBusy(false);
   };
   return (
@@ -1393,16 +1426,16 @@ function SupplierPayModal({ s, objects, ops, whMoves, onClose, onSave, onEditPay
         <div className="kpi"><div className="l">Оплачено</div><div className="v" style={{ color: "var(--ok)" }}>{fmt(st.paid)}</div></div>
         <div className="kpi"><div className="l">{st.balance < 0 ? "Аванс (переплата)" : "Текущий долг"}</div><div className="v" style={{ color: balColor(st.balance) }}>{signedMoney(st.balance)}</div></div>
       </div>
-      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr" }}>
-        <Fld label="Сумма оплаты"><input type="number" className="inp" value={amount} onChange={(e) => setAmount(Number(e.target.value) || 0)} /></Fld>
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
+        <PayFields p={pay} setP={setPay} methods={OUT_METHODS} usdLabel={payUsdLabel("supplier_payment")} />
         <Fld label="Дата оплаты"><input type="date" className="inp" value={opDate} onChange={(e) => setOpDate(e.target.value)} /></Fld>
         <Fld label="Комментарий"><input className="inp" value={note} onChange={(e) => setNote(e.target.value)} placeholder="часть / аванс / закрытие…" /></Fld>
         <Fld label="Кто оплатил"><PersonSelect value={user} onChange={setUser} /></Fld>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-        <button className="btn xs" disabled={st.debt <= 0} onClick={() => setAmount(st.debt)}>= весь долг</button>
-        <button className="btn xs" disabled={st.debt <= 0} onClick={() => setAmount(Math.round(st.debt / 2 * 100) / 100)}>= половина</button>
-        <button className="btn pri" disabled={!Number(amount) || busy} onClick={save}>{busy ? "Записываю…" : "Записать оплату"}</button>
+        <button className="btn xs" disabled={st.debt <= 0} onClick={() => setPay(paySetUsd(pay, st.debt))}>= весь долг</button>
+        <button className="btn xs" disabled={st.debt <= 0} onClick={() => setPay(paySetUsd(pay, st.debt / 2))}>= половина</button>
+        <button className="btn pri" disabled={!(payUsd(pay) > 0) || busy} onClick={save}>{busy ? "Записываю…" : "Записать оплату"}</button>
       </div>
       <h3 style={{ margin: "16px 0 8px" }}>История оплат и возвратов поставщику</h3>
       <div style={{ maxHeight: 260, overflow: "auto", border: "1px solid var(--line)", borderRadius: 8 }}>
@@ -1412,21 +1445,25 @@ function SupplierPayModal({ s, objects, ops, whMoves, onClose, onSave, onEditPay
             {history.map((o) => (
               edit && edit.id === o.id ? (
                 <tr key={o.id} style={{ background: "rgba(255,31,48,.06)" }}>
-                  <td><input type="date" className="inp" style={{ fontSize: 11 }} value={(edit.op_date || "").slice(0,10)} onChange={(e) => setEdit({ ...edit, op_date: e.target.value })} /></td>
-                  <td className="sm">Оплата</td>
-                  <td><input type="number" className="inp num" style={{ width: 100 }} value={edit.amount} onChange={(e) => setEdit({ ...edit, amount: Number(e.target.value) || 0 })} /></td>
-                  <td><input className="inp" style={{ fontSize: 11 }} value={edit.note || ""} onChange={(e) => setEdit({ ...edit, note: e.target.value })} /></td>
-                  <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
-                    <button className="btn xs pri" disabled={!edit.amount} onClick={async () => { if (await onEditPay(o, { amount: edit.amount, op_date: edit.op_date || today(), note: edit.note })) setEdit(null); }}>✓</button>
-                    <button className="btn xs" onClick={() => setEdit(null)}>✕</button>
-                  </div></td>
+                  <td colSpan={5} style={{ padding: 10 }}>
+                    <div className="sm" style={{ fontWeight: 700, marginBottom: 6 }}>Изменить оплату от {dt(o.op_date || o.created_at)}</div>
+                    <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                      <PayFields p={edit.pay} setP={(np) => setEdit({ ...edit, pay: np })} methods={OUT_METHODS} usdLabel={payUsdLabel("supplier_payment")} />
+                      <Fld label="Дата оплаты"><input type="date" className="inp" value={(edit.op_date || "").slice(0,10)} onChange={(e) => setEdit({ ...edit, op_date: e.target.value })} /></Fld>
+                      <Fld label="Комментарий"><input className="inp" value={edit.note || ""} onChange={(e) => setEdit({ ...edit, note: e.target.value })} /></Fld>
+                    </div>
+                    <div className="row" style={{ gap: 6, justifyContent: "flex-end", marginTop: 8 }}>
+                      <button className="btn xs" onClick={() => setEdit(null)}>Отмена</button>
+                      <button className="btn xs pri" disabled={!(payUsd(edit.pay) > 0)} onClick={async () => { if (await onEditPay(o, { ...payPatch(edit.pay, "supplier_payment", false), op_date: edit.op_date || today(), note: edit.note })) setEdit(null); }}>Сохранить</button>
+                    </div>
+                  </td>
                 </tr>
               ) : (
               <tr key={o.id} style={{ opacity: o.voided ? 0.4 : 1, textDecoration: o.voided ? "line-through" : "none" }}>
                 <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
                 <td className="sm">{o.type === "supplier_payment" ? "Оплата" : "Возврат (−долг)"}{o.edited && <span className="xs" style={{ color: "var(--warn)" }}> изм.</span>}</td>
                 <td className="num" style={{ fontWeight: 700, color: o.type === "supplier_payment" ? "var(--ok)" : "var(--acc2)" }}>{fmt(o.type === "return" ? o.cost_amount : o.amount)}</td>
-                <td className="xs mut">{[o.type === "return" ? (o.object_id ? "с объекта " + objName(o.object_id) : "со склада Thermo") : (o.object_id ? objName(o.object_id) : ""), o.product_name ? o.product_name + (o.qty ? " × " + o.qty : "") : "", o.note].filter(Boolean).join(" · ")}</td>
+                <td className="xs mut">{[o.type === "return" ? (o.object_id ? "с объекта " + objName(o.object_id) : "со склада Thermo") : (o.object_id ? objName(o.object_id) : ""), o.product_name ? o.product_name + (o.qty ? " × " + o.qty : "") : "", o.type === "supplier_payment" ? payText(o) : "", o.note].filter(Boolean).join(" · ")}</td>
                 <td>{o.type === "supplier_payment" && (
                   voidAsk === o.id ? (
                     <div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
@@ -1436,7 +1473,7 @@ function SupplierPayModal({ s, objects, ops, whMoves, onClose, onSave, onEditPay
                     </div>
                   ) : (
                     <div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
-                      {!o.voided && <button className="btn xs" onClick={() => setEdit({ id: o.id, amount: o.amount, op_date: (o.op_date || o.created_at || "").slice(0,10), note: o.note })}>ред.</button>}
+                      {!o.voided && <button className="btn xs" onClick={() => setEdit({ id: o.id, pay: payInit(o), op_date: (o.op_date || o.created_at || "").slice(0,10), note: o.note })}>ред.</button>}
                       {fin && <button className="btn xs dng" onClick={() => setVoidAsk(o.id)}>удалить</button>}
                     </div>
                   )
@@ -2161,7 +2198,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
                 <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
                 <td>{opLabel(o.type)}{o.type === "return" && o.product_name ? <div className="xs mut">{o.product_name} × {o.qty}</div> : null}{o.edited && <div className="xs" style={{ color: "var(--warn)" }}>изменено</div>}</td>
                 <td className="num" style={{ fontWeight: 700, color: o.type === "client_payment" ? "var(--ok)" : "inherit" }}>{fmt(o.amount)}</td>
-                <td className="xs mut">{[o.supplier_id ? supName(o.supplier_id) : "", o.item_name, o.reason, o.note].filter(Boolean).join(" · ")}</td>
+                <td className="xs mut">{opDetails(o, [o.supplier_id ? supName(o.supplier_id) : ""])}</td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
                   {!o.voided && (fin || MANAGER_OP_TYPES.includes(o.type)) && <button className="btn xs" onClick={() => setEditOp(o)}>✎</button>}
                   {fin && (delAsk === o.id ? (
@@ -2204,7 +2241,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
         const log = [...(editOp.edit_log || []), { at: new Date().toISOString(), before: { amount: editOp.amount, op_date: editOp.op_date, note: editOp.note, reason: editOp.reason } }];
         const r = await db.from("finance_ops").update({ ...patch, edited: true, edit_log: log }).eq("id", editOp.id);
         if (r.error) return;
-        await logAction("Изменена операция: " + opLabel(editOp.type), "object", "было " + fmt(editOp.amount) + (patch.amount != null ? " → " + fmt(patch.amount) : ""));
+        const pt = (o) => (isPayType(editOp.type) ? " (" + payText(o) + ")" : "");
+        await logAction("Изменена операция: " + opLabel(editOp.type), "object:" + obj.name, "было " + fmt(editOp.amount) + pt(editOp) + (patch.amount != null ? " → " + fmt(patch.amount) + pt({ ...editOp, ...patch }) : ""));
         setEditOp(null); await reload(); toast("Операция изменена (история сохранена)");
       }} />}
       {opForm && opForm.type === "return" && <ReturnForm obj={obj} ops={ops} onClose={() => setOpForm(null)} onSave={async (list) => {
@@ -2221,7 +2259,9 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
       {opForm && opForm.type !== "return" && <OpForm obj={obj} type={opForm.type} suppliers={suppliers} onClose={() => setOpForm(null)}
         onSave={async (op) => {
           if (op.type === "bonus") op.master_id = obj.master_id || null;
-          await db.from("finance_ops").insert(cleanUuids(op)); await logAction(opLabel(op.type), "object:" + obj.name, fmt(op.amount) + (op.note ? " · " + op.note : "")); setOpForm(null); await reload(); toast("Операция добавлена");
+          const r = await db.from("finance_ops").insert(cleanUuids(op));
+          if (r.error) return; // ошибка уже показана, окно остаётся открытым
+          await logAction(opLabel(op.type), "object:" + obj.name, fmt(op.amount) + (isPayType(op.type) ? " · " + payText(op) : "") + (op.note ? " · " + op.note : "")); setOpForm(null); await reload(); toast("Операция добавлена");
         }} />}
     </div>
   );
@@ -2471,7 +2511,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
   );
 }
 function EditOpModal({ op, suppliers, isReturn, onClose, onSave }) {
-  const isClientPay = op.type === "client_payment";
+  const usesPay = isPayType(op.type); // оплаты и расходы — со способом оплаты
   const [pay, setPay] = useState(() => payInit(op));
   const [v, setV] = useState({
     amount: op.amount || 0, op_date: (op.op_date || op.created_at || "").slice(0, 10),
@@ -2481,12 +2521,12 @@ function EditOpModal({ op, suppliers, isReturn, onClose, onSave }) {
     <Modal title={"Редактировать: " + opLabel(op.type)} onClose={onClose} w={520}>
       {isReturn && <p className="sm" style={{ color: "var(--warn)", marginBottom: 10 }}>⚠ У возврата можно изменить только дату, причину и комментарий. Количество/сумму меняйте так: удалите возврат и оформите новый — иначе разойдётся склад.</p>}
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        {isClientPay && <PayFields p={pay} setP={setPay} />}
-        {!isReturn && !isClientPay && <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: Number(e.target.value) || 0 })} /></Fld>}
+        {usesPay && <PayFields p={pay} setP={setPay} methods={payMethodsFor(op.type)} usdLabel={payUsdLabel(op.type)} />}
+        {!isReturn && !usesPay && <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: Number(e.target.value) || 0 })} /></Fld>}
         <Fld label="Дата операции"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
         {op.type === "supplier_payment" && <Fld label="Поставщик"><select className="inp" value={v.supplier_id} onChange={(e) => setV({ ...v, supplier_id: e.target.value })}><option value="">—</option>{activeSuppliers(suppliers, v.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>}
         {op.type === "bonus" && <Fld label="Предмет"><input className="inp" value={v.item_name} onChange={(e) => setV({ ...v, item_name: e.target.value })} /></Fld>}
-        {!isClientPay && (isReturn || op.reason != null) && <Fld label="Причина"><input className="inp" value={v.reason} onChange={(e) => setV({ ...v, reason: e.target.value })} /></Fld>}
+        {!usesPay && (isReturn || op.reason != null) && <Fld label="Причина"><input className="inp" value={v.reason} onChange={(e) => setV({ ...v, reason: e.target.value })} /></Fld>}
         <Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} /></Fld>
         <Fld label="Ответственный"><PersonSelect value={v.user} onChange={(u) => setV({ ...v, user: u })} /></Fld>
       </div>
@@ -2502,9 +2542,9 @@ function EditOpModal({ op, suppliers, isReturn, onClose, onSave }) {
           if (!isReturn) patch.amount = v.amount;
           if (op.type === "supplier_payment") patch.supplier_id = v.supplier_id || null;
           if (op.type === "bonus") patch.item_name = v.item_name || null;
-          if (isClientPay) Object.assign(patch, payPatch(pay));
+          if (usesPay) Object.assign(patch, payPatch(pay, op.type, false));
           onSave(patch);
-        }} disabled={isClientPay && !(payUsd(pay) > 0)}>Сохранить</button>
+        }} disabled={usesPay && !(payUsd(pay) > 0)}>Сохранить</button>
       </div>
     </Modal>
   );
@@ -2597,7 +2637,7 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
   const isReturn = type === "return";
   const isSupPay = type === "supplier_payment";
   const isBonus = type === "bonus";
-  const isClientPay = type === "client_payment";
+  const usesPay = isPayType(type); // клиент платит / оплата поставщику / доп. расход — со способом оплаты
   const [pay, setPay] = useState(() => payInit(null));
   const item = items.find((i) => i.id === v.item_id);
   const retAmount = item ? v.qty * item.price : 0;
@@ -2605,8 +2645,8 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
     const base = { object_id: obj.id, type, note: v.note, reason: v.reason, user: v.user, op_date: v.op_date || today() };
     if (isReturn && item) {
       onSave({ ...base, amount: retAmount, cost_amount: v.qty * item.cost, qty: v.qty, product_id: item.product_id, product_name: item.name, supplier_id: item.supplier_id });
-    } else if (isClientPay) {
-      onSave({ ...base, ...payPatch(pay), supplier_id: null });
+    } else if (usesPay) {
+      onSave({ ...base, ...payPatch(pay, type), supplier_id: isSupPay ? v.supplier_id || null : null });
     } else {
       onSave({ ...base, amount: Number(v.amount) || 0, supplier_id: isSupPay ? v.supplier_id || null : null, item_name: isBonus && v.item_name ? v.item_name : null });
     }
@@ -2626,7 +2666,7 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
           </>
         ) : (
           <>
-            {isClientPay ? <PayFields p={pay} setP={setPay} /> : <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: e.target.value })} /></Fld>}
+            {usesPay ? <PayFields p={pay} setP={setPay} methods={payMethodsFor(type)} usdLabel={payUsdLabel(type)} /> : <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: e.target.value })} /></Fld>}
             {isSupPay && <Fld label="Поставщик (обязательно)"><select className="inp" value={v.supplier_id} onChange={(e) => setV({ ...v, supplier_id: e.target.value })} style={{ borderColor: v.supplier_id ? undefined : "var(--bad)" }}><option value="">— выберите поставщика —</option>{supOpts.map((s) => <option key={s.id} value={s.id}>{s.name}{objSupIds.includes(s.id) ? " · в этом объекте" : ""}</option>)}</select></Fld>}
             {isBonus && <Fld label="Предмет (если бонус вещью)"><input className="inp" value={v.item_name} onChange={(e) => setV({ ...v, item_name: e.target.value })} placeholder="инструмент / предмет — опц." /></Fld>}
             <div style={{ gridColumn: "1/-1" }}><Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} /></Fld></div>
@@ -2637,7 +2677,7 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
-        <button className="btn pri" onClick={submit} disabled={isReturn ? !item || !v.qty : isClientPay ? !(payUsd(pay) > 0) : !Number(v.amount) || (isSupPay && !v.supplier_id)} title={isSupPay && !v.supplier_id ? "Выберите поставщика — иначе оплата не уменьшит его долг" : ""}>Сохранить</button>
+        <button className="btn pri" onClick={submit} disabled={isReturn ? !item || !v.qty : usesPay ? !(payUsd(pay) > 0) || (isSupPay && !v.supplier_id) : !Number(v.amount)} title={isSupPay && !v.supplier_id ? "Выберите поставщика — иначе оплата не уменьшит его долг" : ""}>Сохранить</button>
       </div>
     </Modal>
   );
@@ -2750,7 +2790,7 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
                 <td>{opLabel(o.type)}</td>
                 <td className="sm">{(objects.find((x) => x.id === o.object_id) || {}).name || "—"}</td>
                 <td className="num" style={{ fontWeight: 700, color: o.type === "bonus_payment" ? "var(--ok)" : "inherit" }}>{fmt(o.amount)}</td>
-                <td className="xs mut">{[o.item_name, o.note].filter(Boolean).join(" · ")}</td>
+                <td className="xs mut">{[o.item_name, o.type === "bonus_payment" ? payText(o) : "", o.note].filter(Boolean).join(" · ")}</td>
               </tr>
             ))}
             {!payOps.length && <tr><td colSpan={5} className="mut" style={{ textAlign: "center", padding: 20 }}>Операций нет</td></tr>}
@@ -2758,10 +2798,12 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
         </table>
       </div>}
       {fin && payForm && (
-        <Modal title={"Выплата бонуса — " + m.name} onClose={() => setPayForm(false)} w={460}>
-          <BonusPayForm debt={st.debtToMaster} onSave={async (amount, note, opDate) => {
-            await db.from("finance_ops").insert({ type: "bonus_payment", master_id: m.id, object_id: null, amount, note, op_date: opDate || today(), user: "fin" });
-            setPayForm(false); await reload(); toast("Выплата записана");
+        <Modal title={"Выплата бонуса — " + m.name} onClose={() => setPayForm(false)} w={560}>
+          <BonusPayForm debt={st.debtToMaster} onSave={async (p) => {
+            const r = await db.from("finance_ops").insert({ type: "bonus_payment", master_id: m.id, object_id: null, ...p, user: curUserName() || "fin" });
+            if (r.error) return; // ошибка показана, окно остаётся открытым
+            await logAction("Выплата бонуса мастеру", "master:" + m.name, fmt(p.amount) + " · " + payText(p) + (p.note ? " · " + p.note : ""));
+            setPayForm(false); await reload(); toast("Выплата записана: " + fmt(p.amount) + " · " + payText(p));
           }} />
         </Modal>
       )}
@@ -2828,19 +2870,21 @@ function BonusAccrueForm({ objects, onSave }) {
   );
 }
 function BonusPayForm({ debt, onSave }) {
-  const [amount, setAmount] = useState(debt || 0);
+  const [pay, setPay] = useState(() => payInit(null, debt > 0 ? debt : 0));
   const [note, setNote] = useState("");
   const [opDate, setOpDate] = useState(today());
+  const [busy, setBusy] = useState(false);
   return (
     <div>
-      <div className="sm mut" style={{ marginBottom: 10 }}>Текущий долг мастеру: <b className="mono" style={{ color: "var(--warn)" }}>{fmt(debt)}</b></div>
-      <div className="grid" style={{ gridTemplateColumns: "1fr" }}>
-        <Fld label="Сумма выплаты"><input type="number" className="inp" value={amount} onChange={(e) => setAmount(Number(e.target.value) || 0)} /></Fld>
+      <div className="sm mut" style={{ marginBottom: 10 }}>Текущий долг мастеру: <b className="mono" style={{ color: "var(--warn)" }}>{fmt(debt)}</b>
+        {debt > 0 && <button type="button" className="btn xs" style={{ marginLeft: 8 }} onClick={() => setPay(paySetUsd(pay, debt))}>= весь долг</button>}</div>
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <PayFields p={pay} setP={setPay} methods={OUT_METHODS} usdLabel={payUsdLabel("bonus_payment")} />
         <Fld label="Дата выплаты"><input type="date" className="inp" value={opDate} onChange={(e) => setOpDate(e.target.value)} /></Fld>
-        <Fld label="Комментарий"><input className="inp" value={note} onChange={(e) => setNote(e.target.value)} placeholder="наличные / карта / за объект…" /></Fld>
+        <Fld label="Комментарий"><input className="inp" value={note} onChange={(e) => setNote(e.target.value)} placeholder="за объект / аванс…" /></Fld>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
-        <button className="btn pri" disabled={!amount} onClick={() => onSave(amount, note, opDate)}>Выплатить</button>
+        <button className="btn pri" disabled={!(payUsd(pay) > 0) || busy} onClick={async () => { setBusy(true); await onSave({ ...payPatch(pay, "bonus_payment"), note, op_date: opDate || today() }); setBusy(false); }}>{busy ? "Записываю…" : "Выплатить"}</button>
       </div>
     </div>
   );
@@ -3324,6 +3368,80 @@ function DashSeg({ value, onChange, opts }) {
   );
 }
 
+// деньги по способам оплаты за период: поступления от клиентов и выплаты (поставщикам, расходы, бонусы мастерам).
+// Правила как у дашборда: операции отменённых объектов не считаются; при фильтре по менеджеру — только его объекты.
+const PAY_REP_KEYS = ["inUsd", "inUzs", "sup", "exp", "bonus", "outUsd", "outUzs", "n"];
+function payReport(objects, ops, from, to, mgr) {
+  const objById = {};
+  objects.forEach((o) => { objById[o.id] = o; });
+  const inR = (d) => (!from || d >= from) && (!to || d <= to);
+  const blank = (id, label) => { const r = { id, label }; PAY_REP_KEYS.forEach((k) => { r[k] = 0; }); return r; };
+  const rows = {};
+  PAY_METHODS.forEach((m) => { rows[m.id] = blank(m.id, m.label); });
+  rows.none = blank("none", "Не указан");
+  ops.forEach((x) => {
+    if (x.voided || !isPayType(x.type)) return;
+    const d = String(x.op_date || x.created_at || "").slice(0, 10);
+    if (!inR(d)) return;
+    const o = x.object_id ? objById[x.object_id] : null;
+    if (x.object_id && (!o || o.status === "cancelled")) return;
+    if (mgr && (!o || (o.manager || "") !== mgr)) return;
+    const i = payInfo(x), r = rows[i.id || "none"], a = Number(x.amount) || 0;
+    r.n++;
+    if (x.type === "client_payment") { r.inUsd += a; if (i.cur === "uzs") r.inUzs += i.uzs; return; }
+    r.outUsd += a;
+    if (i.cur === "uzs") r.outUzs += i.uzs;
+    if (x.type === "supplier_payment") r.sup += a;
+    else if (x.type === "bonus_payment") r.bonus += a;
+    else r.exp += a;
+  });
+  const list = [...PAY_METHODS.map((m) => rows[m.id]), rows.none].filter((r) => r.id !== "none" || r.n > 0);
+  const tot = blank("total", "Итого");
+  list.forEach((r) => PAY_REP_KEYS.forEach((k) => { tot[k] += r[k]; }));
+  return { list, tot };
+}
+function PayMethodsCard({ objects, ops, from, to, mgr }) {
+  const rep = useMemo(() => payReport(objects, ops, from, to, mgr), [objects, ops, from, to, mgr]);
+  const R = { textAlign: "right" };
+  const uzsLine = (v) => (v > 0 ? <div className="xs mut" style={{ fontWeight: 400 }}>в т.ч. {fmt(v)} сум</div> : null);
+  const num = (v, c) => <span style={{ color: v ? c : "var(--mut)" }}>{fmt(v)}</span>;
+  const diff = (v) => <span style={{ color: v > 0 ? "var(--ok)" : v < 0 ? "var(--bad)" : "var(--mut)" }}>{(v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v))}</span>;
+  const line = (r, total) => (
+    <tr key={r.id} style={total ? { background: "var(--panel2)", fontWeight: 800 } : null}>
+      <td className="sm" style={{ fontWeight: 700 }}>{r.label}{!total && r.n > 0 && <span className="xs mut" style={{ fontWeight: 400 }}> · операций: {r.n}</span>}</td>
+      <td className="num">{num(r.inUsd, "var(--ok)")}{uzsLine(r.inUzs)}</td>
+      <td className="num">{num(r.sup)}</td>
+      <td className="num">{num(r.exp)}</td>
+      <td className="num">{num(r.bonus)}</td>
+      <td className="num">{num(r.outUsd, "var(--bad)")}{uzsLine(r.outUzs)}</td>
+      <td className="num" style={{ fontWeight: 800 }}>{diff(r.inUsd - r.outUsd)}</td>
+    </tr>
+  );
+  return (
+    <div className="card sect">
+      <div className="row" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+        <h3 style={{ marginRight: "auto" }}>Деньги по способам оплаты</h3>
+        <span className="xs mut">суммы в $ · оплаты в сумах пересчитаны по курсу операции</span>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table className="t">
+          <thead><tr><th>Способ оплаты</th><th style={R}>Поступило от клиентов</th><th style={R}>Поставщикам</th><th style={R} title="доп. расходы объектов и расходы компании">Расходы</th><th style={R}>Бонусы мастерам</th><th style={R}>Всего выплачено</th><th style={R}>Разница</th></tr></thead>
+          <tbody>
+            {rep.list.map((r) => line(r))}
+            {line(rep.tot, true)}
+          </tbody>
+        </table>
+      </div>
+      {(rep.list.some((r) => r.id === "none") || mgr) && (
+        <div className="xs mut" style={{ marginTop: 6 }}>
+          {rep.list.some((r) => r.id === "none") && <div>«Не указан» — операции, записанные до того, как в программе появились способы оплаты. Оплатам клиентов и поставщикам способ можно указать через ✎ / «ред.».</div>}
+          {mgr && <div>Фильтр по менеджеру: только операции его объектов — оплаты из раздела «Поставщики», расходы компании и бонусы мастерам не входят.</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Dashboard({ data }) {
   const { objects, finance_ops, products, suppliers, warehouse = [] } = data;
   const [preset, setPreset] = useState("30d");
@@ -3449,6 +3567,9 @@ function Dashboard({ data }) {
       kp.forEach(([l, k]) => { const a = Math.round(cur[k] * 100) / 100; const row = [l, a]; if (compare) { const b = Math.round(prev[k] * 100) / 100; row.push(b, b ? Math.round(((a - b) / Math.abs(b)) * 1000) / 10 : ""); } K.push(row); });
       K.push([], ["На сегодня"], ["Долги клиентов", bal.cdebt], ["Переплаты клиентов", bal.overpay], ["Долги поставщикам", bal.sdebt], ["Склад (по себестоимости)", bal.whCost], ["Объектов в работе", bal.active]);
       add("Показатели", K);
+      const pr = payReport(objects, finance_ops, from, to, mgr);
+      add("Способы оплаты", [["Способ оплаты", "Поступило от клиентов, $", "в т.ч. сум", "Поставщикам, $", "Расходы, $", "Бонусы мастерам, $", "Всего выплачено, $", "в т.ч. сум", "Разница, $", "Операций"]]
+        .concat([...pr.list, pr.tot].map((r) => [r.label, round2(r.inUsd), r.inUzs || "", round2(r.sup), round2(r.exp), round2(r.bonus), round2(r.outUsd), r.outUzs || "", round2(r.inUsd - r.outUsd), r.n])));
       add("Динамика", [["Период", "Выручка", "Валовая прибыль", "Поставок"]].concat(buckets.list.map((b) => [b.title, b.rev, b.gross, b.deals])));
       const sheet = (rows, extra = []) => [["Название", "Выручка", "Себестоимость", "Валовая прибыль", "Маржа, %", "Кол-во", "Поставок"].concat(extra.map((e) => e[0]))]
         .concat(rows.map((r) => [r.name, r.rev, r.cost, r.gross, Math.round(r.margin * 10) / 10, r.qty, r.deals].concat(extra.map((e) => e[1](r)))));
@@ -3528,6 +3649,8 @@ function Dashboard({ data }) {
         )}
       </div>
 
+      <PayMethodsCard objects={objects} ops={finance_ops} from={from} to={to} mgr={mgr} />
+
       <div className="kpis sect">
         <DashTile label="Долги клиентов" value={bal.cdebt} note={bal.overpay > 0 ? "переплаты: " + fmt(bal.overpay) + " · на сегодня" : "на сегодня"} />
         <DashTile label="Долги поставщикам" value={bal.sdebt} note="на сегодня" />
@@ -3565,19 +3688,20 @@ function Dashboard({ data }) {
 
 /* ============ FINANCE TAB ============ */
 function CompanyExpenseForm({ onClose, onSave }) {
-  const [v, setV] = useState({ category: "Зарплата", amount: 0, op_date: today(), note: "", user: CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username) : "" });
+  const [v, setV] = useState({ category: "Зарплата", op_date: today(), note: "", user: CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username) : "" });
+  const [pay, setPay] = useState(() => payInit(null));
   return (
-    <Modal title="Расход компании" onClose={onClose} w={520}>
+    <Modal title="Расход компании" onClose={onClose} w={560}>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        <Fld label="Категория"><select className="inp" value={v.category} onChange={(e) => setV({ ...v, category: e.target.value })}>{EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></Fld>
-        <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: Number(e.target.value) || 0 })} /></Fld>
+        <div style={{ gridColumn: "1/-1" }}><Fld label="Категория"><select className="inp" value={v.category} onChange={(e) => setV({ ...v, category: e.target.value })}>{EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></Fld></div>
+        <PayFields p={pay} setP={setPay} methods={OUT_METHODS} usdLabel={payUsdLabel("company_expense")} />
         <Fld label="Дата"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
         <Fld label="Кто внёс"><PersonSelect value={v.user} onChange={(u) => setV({ ...v, user: u })} /></Fld>
         <div style={{ gridColumn: "1/-1" }}><Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} placeholder="за июнь / Шерзоду / свет+вода…" /></Fld></div>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
-        <button className="btn pri" disabled={!v.amount} onClick={() => onSave({ type: "company_expense", object_id: null, category: v.category, amount: v.amount, op_date: v.op_date || today(), note: v.note, user: v.user })}>Сохранить</button>
+        <button className="btn pri" disabled={!(payUsd(pay) > 0)} onClick={() => onSave({ type: "company_expense", object_id: null, category: v.category, ...payPatch(pay, "company_expense"), op_date: v.op_date || today(), note: v.note, user: v.user })}>Сохранить</button>
       </div>
     </Modal>
   );
@@ -3606,10 +3730,6 @@ function FinanceTab({ data, reload, toast }) {
   return (
     <div>
       <h2 className="sect">Финансы и долги</h2>
-      <div className="row sect">
-        <h3 style={{ marginRight: "auto" }}>Расходы компании <span className="mut sm">(зарплата, аренда, коммунальные, обед и т.д.)</span></h3>
-        <button className="btn pri" onClick={() => setExpForm(true)}>+ Добавить расход</button>
-      </div>
       <div className="row sect" style={{ gap: 8, padding: "8px 10px", background: "var(--panel2)", borderRadius: 8 }}>
         <span className="sm" style={{ fontWeight: 700 }}>Период:</span>
         <Fld label="С даты"><input type="date" className="inp" style={{ width: 150 }} value={from} onChange={(e) => setFrom(e.target.value)} /></Fld>
@@ -3621,6 +3741,11 @@ function FinanceTab({ data, reload, toast }) {
           <button className="btn xs" onClick={() => { setFrom(""); setTo(""); }}>Весь период</button>
         </div>
       </div>
+      <PayMethodsCard objects={objects} ops={finance_ops} from={from} to={to} />
+      <div className="row sect">
+        <h3 style={{ marginRight: "auto" }}>Расходы компании <span className="mut sm">(зарплата, аренда, коммунальные, обед и т.д.)</span></h3>
+        <button className="btn pri" onClick={() => setExpForm(true)}>+ Добавить расход</button>
+      </div>
       <div className="kpis sect">
         <div className="kpi"><div className="l">Всего расходов{(from || to) ? " за период" : ""}</div><div className="v" style={{ color: "var(--bad)" }}>{fmt(totalExp)}</div></div>
         {EXPENSE_CATEGORIES.filter((c) => byCat[c]).slice(0, 5).map((c) => (
@@ -3629,13 +3754,14 @@ function FinanceTab({ data, reload, toast }) {
       </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
-          <thead><tr><th>Дата</th><th>Категория</th><th style={{textAlign:"right"}}>Сумма</th><th>Комментарий</th><th>Кто</th><th></th></tr></thead>
+          <thead><tr><th>Дата</th><th>Категория</th><th style={{textAlign:"right"}}>Сумма, $</th><th>Способ оплаты</th><th>Комментарий</th><th>Кто</th><th></th></tr></thead>
           <tbody>
             {genExpenses.slice().reverse().map((o) => (
               <tr key={o.id}>
                 <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
                 <td className="sm" style={{ fontWeight: 600 }}>{o.category || "Прочее"}</td>
                 <td className="num" style={{ fontWeight: 700, color: "var(--bad)" }}>{fmt(o.amount)}</td>
+                <td className="xs">{payText(o) || <span className="mut">—</span>}</td>
                 <td className="xs mut">{o.note}</td>
                 <td className="xs mut">{o.user}</td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>{delExp === o.id ? (<>
@@ -3645,13 +3771,14 @@ function FinanceTab({ data, reload, toast }) {
                 </>) : <button className="btn xs dng" onClick={() => setDelExp(o.id)}>удалить</button>}</div></td>
               </tr>
             ))}
-            {!genExpenses.length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 22 }}>Расходов нет — добавьте через «+ Добавить расход»</td></tr>}
+            {!genExpenses.length && <tr><td colSpan={7} className="mut" style={{ textAlign: "center", padding: 22 }}>Расходов нет — добавьте через «+ Добавить расход»</td></tr>}
           </tbody>
         </table>
       </div>
       {expForm && <CompanyExpenseForm onClose={() => setExpForm(false)} onSave={async (op) => {
-        await db.from("finance_ops").insert(cleanUuids(op));
-        await logAction("Расход компании: " + op.category, "company", fmt(op.amount) + (op.note ? " · " + op.note : ""));
+        const r = await db.from("finance_ops").insert(cleanUuids(op));
+        if (r.error) return; // ошибка показана, окно остаётся открытым
+        await logAction("Расход компании: " + op.category, "company", fmt(op.amount) + " · " + payText(op) + (op.note ? " · " + op.note : ""));
         setExpForm(false); await reload(); toast("Расход добавлен");
       }} />}
       <div className="split sect">
@@ -3677,7 +3804,7 @@ function FinanceTab({ data, reload, toast }) {
                 <td className="sm">{objName(o.object_id)}</td>
                 <td>{opLabel(o.type)}</td>
                 <td className="num" style={{ fontWeight: 700 }}>{fmt(o.amount)}</td>
-                <td className="xs mut">{[supName(o.supplier_id), o.product_name, o.item_name, o.reason, o.note].filter(Boolean).join(" · ")}</td>
+                <td className="xs mut">{opDetails(o, [supName(o.supplier_id), o.product_name])}</td>
                 <td className="xs mut">{o.user}</td>
               </tr>
             ))}
