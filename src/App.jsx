@@ -1850,6 +1850,199 @@ function RequestTabs(props) {
   );
 }
 
+/* ============ ИМПОРТ ЗАЯВКИ ИЗ EXCEL (Подбор товаров) ============
+   Файл клиента/мастера со списком материалов → строки заявки. Каждая строка сопоставляется с базой:
+   по коду (код/артикул), иначе по совпадению слов названия (размеры и цифры тоже учитываются).
+   Найденное можно поправить вручную; не найденное добавляется как ручная позиция. */
+const mtNorm = (s) => String(s == null ? "" : s).toLowerCase().replace(/ё/g, "е").replace(/["'«»“”„`]/g, " ")
+  .replace(/([a-zа-я])(\d)/g, "$1 $2").replace(/(\d)([a-zа-я])/g, "$1 $2").replace(/[^a-zа-я0-9/.,]+/g, " ").replace(/(^|\s)[.,/]+|[.,/]+(\s|$)/g, " ").trim();
+// латиница, похожая на кириллицу («XBC» → «хвс»), и единицы измерения, которые не помогают искать
+const MT_LAT = { a: "а", b: "в", c: "с", e: "е", h: "н", k: "к", m: "м", o: "о", p: "р", t: "т", x: "х", y: "у" };
+const MT_STOP = new Set(["мм", "см", "шт", "кг", "мм.", "см.", "шт.", "для", "из"]);
+const mtTokens = (s) => [...new Set(mtNorm(s).split(/\s+/)
+  .map((t) => (/^[abcehkmoptxy]+$/.test(t) ? t.replace(/./g, (ch) => MT_LAT[ch]) : t))
+  .filter((t) => t && !MT_STOP.has(t) && (/\d/.test(t) || t.length >= 2)))];
+function buildMatcher(products) {
+  const toks = products.map((p) => mtTokens(p.name + " " + (p.size || "")));
+  const index = new Map();
+  toks.forEach((ts, i) => ts.forEach((t) => { let a = index.get(t); if (!a) index.set(t, (a = [])); a.push(i); }));
+  const byCode = new Map();
+  products.forEach((p, i) => { [p.code, p.sku].forEach((c) => { const k = String(c == null ? "" : c).trim().toLowerCase(); if (k && !byCode.has(k)) byCode.set(k, i); }); });
+  const byName = new Map();
+  products.forEach((p, i) => { const k = mtNorm(p.name); if (k && !byName.has(k)) byName.set(k, i); });
+  // топ-кандидаты: { p, score 0..1 }
+  return (name, code) => {
+    const k = String(code == null ? "" : code).trim().toLowerCase();
+    if (k && byCode.has(k)) return [{ p: products[byCode.get(k)], score: 1, by: "код" }];
+    const exact = byName.get(mtNorm(name));
+    const rt = mtTokens(name);
+    if (!rt.length) return exact != null ? [{ p: products[exact], score: 1 }] : [];
+    const hits = new Map();
+    rt.forEach((t) => { const a = index.get(t); if (!a || a.length > 3000) return; a.forEach((i) => hits.set(i, (hits.get(i) || 0) + 1)); });
+    const res = [];
+    hits.forEach((common, i) => {
+      const pt = toks[i];
+      let score = (2 * common) / (rt.length + pt.length);
+      const nums = rt.filter((t) => /\d/.test(t));
+      if (nums.length && nums.some((n) => !pt.includes(n))) score *= 0.8; // размер/диаметр не совпал
+      res.push({ p: products[i], score });
+    });
+    if (exact != null) res.push({ p: products[exact], score: 1 });
+    res.sort((a, b) => b.score - a.score);
+    const out = []; const seen = new Set();
+    for (const r of res) { if (seen.has(r.p.id)) continue; seen.add(r.p.id); out.push(r); if (out.length >= 6) break; }
+    return out;
+  };
+}
+const MATCH_OK = 0.75, MATCH_MIN = 0.45;
+function RequestExcelImport({ products, onClose, onAdd }) {
+  const FIELDS = [
+    { id: "name", label: "Наименование*", kw: ["наименован", "назван", "товар", "name", "номенклат", "материал"] },
+    { id: "qty", label: "Количество", kw: ["кол-во", "количеств", "кол.", "кол", "qty", "сони", "soni"] },
+    { id: "unit", label: "Ед. изм.", kw: ["ед", "изм", "unit"] },
+    { id: "size", label: "Размер", kw: ["размер", "диаметр", "size"] },
+    { id: "code", label: "Код / артикул", kw: ["код", "артикул", "code", "sku"] },
+  ];
+  const [rows, setRows] = useState(null);
+  const [map, setMap] = useState({});
+  const [hasHeader, setHasHeader] = useState(true);
+  const [fname, setFname] = useState("");
+  const [err, setErr] = useState("");
+  const [pick, setPick] = useState({}); // номер строки → id товара | "" (ручная позиция)
+  const [askCancel, setAskCancel] = useState(false);
+  const fRef = useRef(null);
+  const matcher = useMemo(() => buildMatcher(products), [products]);
+  const num = (v) => Number(String(v == null ? "" : v).replace(/\s/g, "").replace(",", ".")) || 0;
+  const guessMap = (header) => {
+    const m = {};
+    header.forEach((h, i) => { const hl = String(h || "").toLowerCase(); for (const f of FIELDS) { if (m[f.id] == null && f.kw.some((k) => hl.includes(k))) { m[f.id] = i; break; } } });
+    return m;
+  };
+  const onFile = (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    setErr(""); setFname(f.name); setPick({});
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const wb = XLSX.read(new Uint8Array(r.result), { type: "array" });
+        const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "" }).filter((row) => row.some((c) => String(c).trim() !== ""));
+        if (!data.length) { setErr("В файле нет строк с данными"); return; }
+        // строка заголовков — среди первых 10 строк та, где узнаётся больше всего колонок
+        // (строки-заголовки документа вроде «Заявка на материалы» из одной ячейки пропускаются)
+        let hi = 0, bestN = 0;
+        data.slice(0, 10).forEach((row, i) => {
+          if (row.filter((c) => String(c).trim() !== "").length < 2) return;
+          const g = guessMap(row), n = Object.keys(g).length + (g.name != null ? 1 : 0);
+          if (n > bestN) { bestN = n; hi = i; }
+        });
+        const body = data.slice(hi);
+        const gm = guessMap(body[0]);
+        if (gm.name == null) { // заголовков нет — берём самую «текстовую» колонку как название
+          const n = Math.max(...body.map((r) => r.length));
+          let best = 0, bestLen = -1;
+          for (let c = 0; c < n; c++) { const len = body.reduce((a, r) => a + (isNaN(Number(r[c])) ? String(r[c] || "").length : 0), 0); if (len > bestLen) { bestLen = len; best = c; } }
+          gm.name = best; setHasHeader(false);
+        } else setHasHeader(true);
+        setRows(body); setMap(gm);
+      } catch (e2) { setErr("Не удалось прочитать файл: " + e2.message); }
+    };
+    r.readAsArrayBuffer(f);
+  };
+  const dataRows = rows ? (hasHeader ? rows.slice(1) : rows) : [];
+  const header = rows ? (hasHeader ? rows[0] : (rows[0] || []).map((_, i) => "Колонка " + (i + 1))) : [];
+  const cell = (row, fid) => (map[fid] == null ? "" : row[map[fid]]);
+  const items = useMemo(() => dataRows.map((row, i) => {
+    const name = String(cell(row, "name") || "").trim();
+    if (!name || map.name == null) return null;
+    const size = String(cell(row, "size") || "").trim();
+    const cands = matcher(name + (size ? " " + size : ""), cell(row, "code"));
+    const best = cands[0];
+    const auto = best && best.score >= MATCH_MIN ? best.p.id : "";
+    return { i, name, size, unit: String(cell(row, "unit") || "").trim(), qty: map.qty != null ? num(cell(row, "qty")) || 1 : 1, cands, auto };
+  }).filter(Boolean), [rows, map, hasHeader, matcher]);
+  const chosen = (it) => (pick[it.i] !== undefined ? pick[it.i] : it.auto);
+  const nFound = items.filter((it) => chosen(it)).length;
+  const nCheck = items.filter((it) => { const c = chosen(it); const cd = it.cands.find((x) => x.p.id === c); return c && pick[it.i] === undefined && cd && cd.score < MATCH_OK; }).length;
+  const run = () => {
+    const out = items.map((it) => {
+      const id = chosen(it);
+      const p = id ? products.find((x) => x.id === id) : null;
+      return p ? { product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: it.qty, cost: p.cost }
+        : { product_id: null, name: it.name, size: it.size, unit: it.unit || "шт", qty: it.qty, cost: 0 };
+    });
+    if (out.length) onAdd(out);
+  };
+  const pct = (s) => Math.round(s * 100) + "%";
+  return (
+    <>
+    <Modal title="Заявка из Excel" onClose={() => (rows ? setAskCancel(true) : onClose())} w={1000}>
+      {err && <div className="card sect" style={{ borderColor: "var(--bad)", color: "var(--bad)", padding: 10 }}>{err}</div>}
+      {!rows && (
+        <div>
+          <div className="card clk" style={{ borderStyle: "dashed", textAlign: "center", padding: 34 }} onClick={() => fRef.current.click()}>
+            <div style={{ fontSize: 26, marginBottom: 6 }}>📊</div>
+            <div style={{ fontWeight: 700 }}>Выбрать файл Excel (.xlsx / .xls / .csv)</div>
+            <div className="xs mut" style={{ marginTop: 4 }}>Список материалов: наименование и количество (размер, единица, код — если есть). Каждая строка найдётся в базе товаров; спорные совпадения можно поправить перед добавлением.</div>
+          </div>
+          <input ref={fRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={onFile} />
+          <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}><button className="btn" onClick={onClose}>Отмена</button></div>
+        </div>
+      )}
+      {rows && (
+        <div>
+          <div className="row" style={{ marginBottom: 12 }}>
+            <Badge c="var(--t-strong)">{fname}</Badge>
+            <span className="sm">строк: <b>{items.length}</b> · найдено в базе: <b style={{ color: "var(--ok)" }}>{nFound}</b>{nCheck > 0 && <> · проверьте: <b style={{ color: "var(--warn)" }}>{nCheck}</b></>} · ручных: <b>{items.length - nFound}</b></span>
+            <label className="sm clk" style={{ marginLeft: "auto" }}><input type="checkbox" checked={hasHeader} onChange={(e) => setHasHeader(e.target.checked)} /> первая строка — заголовки</label>
+            <button className="btn xs" onClick={() => { setRows(null); setMap({}); setPick({}); }}>↺ другой файл</button>
+          </div>
+          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(170px,1fr))", marginBottom: 12 }}>
+            {FIELDS.map((f) => (
+              <Fld key={f.id} label={f.label}>
+                <select className="inp" value={map[f.id] == null ? "" : map[f.id]} onChange={(e) => { setPick({}); setMap({ ...map, [f.id]: e.target.value === "" ? null : Number(e.target.value) }); }}>
+                  <option value="">— нет —</option>
+                  {header.map((h, i) => <option key={i} value={i}>{String(h || "Колонка " + (i + 1)).slice(0, 30)}</option>)}
+                </select>
+              </Fld>
+            ))}
+          </div>
+          <div style={{ overflow: "auto", maxHeight: 440, border: "1px solid var(--line)", borderRadius: 10 }}>
+            <table className="t">
+              <thead><tr><th style={{ width: 34 }}>№</th><th>Из файла</th><th style={{ width: 70, textAlign: "right" }}>Кол-во</th><th style={{ minWidth: 330 }}>Товар в базе</th><th style={{ width: 116 }}>Совпадение</th></tr></thead>
+              <tbody>
+                {items.map((it, k) => {
+                  const c = chosen(it), cd = it.cands.find((x) => x.p.id === c);
+                  const tone = !c ? "var(--t-neutral)" : pick[it.i] !== undefined || (cd && cd.score >= MATCH_OK) ? "var(--t-ok)" : "var(--t-warn)";
+                  return (
+                    <tr key={it.i}>
+                      <td className="xs mut">{k + 1}</td>
+                      <td className="sm"><b style={{ fontWeight: 600 }}>{it.name}</b>{(it.size || it.unit) && <div className="xs mut">{[it.size, it.unit].filter(Boolean).join(" · ")}</div>}</td>
+                      <td className="num">{fmt(it.qty)}</td>
+                      <td>
+                        <select className="inp" value={c} onChange={(e) => setPick({ ...pick, [it.i]: e.target.value })}>
+                          {it.cands.map((x) => <option key={x.p.id} value={x.p.id}>{x.p.name}{x.p.size ? " · " + x.p.size : ""} — код {x.p.code} ({x.by || pct(x.score)})</option>)}
+                          <option value="">— нет в базе: добавить как ручную позицию —</option>
+                        </select>
+                      </td>
+                      <td><Badge c={tone}>{!c ? "ручная" : pick[it.i] !== undefined ? "выбрано" : cd && cd.score >= MATCH_OK ? "найдено" : "проверьте"}</Badge></td>
+                    </tr>
+                  );
+                })}
+                {!items.length && <tr><td colSpan={5} className="mut" style={{ textAlign: "center", padding: 20 }}>Нет строк с наименованием — укажите колонку «Наименование»</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
+            <button className="btn" onClick={() => setAskCancel(true)}>Отмена</button>
+            <button className="btn pri" disabled={!items.length} onClick={run}>Добавить {items.length} поз. в заявку</button>
+          </div>
+        </div>
+      )}
+    </Modal>
+    {askCancel && <DiscardConfirm text={"Строки из файла «" + fname + "» не будут добавлены в заявку."} onStay={() => setAskCancel(false)} onDiscard={onClose} />}
+    </>
+  );
+}
 function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onMeta, onSaved }) {
   const { products, suppliers, objects, masters } = data;
   const [step, setStep] = useState(() => { try { return JSON.parse(localStorage.getItem(draftKey) || "{}").step || 0; } catch { return 0; } });
@@ -1859,6 +2052,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   const [err, setErr] = useState("");
   const [lines, setLines] = useState(() => { try { return JSON.parse(localStorage.getItem(draftKey) || "{}").lines || []; } catch { return []; } });
   const [delLine, setDelLine] = useState(null);
+  const [xlImport, setXlImport] = useState(false);
   const [markupModal, setMarkupModal] = useState(false);
   const [markup, setMarkup] = useState(15);
   const [markupCustom, setMarkupCustom] = useState("");
@@ -1886,6 +2080,20 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
       if (ex) return prev.map((l) => (l.product_id === p.id ? { ...l, qty: l.qty + 1 } : l));
       return [...prev, { id: uuid(), product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, cost: p.cost, manual: false }];
     });
+  };
+  // строки из Excel: найденные товары складываются с уже выбранными, остальные — ручные позиции
+  const addImported = (rows) => {
+    setLines((prev) => {
+      const next = prev.map((l) => ({ ...l })); // копии: исходный список не меняем
+      rows.forEach((r) => {
+        const ex = r.product_id ? next.find((l) => l.product_id === r.product_id) : null;
+        if (ex) ex.qty = (Number(ex.qty) || 0) + r.qty;
+        else next.push({ id: uuid(), product_id: r.product_id, name: r.name, size: r.size || "", unit: r.unit || "шт", qty: r.qty, cost: r.cost || 0, supplier_id: null, manual: !r.product_id });
+      });
+      return next;
+    });
+    setXlImport(false);
+    toast("Из Excel добавлено строк: " + rows.length + " (найдено в базе: " + rows.filter((r) => r.product_id).length + ")");
   };
   const addManualLine = () => {
     setLines((prev) => [...prev, { id: uuid(), product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: 0, supplier_id: null, manual: true }]);
@@ -2041,7 +2249,9 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
         <div className="card">
           <div className="row" style={{ marginBottom: 12 }}>
             <h3 style={{ marginRight: "auto" }}>Подбор товаров</h3>
+            <button className="btn" onClick={() => setXlImport(true)}>📊 Загрузить из Excel</button>
           </div>
+          {xlImport && <RequestExcelImport products={filteredProducts} onClose={() => setXlImport(false)} onAdd={addImported} />}
 
           <div className="row" style={{ marginBottom: 12, gap: 10 }}>
             <ProductPicker products={filteredProducts} placeholder="Поиск товара по названию / коду — начните вводить…" onPick={addFromBase} />
@@ -2049,7 +2259,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
 
           {lines.length === 0 && (
             <div className="card sect mut" style={{ textAlign: "center", padding: 30 }}>
-              Список пуст. Найдите товар через поиск выше или добавьте позицию вручную.
+              Список пуст. Найдите товар через поиск выше, загрузите список из Excel или добавьте позицию вручную.
             </div>
           )}
 
