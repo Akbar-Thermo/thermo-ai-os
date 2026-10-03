@@ -2855,14 +2855,43 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     if (ok) await logAction("Изменено количество", "object:" + obj.name, itemName(iid) + ": " + fmt(qty));
     return ok;
   };
+  // возврат считается по цене продажи позиции: при изменении цены/себестоимости пересчитываем её возвраты,
+  // иначе в Excel и в долге клиента возврат остаётся по старой цене
+  const retMismatch = (list = obj.items || []) => ops.filter((o) => o.type === "return" && !o.voided && o.item_id).map((o) => {
+    const it = list.find((i) => i.id === o.item_id);
+    if (!it) return null;
+    const q = Number(o.qty) || 0, amount = round2(q * (Number(it.price) || 0)), cost_amount = round2(q * (Number(it.cost) || 0));
+    const patch = {};
+    if (Math.abs(amount - (Number(o.amount) || 0)) > 0.004) patch.amount = amount;
+    if (fin && Math.abs(cost_amount - (Number(o.cost_amount) || 0)) > 0.004) patch.cost_amount = cost_amount;
+    return Object.keys(patch).length ? { o, it, patch } : null;
+  }).filter(Boolean);
+  const syncReturns = async (list) => {
+    let n = 0;
+    for (const { o, it, patch } of retMismatch(list)) {
+      const r = await db.from("finance_ops").update(patch).eq("id", o.id);
+      if (r.error) continue;
+      n++;
+      if (patch.amount != null) await logAction("Возврат пересчитан по цене продажи", "object:" + obj.name, (it.name || "") + " × " + fmt(o.qty) + ": было " + fmt2(o.amount) + " → стало " + fmt2(patch.amount));
+    }
+    return n;
+  };
   const setItemPrice = async (iid, price) => {
     const ok = await saveItems((cur) => cur.map((i) => (i.id === iid ? { ...i, price } : i)));
-    if (ok) await logAction("Изменена цена", "object:" + obj.name, itemName(iid) + ": " + fmt2(price));
+    if (ok) {
+      await logAction("Изменена цена", "object:" + obj.name, itemName(iid) + ": " + fmt2(price));
+      if (await syncReturns((obj.items || []).map((i) => (i.id === iid ? { ...i, price } : i)))) { await reload(); toast("Возвраты по этой позиции пересчитаны по новой цене"); }
+    }
     return ok;
   };
   const saveItem = async (item) => {
     const ok = await saveItems((cur) => cur.map((i) => (i.id === item.id ? { ...i, ...item } : i)));
-    if (ok) { await logAction("Изменена позиция", "object:" + obj.name, (item.name || "") + " × " + fmt(item.qty) + " по " + fmt2(item.price)); toast("Позиция обновлена"); }
+    if (ok) {
+      await logAction("Изменена позиция", "object:" + obj.name, (item.name || "") + " × " + fmt(item.qty) + " по " + fmt2(item.price));
+      const n = await syncReturns((obj.items || []).map((i) => (i.id === item.id ? { ...i, ...item } : i)));
+      if (n) await reload();
+      toast(n ? "Позиция обновлена, возвраты пересчитаны по новой цене" : "Позиция обновлена");
+    }
     return ok;
   };
   // newBatch: true → создаём новую поставку с новым номером. false → добавляем в последнюю существующую поставку (или №1, если поставок ещё нет)
@@ -3078,6 +3107,12 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         </table>
       </div>
 
+      {retMismatch().some((x) => x.patch.amount != null) && (
+        <div className="card sect row" style={{ borderColor: "var(--warn)", gap: 10 }}>
+          <div className="sm" style={{ marginRight: "auto" }}>⚠ Сумма возврата не совпадает с ценой продажи: {retMismatch().filter((x) => x.patch.amount != null).map(({ o, it, patch }) => (it.name || "").slice(0, 40) + " — возврат " + fmt2(o.amount) + ", по цене продажи " + fmt2(patch.amount)).join("; ")}</div>
+          <button className="btn pri" onClick={async () => { const n = await syncReturns(); await reload(); toast(n ? "Возвраты пересчитаны по цене продажи: " + n : "Не удалось пересчитать"); }}>Пересчитать по цене продажи</button>
+        </div>
+      )}
       <div className="row sect">
         <h3 style={{ marginRight: "auto" }}>Финансовые операции</h3>
         {OP_TYPES.filter((t) => (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes(t.id)).map((t) => <button key={t.id} className="btn xs" onClick={() => setOpForm({ type: t.id })}>+ {t.label}</button>)}
