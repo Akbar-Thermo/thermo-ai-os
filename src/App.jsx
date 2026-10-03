@@ -662,35 +662,62 @@ function xlZip(files) { // ZIP без сжатия (stored)
 }
 const xlEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "");
 const xlCol = (c) => { let s = ""; c++; while (c) { const m = (c - 1) % 26; s = String.fromCharCode(65 + m) + s; c = Math.floor((c - 1) / 26); } return s; };
+// шрифты: текст — Baskerville Old Face, числа — Times New Roman; красный — для возвратов
 // стили: 0 обычный, 1 заголовок 14 жирный, 2 жирный, 3 шапка, 4 текст в рамке, 5 число в рамке, 6 сумма в рамке,
-//        7 подпись итога (жирный, вправо, рамка), 8 сумма итога (жирная, рамка), 9 по центру в рамке
+//        7 подпись итога (жирный, вправо, рамка), 8 сумма итога (жирная, рамка), 9 по центру в рамке;
+//        10–14 — те же для чисел (Times New Roman), 15–21 — красные варианты
+const XL_FONT = (name, b, sz, red) => "<font>" + (b ? "<b/>" : "") + '<sz val="' + sz + '"/>' + (red ? '<color rgb="FFC00000"/>' : "") + '<name val="' + name + '"/></font>';
+const XL_TXT = "Baskerville Old Face", XL_NUM = "Times New Roman";
+const XL_XF = (num, font, border, extra = "", align = "") => '<xf numFmtId="' + num + '" fontId="' + font + '" fillId="' + (extra === "fill" ? 2 : 0) + '" borderId="' + border + '" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">' + (align ? "<alignment " + align + "/>" : "") + "</xf>";
 const XL_STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
   + '<numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.00"/></numFmts>'
-  + '<fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="14"/><name val="Calibri"/></font></fonts>'
+  + '<fonts count="9">' + XL_FONT(XL_TXT, 0, 11) + XL_FONT(XL_TXT, 1, 11) + XL_FONT(XL_TXT, 1, 14) + XL_FONT(XL_NUM, 0, 11) + XL_FONT(XL_NUM, 1, 11)
+  + XL_FONT(XL_TXT, 0, 11, 1) + XL_FONT(XL_NUM, 0, 11, 1) + XL_FONT(XL_TXT, 1, 11, 1) + XL_FONT(XL_NUM, 1, 11, 1) + '</fonts>'
   + '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE8E8E8"/><bgColor indexed="64"/></patternFill></fill></fills>'
   + '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color auto="1"/></left><right style="thin"><color auto="1"/></right><top style="thin"><color auto="1"/></top><bottom style="thin"><color auto="1"/></bottom><diagonal/></border></borders>'
-  + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="10">'
-  + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
-  + '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
-  + '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
-  + '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
-  + '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>'
-  + '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
-  + '<xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>'
-  + '<xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>'
-  + '<xf numFmtId="164" fontId="1" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"/>'
-  + '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>'
+  + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="23">'
+  + XL_XF(0, 0, 0)                                                     // 0
+  + XL_XF(0, 2, 0)                                                     // 1 заголовок
+  + XL_XF(0, 1, 0)                                                     // 2 жирный
+  + XL_XF(0, 1, 1, "fill", 'horizontal="center" vertical="center" wrapText="1"') // 3 шапка
+  + XL_XF(0, 0, 1, "", 'vertical="center" wrapText="1"')                // 4 текст
+  + XL_XF(0, 0, 1, "", 'horizontal="center" vertical="center"')         // 5 число
+  + XL_XF(164, 0, 1, "", 'vertical="center"')                           // 6 сумма
+  + XL_XF(0, 1, 1, "", 'horizontal="right" vertical="center"')          // 7 подпись итога
+  + XL_XF(164, 1, 1)                                                    // 8 сумма итога
+  + XL_XF(0, 0, 1, "", 'horizontal="center" vertical="center"')         // 9 по центру
+  + XL_XF(0, 3, 1, "", 'horizontal="center" vertical="center"')         // 10 = 5 Times
+  + XL_XF(164, 3, 1, "", 'vertical="center"')                           // 11 = 6 Times
+  + XL_XF(164, 4, 1)                                                    // 12 = 8 Times
+  + XL_XF(0, 3, 1, "", 'horizontal="center" vertical="center"')         // 13 = 9 Times
+  + XL_XF(0, 3, 0)                                                      // 14 = 0 Times
+  + XL_XF(0, 5, 1, "", 'vertical="center" wrapText="1"')                // 15 = 4 красный
+  + XL_XF(0, 6, 1, "", 'horizontal="center" vertical="center"')         // 16 = 10 красный
+  + XL_XF(164, 6, 1, "", 'vertical="center"')                           // 17 = 11 красный
+  + XL_XF(0, 7, 1, "", 'horizontal="right" vertical="center"')          // 18 = 7 красный
+  + XL_XF(164, 8, 1)                                                    // 19 = 12 красный
+  + XL_XF(0, 6, 1, "", 'horizontal="center" vertical="center"')         // 20 = 13 красный
+  + XL_XF(0, 5, 1, "", 'horizontal="center" vertical="center"')         // 21 = 9 красный
+  + XL_XF(0, 7, 0)                                                      // 22 = 2 красный (раздел)
   + '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+const XL_NUMSTYLE = { 0: 14, 5: 10, 6: 11, 8: 12, 9: 13 };
+const XL_REDSTYLE = { 2: 22, 4: 15, 9: 21, 7: 18, 10: 16, 11: 17, 12: 19, 13: 20 };
 function xlSheetXml(rows, cols, types) {
   const n = cols.length, merges = [];
+  let red = false;
   const cell = (r, c, v, s) => {
     const ref = xlCol(c) + (r + 1);
+    const isNum = typeof v === "number" && isFinite(v);
+    // числа и строки только из цифр (даты, телефоны) — шрифтом для цифр
+    if ((isNum || (typeof v === "string" && /^[\d\s.,:\/+\-−]+$/.test(v) && /\d/.test(v))) && XL_NUMSTYLE[s] != null) s = XL_NUMSTYLE[s];
+    if (red && XL_REDSTYLE[s] != null) s = XL_REDSTYLE[s];
     if (v === "" || v == null) return '<c r="' + ref + '" s="' + s + '"/>';
-    if (typeof v === "number" && isFinite(v)) return '<c r="' + ref + '" s="' + s + '"><v>' + v + "</v></c>";
+    if (isNum) return '<c r="' + ref + '" s="' + s + '"><v>' + v + "</v></c>";
     return '<c r="' + ref + '" s="' + s + '" t="inlineStr"><is><t xml:space="preserve">' + xlEsc(v) + "</t></is></c>";
   };
   const body = rows.map((row, r) => {
     const k = row.k, v = row.v || [];
+    red = !!row.red;
     let cs = "";
     if (k === "title" || k === "info" || k === "section") {
       cs = cell(r, 0, v[0], k === "title" ? 1 : k === "section" ? 2 : 0);
@@ -2880,12 +2907,12 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   const safe = (s) => String(s || "object").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
   const exportClient = () => {
     const rows = [
-      { k: "title", v: ["СПЕЦИФИКАЦИЯ: " + (obj.name || "")] },
-      { k: "info", v: ["Клиент: " + (obj.client || "—") + (obj.phone ? " · тел. " + obj.phone : "")] },
-      { k: "info", v: ["Дата: " + new Date().toLocaleDateString("ru-RU")] },
+      { k: "title", v: ["ОБЪЕКТ: " + (obj.name || "")] },
+      { k: "section", v: ["Клиент: " + (obj.client || "—") + (obj.phone ? " · тел. " + obj.phone : "")] },
+      { k: "section", v: ["Дата: " + new Date().toLocaleDateString("ru-RU")] },
       { k: "blank" },
     ];
-    const tot = (label, v) => rows.push({ k: "total", v: [label, v] });
+    const tot = (label, v, red) => rows.push({ k: "total", v: [label, v], red });
     let n = 1;
     batches.forEach((b) => {
       rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
@@ -2900,17 +2927,28 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     });
     const returns = ops.filter((o) => o.type === "return" && !o.voided);
     if (returns.length) {
-      rows.push({ k: "section", v: ["ВОЗВРАТЫ"] });
+      rows.push({ k: "section", v: ["ВОЗВРАТЫ"], red: true });
       rows.push({ k: "head", v: ["№", "Наименование", "Кол-во", "Ед.", "Дата", "Сумма"] });
-      returns.forEach((o, k) => rows.push({ k: "row", v: [k + 1, o.product_name || "", o.qty || "", o.unit || "", dt(o.op_date || o.created_at), -(o.amount || 0)] }));
-      tot("Итого возвратов", -f.retSale);
+      returns.forEach((o, k) => rows.push({ k: "row", v: [k + 1, o.product_name || "", o.qty || "", o.unit || "", dt(o.op_date || o.created_at), -(o.amount || 0)], red: true }));
+      tot("Итого возвратов", -f.retSale, true);
       rows.push({ k: "blank" });
     }
-    tot("Итого по объекту", f.sale);
-    if (f.discount) tot("Скидка", -f.discount);
-    if (f.retSale) tot("Возвраты", -f.retSale);
-    tot("К ОПЛАТЕ", f.saleNet);
-    const r = downloadStyledXLSX("Спецификация_" + safe(obj.name) + ".xlsx", "Клиенту", rows, [6, 60, 10, 7, 13, 15], ["c", "t", "n", "c", "m", "m"]);
+    // оплаты клиента
+    const pays = ops.filter((o) => o.type === "client_payment" && !o.voided)
+      .sort((a, b) => String(a.op_date || a.created_at).localeCompare(String(b.op_date || b.created_at)));
+    if (pays.length) {
+      rows.push({ k: "section", v: ["ОПЛАТЫ"] });
+      rows.push({ k: "head", v: ["№", "Дата · способ оплаты", "", "", "", "Сумма"] });
+      pays.forEach((o, k) => rows.push({ k: "row", v: [k + 1, [dt(o.op_date || o.created_at), payText(o), o.note].filter(Boolean).join(" · "), "", "", "", round2(o.amount || 0)] }));
+      tot("Итого оплачено", round2(f.paidClient));
+      rows.push({ k: "blank" });
+    }
+    tot("Сумма выданного товара:", round2(f.sale));
+    if (f.discount) tot("Скидка:", -round2(f.discount));
+    if (f.retSale) tot("Возвраты:", -round2(f.retSale), true);
+    tot("Оплачено:", -round2(f.paidClient));
+    tot(f.clientDebt < 0 ? "Баланс (переплата клиента):" : "Баланс :", round2(f.clientDebt));
+    const r = downloadStyledXLSX("Объект_" + safe(obj.name) + ".xlsx", "Клиенту", rows, [6, 60, 10, 7, 13, 15], ["c", "t", "n", "c", "m", "m"]);
     toast(r === "xlsx" ? "Excel для клиента скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
   const exportDelivery = () => {
@@ -3731,7 +3769,7 @@ function BonusAccrueForm({ objects, onSave, products = [], suppliers = [] }) {
             onPick={(p) => { setItemName(p.name + (p.size ? " · " + p.size : "")); setAmount(String(Number(p.cost) || retailOf(p) || "")); }} />
         </Fld></div>}
         {kind === "item" && <div style={{ gridColumn: "1/-1" }}><Fld label="Предмет (можно написать вручную)">
-          <input className="inp" autoComplete="off" name="bonus-item" value={itemName} onChange={(e) => setItemName(e.target.value)} placeholder="Перфоратор Bosch GBH 2-26 / набор ключей / телефон…" /></Fld></div>}
+          <input className="inp" autoComplete="off" autoCorrect="off" spellCheck={false} name="te_bonus_thing" id="te_bonus_thing" data-lpignore="true" data-form-type="other" value={itemName} onChange={(e) => setItemName(e.target.value)} placeholder="Перфоратор Bosch GBH 2-26, набор ключей, дрель…" /></Fld></div>}
         {kind === "money" ? <PayFields p={pay} setP={setPay} methods={OUT_METHODS} usdLabel="Бонус, $" /> : <Fld label="Цена предмета, $">
           <input type="number" className="inp" autoComplete="off" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Fld>}
         <Fld label="Привязать к объекту (опц.)">
