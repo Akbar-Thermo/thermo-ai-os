@@ -550,14 +550,18 @@ async function warehouseIn(returnOps, sourceObjName) {
     if (f.error) { failed++; continue; }
     let r;
     if (f.row) {
-      // себестоимость и цена — средние по остатку и приходу
-      const oq = Math.max(0, Number(f.row.qty) || 0), nq = oq + qty;
-      const avg = (o, n) => (oq > 0 ? round2((oq * (Number(o) || 0) + qty * n) / nq) : round2(n));
-      r = await db.from("warehouse").update({ qty: nq, cost: avg(f.row.cost, unitCost), price: avg(f.row.price, unitPrice) }).eq("id", f.row.id);
+      // возврат не меняет текущую себестоимость и цену склада — только количество
+      // (клиенту возврат засчитан по цене, по которой товар ему выдали; это в операции возврата)
+      r = await db.from("warehouse").update({ qty: round2((Math.max(0, Number(f.row.qty) || 0)) + qty) }).eq("id", f.row.id);
     } else {
+      // новая строка склада — по текущей себестоимости/цене товара из базы; если товара в базе нет — по позиции
+      let cur = null;
+      if (op.product_id) { const pr = await db.from("products").select().eq("id", op.product_id); cur = pr.data && pr.data[0] ? pr.data[0] : null; }
+      const curCost = cur && Number(cur.cost) > 0 ? Number(cur.cost) : unitCost;
+      const curPrice = cur && retailOf(cur) > 0 ? retailOf(cur) : unitPrice;
       r = await db.from("warehouse").insert(cleanUuids({
         product_id: op.product_id || null, name: op.product_name, qty,
-        cost: round2(unitCost), price: round2(unitPrice),
+        cost: round2(curCost), price: round2(curPrice),
         supplier_id: op.supplier_id || null, unit: op.unit || "шт", size: op.size || "",
       }));
     }
@@ -3570,7 +3574,8 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
         <Fld label="Ответственный"><PersonSelect value={user} onChange={setUser} /></Fld>
       </div>
       <div className="row" style={{ justifyContent: "space-between", marginTop: 16 }}>
-        <div className="mono" style={{ fontWeight: 700 }}>Позиций: {totalCnt} · Итого возврат: <span style={{ color: "var(--bad)" }}>{money(totalSum)}</span></div>
+        <div className="mono" style={{ fontWeight: 700 }}>Позиций: {totalCnt} · Итого возврат: <span style={{ color: "var(--bad)" }}>{money(totalSum)}</span>
+          <div className="xs mut" style={{ fontWeight: 400 }}>по цене, по которой товар выдан клиенту · себестоимость и цена товара в базе и на складе не меняются</div></div>
         <div className="row">
           <button className="btn" onClick={onClose}>Отмена</button>
           <button className="btn pri" disabled={!totalCnt || busy} onClick={submit}>{busy ? "Оформляю…" : "Оформить возврат"}</button>
