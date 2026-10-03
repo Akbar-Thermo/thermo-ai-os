@@ -116,6 +116,59 @@ const EXPENSE_CATEGORIES = ["Зарплата", "Аренда", "Коммуна�
 // зарплату видит только руководитель
 const SALARY_CAT = "Зарплата";
 const isSalary = (o) => o && o.type === "company_expense" && o.category === SALARY_CAT;
+// вид выплаты зарплаты и сотрудник. Сотрудники хранятся в таблице users с ролью staff (войти в систему не могут).
+const SALARY_KINDS = ["Зарплата", "Аванс", "Премия"];
+const STAFF_ROLE = "staff";
+const isStaff = (u) => !!u && u.role === STAFF_ROLE;
+// вид и сотрудник лежат в колонках item_name / product_name; если их нет в базе — в начале комментария «[Аванс · Имя]»
+const SAL_NOTE_RE = /^\[([^·\]]+?)\s*·\s*([^\]]+)\]\s*/;
+function salaryInfo(o) {
+  if (!isSalary(o)) return null;
+  let kind = o.item_name || "", emp = o.product_name || "", note = o.note || "";
+  const m = SAL_NOTE_RE.exec(note);
+  if (m) { kind = kind || m[1].trim(); emp = emp || m[2].trim(); note = note.slice(m[0].length); }
+  return { kind: kind || "Зарплата", emp, note };
+}
+function employeeList(data) {
+  const set = new Set();
+  (data.users || []).filter(isStaff).forEach((u) => { if (u.name) set.add(u.name.trim()); });
+  (data.finance_ops || []).forEach((o) => { const i = salaryInfo(o); if (i && i.emp) set.add(i.emp); });
+  return [...set].sort((a, b) => a.localeCompare(b, "ru"));
+}
+async function addEmployee(name) {
+  const n = String(name || "").trim().replace(/\s+/g, " ");
+  if (!n) return false;
+  const r = await db.from("users").insert({ username: "staff-" + uuid().slice(0, 8), name: n, role: STAFF_ROLE, status: "inactive" });
+  if (r.error) return false;
+  await logAction("Добавлен сотрудник", "staff:" + n, "");
+  return true;
+}
+function EmployeeSelect({ value, onChange, employees, onAdded }) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    const n = name.trim().replace(/\s+/g, " "); if (!n) return;
+    setBusy(true);
+    if (!employees.some((x) => x.toLowerCase() === n.toLowerCase())) { await addEmployee(n); if (onAdded) await onAdded(); }
+    setBusy(false); onChange(n); setAdding(false); setName("");
+  };
+  if (adding) return (
+    <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
+      <input className="inp" autoFocus placeholder="Имя и фамилия сотрудника" value={name} onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } else if (e.key === "Escape") setAdding(false); }} />
+      <button className="btn xs pri" disabled={!name.trim() || busy} onClick={save}>{busy ? "…" : "OK"}</button>
+      <button className="btn xs" onClick={() => { setAdding(false); setName(""); }}>✕</button>
+    </div>
+  );
+  return (
+    <select className="inp" value={value || ""} style={{ borderColor: value ? undefined : "var(--bad)" }} onChange={(e) => { if (e.target.value === "__add__") setAdding(true); else onChange(e.target.value); }}>
+      <option value="">— выберите сотрудника —</option>
+      {employees.map((x) => <option key={x} value={x}>{x}</option>)}
+      <option value="__add__">+ добавить сотрудника…</option>
+    </select>
+  );
+}
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -4586,15 +4639,20 @@ function Dashboard({ data }) {
 }
 
 /* ============ FINANCE TAB ============ */
-function CompanyExpenseForm({ onClose, onSave, boss = false }) {
+function CompanyExpenseForm({ onClose, onSave, boss = false, employees = [], onEmployeeAdded }) {
   const cats = boss ? EXPENSE_CATEGORIES : EXPENSE_CATEGORIES.filter((c) => c !== SALARY_CAT);
-  const [v, setV] = useState({ category: cats[0], op_date: today(), note: "", user: curUserName() });
+  const [v, setV] = useState({ category: cats[0], op_date: today(), note: "", user: curUserName(), kind: "Зарплата", emp: "" });
+  const sal = v.category === SALARY_CAT;
   const [pay, setPay] = useState(() => payInit(null));
   const [busy, setBusy] = useState(false);
   return (
     <Modal title="Расход компании" onClose={onClose} w={560}>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         <div style={{ gridColumn: "1/-1" }}><Fld label="Категория"><select className="inp" value={v.category} onChange={(e) => setV({ ...v, category: e.target.value })}>{cats.map((c) => <option key={c}>{c}</option>)}</select></Fld></div>
+        {sal && <Fld label="Вид выплаты">
+          <div className="row" style={{ gap: 4 }}>{SALARY_KINDS.map((k) => <button key={k} type="button" className={"btn xs " + (v.kind === k ? "pri" : "")} onClick={() => setV({ ...v, kind: k })}>{k}</button>)}</div>
+        </Fld>}
+        {sal && <Fld label="Сотрудник"><EmployeeSelect value={v.emp} onChange={(emp) => setV({ ...v, emp })} employees={employees} onAdded={onEmployeeAdded} /></Fld>}
         <PayFields p={pay} setP={setPay} methods={OUT_METHODS} usdLabel={payUsdLabel("company_expense")} />
         <Fld label="Дата"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
         <Fld label="Кто внёс"><PersonSelect value={v.user} onChange={(u) => setV({ ...v, user: u })} /></Fld>
@@ -4602,7 +4660,12 @@ function CompanyExpenseForm({ onClose, onSave, boss = false }) {
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
-        <button className="btn pri" disabled={!(payUsd(pay) > 0) || busy} onClick={async () => { setBusy(true); await onSave({ type: "company_expense", object_id: null, category: v.category, ...payPatch(pay, "company_expense"), op_date: v.op_date || today(), note: v.note, user: v.user }); setBusy(false); }}>{busy ? "Сохраняю…" : "Сохранить"}</button>
+        <button className="btn pri" disabled={!(payUsd(pay) > 0) || busy || (sal && !v.emp)} title={sal && !v.emp ? "Выберите сотрудника" : ""} onClick={async () => {
+          setBusy(true);
+          const op = { type: "company_expense", object_id: null, category: v.category, ...payPatch(pay, "company_expense"), op_date: v.op_date || today(), note: v.note, user: v.user };
+          if (sal) { op.item_name = v.kind; op.product_name = v.emp; }
+          await onSave(op); setBusy(false);
+        }}>{busy ? "Сохраняю…" : "Сохранить"}</button>
       </div>
     </Modal>
   );
@@ -4632,6 +4695,19 @@ function FinanceTab({ data, reload, toast, boss = false }) {
   };
   // общие расходы компании = expense без привязки к объекту
   const genExpenses = finance_ops.filter((o) => o.type === "company_expense" && !o.voided && inRange(o));
+  const employees = useMemo(() => employeeList(data), [data.users, data.finance_ops]);
+  const [staffOpen, setStaffOpen] = useState(false);
+  const [newEmp, setNewEmp] = useState("");
+  const [delEmp, setDelEmp] = useState(null);
+  // выплаты по сотрудникам за период: зарплата / аванс / премия
+  const staffRows = useMemo(() => {
+    if (!boss) return [];
+    const m = {};
+    employees.forEach((n) => { m[n] = { name: n, Зарплата: 0, Аванс: 0, Премия: 0, total: 0 }; });
+    genExpenses.forEach((o) => { const i = salaryInfo(o); if (!i || !i.emp) return; const r = m[i.emp] || (m[i.emp] = { name: i.emp, Зарплата: 0, Аванс: 0, Премия: 0, total: 0 }); r[SALARY_KINDS.includes(i.kind) ? i.kind : "Зарплата"] += o.amount || 0; r.total += o.amount || 0; });
+    return Object.values(m).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, "ru"));
+  }, [employees, genExpenses, boss]);
+  const staffUser = (name) => (data.users || []).find((u) => isStaff(u) && String(u.name || "").trim() === name);
   const byCat = {};
   genExpenses.forEach((o) => { byCat[o.category || "Прочее"] = (byCat[o.category || "Прочее"] || 0) + (o.amount || 0); });
   const totalExp = genExpenses.reduce((a, o) => a + (o.amount || 0), 0);
@@ -4671,10 +4747,10 @@ function FinanceTab({ data, reload, toast, boss = false }) {
             {genExpenses.slice().reverse().map((o) => (
               <tr key={o.id}>
                 <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
-                <td className="sm" style={{ fontWeight: 600 }}>{o.category || "Прочее"}</td>
+                <td className="sm" style={{ fontWeight: 600 }}>{o.category || "Прочее"}{salaryInfo(o) && salaryInfo(o).kind !== "Зарплата" ? <span className="mut" style={{ fontWeight: 500 }}> · {salaryInfo(o).kind}</span> : null}</td>
                 <td className="num" style={{ fontWeight: 700, color: "var(--bad)" }}>{fmt(o.amount)}</td>
                 <td className="xs">{payText(o) || <span className="mut">—</span>}</td>
-                <td className="xs mut">{o.note}</td>
+                <td className="xs mut">{salaryInfo(o) ? <>{salaryInfo(o).emp && <b style={{ color: "var(--txt)" }}>{salaryInfo(o).emp}</b>}{salaryInfo(o).emp && salaryInfo(o).note ? " · " : ""}{salaryInfo(o).note}</> : o.note}</td>
                 <td className="xs mut">{o.user}</td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>{delExp === o.id ? (<>
                   <span className="xs" style={{ color: "var(--bad)" }}>Удалить?</span>
@@ -4687,10 +4763,49 @@ function FinanceTab({ data, reload, toast, boss = false }) {
           </tbody>
         </table>
       </div>
-      {expForm && <CompanyExpenseForm boss={boss} onClose={() => setExpForm(false)} onSave={async (op) => {
+      {boss && (
+        <div className="card sect">
+          <div className="row" style={{ marginBottom: staffOpen ? 8 : 0 }}>
+            <h3 className="clk" style={{ marginRight: "auto" }} onClick={() => setStaffOpen(!staffOpen)}>{staffOpen ? "▾" : "▸"} Сотрудники и зарплата{(from || to) ? " за период" : ""} <span className="mut sm">({employees.length})</span></h3>
+            {staffOpen && <>
+              <input className="inp" style={{ maxWidth: 220 }} placeholder="Имя нового сотрудника" value={newEmp} onChange={(e) => setNewEmp(e.target.value)}
+                onKeyDown={async (e) => { if (e.key === "Enter" && newEmp.trim()) { if (await addEmployee(newEmp)) { setNewEmp(""); await reload(["users"]); toast("Сотрудник добавлен"); } } }} />
+              <button className="btn" disabled={!newEmp.trim() || employees.some((x) => x.toLowerCase() === newEmp.trim().toLowerCase())} onClick={async () => { if (await addEmployee(newEmp)) { setNewEmp(""); await reload(["users"]); toast("Сотрудник добавлен"); } }}>+ Сотрудник</button>
+            </>}
+          </div>
+          {staffOpen && (
+            <div style={{ overflow: "auto" }}>
+              <table className="t">
+                <thead><tr><th>Сотрудник</th>{SALARY_KINDS.map((k) => <th key={k} style={{ textAlign: "right" }}>{k}</th>)}<th style={{ textAlign: "right" }}>Итого</th><th></th></tr></thead>
+                <tbody>
+                  {staffRows.map((r) => (
+                    <tr key={r.name}>
+                      <td className="sm" style={{ fontWeight: 600 }}>{r.name}</td>
+                      {SALARY_KINDS.map((k) => <td key={k} className="num">{r[k] ? fmt(r[k]) : <span className="mut">—</span>}</td>)}
+                      <td className="num" style={{ fontWeight: 700 }}>{fmt(r.total)}</td>
+                      <td>{staffUser(r.name) && (delEmp === r.name ? (
+                        <div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
+                          <span className="xs" style={{ color: "var(--bad)" }}>Убрать из списка?</span>
+                          <button className="btn xs dng" onClick={async () => { const r2 = await db.from("users").delete().eq("id", staffUser(r.name).id); if (r2.error) return; await logAction("Удалён сотрудник", "staff:" + r.name, ""); setDelEmp(null); await reload(["users"]); toast("Сотрудник убран из списка (выплаты сохранены)"); }}>Да</button>
+                          <button className="btn xs" onClick={() => setDelEmp(null)}>Нет</button>
+                        </div>
+                      ) : <button className="btn xs dng" title="Убрать из списка выбора" onClick={() => setDelEmp(r.name)}>✕</button>)}</td>
+                    </tr>
+                  ))}
+                  {!staffRows.length && <tr><td colSpan={6} className="mut sm" style={{ padding: 14 }}>Сотрудников пока нет — добавьте здесь или при выплате зарплаты</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+      {expForm && <CompanyExpenseForm boss={boss} employees={employees} onEmployeeAdded={() => reload(["users"])} onClose={() => setExpForm(false)} onSave={async (op) => {
         const r = await db.from("finance_ops").insert(cleanUuids(op));
         if (r.error) return; // ошибка показана, окно остаётся открытым
-        await logAction("Расход компании: " + op.category, "company", fmt(op.amount) + " · " + payText(op) + (op.note ? " · " + op.note : ""));
+        // в базе нет колонок для вида выплаты / сотрудника — сохраняем их в начале комментария
+        if (op.product_name && r.dropped && (r.dropped.includes("item_name") || r.dropped.includes("product_name")) && r.data && r.data[0])
+          await db.from("finance_ops").update({ note: "[" + op.item_name + " · " + op.product_name + "] " + (op.note || "") }).eq("id", r.data[0].id);
+        await logAction("Расход компании: " + op.category + (op.product_name ? " · " + op.item_name + " · " + op.product_name : ""), "company", fmt(op.amount) + " · " + payText(op) + (op.note ? " · " + op.note : ""));
         setExpForm(false); await reload(); toast("Расход добавлен");
       }} />}
       <div className="split sect">
@@ -4841,7 +4956,7 @@ function LogTab({ data, reload }) {
 
 /* ============ АДМИН: АККАУНТЫ ============ */
 function AdminTab({ data, reload, toast, currentUser }) {
-  const { users } = data;
+  const users = (data.users || []).filter((u) => !isStaff(u)); // сотрудники (для зарплаты) — не аккаунты
   const [edit, setEdit] = useState(null);
   const [del, setDel] = useState(null);
   return (
@@ -4947,7 +5062,7 @@ function LoginScreen({ users, onLogin, bootErr, onRetry }) {
   const [busy, setBusy] = useState(false);
   const submit = async () => {
     setBusy(true); setErr("");
-    const u = users.find((x) => String(x.username || "").trim().toLowerCase() === username.trim().toLowerCase());
+    const u = users.find((x) => !isStaff(x) && String(x.username || "").trim().toLowerCase() === username.trim().toLowerCase());
     if (!u) { setErr("Неверный логин или пароль"); setBusy(false); return; }
     if (u.status !== "active") { setErr("Аккаунт отключён"); setBusy(false); return; }
     // первый вход админа по сид-паролю
