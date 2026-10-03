@@ -3027,7 +3027,7 @@ function ItemEditModal({ item, suppliers, fin, onClose, onSave }) {
         <Fld label="Размер"><input className="inp" value={v.size || ""} onChange={set("size")} /></Fld>
         <Fld label="Ед. изм."><input className="inp" value={v.unit || ""} onChange={set("unit")} /></Fld>
         <Fld label="Количество"><input type="number" className="inp" min={0} value={v.qty} onChange={set("qty")} /></Fld>
-        {fin && <Fld label="Себестоимость"><input type="number" className="inp" value={v.cost} onChange={set("cost")} /></Fld>}
+        <Fld label="Себестоимость"><input type="number" className="inp" value={v.cost} onChange={set("cost")} /></Fld>
         <Fld label="Цена продажи"><input type="number" className="inp" value={v.price} onChange={set("price")} /></Fld>
         <Fld label="Поставщик"><select className="inp" value={v.supplier_id || ""} onChange={set("supplier_id")}><option value="">—</option>{activeSuppliers(suppliers, v.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>
       </div>
