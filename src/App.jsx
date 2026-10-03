@@ -874,6 +874,44 @@ function PayFields({ p, setP, methods = PAY_METHODS, usdLabel = "В долг к�
   );
 }
 
+/* Вопрос-подтверждение из любого места: const ok = await askConfirm({ title, text, items, ok }) */
+let _confirmSet = null;
+function askConfirm(o) {
+  return new Promise((res) => { if (!_confirmSet) return res(window.confirm(o.title + "\n\n" + (o.text || ""))); _confirmSet({ ...o, res }); });
+}
+function ConfirmHost() {
+  const [c, setC] = useState(null);
+  useEffect(() => { _confirmSet = setC; return () => { _confirmSet = null; }; }, []);
+  if (!c) return null;
+  const done = (v) => { c.res(v); setC(null); };
+  return (
+    <div className="modal-bg" style={{ zIndex: 300 }} onMouseDown={(e) => { if (e.target === e.currentTarget) done(false); }}>
+      <div className="modal" style={{ maxWidth: 520, marginTop: "14vh" }}>
+        <h3 style={{ marginBottom: 10, color: "var(--warn)" }}>⚠ {c.title}</h3>
+        {c.text && <p className="sm" style={{ marginBottom: 8 }}>{c.text}</p>}
+        {c.items && c.items.length > 0 && (
+          <div style={{ maxHeight: 240, overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 8 }}>
+            <table className="t"><tbody>{c.items.map((x, i) => <tr key={i}><td className="sm">{x[0]}</td><td className="num sm" style={{ whiteSpace: "nowrap" }}>{x[1]}</td></tr>)}</tbody></table>
+          </div>
+        )}
+        <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
+          <button className="btn" autoFocus onClick={() => done(false)}>{c.cancel || "Нет, исправить"}</button>
+          <button className="btn dng" onClick={() => done(true)}>{c.ok || "Да, сохранить"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+// цена продажи ниже себестоимости — спрашиваем перед сохранением. rows: [{ name, price, cost }]
+async function confirmLowPrice(rows) {
+  const low = rows.filter((r) => Number(r.cost) > 0 && Number(r.price) < Number(r.cost) - 0.0001);
+  if (!low.length) return true;
+  return askConfirm({
+    title: "Цена продажи ниже себестоимости",
+    text: low.length === 1 ? "У этой позиции цена продажи меньше себестоимости — продажа будет в убыток. Сохранить всё равно?" : "У " + low.length + " позиций цена продажи меньше себестоимости — продажа будет в убыток. Сохранить всё равно?",
+    items: low.slice(0, 50).map((r) => [r.name || "—", "цена " + money(r.price) + " · себест. " + money(r.cost)]),
+  });
+}
 /* Подтверждение отмены: введённые позиции не сохранятся */
 function DiscardConfirm({ text, onStay, onDiscard }) {
   return (
@@ -2536,7 +2574,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                             : <span className="mut">{l.unit}</span>}
                         </td>
                         <td className="num">{fmt2(p ? p.cost : parseNum(l.cost))}</td>
-                        <td><input type="number" className="inp" style={{ width: 100, textAlign: "right", color: "var(--ok)", fontWeight: 700 }} placeholder="авто" value={l.manualPrice != null ? l.manualPrice : ""} onChange={(e) => setLine(l.id, { manualPrice: e.target.value === "" ? null : e.target.value })} title="Цена продажи (оставьте пустым — рассчитается по наценке)" /></td>
+                        <td><input type="number" className="inp" style={{ width: 100, textAlign: "right", fontWeight: 700, ...(l.manualPrice != null && l.manualPrice !== "" && parseNum(l.manualPrice) < (p ? Number(p.cost) || 0 : parseNum(l.cost)) ? { color: "var(--bad)", borderColor: "var(--bad)" } : { color: "var(--ok)" }) }} placeholder="авто" value={l.manualPrice != null ? l.manualPrice : ""} onChange={(e) => setLine(l.id, { manualPrice: e.target.value === "" ? null : e.target.value })} title="Цена продажи (оставьте пустым — рассчитается по наценке)" /></td>
                         <td className="num" style={{ fontWeight: 700 }}>{fmt(qn(l.qty) * (p ? Number(p.cost) || 0 : parseNum(l.cost)))}</td>
                         <td className="num" title={p && whQty[p.id] ? "Есть на Складе Thermo — можно отгрузить оттуда (Склад → «Отправить на объект»)" : ""} style={{ color: p && whQty[p.id] ? "var(--ok)" : "var(--mut)", fontWeight: p && whQty[p.id] ? 700 : 400 }}>{p && whQty[p.id] ? fmt(whQty[p.id]) : "—"}</td>
                         <td><button className="btn xs dng" onClick={() => setDelLine(l.id)}>✕</button></td>
@@ -2601,7 +2639,12 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
               </div>
               <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
                 <button className="btn" onClick={() => setMarkupModal(false)}>Отмена</button>
-                <button className="btn pri" disabled={busy || !saveStatus} title={!saveStatus ? "Выберите статус объекта" : ""} onClick={() => doSave(saleK)}>{busy ? "Сохраняю…" : "Применить и сохранить ✓"}</button>
+                <button className="btn pri" disabled={busy || !saveStatus} title={!saveStatus ? "Выберите статус объекта" : ""} onClick={async () => {
+                  const rows = lines.map((l) => { const p = l.product_id ? prodById(l.product_id) : null, c = p ? Number(p.cost) || 0 : parseNum(l.cost);
+                    return { name: p ? p.name : l.name, cost: c, price: l.manualPrice != null && l.manualPrice !== "" ? parseNum(l.manualPrice) : Math.round(c * saleK * 100) / 100 }; });
+                  if (!(await confirmLowPrice(rows))) return;
+                  doSave(saleK);
+                }}>{busy ? "Сохраняю…" : "Применить и сохранить ✓"}</button>
               </div>
             </Modal>
           )}
@@ -3001,7 +3044,7 @@ function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem,
         onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (v !== Number(i.qty)) { if (!(await setItemQty(i.id, v))) setQty(i.qty); } else setQty(i.qty); }} /></td>
       <td className="sm">{i.unit}</td>
       <td><input type="number" className="inp num" min={0} style={{ width: 104, textAlign: "right" }} value={price} onChange={(e) => setPrice(e.target.value)}
-        onBlur={async () => { const v = Math.max(0, parseNum(price)); if (v !== Number(i.price)) { if (!(await setItemPrice(i.id, v))) setPrice(i.price); } else setPrice(i.price); }} /></td>
+        onBlur={async () => { const v = Math.max(0, parseNum(price)); if (v !== Number(i.price)) { if (!(await confirmLowPrice([{ name: i.name, price: v, cost: i.cost }])) || !(await setItemPrice(i.id, v))) setPrice(i.price); } else setPrice(i.price); }} /></td>
       <td className="num" style={{ fontWeight: 700 }}>{fmt((Number(qty) || 0) * (Number(price) || 0))}</td>
       <td className="sm">{supName(i.supplier_id)}</td>
       <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
@@ -3017,7 +3060,9 @@ function ItemEditModal({ item, suppliers, fin, onClose, onSave }) {
   const set = (k) => (e) => setV({ ...v, [k]: e.target.value });
   const save = async () => {
     setBusy(true);
-    await onSave({ ...v, name: String(v.name || "").trim(), qty: Math.max(0, parseNum(v.qty)), cost: parseNum(v.cost), price: parseNum(v.price), supplier_id: v.supplier_id || null });
+    const out = { ...v, name: String(v.name || "").trim(), qty: Math.max(0, parseNum(v.qty)), cost: parseNum(v.cost), price: parseNum(v.price), supplier_id: v.supplier_id || null };
+    if (!(await confirmLowPrice([out]))) { setBusy(false); return; }
+    await onSave(out);
     setBusy(false);
   };
   return (
@@ -3113,6 +3158,7 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
   const run = async () => {
     if (map.name == null) { setErr("Укажите колонку «Наименование»"); return; }
     const out = preview.map(({ _matched, ...r }) => r);
+    if (!(await confirmLowPrice(out))) return;
     if (!out.length) return;
     setBusy(true); await onSave(out); setBusy(false);
   };
@@ -3230,7 +3276,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
         <div className="mono" style={{ fontWeight: 700 }}>Позиций: {rows.length} · Сумма: <span style={{ color: "var(--acc2)" }}>{money(total)}</span></div>
         <div className="row">
           <button className="btn" onClick={tryClose}>Отмена</button>
-          <button className="btn pri" disabled={!valid.length || busy} onClick={async () => { setBusy(true); await onSave(valid); setBusy(false); }}>{busy ? "Сохраняю…" : newBatch ? "Создать новую поставку" : "Добавить в текущую поставку"}</button>
+          <button className="btn pri" disabled={!valid.length || busy} onClick={async () => { if (!(await confirmLowPrice(valid.map((r) => ({ name: r.name, price: parseNum(r.price), cost: parseNum(r.cost) }))))) return; setBusy(true); await onSave(valid); setBusy(false); }}>{busy ? "Сохраняю…" : newBatch ? "Создать новую поставку" : "Добавить в текущую поставку"}</button>
         </div>
       </div>
     </Modal>
@@ -5160,6 +5206,7 @@ function AppInner() {
       {wipeOpen && role === "boss" && <WipeModal data={data} reload={reload} onClose={() => setWipeOpen(false)} onDone={async () => {
         await reload("all"); setWipeOpen(false); setOpenId(null); toast("База очищена. Товары, поставщики и мастера сохранены.");
       }} />}
+      <ConfirmHost />
       {msg && <div className="toast">{msg}</div>}
       {dbErr && <div className="toast" role="alert" title="Нажмите, чтобы закрыть" onClick={() => setDbErr("")}
         style={{ bottom: msg ? 84 : 20, borderColor: "var(--bad)", color: "var(--bad)", maxWidth: 460, cursor: "pointer" }}>⚠ {dbErr}</div>}
