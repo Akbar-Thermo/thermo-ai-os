@@ -844,7 +844,7 @@ const payMethod = (id) => PAY_METHODS.find((m) => m.id === id) || PAY_METHODS[0]
 const SUM_RATE_RE = /([\d\s\u00a0\u202f.,]+)\s*\u0441\u0443\u043c\s*\u00d7\s*\u043a\u0443\u0440\u0441\s*([\d\s\u00a0\u202f.,]+)/;
 // способ оплаты, записанный в операции: колонки pay_* или (если их нет в базе) текст в reason / category
 function payInfo(op) {
-  if (!op || (op.type && !isPayType(op.type))) return { id: null, cur: null, uzs: 0, rate: 0 }; // у возвратов/скидок reason — это причина
+  if (!op || (op.type && !isPayType(op.type) && op.type !== "bonus")) return { id: null, cur: null, uzs: 0, rate: 0 }; // начисление бонуса тоже может хранить способ (в отчёт по деньгам не входит) // у возвратов/скидок reason — это причина
   let m = op.pay_method ? PAY_METHODS.find((x) => x.id === op.pay_method) : null;
   if (!m && op.type === "client_payment" && op.category) m = PAY_METHODS.find((x) => x.label === op.category);
   if (!m && op.reason) m = PAY_METHODS.find((x) => String(op.reason).startsWith(x.label));
@@ -987,7 +987,7 @@ const prodSearchText = (p, supName) => {
   return t + " " + t.replace(/[\s\-_."']+/g, "");
 };
 const searchWords = (q) => q.toLowerCase().replace(/ё/g, "е").trim().split(/\s+/).filter(Boolean);
-function ProductPicker({ products, onPick, placeholder, suppliers = [] }) {
+function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnPick = false }) {
   // показываем ВСЕ найденные товары (без лимита). Список прокручивается, рисуются только видимые строки.
   // Поиск по словам: «труба 25» найдёт «ХВС ТРУБА PN16 - 25» (все слова, в любом порядке).
   const ROW = 50, BOX_H = 380;
@@ -1030,7 +1030,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [] }) {
     if (y < el.scrollTop) el.scrollTop = y;
     else if (y + ROW > el.scrollTop + el.clientHeight) el.scrollTop = y + ROW - el.clientHeight;
   }, [activeIdx]);
-  const pick = (p) => { onPick(p); setQ(""); setActiveIdx(-1); };
+  const pick = (p) => { onPick(p); setQ(""); setActiveIdx(-1); if (closeOnPick) setOpen(false); };
   const supCount = useMemo(() => { const m = {}; products.forEach((p) => { if (p.supplier_id && p.status !== "archive") m[p.supplier_id] = (m[p.supplier_id] || 0) + 1; }); return m; }, [products]);
   const onKeyDown = (e) => {
     if (!hits.length) return;
@@ -3635,7 +3635,7 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
                 <td>{opLabel(o.type)}</td>
                 <td className="sm">{(objects.find((x) => x.id === o.object_id) || {}).name || "—"}</td>
                 <td className="num" style={{ fontWeight: 700, color: o.type === "bonus_payment" ? "var(--ok)" : "inherit" }}>{fmt(o.amount)}</td>
-                <td className="xs mut">{[o.item_name, o.type === "bonus_payment" ? payText(o) : "", o.note, o.user].filter(Boolean).join(" · ")}</td>
+                <td className="xs mut">{[o.item_name, o.type === "bonus_payment" || o.type === "bonus" ? payText(o) : "", o.note, o.user].filter(Boolean).join(" · ")}</td>
                 <td>{canDel && (delOp === o.id ? (
                   <div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
                     <span className="xs" style={{ color: "var(--bad)", textDecoration: "none" }}>Удалить?</span>
@@ -3670,7 +3670,7 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
       }} />}
       {fin && accForm && (
         <Modal title={"Начислить бонус — " + m.name} onClose={() => setAccForm(false)} w={520}>
-          <BonusAccrueForm objects={st.rows.map((r) => r.o)} onSave={async (op) => {
+          <BonusAccrueForm objects={st.rows.map((r) => r.o)} products={data.products} suppliers={data.suppliers} onSave={async (op) => {
             const r = await db.from("finance_ops").insert(cleanUuids({ ...op, type: "bonus", master_id: m.id, user: curUserName() || "—" }));
             if (r.error) return false; // ошибка показана, окно остаётся открытым
             await logAction("Начислен бонус мастеру", "master:" + m.name, fmt(op.amount) + (op.item_name ? " · " + op.item_name : "") + (op.note ? " · " + op.note : ""));
@@ -3708,7 +3708,7 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
     </div>
   );
 }
-function BonusAccrueForm({ objects, onSave }) {
+function BonusAccrueForm({ objects, onSave, products = [], suppliers = [] }) {
   const [kind, setKind] = useState("money");
   const [itemName, setItemName] = useState("");
   const [amount, setAmount] = useState("");
@@ -3716,7 +3716,9 @@ function BonusAccrueForm({ objects, onSave }) {
   const [note, setNote] = useState("");
   const [opDate, setOpDate] = useState(today());
   const [busy, setBusy] = useState(false);
-  const a = parseNum(amount);
+  // деньгами — со способом оплаты ($ / сум по курсу, карта, перечисление); предмет — по его цене в $
+  const [pay, setPay] = useState(() => payInit(null));
+  const a = kind === "money" ? payUsd(pay) : parseNum(amount);
   return (
     <div>
       <div className="row" style={{ marginBottom: 12 }}>
@@ -3724,10 +3726,14 @@ function BonusAccrueForm({ objects, onSave }) {
         <button className={"btn " + (kind === "item" ? "pri" : "")} onClick={() => setKind("item")}>🛠 Инструмент / предмет</button>
       </div>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        {kind === "item" && <div style={{ gridColumn: "1/-1" }}><Fld label="Предмет">
-          <input className="inp" value={itemName} onChange={(e) => setItemName(e.target.value)} placeholder="Перфоратор Bosch GBH 2-26 / набор ключей / телефон…" /></Fld></div>}
-        <Fld label={kind === "item" ? "Цена предмета, $" : "Сумма бонуса, $"}>
-          <input type="number" className="inp" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Fld>
+        {kind === "item" && <div style={{ gridColumn: "1/-1" }}><Fld label="Найти в товарах поставщиков (необязательно)">
+          <ProductPicker closeOnPick products={products} suppliers={suppliers} placeholder="поиск товара: название, код, поставщик…"
+            onPick={(p) => { setItemName(p.name + (p.size ? " · " + p.size : "")); setAmount(String(Number(p.cost) || retailOf(p) || "")); }} />
+        </Fld></div>}
+        {kind === "item" && <div style={{ gridColumn: "1/-1" }}><Fld label="Предмет (можно написать вручную)">
+          <input className="inp" autoComplete="off" name="bonus-item" value={itemName} onChange={(e) => setItemName(e.target.value)} placeholder="Перфоратор Bosch GBH 2-26 / набор ключей / телефон…" /></Fld></div>}
+        {kind === "money" ? <PayFields p={pay} setP={setPay} methods={OUT_METHODS} usdLabel="Бонус, $" /> : <Fld label="Цена предмета, $">
+          <input type="number" className="inp" autoComplete="off" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Fld>}
         <Fld label="Привязать к объекту (опц.)">
           <select className="inp" value={objId} onChange={(e) => setObjId(e.target.value)}>
             <option value="">— без объекта —</option>
@@ -3740,7 +3746,8 @@ function BonusAccrueForm({ objects, onSave }) {
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
         <button className="btn pri" disabled={!(a > 0) || (kind === "item" && !itemName.trim()) || busy} onClick={async () => {
           setBusy(true);
-          const ok = await onSave({ amount: a, item_name: kind === "item" ? itemName.trim() : null, object_id: objId || null, note, op_date: opDate || today() });
+          const base = kind === "money" ? { ...payPatch(pay, "bonus") } : { amount: a, item_name: itemName.trim() };
+          const ok = await onSave({ ...base, object_id: objId || null, note, op_date: opDate || today() });
           if (!ok) setBusy(false);
         }}>{busy ? "Записываю…" : "Начислить"}</button>
       </div>
