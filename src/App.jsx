@@ -112,7 +112,10 @@ const ROLES = [
   { id: "boss", label: "Руководитель", tabs: ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "admin"] },
 ];
 const MANAGER_OP_TYPES = ["client_payment", "return", "discount"];
-const EXPENSE_CATEGORIES = ["Зарплата", "Аренда", "Коммунальные", "Обед / питание", "Транспорт / ГСМ", "Связь / интернет", "Налоги", "Реклама", "Хозрасходы", "Прочее"];
+const EXPENSE_CATEGORIES = ["Зарплата", "Аренда", "Коммунальные", "Обед / питание", "Доставка", "Заправка транспорта", "Освежения", "Связь / интернет", "Налоги", "Реклама", "Хозрасходы", "Прочее"];
+// зарплату видит только руководитель
+const SALARY_CAT = "Зарплата";
+const isSalary = (o) => o && o.type === "company_expense" && o.category === SALARY_CAT;
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -4504,14 +4507,15 @@ function Dashboard({ data }) {
 }
 
 /* ============ FINANCE TAB ============ */
-function CompanyExpenseForm({ onClose, onSave }) {
-  const [v, setV] = useState({ category: "Зарплата", op_date: today(), note: "", user: curUserName() });
+function CompanyExpenseForm({ onClose, onSave, boss = false }) {
+  const cats = boss ? EXPENSE_CATEGORIES : EXPENSE_CATEGORIES.filter((c) => c !== SALARY_CAT);
+  const [v, setV] = useState({ category: cats[0], op_date: today(), note: "", user: curUserName() });
   const [pay, setPay] = useState(() => payInit(null));
   const [busy, setBusy] = useState(false);
   return (
     <Modal title="Расход компании" onClose={onClose} w={560}>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        <div style={{ gridColumn: "1/-1" }}><Fld label="Категория"><select className="inp" value={v.category} onChange={(e) => setV({ ...v, category: e.target.value })}>{EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></Fld></div>
+        <div style={{ gridColumn: "1/-1" }}><Fld label="Категория"><select className="inp" value={v.category} onChange={(e) => setV({ ...v, category: e.target.value })}>{cats.map((c) => <option key={c}>{c}</option>)}</select></Fld></div>
         <PayFields p={pay} setP={setPay} methods={OUT_METHODS} usdLabel={payUsdLabel("company_expense")} />
         <Fld label="Дата"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
         <Fld label="Кто внёс"><PersonSelect value={v.user} onChange={(u) => setV({ ...v, user: u })} /></Fld>
@@ -4524,8 +4528,10 @@ function CompanyExpenseForm({ onClose, onSave }) {
     </Modal>
   );
 }
-function FinanceTab({ data, reload, toast }) {
-  const { objects, finance_ops, suppliers } = data;
+function FinanceTab({ data, reload, toast, boss = false }) {
+  const { objects, suppliers } = data;
+  // менеджер не видит зарплату: расходы категории «Зарплата» скрыты из списков, итогов и «Деньги по способам оплаты»
+  const finance_ops = useMemo(() => (boss ? data.finance_ops : data.finance_ops.filter((o) => !isSalary(o))), [data.finance_ops, boss]);
   const objName = (id) => (objects.find((o) => o.id === id) || {}).name || "—";
   const supName = (id) => (suppliers.find((s) => s.id === id) || {}).name || "";
   const clientDebts = objects.map((o) => ({ o, f: calcObject(o, finance_ops) })).filter((x) => x.f.clientDebt > 0.004 && x.o.status !== "cancelled");
@@ -4575,7 +4581,7 @@ function FinanceTab({ data, reload, toast }) {
       </div>
       <div className="kpis sect">
         <div className="kpi"><div className="l">Всего расходов{(from || to) ? " за период" : ""}</div><div className="v" style={{ color: "var(--bad)" }}>{fmt(totalExp)}</div></div>
-        {EXPENSE_CATEGORIES.filter((c) => byCat[c]).slice(0, 5).map((c) => (
+        {[...EXPENSE_CATEGORIES, ...Object.keys(byCat).filter((c) => !EXPENSE_CATEGORIES.includes(c))].filter((c) => byCat[c]).slice(0, 6).map((c) => (
           <div key={c} className="kpi"><div className="l">{c}</div><div className="v">{fmt(byCat[c])}</div></div>
         ))}
       </div>
@@ -4602,7 +4608,7 @@ function FinanceTab({ data, reload, toast }) {
           </tbody>
         </table>
       </div>
-      {expForm && <CompanyExpenseForm onClose={() => setExpForm(false)} onSave={async (op) => {
+      {expForm && <CompanyExpenseForm boss={boss} onClose={() => setExpForm(false)} onSave={async (op) => {
         const r = await db.from("finance_ops").insert(cleanUuids(op));
         if (r.error) return; // ошибка показана, окно остаётся открытым
         await logAction("Расход компании: " + op.category, "company", fmt(op.amount) + " · " + payText(op) + (op.note ? " · " + op.note : ""));
@@ -5110,7 +5116,7 @@ function AppInner() {
         {tab === "wh" && <WarehouseTab data={data} reload={reload} toast={toast} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "log" && <LogTab data={data} reload={reload} />}
         {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} />}
-        {tab === "finance" && <FinanceTab data={data} reload={reload} toast={toast} />}
+        {tab === "finance" && <FinanceTab data={data} reload={reload} toast={toast} boss={role === "boss"} />}
       </div>
       {backupOpen && role === "boss" && <BackupModal data={data} reload={reload} onClose={() => setBackupOpen(false)} toast={toast} onFilePick={() => restoreRef.current.click()} onRestoreText={async (text) => {
         const dump = JSON.parse(text);
