@@ -77,7 +77,7 @@ function dbWrap(real) {
 const db = dbWrap(dbModule.db);
 
 /* ============================================================
-   THERMO ENGINEERING — AI Procurement & Finance OS
+   THERMO ENGINEERING — Procurement & Finance OS
    DATA LAYER = Supabase (db импортируется из ./db.js)
    ============================================================ */
 
@@ -101,6 +101,7 @@ const OP_TYPES = [
   { id: "expense", label: "Доп. расход" },
   { id: "bonus", label: "Бонус мастеру (начисление)" },
   { id: "bonus_payment", label: "Выплата бонуса мастеру" },
+  { id: "company_expense", label: "Расход компании" },
 ];
 // бонусы мастеру начисляются и показываются только в разделе «Мастера»
 // оплата поставщику — только из раздела «Поставщики» (кнопка на странице объекта убрана)
@@ -111,7 +112,6 @@ const ROLES = [
   { id: "boss", label: "Руководитель", tabs: ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "admin"] },
 ];
 const MANAGER_OP_TYPES = ["client_payment", "return", "discount"];
-const CONF_THRESHOLD = 80;
 const EXPENSE_CATEGORIES = ["Зарплата", "Аренда", "Коммунальные", "Обед / питание", "Транспорт / ГСМ", "Связь / интернет", "Налоги", "Реклама", "Хозрасходы", "Прочее"];
 
 const CSS = `
@@ -141,7 +141,7 @@ const CSS = `
 *{box-sizing:border-box;margin:0;padding:0}
 .te{font-family:var(--sans);background:var(--bg);color:var(--txt);min-height:100vh;font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;font-feature-settings:"tnum" 1}
 .te ::selection{background:var(--acc-ring)}
-.hdr{display:flex;align-items:center;gap:14px;padding:12px 22px;border-bottom:2px solid var(--acc);flex-wrap:wrap;position:sticky;top:0;background:var(--hdr-bg);z-index:50;transition:transform .25s ease}
+.hdr{display:flex;align-items:center;gap:14px;padding:12px 22px;border-bottom:2px solid var(--acc);flex-wrap:wrap;position:sticky;top:0;background:var(--hdr-bg);color:var(--hdr-txt);z-index:50;transition:transform .25s ease}
 @media(max-width:820px){.hdr.hide-on-scroll{transform:translateY(-100%)}}
 .logo{font-weight:800;letter-spacing:.4px;font-size:17px;color:var(--hdr-txt)}
 .logo span{color:var(--acc)}
@@ -211,6 +211,8 @@ table.t tr:hover td{background:var(--hover)}
 .clk{cursor:pointer}
 .sect{margin-bottom:18px}
 .split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.split>*{min-width:0}
+.split>.card{overflow-x:auto}
 @media(max-width:820px){.split{grid-template-columns:1fr}.body{padding:14px 14px 32px}}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line2);border-top-color:var(--acc);border-radius:50%;animation:sp 0.8s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -222,9 +224,15 @@ table.t td{position:static}
 
 /* ============ DATA LAYER = Supabase (db из ./db.js) ============ */
 const TABLES = ["products", "suppliers", "objects", "finance_ops", "requests", "masters", "warehouse", "wh_moves", "users", "audit_log"];
+// id записи всегда в формате UUID: колонки id в базе имеют тип uuid, другой формат база не примет
+// (crypto.randomUUID есть не во всех браузерах — например, в старых Safari)
 const uuid = () => {
   try { if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID(); } catch (e) {}
-  return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+  const b = new Uint8Array(16);
+  try { crypto.getRandomValues(b); } catch (e) { for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256); }
+  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return h.slice(0, 8) + "-" + h.slice(8, 12) + "-" + h.slice(12, 16) + "-" + h.slice(16, 20) + "-" + h.slice(20);
 };
 // Очищает uuid/foreign key поля: пустая строка "" → null (Supabase не принимает "" в uuid-колонках)
 const cleanUuids = (obj) => {
@@ -256,18 +264,30 @@ function tryDownloadBackup(json) {
     const blob = new Blob([json], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "thermo_backup_" + new Date().toISOString().slice(0, 10) + ".json";
+    const d = new Date();
+    a.download = "thermo_backup_" + localIso(d) + "_" + String(d.getHours()).padStart(2, "0") + "-" + String(d.getMinutes()).padStart(2, "0") + ".json";
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     return true;
   } catch (e) { console.error(e); return false; }
 }
+// свежий бэкап прямо из базы (а не из данных на экране — они могли устареть: товары и журнал обновляются реже)
+async function freshDump(note) {
+  const dump = { _app: "ThermoAI", _date: new Date().toISOString(), tables: {} };
+  if (note) dump._note = note;
+  const res = await Promise.all(TABLES.map((t) => fetchAllRows(t)));
+  TABLES.forEach((t, i) => { dump.tables[t] = res[i]; });
+  return dump;
+}
 /* Загрузка ВСЕХ строк таблицы без лимита 1000.
    Supabase отдаёт максимум 1000 строк за запрос, поэтому читаем страницами.
-   Сортировка created_at + id — стабильная (у строк из одного пакетного импорта created_at одинаковый). */
+   Сортировка created_at + id — стабильная (у строк из одного пакетного импорта created_at одинаковый).
+   Ошибку загрузки не прячем (раньше при сбое сети таблица молча становилась пустой) — бросаем её,
+   а reload() оставляет на экране прежние данные и показывает сообщение. */
 async function fetchAllRows(t) {
   if (!sb) {
-    const { data } = await db.from(t).select().order("created_at", { ascending: true });
+    const { data, error } = await db.from(t).select().order("created_at", { ascending: true });
+    if (error) throw new Error(t + ": " + (error.message || error));
     return data || [];
   }
   const PAGE = 1000;
@@ -282,14 +302,15 @@ async function fetchAllRows(t) {
     const rows = [].concat(...res.map((r) => r.data || []));
     if (!bad && rows.length >= count) return rows;
   }
-  // запасной вариант: по одной странице, пока не придёт пустая
+  // запасной вариант: по одной странице, пока не придёт неполная
   let rows = [], from = 0;
   for (let guard = 0; guard < 10000; guard++) {
     const { data, error } = await page(from);
-    if (error) { console.error("[db]", t, error.message); break; }
+    if (error) throw new Error(t + ": " + (error.message || error));
     if (!data || !data.length) break;
     rows = rows.concat(data);
     from += data.length;
+    if (data.length < PAGE) break;
   }
   return rows;
 }
@@ -314,10 +335,16 @@ async function restoreFromSupabase(dump) {
   const tables = RESTORE_ORDER.filter((t) => Array.isArray(dump.tables[t]));
   if (sb) {
     for (const t of tables) {
-      const rows = dump.tables[t];
+      let rows = dump.tables[t];
       for (let i = 0; i < rows.length; i += 500) {
-        const { error } = await sb.from(t).upsert(rows.slice(i, i + 500), { onConflict: "id" });
-        if (error) throw new Error(t + ": " + error.message);
+        for (let attempt = 0; ; attempt++) {
+          const { error } = await sb.from(t).upsert(rows.slice(i, i + 500), { onConflict: "id" });
+          if (!error) break;
+          // в бэкапе есть колонка, которой нет в базе (бэкап из другой версии) — восстанавливаем без неё
+          const mm = /Could not find the '([^']+)' column/i.exec(error.message || "");
+          if (!mm || attempt >= 15) throw new Error(t + ": " + error.message);
+          rows = rows.map((r) => { const c = { ...r }; delete c[mm[1]]; return c; });
+        }
       }
     }
     for (const t of [...tables].reverse()) {
@@ -346,16 +373,37 @@ const fmt2 = (n) => (Number(n) || 0).toLocaleString("ru-RU", { minimumFractionDi
 const DEFAULT_MARKUP = 15;
 const retailOf = (p) => (Number(p && p.price) > 0 ? Number(p.price) : Math.round((Number(p && p.cost) || 0) * (1 + DEFAULT_MARKUP / 100) * 100) / 100);
 const money = (n) => ((Number(n) || 0) < 0 ? "−$" + fmt(-(Number(n) || 0)) : "$" + fmt(n));
-const dt = (s) => (s ? new Date(s).toLocaleDateString("ru-RU") : "—");
-const today = () => new Date().toISOString().slice(0, 10);
+// дата «ГГГГ-ММ-ДД» без сдвига: строку из поля даты показываем как есть,
+// а new Date("2026-10-01") — это полночь по UTC, и западнее Гринвича дата съезжала бы на день назад
+const dt = (s) => {
+  if (!s) return "—";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s));
+  if (m) return m[3] + "." + m[2] + "." + m[1];
+  const d = new Date(s);
+  return isNaN(d) ? String(s) : d.toLocaleDateString("ru-RU");
+};
+// сегодняшняя дата по местному времени. Раньше бралась дата по UTC (toISOString): в Ташкенте (UTC+5)
+// с 00:00 до 05:00 операции записывались вчерашним числом, а «Этот месяц» начинался с последнего дня прошлого месяца
+const localIso = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+const today = () => localIso(new Date());
+const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return localIso(d); };
 const stById = (id) => OBJ_STATUSES.find((s) => s.id === id) || OBJ_STATUSES[0];
 const opLabel = (id) => (OP_TYPES.find((o) => o.id === id) || {}).label || id;
 
+// операции по объектам — индекс строится один раз на каждый загруженный список операций
+// (раньше для каждого объекта перебирался весь список: при сотнях объектов и тысячах операций это заметно тормозило)
+const _opsIdx = new WeakMap();
+const opsOf = (ops, objId) => {
+  if (!ops || !ops.length) return [];
+  let m = _opsIdx.get(ops);
+  if (!m) { m = new Map(); ops.forEach((x) => { if (x.object_id) { let a = m.get(x.object_id); if (!a) m.set(x.object_id, (a = [])); a.push(x); } }); _opsIdx.set(ops, m); }
+  return m.get(objId) || [];
+};
 function calcObject(obj, ops) {
   const items = obj.items || [];
   let sale = 0, cost = 0;
   items.forEach((i) => { sale += (i.qty || 0) * (i.price || 0); cost += (i.qty || 0) * (i.cost || 0); });
-  const o = (ops || []).filter((x) => x.object_id === obj.id && !x.voided);
+  const o = opsOf(ops, obj.id).filter((x) => !x.voided);
   const sum = (t, f = "amount") => o.filter((x) => x.type === t).reduce((a, x) => a + (x[f] || 0), 0);
   const retSale = sum("return"), retCost = sum("return", "cost_amount");
   const discount = sum("discount"), expense = sum("expense"), bonus = sum("bonus");
@@ -368,8 +416,8 @@ function calcObject(obj, ops) {
     sale, cost, retSale, retCost, discount, expense, bonus, paidClient, paidSup,
     saleNet, costNet, gross, net,
     margin: saleNet > 0 ? (gross / saleNet) * 100 : 0,
-    clientDebt: saleNet - paidClient,
-    supplierDebt: Math.max(0, costNet - paidSup),
+    clientDebt: round2(saleNet - paidClient), // округление: без «долга» 0,0000001 от сложения дробных сумм
+    supplierDebt: Math.max(0, round2(costNet - paidSup)),
   };
 }
 /* Какие возвраты уменьшают долг поставщику.
@@ -408,8 +456,8 @@ function supplierStats(sup, objects, ops, whMoves) {
   const o = ops.filter((x) => !x.voided && x.supplier_id === sup.id);
   const paid = o.filter((x) => x.type === "supplier_payment").reduce((a, x) => a + (x.amount || 0), 0);
   const returns = o.filter((x) => x.type === "return" && ids.has(x.id)).reduce((a, x) => a + (x.cost_amount || 0), 0);
-  const balance = purchases - returns - paid; // < 0 — переплата (аванс поставщику)
-  return { purchases, paid, returns, balance, debt: Math.max(0, balance) };
+  const balance = round2(purchases - returns - paid); // < 0 — переплата (аванс поставщику)
+  return { purchases: round2(purchases), paid: round2(paid), returns: round2(returns), balance, debt: Math.max(0, balance) };
 }
 function masterStats(m, objects, ops) {
   const objs = objects.filter((o) => o.status !== "cancelled" && (o.master_id === m.id || (o.master && o.master === m.name)));
@@ -427,32 +475,72 @@ function masterStats(m, objects, ops) {
     suggested: gross * ((m.bonus_percent || 0) / 100) };
 }
 /* ---- Склад Thermo: приход с возвратов, отгрузка на объекты ---- */
-async function warehouseIn(returnOps, sourceObjName) {
-  for (const op of returnOps) {
-    const { data: ex } = await db.from("warehouse").select().eq("product_id", op.product_id);
-    if (ex.length) {
-      await db.from("warehouse").update({ qty: (ex[0].qty || 0) + op.qty, cost: op.cost_amount / op.qty || ex[0].cost, price: op.amount / op.qty || ex[0].price }).eq("id", ex[0].id);
-    } else {
-      await db.from("warehouse").insert({
-        product_id: op.product_id, name: op.product_name, qty: op.qty,
-        cost: op.qty ? op.cost_amount / op.qty : 0, price: op.qty ? op.amount / op.qty : 0,
-        supplier_id: op.supplier_id || null, unit: op.unit || "шт", size: op.size || "",
-      });
-    }
-    await db.from("wh_moves").insert({
-      product_id: op.product_id, name: op.product_name, qty: op.qty, dir: "in",
-      object_id: op.object_id, object_name: sourceObjName, op_date: op.op_date, user: op.user, note: "возврат с объекта",
-    });
-  }
+// строка склада для товара: по product_id, а у позиций «вручную» (товара нет в базе) — по названию.
+// Раньше для ручной позиции шёл запрос product_id = null → ошибка базы на экране и новая строка-дубль на складе.
+async function whFind(productId, name, size) {
+  const r = productId ? await db.from("warehouse").select().eq("product_id", productId) : await db.from("warehouse").select().eq("name", name || "");
+  if (r.error) return { error: r.error };
+  const list = (r.data || []).filter((w) => (productId ? true : !w.product_id && String(w.size || "") === String(size || "")));
+  return { row: list[0] || null };
 }
-async function warehouseOut(lines, targetObj, user) {
-  for (const l of lines) {
-    await db.from("warehouse").update({ qty: Math.max(0, l.row.qty - l.qty) }).eq("id", l.row.id);
-    await db.from("wh_moves").insert({
-      product_id: l.row.product_id, name: l.row.name, qty: l.qty, dir: "out",
-      object_id: targetObj.id, object_name: targetObj.name, op_date: today(), user, note: "отгрузка на объект",
-    });
+// возвращает количество позиций, которые не удалось оприходовать (ошибка уже показана на экране)
+async function warehouseIn(returnOps, sourceObjName) {
+  let failed = 0;
+  for (const op of returnOps) {
+    const qty = Number(op.qty) || 0;
+    if (qty <= 0) continue;
+    const unitCost = (op.cost_amount || 0) / qty, unitPrice = (op.amount || 0) / qty;
+    const f = await whFind(op.product_id, op.product_name, op.size);
+    if (f.error) { failed++; continue; }
+    let r;
+    if (f.row) {
+      // себестоимость и цена — средние по остатку и приходу
+      const oq = Math.max(0, Number(f.row.qty) || 0), nq = oq + qty;
+      const avg = (o, n) => (oq > 0 ? round2((oq * (Number(o) || 0) + qty * n) / nq) : round2(n));
+      r = await db.from("warehouse").update({ qty: nq, cost: avg(f.row.cost, unitCost), price: avg(f.row.price, unitPrice) }).eq("id", f.row.id);
+    } else {
+      r = await db.from("warehouse").insert(cleanUuids({
+        product_id: op.product_id || null, name: op.product_name, qty,
+        cost: round2(unitCost), price: round2(unitPrice),
+        supplier_id: op.supplier_id || null, unit: op.unit || "шт", size: op.size || "",
+      }));
+    }
+    if (r.error) { failed++; continue; }
+    await db.from("wh_moves").insert(cleanUuids({
+      product_id: op.product_id || null, name: op.product_name, qty, dir: "in",
+      object_id: op.object_id || null, object_name: sourceObjName, op_date: op.op_date || today(), user: op.user || curUserName(), note: "возврат с объекта",
+    }));
   }
+  return failed;
+}
+// отгрузка со склада: остаток берём свежий из базы (на экране он мог устареть). Возвращает число ошибок.
+async function warehouseOut(lines, targetObj, user) {
+  let failed = 0;
+  for (const l of lines) {
+    const cur = await db.from("warehouse").select().eq("id", l.row.id);
+    const have = cur.data && cur.data[0] ? Number(cur.data[0].qty) || 0 : Number(l.row.qty) || 0;
+    const r = await db.from("warehouse").update({ qty: Math.max(0, round2(have - l.qty)) }).eq("id", l.row.id);
+    if (r.error) { failed++; continue; }
+    await db.from("wh_moves").insert(cleanUuids({
+      product_id: l.row.product_id || null, name: l.row.name, qty: l.qty, dir: "out",
+      object_id: targetObj.id, object_name: targetObj.name, op_date: today(), user, note: "отгрузка на объект",
+    }));
+  }
+  return failed;
+}
+/* Позиции объекта (items) меняются по СВЕЖЕЙ версии из базы, а не по копии с экрана:
+   если другой сотрудник только что добавил поставку или поменял количество, его изменения не затрутся.
+   change(items, obj) → новый список позиций. extra — другие поля объекта (статус и т.п.).
+   Возвращает { obj } при успехе или { error } (ошибка уже показана на экране). */
+async function updateObjectItems(objId, change, extra = {}) {
+  const r = await db.from("objects").select().eq("id", objId);
+  if (r.error) return { error: r.error };
+  const cur = r.data && r.data[0];
+  if (!cur) { const e = { message: "объект не найден — возможно, его удалили. Обновите страницу." }; dbReport("objects", e); return { error: e }; }
+  const items = change(Array.isArray(cur.items) ? cur.items : [], cur);
+  const u = await db.from("objects").update({ ...extra, items }).eq("id", objId);
+  if (u.error) return { error: u.error };
+  return { obj: { ...cur, ...extra, items } };
 }
 /* Лист Excel с нормальной вёрсткой:
    cols  — ширина колонок в символах (иначе подбирается по содержимому);
@@ -489,8 +577,8 @@ function downloadCSV(filename, rows) {
   const csv = rows.map((r) => r.map((c) => '"' + String(c == null ? "" : c).replace(/"/g, '""') + '"').join(";")).join("\n");
   const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob); a.download = filename; a.click();
-  URL.revokeObjectURL(a.href);
+  a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000); // сразу освобождать нельзя — Firefox не успевает начать скачивание
 }
 /* ============ EXCEL С РАМКАМИ ============
    Свой мини-генератор .xlsx (без сторонних библиотек): рамки, жирные заголовки, серая шапка,
@@ -612,10 +700,6 @@ const BADGE_TONE = { "#fff": "--t-strong", "#ffffff": "--t-strong", "#9a9a9a": "
 const Badge = ({ c, children }) => {
   const col = String(c || "").startsWith("var(") ? c : BADGE_TONE[String(c || "").toLowerCase()] ? "var(" + BADGE_TONE[String(c).toLowerCase()] + ")" : c;
   return <span className="bdg" style={{ color: col, borderColor: "color-mix(in srgb, " + col + " 35%, transparent)", background: "color-mix(in srgb, " + col + " 9%, transparent)" }}>{children}</span>;
-};
-const Conf = ({ v }) => {
-  const c = v >= CONF_THRESHOLD ? "var(--ok)" : v >= 50 ? "var(--warn)" : "var(--bad)";
-  return <span className="conf" style={{ color: c }}>{v}%</span>;
 };
 function Modal({ title, onClose, children, w = 640 }) {
   return (
@@ -866,7 +950,7 @@ function ProductPicker({ products, onPick, placeholder }) {
                       style={{ position: "absolute", top: i * ROW, left: 0, right: 0, height: ROW, boxSizing: "border-box", padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === activeIdx ? "var(--acc-tint)" : "var(--panel)", overflow: "hidden" }}
                       onClick={() => pick(p)}>
                       <div style={{ fontWeight: 600, fontSize: 13, color: "var(--txt)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
-                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, p.size].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))} · ост. {p.stock}</div>
+                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, p.size].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}</div>
                     </div>
                   );
                 })}
@@ -951,9 +1035,8 @@ function ProductsTab({ data, reload, toast }) {
     const all = [...products].sort(productOrder).map((p, i) => ({ p, code: String(i + 1) })).filter((x) => String(x.p.code || "").trim() !== x.code);
     const total = all.length;
     setRenum({ busy: true, done: 0, total, err: "" });
-    const cur = { _app: "ThermoAI", _date: new Date().toISOString(), _note: "автобэкап перед нумерацией кодов", tables: {} };
-    TABLES.forEach((t) => { cur.tables[t] = data[t] || []; });
-    tryDownloadBackup(JSON.stringify(cur));
+    try { tryDownloadBackup(JSON.stringify(await freshDump("автобэкап перед нумерацией кодов"))); }
+    catch (e) { setRenum({ busy: false, done: 0, total, err: "не удалось сделать бэкап перед нумерацией (" + e.message + "), коды не изменены" }); return; }
     try {
       if (sb) {
         for (let i = 0; i < total; i += 500) {
@@ -970,9 +1053,9 @@ function ProductsTab({ data, reload, toast }) {
         }
       }
       await logAction("Коды товаров пронумерованы 1…" + products.length, "products", "изменено кодов: " + total);
-      setRenum(null); await reload(); toast("Коды товаров: 1 … " + products.length);
+      setRenum(null); await reload("all"); toast("Коды товаров: 1 … " + products.length);
     } catch (e) {
-      setRenum({ busy: false, done: 0, total, err: e.message }); await reload();
+      setRenum({ busy: false, done: 0, total, err: e.message }); await reload("all");
     }
   };
   const supById = useMemo(() => { const m = {}; suppliers.forEach((s) => { m[s.id] = s.name; }); return m; }, [suppliers]);
@@ -988,7 +1071,8 @@ function ProductsTab({ data, reload, toast }) {
     setDeleting(true);
     try {
       await deleteByIds("products", sel);
-      setConfirmDel(false); const n = sel.length; setSel([]); await reload(); toast("Удалено товаров: " + n);
+      await logAction("Удалены товары", "products", "количество: " + sel.length);
+      setConfirmDel(false); const n = sel.length; setSel([]); await reload("all"); toast("Удалено товаров: " + n);
     } catch (e) { toast("Ошибка удаления: " + e.message); }
     setDeleting(false);
   };
@@ -1012,7 +1096,7 @@ function ProductsTab({ data, reload, toast }) {
       </div>
       <div className="card vt-box" ref={boxRef} style={{ padding: 0 }} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
         <table className="t vt">
-          <colgroup><col style={{ width: 36 }} /><col style={{ width: 110 }} /><col style={{ width: 110 }} /><col style={{ width: 140 }} /><col /><col style={{ width: 90 }} /><col style={{ width: 70 }} /><col style={{ width: 120 }} /><col style={{ width: 110 }} /><col style={{ width: 64 }} /></colgroup>
+          <colgroup><col style={{ width: 36 }} /><col style={{ width: 110 }} /><col style={{ width: 110 }} /><col style={{ width: 140 }} /><col /><col style={{ width: 90 }} /><col style={{ width: 70 }} /><col style={{ width: 120 }} /><col style={{ width: 110 }} /><col style={{ width: 78 }} /></colgroup>
           <thead><tr><th><input type="checkbox" checked={allSel} onChange={toggleAll} title="Выбрать все отфильтрованные" /></th><th>Код</th><th>Бренд</th><th>Поставщик</th><th>Наименование</th><th>Размер/Ø</th><th>Ед.изм</th><th style={{textAlign:"right"}}>Себестоимость</th><th style={{textAlign:"right"}}>Розничная</th><th></th></tr></thead>
           <tbody>
             {(() => {
@@ -1030,10 +1114,15 @@ function ProductsTab({ data, reload, toast }) {
           </tbody>
         </table>
       </div>
-      {edit && <ProductForm p={edit} suppliers={suppliers} onClose={() => setEdit(null)} onSave={async (vals) => {
-        if (vals.id) await db.from("products").update(vals).eq("id", vals.id);
-        else await db.from("products").insert({ ...vals, price_updated: new Date().toISOString() });
-        setEdit(null); await reload(); toast("Товар сохранён");
+      {edit && <ProductForm p={edit} products={products} suppliers={suppliers} onClose={() => setEdit(null)} onSave={async (vals) => {
+        const { id, created_at, ...rest } = vals;
+        const priceChanged = !id || Number(edit.cost) !== Number(rest.cost) || Number(edit.price) !== Number(rest.price);
+        if (priceChanged) rest.price_updated = new Date().toISOString();
+        const r = id ? await db.from("products").update(cleanUuids(rest)).eq("id", id) : await db.from("products").insert(cleanUuids(rest));
+        if (r.error) return false; // ошибка показана, окно остаётся открытым
+        await logAction(id ? "Изменён товар" : "Добавлен товар", "product:" + (rest.name || ""), "код " + (rest.code || "—") + (priceChanged && id ? " · себест. " + fmt2(rest.cost) + ", цена " + fmt2(rest.price) : ""));
+        setEdit(null); await reload("all"); toast("Товар сохранён");
+        return true;
       }} />}
       {renum && (
         <Modal title="Пронумеровать коды товаров" onClose={() => { if (!renum.busy) setRenum(null); }} w={500}>
@@ -1048,7 +1137,7 @@ function ProductsTab({ data, reload, toast }) {
           </div>
         </Modal>
       )}
-      {imp && <ImportModal products={products} suppliers={suppliers} onClose={() => setImp(false)} onDone={async (n) => { setImp(false); await reload(); toast("Импортировано позиций: " + n); }} />}
+      {imp && <ImportModal products={products} suppliers={suppliers} onClose={() => setImp(false)} onDone={async (n) => { setImp(false); await logAction("Импорт товаров", "products", "позиций: " + n); await reload("all"); toast("Импортировано позиций: " + n); }} />}
       {confirmDel && (
         <Modal title="Подтверждение удаления" onClose={() => setConfirmDel(false)} w={440}>
           <p style={{ marginBottom: 6 }}>Удалить <b style={{ color: "var(--bad)" }}>{sel.length}</b> {sel.length === 1 ? "товар" : sel.length < 5 ? "товара" : "товаров"} из базы?</p>
@@ -1062,10 +1151,19 @@ function ProductsTab({ data, reload, toast }) {
     </div>
   );
 }
-function ProductForm({ p, suppliers, onClose, onSave }) {
-  const [v, setV] = useState({ ...p });
+function ProductForm({ p, products = [], suppliers, onClose, onSave }) {
+  // числа храним строкой, пока их редактируют: поле можно очистить и набрать заново (раньше сразу вставал «0»)
+  const [v, setV] = useState(() => ({ ...p, status: p.status || "active", cost: p.cost ?? 0, price: p.price ?? 0, stock: p.stock ?? 0, min_stock: p.min_stock ?? 0 }));
+  const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setV({ ...v, [k]: e.target.value });
-  const setN = (k) => (e) => setV({ ...v, [k]: Number(e.target.value) || 0 });
+  const code = String(v.code || "").trim();
+  const dupCode = code && products.find((x) => x.id !== v.id && String(x.code || "").trim() === code);
+  const save = async () => {
+    setBusy(true);
+    const out = { ...v, name: String(v.name || "").trim(), code, cost: parseNum(v.cost), price: parseNum(v.price), stock: parseNum(v.stock), min_stock: parseNum(v.min_stock), supplier_id: v.supplier_id || null };
+    const ok = await onSave(out);
+    if (!ok) setBusy(false);
+  };
   return (
     <Modal title={v.id ? "Редактировать товар" : "Новый товар"} onClose={onClose} w={700}>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
@@ -1073,23 +1171,27 @@ function ProductForm({ p, suppliers, onClose, onSave }) {
         <Fld label="Категория"><input className="inp" value={v.category || ""} onChange={set("category")} /></Fld>
         <Fld label="Бренд"><input className="inp" value={v.brand || ""} onChange={set("brand")} /></Fld>
         <div style={{ gridColumn: "1/-1" }}><Fld label="Название"><input className="inp" value={v.name || ""} onChange={set("name")} /></Fld></div>
-        <div style={{ gridColumn: "1/-1" }}><Fld label="Альтернативные названия (для AI-поиска)"><input className="inp" value={v.alt_names || ""} onChange={set("alt_names")} placeholder="через запятую: батарея, радиатор…" /></Fld></div>
+        <div style={{ gridColumn: "1/-1" }}><Fld label="Другие названия (для поиска)"><input className="inp" value={v.alt_names || ""} onChange={set("alt_names")} placeholder="через запятую: батарея, радиатор…" /></Fld></div>
         <Fld label="Размер"><input className="inp" value={v.size || ""} onChange={set("size")} /></Fld>
         <Fld label="Ед. изм."><input className="inp" value={v.unit || ""} onChange={set("unit")} /></Fld>
         <Fld label="Поставщик"><select className="inp" value={v.supplier_id || ""} onChange={set("supplier_id")}><option value="">—</option>{activeSuppliers(suppliers, v.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>
-        <Fld label="Закупочная цена"><input type="number" className="inp" value={v.cost || 0} onChange={setN("cost")} /></Fld>
-        <Fld label="Цена продажи"><input type="number" className="inp" value={v.price || 0} onChange={setN("price")} /></Fld>
-        <Fld label="Остаток"><input type="number" className="inp" value={v.stock || 0} onChange={setN("stock")} /></Fld>
-        <Fld label="Мин. остаток"><input type="number" className="inp" value={v.min_stock || 0} onChange={setN("min_stock")} /></Fld>
+        <Fld label="Себестоимость, $"><input type="number" className="inp" value={v.cost} onChange={set("cost")} /></Fld>
+        <Fld label="Цена продажи, $"><input type="number" className="inp" value={v.price} onChange={set("price")} placeholder="0 — себест. + 15%" /></Fld>
+        <Fld label="Остаток"><input type="number" className="inp" value={v.stock} onChange={set("stock")} /></Fld>
+        <Fld label="Мин. остаток"><input type="number" className="inp" value={v.min_stock} onChange={set("min_stock")} /></Fld>
         <Fld label="Статус"><select className="inp" value={v.status} onChange={set("status")}><option value="active">активен</option><option value="archive">архив</option></select></Fld>
       </div>
+      {dupCode && <p className="sm" style={{ color: "var(--warn)", marginTop: 10 }}>Код {code} уже есть у товара «{dupCode.name}». Лучше оставить коды разными.</p>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
-        <button className="btn pri" disabled={!v.name} onClick={() => onSave(v)}>Сохранить</button>
+        <button className="btn pri" disabled={!String(v.name || "").trim() || busy} onClick={save}>{busy ? "Сохраняю…" : "Сохранить"}</button>
       </div>
     </Modal>
   );
 }
+// порядок проверки колонок при автоопределении: «Код / артикул» раньше названия —
+// иначе заголовок «Код товара» принимался за название (в нём есть слово «товар»)
+const fieldsByPriority = (fields) => [...fields].sort((a, b) => (a.id === "code" ? -1 : b.id === "code" ? 1 : 0));
 function ImportModal({ products = [], suppliers, onClose, onDone }) {
   const prodList = products; // уже существующие товары (для следующего номера кода)
   const FIELDS = [
@@ -1122,7 +1224,7 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
     const m = {};
     header.forEach((h, i) => {
       const hl = String(h || "").toLowerCase();
-      for (const f of FIELDS) {
+      for (const f of fieldsByPriority(FIELDS)) {
         if (m[f.id] == null && f.kw.some((k) => hl.includes(k))) { m[f.id] = i; break; }
       }
     });
@@ -1168,7 +1270,8 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
         if (supName) {
           const key = supName.toLowerCase();
           if (!supCache[key]) {
-            const { data: ins } = await db.from("suppliers").insert({ name: supName, segment: "комфорт", status: "active", terms: "", contact: "", phone: "" });
+            const { data: ins, error: sErr } = await db.from("suppliers").insert({ name: supName, status: "active", terms: "", contact: "", phone: "" });
+            if (sErr || !ins || !ins[0]) throw new Error("не удалось добавить поставщика «" + supName + "»" + (sErr ? ": " + sErr.message : ""));
             supCache[key] = ins[0].id; newSups++;
           }
           supplier_id = supCache[key];
@@ -1197,7 +1300,7 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
     let code = nextProductCode(prodList);
     for (const l of lines) {
       const c = l.split(/\t|;/).map((x) => x.trim());
-      if (c.length < 4) continue;
+      if (c.length < 4 || !c[1]) continue;
       out.push({
         code: String(code++), sku: c[0] || null,
         name: c[1], category: c[2] || "", size: c[3] || "", unit: c[4] || "шт",
@@ -1207,8 +1310,11 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
         price_updated: new Date().toISOString(),
       });
     }
-    if (out.length) await batchInsert("products", out);
-    onDone(out.length);
+    if (!out.length) { setErr("Не найдено ни одной строки: нужно минимум 4 колонки через TAB или «;» (артикул, название, категория, размер…)"); return; }
+    setBusy(true); setErr("");
+    try { await batchInsert("products", out, 500, (d, n) => setProg(d + " / " + n)); onDone(out.length); }
+    catch (e) { setErr("Ошибка импорта: " + e.message); }
+    setBusy(false);
   };
 
   return (
@@ -1229,7 +1335,7 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
             </Fld>
             <textarea className="inp" style={{ marginTop: 10, minHeight: 140 }} value={txt} onChange={(e) => setTxt(e.target.value)} placeholder={"TRB-040\tТруба PPR Ø40\tТрубы PPR\t40 мм\tм\tкомфорт\t30000\t45000\t500\tValtec"} />
             <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-              <button className="btn pri" disabled={!txt.trim()} onClick={runPaste}>Импортировать текст</button>
+              <button className="btn pri" disabled={!txt.trim() || busy} onClick={runPaste}>{busy ? <span><span className="spin" /> Импортирую… {prog}</span> : "Импортировать текст"}</button>
             </div>
           </details>
         </div>
@@ -1293,7 +1399,8 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
 }
 
 /* ============ SUPPLIERS TAB ============ */
-function AktSverkaModal({ s, objects, ops, whMoves, products, onClose }) {
+const fileSafe = (x) => String(x || "file").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
+function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast }) {
   // Received items (purchases) from all non-cancelled objects
   const received = [];
   objects.forEach((ob) => {
@@ -1316,7 +1423,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose }) {
   const totalReceived = received.reduce((a, it) => a + (it.qty || 0) * (it.cost || 0), 0);
   const totalReturns = returns.reduce((a, o) => a + (o.cost_amount || 0), 0);
   const totalPaid = payments.reduce((a, o) => a + (o.amount || 0), 0);
-  const balance = totalReceived - totalReturns - totalPaid; // < 0 — переплата (аванс)
+  const balance = round2(totalReceived - totalReturns - totalPaid); // < 0 — переплата (аванс)
   // группировка полученных товаров: объект + номер поставки
   const batches = useMemo(() => {
     const m = new Map();
@@ -1363,8 +1470,45 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose }) {
   const [rClosed, setRClosed] = useState({});
   const allClosed = batches.length > 0 && batches.every((g) => closed[g.key]);
   const toggleAll = () => { const n = {}; if (!allClosed) batches.forEach((g) => { n[g.key] = true; }); setClosed(n); };
+  // акт сверки в Excel (с рамками) — чтобы отправить поставщику
+  const exportAkt = () => {
+    const rows = [
+      { k: "title", v: ["АКТ СВЕРКИ: " + s.name] },
+      { k: "info", v: ["Thermo Engineering · составлен " + new Date().toLocaleDateString("ru-RU") + " · суммы в $ по себестоимости"] },
+      { k: "blank" },
+      { k: "section", v: ["1. ПОЛУЧЕНО ТОВАРОВ"] },
+      { k: "head", v: ["№", "Наименование", "Кол-во", "Ед.", "Себест.", "Сумма"] },
+    ];
+    let n = 1;
+    batches.forEach((g) => {
+      rows.push({ k: "section", v: [g.obj_name + " · Поставка №" + g.no + " от " + dt(g.date)] });
+      g.items.forEach((it) => rows.push({ k: "row", v: [n++, it.name + (it.size ? " · " + it.size : ""), Number(it.qty) || 0, it.unit || "", Number(it.cost) || 0, round2((it.qty || 0) * (it.cost || 0))] }));
+    });
+    if (!batches.length) rows.push({ k: "info", v: ["Поступлений нет"] });
+    rows.push({ k: "total", v: ["Итого получено", round2(totalReceived)] }, { k: "blank" });
+    rows.push({ k: "section", v: ["2. ВОЗВРАТЫ ПОСТАВЩИКУ"] });
+    if (returns.length) {
+      rows.push({ k: "head", v: ["№", "Наименование · дата", "Кол-во", "Ед.", "Себест.", "Сумма"] });
+      returns.forEach((o, i) => rows.push({ k: "row", v: [i + 1, (o.product_name || "—") + " · " + dt(o.op_date || o.created_at), Number(o.qty) || 0, o.unit || "", o.qty ? round2((o.cost_amount || 0) / o.qty) : "", round2(o.cost_amount || 0)] }));
+    } else rows.push({ k: "info", v: ["Возвратов нет"] });
+    rows.push({ k: "total", v: ["Итого возвраты", round2(totalReturns)] }, { k: "blank" });
+    rows.push({ k: "section", v: ["3. ОПЛАТЫ"] });
+    if (payments.length) {
+      rows.push({ k: "head", v: ["№", "Дата · способ оплаты · комментарий", "", "", "", "Сумма"] });
+      [...payments].sort((a, b) => String(a.op_date || a.created_at).localeCompare(String(b.op_date || b.created_at)))
+        .forEach((o, i) => rows.push({ k: "row", v: [i + 1, [dt(o.op_date || o.created_at), payText(o), o.note].filter(Boolean).join(" · "), "", "", "", round2(o.amount || 0)] }));
+    } else rows.push({ k: "info", v: ["Оплат нет"] });
+    rows.push({ k: "total", v: ["Итого оплачено", round2(totalPaid)] }, { k: "blank" });
+    rows.push({ k: "total", v: ["Получено − возвраты − оплаты", round2(balance)] });
+    rows.push({ k: "section", v: [balance > 0 ? "Долг Thermo Engineering перед " + s.name + ": " + fmt2(balance) + " $" : balance < 0 ? "Аванс (переплата) " + s.name + ": " + fmt2(-balance) + " $" : "Задолженности нет"] });
+    rows.push({ k: "blank" }, { k: "blank" });
+    rows.push({ k: "info", v: ["Thermo Engineering: ____________________          " + s.name + ": ____________________"] });
+    const r = downloadStyledXLSX("Акт_сверки_" + fileSafe(s.name) + ".xlsx", "Акт сверки", rows, [6, 60, 10, 7, 13, 15], ["c", "t", "n", "c", "m", "m"]);
+    if (toast) toast(r === "xlsx" ? "Акт сверки скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
+  };
   return (
     <Modal title={"Акт-сверка: " + s.name} onClose={onClose} w={860}>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: -6, marginBottom: 10 }}><button className="btn xs" onClick={exportAkt}>⬇ Excel</button></div>
       <div className="kpis" style={{ marginBottom: 16 }}>
         <div className="kpi"><div className="l">Получено товаров</div><div className="v">{fmt(totalReceived)}</div></div>
         <div className="kpi"><div className="l">Возвраты</div><div className="v" style={{ color: "var(--warn)" }}>{fmt(totalReturns)}</div></div>
@@ -1474,6 +1618,8 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
   // оплаты поставщикам без указанного поставщика (форма объекта раньше это позволяла) — не уменьшают ничей долг
   const orphan = finance_ops.filter((o) => o.type === "supplier_payment" && !o.voided && !o.supplier_id);
   const objName = (id) => (objects.find((o) => o.id === id) || {}).name || "—";
+  // поле «Примечание» показываем, только если в таблице поставщиков есть колонка note (иначе текст не сохранится)
+  const hasNoteCol = !suppliers.length || suppliers.some((x) => Object.prototype.hasOwnProperty.call(x, "note"));
 
   const assignOrphan = async (op, sid) => {
     if (!sid) return;
@@ -1511,10 +1657,10 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
         else { for (const pid of ids) await db.from("products").update({ supplier_id: s.id }).eq("id", pid); }
       }
       setDelErr("База не дала удалить поставщика (на него ссылаются оплаты или возвраты). Ничего не изменено. Можно отметить его как «неактивен» — он пропадёт из списков выбора, а история останется.");
-      setDelBusy(false); await reload(); return;
+      setDelBusy(false); await reload("all"); return;
     }
     await logAction("Удалён поставщик", "supplier:" + s.name, "товаров отвязано: " + ids.length);
-    setDelBusy(false); setDel(null); await reload(); toast("Поставщик удалён");
+    setDelBusy(false); setDel(null); await reload("all"); toast("Поставщик удалён");
   };
 
   return (
@@ -1576,7 +1722,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
           </tbody>
         </table>
       </div>
-      {akt && <AktSverkaModal s={akt} objects={objects} ops={finance_ops} whMoves={wh_moves} products={products} onClose={() => setAkt(null)} />}
+      {akt && <AktSverkaModal s={akt} objects={objects} ops={finance_ops} whMoves={wh_moves} products={products} toast={toast} onClose={() => setAkt(null)} />}
       {pay && <SupplierPayModal s={pay} objects={objects} ops={finance_ops} whMoves={wh_moves} fin={fin} onClose={() => setPay(null)}
         onSave={async (op) => {
           const r = await db.from("finance_ops").insert(cleanUuids(op));
@@ -1588,9 +1734,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
           const r = await db.from("finance_ops").update({ ...patch, edited: true, edit_log: log }).eq("id", o.id);
           if (r.error) return false;
           await logAction("Изменена оплата поставщику", "supplier:" + pay.name, "было " + fmt(o.amount) + " (" + (payText(o) || "способ не указан") + ") → стало " + fmt(patch.amount) + " (" + payText({ ...o, ...patch }) + ")"); await reload();
-          const noLog = r.dropped && r.dropped.includes("edit_log") && !window.__teNoLogWarned;
-          if (noLog) window.__teNoLogWarned = true;
-          toast(noLog ? "Оплата изменена (история изменений не сохраняется: в базе нет колонки edit_log)" : "Оплата изменена"); return true;
+          toast("Оплата изменена (было и стало — в «Журнале»)"); return true;
         }}
         onVoidPay={async (o) => {
           const r = await db.from("finance_ops").delete().eq("id", o.id);
@@ -1619,7 +1763,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
       })()}
       {edit && (
         <Modal title={edit.id ? "Поставщик" : "Новый поставщик"} onClose={() => setEdit(null)}>
-          <SupplierForm s={edit} all={suppliers} onSave={saveSupplier} />
+          <SupplierForm s={edit} all={suppliers} hasNote={hasNoteCol} onSave={saveSupplier} />
         </Modal>
       )}
     </div>
@@ -1714,8 +1858,8 @@ function SupplierPayModal({ s, objects, ops, whMoves, onClose, onSave, onEditPay
     </Modal>
   );
 }
-function SupplierForm({ s, all = [], onSave }) {
-  const [v, setV] = useState({ status: "active", terms: "", contact: "", phone: "", note: "", ...s });
+function SupplierForm({ s, all = [], hasNote = true, onSave }) {
+  const [v, setV] = useState(() => { const x = { status: "active", terms: "", contact: "", phone: "", ...s }; if (hasNote && x.note == null) x.note = ""; return x; });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const set = (k) => (e) => setV({ ...v, [k]: e.target.value });
@@ -1734,7 +1878,7 @@ function SupplierForm({ s, all = [], onSave }) {
         <Fld label="Телефон"><input className="inp" value={v.phone || ""} onChange={set("phone")} /></Fld>
         <Fld label="Условия оплаты"><input className="inp" value={v.terms || ""} onChange={set("terms")} /></Fld>
         <Fld label="Статус"><select className="inp" value={v.status || "active"} onChange={set("status")}><option value="active">активен</option><option value="inactive">неактивен (скрыт из списков выбора)</option></select></Fld>
-        <Fld label="Примечание"><input className="inp" value={v.note || ""} onChange={set("note")} /></Fld>
+        {hasNote && <Fld label="Примечание"><input className="inp" value={v.note || ""} onChange={set("note")} /></Fld>}
       </div>
       {dup && <p className="sm" style={{ color: "var(--warn)", marginTop: 10 }}>Поставщик «{dup.name}» уже есть — выберите другое название, чтобы закупки и долги не разделились на два поставщика.</p>}
       {err && <p className="sm" style={{ color: "var(--bad)", marginTop: 10 }}>{err}</p>}
@@ -1915,7 +2059,7 @@ function RequestExcelImport({ products, onClose, onAdd }) {
   const num = (v) => Number(String(v == null ? "" : v).replace(/\s/g, "").replace(",", ".")) || 0;
   const guessMap = (header) => {
     const m = {};
-    header.forEach((h, i) => { const hl = String(h || "").toLowerCase(); for (const f of FIELDS) { if (m[f.id] == null && f.kw.some((k) => hl.includes(k))) { m[f.id] = i; break; } } });
+    header.forEach((h, i) => { const hl = String(h || "").toLowerCase(); for (const f of fieldsByPriority(FIELDS)) { if (m[f.id] == null && f.kw.some((k) => hl.includes(k))) { m[f.id] = i; break; } } });
     return m;
   };
   const onFile = (e) => {
@@ -2072,13 +2216,15 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   const selObj = objects.find((o) => o.id === objId);
   const metaTitle = (selObj ? selObj.name : newObj.name) || "";
   useEffect(() => { if (onMeta) onMeta({ title: metaTitle, count: lines.length }); }, [metaTitle, lines.length]);
-  const prodById = (id) => products.find((p) => p.id === id);
+  const prodMap = useMemo(() => { const m = new Map(); products.forEach((p) => m.set(p.id, p)); return m; }, [products]);
+  const prodById = (id) => prodMap.get(id);
+  const qn = (x) => parseNum(x); // количество в строке хранится так, как его ввели (можно очистить поле)
 
   const addFromBase = (p) => {
     setLines((prev) => {
       const ex = prev.find((l) => l.product_id === p.id);
-      if (ex) return prev.map((l) => (l.product_id === p.id ? { ...l, qty: l.qty + 1 } : l));
-      return [...prev, { id: uuid(), product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, cost: p.cost, manual: false }];
+      if (ex) return prev.map((l) => (l.product_id === p.id ? { ...l, qty: qn(l.qty) + 1 } : l));
+      return [...prev, { id: uuid(), product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, cost: p.cost, supplier_id: null, manual: false }];
     });
   };
   // строки из Excel: найденные товары складываются с уже выбранными, остальные — ручные позиции
@@ -2087,7 +2233,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
       const next = prev.map((l) => ({ ...l })); // копии: исходный список не меняем
       rows.forEach((r) => {
         const ex = r.product_id ? next.find((l) => l.product_id === r.product_id) : null;
-        if (ex) ex.qty = (Number(ex.qty) || 0) + r.qty;
+        if (ex) ex.qty = qn(ex.qty) + r.qty;
         else next.push({ id: uuid(), product_id: r.product_id, name: r.name, size: r.size || "", unit: r.unit || "шт", qty: r.qty, cost: r.cost || 0, supplier_id: null, manual: !r.product_id });
       });
       return next;
@@ -2096,12 +2242,19 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
     toast("Из Excel добавлено строк: " + rows.length + " (найдено в базе: " + rows.filter((r) => r.product_id).length + ")");
   };
   const addManualLine = () => {
-    setLines((prev) => [...prev, { id: uuid(), product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: 0, supplier_id: null, manual: true }]);
+    setLines((prev) => [...prev, { id: uuid(), product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: "", supplier_id: null, manual: true }]);
   };
+  // сколько такого товара лежит на Складе Thermo (возвраты) — можно отгрузить оттуда вместо закупки
+  const whQty = useMemo(() => { const m = {}; (data.warehouse || []).forEach((w) => { if (w.product_id && Number(w.qty) > 0) m[w.product_id] = (m[w.product_id] || 0) + Number(w.qty); }); return m; }, [data.warehouse]);
   const setLine = (id, patch) => setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const confirmRemoveLine = () => { if (delLine) { setLines((prev) => prev.filter((l) => l.id !== delLine)); setDelLine(null); } };
 
   const filteredProducts = useMemo(() => products.filter((p) => p.status !== "archive"), [products]);
+  const supById = useMemo(() => { const m = {}; suppliers.forEach((x) => { m[x.id] = x; }); return m; }, [suppliers]);
+  // поставщик строки: у товара из базы — его поставщик; если в базе не указан — выбранный в строке
+  const lineSup = (l) => { const p = l.product_id ? prodById(l.product_id) : null; return (p && p.supplier_id) || l.supplier_id || null; };
+  const noSupCount = lines.filter((l) => !lineSup(l)).length;
+  const setSupForEmpty = (sid) => { if (sid) setLines((prev) => prev.map((l) => (lineSup(l) ? l : { ...l, supplier_id: sid }))); };
 
   const saveNewMaster = async () => {
     if (!newMasterName.trim()) return;
@@ -2112,6 +2265,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
       const m = ins && ins[0];
       if (m) {
         setNewObj((prev) => ({ ...prev, master_id: m.id, master: m.name }));
+        await logAction("Добавлен мастер", "master:" + m.name, "из новой заявки");
         await reload();
         toast("Мастер «" + m.name + "» добавлен");
       }
@@ -2120,52 +2274,73 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
     setSavingMaster(false);
   };
 
-  const totalCost = lines.reduce((a, l) => a + l.qty * (Number(l.cost) || 0), 0);
+  const totalCost = lines.reduce((a, l) => { const p = l.product_id ? prodById(l.product_id) : null; return a + qn(l.qty) * (Number(p ? p.cost : l.cost) || 0); }, 0);
 
   const doSave = async (saleK) => {
     setBusy(true); setErr("");
     try {
-      let obj = selObj;
-      if (!obj) {
-        const objData = cleanUuids({ ...newObj, status: saveStatus || "draft", items: [] });
-        const { data: ins, error: insErr } = await db.from("objects").insert(objData);
-        if (insErr) throw new Error("Ошибка создания объекта: " + insErr.message);
-        if (ins && ins[0]) {
-          obj = ins[0];
-        } else {
-          const { data: found } = await db.from("objects").select().eq("name", newObj.name).order("created_at", { ascending: false });
-          obj = found && found[0];
-        }
-        if (!obj) throw new Error("Объект создан, но не удалось прочитать. Проверьте RLS на таблице objects.");
-      }
-      const exNos = (obj.items || []).map((i) => i.batch_no || 1);
-      const batchNo = exNos.length ? Math.max(...exNos) + 1 : 1;
-      const items = lines.map((l) => {
+      const mkItems = (batchNo) => lines.map((l) => {
         const p = l.product_id ? prodById(l.product_id) : null;
-        const cost = p ? p.cost : (Number(l.cost) || 0);
+        const cost = p ? Number(p.cost) || 0 : parseNum(l.cost);
         return {
-          id: uuid(), product_id: p ? p.id : null, name: p ? p.name : l.name, size: p ? p.size : l.size, unit: p ? p.unit : l.unit,
-          qty: l.qty, price: l.manualPrice != null ? l.manualPrice : Math.round(cost * saleK * 100) / 100, cost, supplier_id: p ? p.supplier_id : (l.supplier_id || null),
+          id: uuid(), product_id: p ? p.id : null, name: p ? p.name : String(l.name || "").trim(), size: p ? p.size : l.size, unit: p ? p.unit : l.unit,
+          qty: qn(l.qty), price: l.manualPrice != null && l.manualPrice !== "" ? parseNum(l.manualPrice) : Math.round(cost * saleK * 100) / 100, cost,
+          supplier_id: lineSup(l),
           source_text: p ? p.name : l.name, confidence: 100,
           batch_no: batchNo, batch_date: today(),
         };
       });
-      const patch = { items: [...(obj.items || []), ...items] };
-      if (saveStatus && saveStatus !== obj.status) patch.status = saveStatus;
-      await db.from("objects").update(patch).eq("id", obj.id);
+      let obj = selObj, batchNo = 1, items;
+      if (!obj) {
+        // новый объект создаётся сразу вместе с позициями — одной записью (раньше объект создавался пустым,
+        // а позиции дописывались вторым запросом; если он не проходил, объект оставался пустым)
+        items = mkItems(1);
+        const objData = cleanUuids({ ...newObj, name: String(newObj.name || "").trim(), status: saveStatus || "draft", items });
+        const { data: ins, error: insErr } = await db.from("objects").insert(objData);
+        if (insErr) throw new Error("объект не создан: " + (insErr.message || insErr));
+        obj = ins && ins[0];
+        if (!obj) {
+          const { data: found } = await db.from("objects").select().eq("name", objData.name).order("created_at", { ascending: false });
+          obj = found && found[0];
+        }
+        if (!obj) throw new Error("объект создан, но не удалось его прочитать. Проверьте RLS на таблице objects.");
+        setObjId(obj.id); // если дальше что-то не так — повторное сохранение не создаст второй объект
+      } else {
+        // поставка добавляется к свежему списку позиций из базы: чужие изменения не затираются
+        const extra = saveStatus && saveStatus !== obj.status ? { status: saveStatus } : {};
+        const r = await updateObjectItems(obj.id, (cur) => {
+          const exNos = cur.map((i) => i.batch_no || 1);
+          batchNo = exNos.length ? Math.max(...exNos) + 1 : 1;
+          items = mkItems(batchNo);
+          return [...cur, ...items];
+        }, extra);
+        if (r.error) throw new Error("позиции не сохранены: " + (r.error.message || r.error) + ". Заявка осталась на экране — попробуйте ещё раз.");
+      }
+      // история заявок — не критично: при ошибке поставка всё равно сохранена
       await db.from("requests").insert(cleanUuids({
         object_id: obj.id, mode: "manual", source: "manual",
-        lines: lines.map((l) => ({ source: l.name, ai_product_id: null, final_product_id: l.product_id, confidence: 100, corrected: false })),
+        lines: lines.map((l) => ({ source: l.name, final_product_id: l.product_id, qty: qn(l.qty) })),
       }));
-      await logAction("Заявка сохранена", "object:" + obj.name, "поставка №" + batchNo + ", позиций: " + items.length);
+      // товарам без поставщика запоминаем выбранного поставщика — в следующий раз он подставится сам
+      const link = {};
+      lines.forEach((l) => { const p = l.product_id ? prodById(l.product_id) : null; if (p && !p.supplier_id && l.supplier_id) (link[l.supplier_id] = link[l.supplier_id] || []).push(p.id); });
+      let linked = 0;
+      for (const [sid, ids] of Object.entries(link)) {
+        for (let i = 0; i < ids.length; i += 200) {
+          const chunk = ids.slice(i, i + 200);
+          if (sb) { const r = await sb.from("products").update({ supplier_id: sid }).in("id", chunk); if (!r.error) linked += chunk.length; }
+          else for (const id of chunk) { const r = await db.from("products").update({ supplier_id: sid }).eq("id", id); if (!r.error) linked++; }
+        }
+      }
+      await logAction("Заявка сохранена", "object:" + obj.name, "поставка №" + batchNo + ", позиций: " + items.length + (linked ? ", товарам указан поставщик: " + linked : ""));
       toast("Поставка №" + batchNo + " сохранена: " + items.length + " поз. → «" + obj.name + "»");
       setStep(0); setLines([]); setObjId(""); setMarkupModal(false);
       setNewObj({ name: "", client: "", phone: "", master: "", master_id: "", manager: "", address: "" });
       clearDraft();
-      await reload();
+      await reload(linked ? "all" : undefined);
       if (onSaved) onSaved();
       openObject(obj.id);
-    } catch (e) { setErr("Ошибка сохранения: " + e.message); }
+    } catch (e) { setErr("Ошибка сохранения: " + e.message); setMarkupModal(false); }
     setBusy(false);
   };
 
@@ -2173,6 +2348,8 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
     if (!lines.length) { setErr("Добавьте хотя бы одну позицию"); return; }
     const incomplete = lines.find((l) => !l.product_id && (!l.name || !l.name.trim()));
     if (incomplete) { setErr("Заполните название для всех ручных позиций"); return; }
+    const zero = lines.find((l) => !(qn(l.qty) > 0));
+    if (zero) { setErr("Укажите количество больше нуля: «" + (zero.name || "позиция без названия") + "»"); return; }
     setErr("");
     // статус спрашиваем при каждом сохранении: у нового объекта — выбрать обязательно, у существующего — текущий по умолчанию
     setSaveStatus(selObj ? (selObj.status || "draft") : "");
@@ -2181,7 +2358,12 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
 
   const effectiveMarkup = markupCustom !== "" ? Number(markupCustom) : markup;
   const saleK = 1 + (Number(effectiveMarkup) || 0) / 100;
-  const totalSalePreview = Math.round(totalCost * saleK * 100) / 100;
+  // предпросмотр продажи: строки с ручной ценой — по ней, остальные — себестоимость + наценка
+  const totalSalePreview = Math.round(lines.reduce((acc, l) => {
+    const p = l.product_id ? prodById(l.product_id) : null, c = p ? Number(p.cost) || 0 : parseNum(l.cost);
+    const price = l.manualPrice != null && l.manualPrice !== "" ? parseNum(l.manualPrice) : Math.round(c * saleK * 100) / 100;
+    return acc + qn(l.qty) * price;
+  }, 0) * 100) / 100;
 
   return (
     <div>
@@ -2263,15 +2445,31 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
             </div>
           )}
 
+          {lines.length > 0 && noSupCount > 0 && (
+            <div className="row sm" style={{ marginBottom: 10, gap: 8, padding: "8px 10px", border: "1px solid color-mix(in srgb, var(--warn) 45%, transparent)", borderRadius: 9, background: "color-mix(in srgb, var(--warn) 7%, transparent)" }}>
+              <span style={{ color: "var(--warn)", fontWeight: 600 }}>Без поставщика: {noSupCount} поз.</span>
+              <span className="xs mut" style={{ flex: "1 1 260px" }}>Закупка без поставщика не попадёт в его долг. Выберите поставщика в строке или сразу для всех:</span>
+              <select className="inp" style={{ width: 200 }} value="" onChange={(e) => setSupForEmpty(e.target.value)}>
+                <option value="">— всем без поставщика —</option>
+                {activeSuppliers(suppliers).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+              </select>
+            </div>
+          )}
           {lines.length > 0 && (
             <div style={{ overflow: "auto" }}>
-              <table className="t">
+              <table className="t" style={{ minWidth: 820 }}>
                 <thead><tr>
-                  <th>Товар</th><th style={{ width: 90 }}>Кол-во</th><th style={{ width: 70 }}>Ед.</th><th style={{ textAlign: "right" }}>Себестоимость</th><th style={{ textAlign: "right", color: "var(--ok)" }}>Цена продажи</th><th style={{ textAlign: "right" }}>Сумма (себест.)</th><th>Ост.</th><th></th>
+                  <th>Товар</th><th style={{ width: 90 }}>Кол-во</th><th style={{ width: 70 }}>Ед.</th><th style={{ textAlign: "right" }}>Себестоимость</th><th style={{ textAlign: "right", color: "var(--ok)" }}>Цена продажи</th><th style={{ textAlign: "right" }}>Сумма (себест.)</th><th title="Сколько такого товара есть на Складе Thermo">Склад</th><th></th>
                 </tr></thead>
                 <tbody>
                   {lines.map((l) => {
                     const p = l.product_id ? prodById(l.product_id) : null;
+                    const supSel = (
+                      <select className="inp" style={{ marginTop: 4, borderColor: l.supplier_id ? undefined : "color-mix(in srgb, var(--warn) 60%, transparent)" }} value={l.supplier_id || ""} onChange={(e) => setLine(l.id, { supplier_id: e.target.value || null })} title="Поставщик">
+                        <option value="">— поставщик —</option>
+                        {activeSuppliers(suppliers, l.supplier_id).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                      </select>
+                    );
                     return (
                       <tr key={l.id}>
                         <td style={{ minWidth: 240 }}>
@@ -2280,31 +2478,30 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                               <input className="inp" placeholder="Название товара" value={l.name} onChange={(e) => setLine(l.id, { name: e.target.value })} />
                               <div className="row" style={{ marginTop: 4, gap: 6 }}>
                                 <input className="inp" style={{ width: 90 }} placeholder="размер" value={l.size} onChange={(e) => setLine(l.id, { size: e.target.value })} />
-                                <input type="number" className="inp" style={{ width: 100 }} placeholder="себестоимость" value={l.cost} onChange={(e) => setLine(l.id, { cost: Number(e.target.value) || 0 })} />
+                                <input type="number" className="inp" style={{ width: 100 }} placeholder="себестоимость" value={l.cost} onChange={(e) => setLine(l.id, { cost: e.target.value })} />
                               </div>
-                              <select className="inp" style={{ marginTop: 4 }} value={l.supplier_id || ""} onChange={(e) => setLine(l.id, { supplier_id: e.target.value || null })} title="Поставщик">
-                                <option value="">— поставщик —</option>
-                                {suppliers.filter((s) => s.status !== "inactive" || s.id === l.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                              </select>
+                              {supSel}
                               <div className="xs mut" style={{ marginTop: 3 }}>добавлено вручную</div>
                             </>
                           ) : (
                             <>
                               <div style={{ fontWeight: 600 }}>{l.name}</div>
-                              <div className="xs mut">{l.size}{p ? " · " + ((suppliers.find((s) => s.id === p.supplier_id) || {}).name || "") : ""}</div>
+                              <div className="xs mut">{[l.size, p && p.supplier_id ? (supById[p.supplier_id] || {}).name : ""].filter(Boolean).join(" · ")}</div>
+                              {!p && <div className="xs" style={{ color: "var(--warn)" }}>товара больше нет в базе — сохранится как ручная позиция</div>}
+                              {(!p || !p.supplier_id) && supSel}
                             </>
                           )}
                         </td>
-                        <td><input type="number" className="inp" value={l.qty} onChange={(e) => setLine(l.id, { qty: Number(e.target.value) || 0 })} /></td>
+                        <td><input type="number" className="inp" value={l.qty} min={0} onChange={(e) => setLine(l.id, { qty: e.target.value })} style={{ borderColor: qn(l.qty) > 0 ? undefined : "var(--bad)" }} /></td>
                         <td>
                           {l.manual
                             ? <input className="inp" style={{ width: 64 }} value={l.unit} onChange={(e) => setLine(l.id, { unit: e.target.value })} />
                             : <span className="mut">{l.unit}</span>}
                         </td>
-                        <td className="num">{fmt2(p ? p.cost : l.cost)}</td>
-                        <td><input type="number" className="inp" style={{ width: 100, textAlign: "right", color: "var(--ok)", fontWeight: 700 }} placeholder="авто" value={l.manualPrice != null ? l.manualPrice : ""} onChange={(e) => setLine(l.id, { manualPrice: e.target.value === "" ? null : Number(e.target.value) })} title="Цена продажи (оставьте пустым — рассчитается по наценке)" /></td>
-                        <td className="num" style={{ fontWeight: 700 }}>{fmt(l.qty * (p ? p.cost : l.cost))}</td>
-                        <td className="num" style={{ color: p && p.stock < l.qty ? "var(--bad)" : "var(--ok)" }}>{p ? p.stock : "—"}</td>
+                        <td className="num">{fmt2(p ? p.cost : parseNum(l.cost))}</td>
+                        <td><input type="number" className="inp" style={{ width: 100, textAlign: "right", color: "var(--ok)", fontWeight: 700 }} placeholder="авто" value={l.manualPrice != null ? l.manualPrice : ""} onChange={(e) => setLine(l.id, { manualPrice: e.target.value === "" ? null : e.target.value })} title="Цена продажи (оставьте пустым — рассчитается по наценке)" /></td>
+                        <td className="num" style={{ fontWeight: 700 }}>{fmt(qn(l.qty) * (p ? Number(p.cost) || 0 : parseNum(l.cost)))}</td>
+                        <td className="num" title={p && whQty[p.id] ? "Есть на Складе Thermo — можно отгрузить оттуда (Склад → «Отправить на объект»)" : ""} style={{ color: p && whQty[p.id] ? "var(--ok)" : "var(--mut)", fontWeight: p && whQty[p.id] ? 700 : 400 }}>{p && whQty[p.id] ? fmt(whQty[p.id]) : "—"}</td>
                         <td><button className="btn xs dng" onClick={() => setDelLine(l.id)}>✕</button></td>
                       </tr>
                     );
@@ -2381,53 +2578,71 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
 function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = true }) {
   const { objects, finance_ops, suppliers } = data;
   const [delObj, setDelObj] = useState(null);
+  const [delBusy, setDelBusy] = useState(false);
+  const [q, setQ] = useState("");
+  const [stF, setStF] = useState("");
   const obj = objects.find((o) => o.id === openId);
+  const opsCount = useMemo(() => { const m = {}; finance_ops.forEach((x) => { if (x.object_id) m[x.object_id] = (m[x.object_id] || 0) + 1; }); return m; }, [finance_ops]);
+  // объект с оплатами/возвратами удаляет только руководитель; менеджер может удалить только «пустой» (ошибочный) объект
+  const canDelete = (o) => fin || !opsCount[o.id];
   const removeObject = async (o) => {
-    await db.from("finance_ops").delete().eq("object_id", o.id);
-    await db.from("requests").delete().eq("object_id", o.id);
-    await db.from("objects").delete().eq("id", o.id);
-    await logAction("Удалён объект", "object:" + o.name, "клиент: " + (o.client || ""));
+    setDelBusy(true);
+    // по шагам: при любой ошибке останавливаемся (ошибка уже показана на экране)
+    let r = await db.from("finance_ops").delete().eq("object_id", o.id);
+    if (!r.error) r = await db.from("requests").delete().eq("object_id", o.id);
+    if (!r.error) r = await db.from("objects").delete().eq("id", o.id);
+    setDelBusy(false);
+    if (r.error) { await reload(); return false; }
+    await logAction("Удалён объект", "object:" + o.name, "клиент: " + (o.client || "") + ", позиций: " + (o.items || []).length + ", операций: " + (opsCount[o.id] || 0));
     await reload(); toast("Объект удалён");
+    return true;
   };
-  if (obj) return <ObjectDetail obj={obj} data={data} reload={reload} toast={toast} fin={fin} back={() => setOpenId(null)} onDelete={async () => { await removeObject(obj); setOpenId(null); }} />;
+  if (obj) return <ObjectDetail obj={obj} data={data} reload={reload} toast={toast} fin={fin} back={() => setOpenId(null)} />;
+  const ql = q.trim().toLowerCase();
+  const shown = objects.filter((o) => (!stF || o.status === stF) && (!ql || [o.name, o.client, o.phone, o.address, o.master, o.manager].join(" ").toLowerCase().includes(ql)));
   return (
     <div>
       <div className="row sect">
-        <h2 style={{ marginRight: "auto" }}>Объекты <span className="mut sm">({objects.length})</span></h2>
+        <h2 style={{ marginRight: "auto" }}>Объекты <span className="mut sm">({shown.length !== objects.length ? shown.length + " из " + objects.length : objects.length})</span></h2>
+        <input className="inp" style={{ maxWidth: 220 }} placeholder="Поиск: объект, клиент, телефон…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select className="inp" style={{ maxWidth: 180 }} value={stF} onChange={(e) => setStF(e.target.value)}>
+          <option value="">Все статусы</option>
+          {OBJ_STATUSES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+        </select>
         <button className="btn pri" onClick={goRequest}>+ Новая заявка</button>
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
           <thead><tr><th>Объект</th><th>Клиент</th><th>Мастер</th><th>Статус</th><th style={{textAlign:"right"}}>Сумма товара</th><th style={{textAlign:"right"}}>Долг клиента</th><th>Дата</th><th></th></tr></thead>
           <tbody>
-            {objects.map((o) => {
+            {shown.map((o) => {
               const f = calcObject(o, finance_ops);
               const st = stById(o.status);
               return (
                 <tr key={o.id} className="clk" onClick={() => setOpenId(o.id)}>
                   <td style={{ fontWeight: 700 }}>{o.name}<div className="xs mut">{o.address}</div></td>
-                  <td className="sm">{o.client}</td>
+                  <td className="sm">{o.client}{o.phone && <div className="xs mut mono">{o.phone}</div>}</td>
                   <td className="sm">{o.master}</td>
                   <td><Badge c={st.c}>{st.label}</Badge></td>
                   <td className="num">{fmt(f.saleNet)}</td>
                   <td className="num" style={{ color: f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--ok)" : "var(--mut)" }}>{f.clientDebt < 0 ? "−" + fmt(Math.abs(f.clientDebt)) : fmt(f.clientDebt)}</td>
                   <td className="xs mut mono">{dt(o.created_at)}</td>
-                  <td><button className="btn xs dng" onClick={(e) => { e.stopPropagation(); setDelObj(o); }}>✕</button></td>
+                  <td>{canDelete(o) ? <button className="btn xs dng" title="Удалить объект" onClick={(e) => { e.stopPropagation(); setDelObj(o); }}>✕</button> : null}</td>
                 </tr>
               );
             })}
-            {!objects.length && <tr><td colSpan={8} className="mut" style={{ textAlign: "center", padding: 30 }}>Объектов пока нет — создайте через «Новая заявка»</td></tr>}
+            {!shown.length && <tr><td colSpan={8} className="mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? "Ничего не найдено" : "Объектов пока нет — создайте через «Новая заявка»"}</td></tr>}
           </tbody>
         </table>
       </div>
       {delObj && (() => { const f = calcObject(delObj, finance_ops); return (
-        <Modal title="Удалить объект" onClose={() => setDelObj(null)} w={460}>
+        <Modal title="Удалить объект" onClose={() => { if (!delBusy) setDelObj(null); }} w={460}>
           <p style={{ marginBottom: 6 }}>Удалить объект <b style={{ color: "var(--bad)" }}>{delObj.name}</b> ({delObj.client})?</p>
           {(f.clientDebt > 0 || f.supplierDebt > 0) && <p className="sm" style={{ color: "var(--warn)", marginBottom: 6 }}>⚠ По объекту есть долги — клиента: {fmt(Math.max(0, f.clientDebt))}, поставщикам: {fmt(f.supplierDebt)}.</p>}
-          <p className="sm mut" style={{ marginBottom: 14 }}>Будут удалены все материалы, финансовые операции и заявки этого объекта. Действие необратимо. Если объект просто завершён — лучше поставьте статус «Закрыто».</p>
+          <p className="sm mut" style={{ marginBottom: 14 }}>Будут удалены все материалы, финансовые операции ({opsCount[delObj.id] || 0}) и заявки этого объекта. Действие необратимо. Если объект просто завершён — лучше поставьте статус «Закрыто».</p>
           <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button className="btn" onClick={() => setDelObj(null)}>Отмена</button>
-            <button className="btn" style={{ background: "var(--bad)", borderColor: "var(--bad)", color: "#fff" }} onClick={async () => { await removeObject(delObj); setDelObj(null); }}>Удалить</button>
+            <button className="btn" disabled={delBusy} onClick={() => setDelObj(null)}>Отмена</button>
+            <button className="btn" disabled={delBusy} style={{ background: "var(--bad)", borderColor: "var(--bad)", color: "#fff" }} onClick={async () => { if (await removeObject(delObj)) setDelObj(null); }}>{delBusy ? "Удаляю…" : "Удалить"}</button>
           </div>
         </Modal>
       ); })()}
@@ -2435,7 +2650,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   );
 }
 
-function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) {
+function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   const { finance_ops, suppliers, products, masters } = data;
   const f = calcObject(obj, finance_ops);
   const ops = finance_ops.filter((o) => o.object_id === obj.id);
@@ -2447,40 +2662,66 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
   const [editItem, setEditItem] = useState(null);
   const [addItems, setAddItems] = useState(false);
   const [impItems, setImpItems] = useState(false);
-  const [delSelf, setDelSelf] = useState(false);
   const [delItemId, setDelItemId] = useState(null);
   const supName = (id) => (suppliers.find((s) => s.id === id) || {}).name || "—";
+  const itemName = (iid) => ((obj.items || []).find((i) => i.id === iid) || {}).name || "";
 
-  const setStatus = async (s) => { await db.from("objects").update({ status: s }).eq("id", obj.id); await reload(); };
-  const delItem = async (iid) => {
-    await db.from("objects").update({ items: (obj.items || []).filter((i) => i.id !== iid) }).eq("id", obj.id);
+  // любые изменения позиций — через свежую версию объекта из базы (updateObjectItems); true — сохранено
+  const saveItems = async (change, extra) => {
+    const r = await updateObjectItems(obj.id, change, extra);
     await reload();
+    return !r.error;
+  };
+  const setStatus = async (s) => {
+    const r = await db.from("objects").update({ status: s }).eq("id", obj.id);
+    if (!r.error) await logAction("Статус объекта: " + stById(s).label, "object:" + obj.name, "было: " + stById(obj.status).label);
+    await reload();
+  };
+  const setField = async (patch, what) => {
+    const r = await db.from("objects").update(patch).eq("id", obj.id);
+    if (!r.error) await logAction("Объект: " + what, "object:" + obj.name, Object.values(patch).filter((x) => x != null && typeof x !== "object").join(" · "));
+    await reload();
+  };
+  const delItem = async (iid) => {
+    const it = (obj.items || []).find((i) => i.id === iid) || {};
+    const ok = await saveItems((cur) => cur.filter((i) => i.id !== iid));
+    if (ok) { await logAction("Удалена позиция", "object:" + obj.name, (it.name || "") + " × " + fmt(it.qty) + " по " + fmt2(it.price)); toast("Позиция удалена"); }
+    return ok;
   };
   const setItemQty = async (iid, qty) => {
-    await db.from("objects").update({ items: (obj.items || []).map((i) => i.id === iid ? { ...i, qty } : i) }).eq("id", obj.id);
-    await reload();
+    const ok = await saveItems((cur) => cur.map((i) => (i.id === iid ? { ...i, qty } : i)));
+    if (ok) await logAction("Изменено количество", "object:" + obj.name, itemName(iid) + ": " + fmt(qty));
+    return ok;
   };
   const setItemPrice = async (iid, price) => {
-    await db.from("objects").update({ items: (obj.items || []).map((i) => i.id === iid ? { ...i, price } : i) }).eq("id", obj.id);
-    await reload();
+    const ok = await saveItems((cur) => cur.map((i) => (i.id === iid ? { ...i, price } : i)));
+    if (ok) await logAction("Изменена цена", "object:" + obj.name, itemName(iid) + ": " + fmt2(price));
+    return ok;
   };
   const saveItem = async (item) => {
-    await db.from("objects").update({ items: (obj.items || []).map((i) => i.id === item.id ? item : i) }).eq("id", obj.id);
-    await reload(); toast("Позиция обновлена");
+    const ok = await saveItems((cur) => cur.map((i) => (i.id === item.id ? { ...i, ...item } : i)));
+    if (ok) { await logAction("Изменена позиция", "object:" + obj.name, (item.name || "") + " × " + fmt(item.qty) + " по " + fmt2(item.price)); toast("Позиция обновлена"); }
+    return ok;
   };
   // newBatch: true → создаём новую поставку с новым номером. false → добавляем в последнюю существующую поставку (или №1, если поставок ещё нет)
   const addManualItems = async (rows, newBatch) => {
-    const exNos = (obj.items || []).map((i) => i.batch_no || 1);
-    const lastNo = exNos.length ? Math.max(...exNos) : 0;
-    const batchNo = newBatch ? lastNo + 1 : (lastNo || 1);
-    const batchDate = newBatch || !lastNo ? today() : ((obj.items || []).find((i) => (i.batch_no || 1) === batchNo) || {}).batch_date || today();
-    const items = rows.map((r) => ({
-      id: uuid(), product_id: r.product_id || null, name: r.name, size: r.size, unit: r.unit || "шт",
-      qty: r.qty, price: r.price, cost: r.cost, supplier_id: r.supplier_id || null,
-      source_text: "добавлено вручную", confidence: 100, batch_no: batchNo, batch_date: batchDate, manual: true,
-    }));
-    await db.from("objects").update({ items: [...(obj.items || []), ...items] }).eq("id", obj.id);
-    await reload(); toast((newBatch ? "Новая поставка №" + batchNo + ": " : "Добавлено в поставку №" + batchNo + ": ") + items.length + " поз.");
+    let batchNo = 1;
+    const ok = await saveItems((cur) => {
+      const exNos = cur.map((i) => i.batch_no || 1);
+      const lastNo = exNos.length ? Math.max(...exNos) : 0;
+      batchNo = newBatch ? lastNo + 1 : (lastNo || 1);
+      const batchDate = newBatch || !lastNo ? today() : (cur.find((i) => (i.batch_no || 1) === batchNo) || {}).batch_date || today();
+      return [...cur, ...rows.map((r) => ({
+        id: uuid(), product_id: r.product_id || null, name: r.name, size: r.size, unit: r.unit || "шт",
+        qty: parseNum(r.qty), price: parseNum(r.price), cost: parseNum(r.cost), supplier_id: r.supplier_id || null,
+        source_text: "добавлено вручную", confidence: 100, batch_no: batchNo, batch_date: batchDate, manual: true,
+      }))];
+    });
+    if (ok) {
+      await logAction(newBatch ? "Новая поставка" : "Добавлены позиции", "object:" + obj.name, "поставка №" + batchNo + ", позиций: " + rows.length);
+      toast((newBatch ? "Новая поставка №" + batchNo + ": " : "Добавлено в поставку №" + batchNo + ": ") + rows.length + " поз.");
+    }
+    return ok;
   };
   // удаление операции (вместо сторно). След остаётся в «Журнале».
   const deleteOp = async (op) => {
@@ -2488,14 +2729,20 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
     const wentToWh = op.type === "return" && !op.voided && !supplierReturnIds(finance_ops, data.wh_moves).has(op.id);
     const r = await db.from("finance_ops").delete().eq("id", op.id);
     if (r.error) return;
-    if (wentToWh && op.product_id) {
-      const { data: ex } = await db.from("warehouse").select().eq("product_id", op.product_id);
-      if (ex && ex.length) await db.from("warehouse").update({ qty: Math.max(0, (ex[0].qty || 0) - (op.qty || 0)) }).eq("id", ex[0].id);
-      await db.from("wh_moves").insert({ product_id: op.product_id, name: op.product_name, qty: op.qty, dir: "out", object_id: obj.id, object_name: obj.name, op_date: today(), user: curUserName(), note: "удалён возврат" });
+    let whNote = "";
+    if (wentToWh && (op.product_id || op.product_name)) {
+      const w = await whFind(op.product_id, op.product_name, op.size);
+      if (w.row) {
+        const u = await db.from("warehouse").update({ qty: Math.max(0, round2((Number(w.row.qty) || 0) - (Number(op.qty) || 0))) }).eq("id", w.row.id);
+        if (!u.error) {
+          await db.from("wh_moves").insert(cleanUuids({ product_id: op.product_id || null, name: op.product_name, qty: op.qty, dir: "out", object_id: obj.id, object_name: obj.name, op_date: today(), user: curUserName(), note: "удалён возврат" }));
+          whNote = " · со склада списано " + fmt(op.qty);
+        }
+      }
     }
     await logAction("Удалена операция: " + opLabel(op.type), "object:" + obj.name,
-      fmt(op.amount) + " от " + dt(op.op_date || op.created_at) + [op.product_name, op.reason, op.note].filter(Boolean).map((x) => " · " + x).join(""));
-    setDelAsk(null); await reload(); toast("Операция удалена");
+      fmt(op.amount) + " от " + dt(op.op_date || op.created_at) + [op.product_name, op.reason, op.note].filter(Boolean).map((x) => " · " + x).join("") + whNote);
+    setDelAsk(null); await reload(); toast("Операция удалена" + whNote);
   };
   const safe = (s) => String(s || "object").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
   const exportClient = () => {
@@ -2568,6 +2815,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
   }, [obj]);
 
   const KPI = ({ l, v, c }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}</div></div>;
+  const shownOps = ops.filter((o) => !MASTER_ONLY_OPS.includes(o.type) && (fin || MANAGER_OP_TYPES.includes(o.type))).slice().reverse();
   return (
     <div>
       <div className="row sect">
@@ -2576,10 +2824,10 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
           <h2>{obj.name}</h2>
           <div className="sm mut">
             {obj.client} · {obj.phone} · менеджер:{" "}
-            <PersonSelect compact value={obj.manager || ""} onChange={async (m) => { await db.from("objects").update({ manager: m }).eq("id", obj.id); await reload(); }} />
+            <PersonSelect compact value={obj.manager || ""} onChange={(m) => setField({ manager: m || null }, "менеджер")} />
             {" "}· мастер:{" "}
             <select className="inp" style={{ display: "inline-block", width: "auto", padding: "2px 6px", fontSize: 12 }} value={obj.master_id || ""}
-              onChange={async (e) => { const m = masters.find((x) => x.id === e.target.value); await db.from("objects").update({ master_id: e.target.value || null, master: m ? m.name : obj.master }).eq("id", obj.id); await reload(); }}>
+              onChange={(e) => { const m = masters.find((x) => x.id === e.target.value); setField({ master_id: e.target.value || null, master: m ? m.name : obj.master }, "мастер"); }}>
               <option value="">{obj.master && !obj.master_id ? obj.master + " (без привязки)" : "—"}</option>
               {masters.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
@@ -2605,7 +2853,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
         <button className="btn" onClick={() => setImpItems(true)}>📊 Импорт Excel</button>
       </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
-        <table className="t">
+        <table className="t" style={{ minWidth: 760 }}>
           <thead><tr><th>Товар</th><th>Размер</th><th style={{width:90}}>Кол-во</th><th>Ед.</th>{fin && <th style={{textAlign:"right"}}>Закуп</th>}<th style={{textAlign:"right"}}>Цена</th><th style={{textAlign:"right"}}>Сумма</th><th>Поставщик</th><th></th></tr></thead>
           <tbody>
             {batches.map((b) => (
@@ -2636,7 +2884,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
         <table className="t">
           <thead><tr><th>Дата</th><th>Тип</th><th style={{textAlign:"right"}}>Сумма</th><th>Детали</th><th></th></tr></thead>
           <tbody>
-            {ops.filter((o) => !MASTER_ONLY_OPS.includes(o.type) && (fin || MANAGER_OP_TYPES.includes(o.type))).slice().reverse().map((o) => (
+            {shownOps.map((o) => (
               <tr key={o.id} style={{ opacity: o.voided ? 0.4 : 1, textDecoration: o.voided ? "line-through" : "none" }}>
                 <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
                 <td>{opLabel(o.type)}{o.type === "return" && o.product_name ? <div className="xs mut">{o.product_name} × {o.qty}</div> : null}{o.edited && <div className="xs" style={{ color: "var(--warn)" }}>изменено</div>}</td>
@@ -2654,39 +2902,29 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
                 </div></td>
               </tr>
             ))}
-            {!ops.filter((o) => !MASTER_ONLY_OPS.includes(o.type)).length && <tr><td colSpan={5} className="mut" style={{ textAlign: "center", padding: 20 }}>Операций нет</td></tr>}
+            {!shownOps.length && <tr><td colSpan={5} className="mut" style={{ textAlign: "center", padding: 20 }}>Операций нет</td></tr>}
           </tbody>
         </table>
       </div>
-      {delSelf && (
-        <Modal title="Удалить объект" onClose={() => setDelSelf(false)} w={460}>
-          <p style={{ marginBottom: 6 }}>Удалить объект <b style={{ color: "var(--bad)" }}>{obj.name}</b>?</p>
-          <p className="sm mut" style={{ marginBottom: 14 }}>Будут удалены все материалы, финансовые операции и заявки. Необратимо.</p>
-          <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button className="btn" onClick={() => setDelSelf(false)}>Отмена</button>
-            <button className="btn" style={{ background: "var(--bad)", borderColor: "var(--bad)", color: "#fff" }} onClick={async () => { setDelSelf(false); await onDelete(); }}>Удалить</button>
-          </div>
-        </Modal>
-      )}
       {delItemId && (
         <Modal title="Удалить позицию?" onClose={() => setDelItemId(null)} w={420}>
           <p className="sm mut">Позиция будет удалена из объекта. Это действие нельзя отменить.</p>
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
             <button className="btn" onClick={() => setDelItemId(null)}>Отмена</button>
-            <button className="btn dng" onClick={async () => { await delItem(delItemId); setDelItemId(null); }}>Удалить</button>
+            <button className="btn dng" onClick={async () => { const id = delItemId; setDelItemId(null); await delItem(id); }}>Удалить</button>
           </div>
         </Modal>
       )}
-      {editItem && <ItemEditModal item={editItem} suppliers={suppliers} fin={fin} onClose={() => setEditItem(null)} onSave={async (it) => { await saveItem(it); setEditItem(null); }} />}
-      {addItems && <AddItemsModal products={products} suppliers={suppliers} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} onSave={async (rows) => { await addManualItems(rows, addItems === "newbatch"); setAddItems(false); }} />}
-      {impItems && <ObjectExcelImport products={products} suppliers={suppliers} onClose={() => setImpItems(false)} onSave={async (rows) => { await addManualItems(rows); setImpItems(false); }} />}
+      {editItem && <ItemEditModal item={editItem} suppliers={suppliers} fin={fin} onClose={() => setEditItem(null)} onSave={async (it) => { if (await saveItem(it)) setEditItem(null); }} />}
+      {addItems && <AddItemsModal products={products} suppliers={suppliers} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} onSave={async (rows) => { if (await addManualItems(rows, addItems === "newbatch")) setAddItems(false); }} />}
+      {impItems && <ObjectExcelImport products={products} suppliers={suppliers} onClose={() => setImpItems(false)} onSave={async (rows) => { if (await addManualItems(rows, false)) setImpItems(false); }} />}
       {editOp && <EditOpModal op={editOp} suppliers={suppliers} isReturn={editOp.type === "return"} onClose={() => setEditOp(null)} onSave={async (patch) => {
         const log = [...(editOp.edit_log || []), { at: new Date().toISOString(), before: { amount: editOp.amount, op_date: editOp.op_date, note: editOp.note, reason: editOp.reason } }];
         const r = await db.from("finance_ops").update({ ...patch, edited: true, edit_log: log }).eq("id", editOp.id);
         if (r.error) return;
         const pt = (o) => (isPayType(editOp.type) ? " (" + payText(o) + ")" : "");
         await logAction("Изменена операция: " + opLabel(editOp.type), "object:" + obj.name, "было " + fmt(editOp.amount) + pt(editOp) + (patch.amount != null ? " → " + fmt(patch.amount) + pt({ ...editOp, ...patch }) : ""));
-        setEditOp(null); await reload(); toast("Операция изменена (история сохранена)");
+        setEditOp(null); await reload(); toast("Операция изменена (было и стало — в «Журнале»)");
       }} />}
       {opForm && opForm.type === "return" && <ReturnForm obj={obj} ops={ops} onClose={() => setOpForm(null)} onSave={async (list) => {
         const rows = list.map(({ _toWh, _supplier, ...op }) => cleanUuids(op));
@@ -2694,10 +2932,10 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, onDelete }) 
         if (r.error) return; // ошибка уже показана на экране, окно остаётся открытым
         const toWh = list.filter((x) => x._toWh).map(({ _toWh, _supplier, ...op }) => ({ ...op, supplier_id: _supplier }));
         const toSup = list.length - toWh.length;
-        if (toWh.length) await warehouseIn(toWh, obj.name);
-        await logAction("Возврат товара", "object:" + obj.name, "позиций: " + list.length + (toWh.length ? ", на склад: " + toWh.length : "") + (toSup ? ", поставщику: " + toSup : "") + ", сумма: " + fmt(list.reduce((a,x)=>a+(x.amount||0),0)));
+        const whFail = toWh.length ? await warehouseIn(toWh, obj.name) : 0;
+        await logAction("Возврат товара", "object:" + obj.name, "позиций: " + list.length + (toWh.length ? ", на склад: " + toWh.length : "") + (toSup ? ", поставщику: " + toSup : "") + ", сумма: " + fmt(list.reduce((a,x)=>a+(x.amount||0),0)) + (whFail ? ", НЕ оприходовано на склад: " + whFail : ""));
         setOpForm(null); await reload();
-        toast("Возврат оформлен: " + list.length + " поз." + (toWh.length ? " → Склад Thermo: " + toWh.length : "") + (toSup ? " → поставщику: " + toSup + " (долг уменьшен)" : ""));
+        toast("Возврат оформлен: " + list.length + " поз." + (toWh.length ? " → Склад Thermo: " + (toWh.length - whFail) : "") + (toSup ? " → поставщику: " + toSup + " (долг уменьшен)" : "") + (whFail ? " · ⚠ на склад не записано: " + whFail + " — проверьте Склад" : ""));
       }} />}
       {opForm && opForm.type !== "return" && <OpForm obj={obj} type={opForm.type} suppliers={suppliers} onClose={() => setOpForm(null)}
         onSave={async (op) => {
@@ -2722,12 +2960,12 @@ function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem,
     <tr>
       <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">со склада Thermo</div>}</td>
       <td className="mono xs">{i.size}</td>
-      <td><input type="number" className="inp" value={qty} onChange={(e) => setQty(e.target.value)}
-        onBlur={() => { const v = Number(qty) || 0; if (v !== i.qty) setItemQty(i.id, v); }} /></td>
+      <td><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)}
+        onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (v !== Number(i.qty)) { if (!(await setItemQty(i.id, v))) setQty(i.qty); } else setQty(i.qty); }} /></td>
       <td className="sm">{i.unit}</td>
       {fin && <td className="num mut">{fmt(i.cost)}</td>}
-      <td><input type="number" className="inp num" style={{ width: 104, textAlign: "right" }} value={price} onChange={(e) => setPrice(e.target.value)}
-        onBlur={() => { const v = Number(price) || 0; if (v !== i.price) setItemPrice(i.id, v); }} /></td>
+      <td><input type="number" className="inp num" min={0} style={{ width: 104, textAlign: "right" }} value={price} onChange={(e) => setPrice(e.target.value)}
+        onBlur={async () => { const v = Math.max(0, parseNum(price)); if (v !== Number(i.price)) { if (!(await setItemPrice(i.id, v))) setPrice(i.price); } else setPrice(i.price); }} /></td>
       <td className="num" style={{ fontWeight: 700 }}>{fmt((Number(qty) || 0) * (Number(price) || 0))}</td>
       <td className="sm">{supName(i.supplier_id)}</td>
       <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
@@ -2738,24 +2976,29 @@ function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem,
   );
 }
 function ItemEditModal({ item, suppliers, fin, onClose, onSave }) {
-  const [v, setV] = useState({ ...item });
+  const [v, setV] = useState({ ...item, qty: item.qty ?? 0, cost: item.cost ?? 0, price: item.price ?? 0 });
+  const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setV({ ...v, [k]: e.target.value });
-  const setN = (k) => (e) => setV({ ...v, [k]: Number(e.target.value) || 0 });
+  const save = async () => {
+    setBusy(true);
+    await onSave({ ...v, name: String(v.name || "").trim(), qty: Math.max(0, parseNum(v.qty)), cost: parseNum(v.cost), price: parseNum(v.price), supplier_id: v.supplier_id || null });
+    setBusy(false);
+  };
   return (
     <Modal title="Редактировать позицию" onClose={onClose} w={560}>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         <div style={{ gridColumn: "1/-1" }}><Fld label="Наименование"><input className="inp" value={v.name || ""} onChange={set("name")} /></Fld></div>
         <Fld label="Размер"><input className="inp" value={v.size || ""} onChange={set("size")} /></Fld>
         <Fld label="Ед. изм."><input className="inp" value={v.unit || ""} onChange={set("unit")} /></Fld>
-        <Fld label="Количество"><input type="number" className="inp" value={v.qty || 0} onChange={setN("qty")} /></Fld>
-        {fin && <Fld label="Себестоимость"><input type="number" className="inp" value={v.cost || 0} onChange={setN("cost")} /></Fld>}
-        <Fld label="Цена продажи"><input type="number" className="inp" value={v.price || 0} onChange={setN("price")} /></Fld>
+        <Fld label="Количество"><input type="number" className="inp" min={0} value={v.qty} onChange={set("qty")} /></Fld>
+        {fin && <Fld label="Себестоимость"><input type="number" className="inp" value={v.cost} onChange={set("cost")} /></Fld>}
+        <Fld label="Цена продажи"><input type="number" className="inp" value={v.price} onChange={set("price")} /></Fld>
         <Fld label="Поставщик"><select className="inp" value={v.supplier_id || ""} onChange={set("supplier_id")}><option value="">—</option>{activeSuppliers(suppliers, v.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>
       </div>
-      <p className="xs mut" style={{ marginTop: 8 }}>Сумма позиции: {fmt(v.qty * v.price)}</p>
+      <p className="xs mut" style={{ marginTop: 8 }}>Сумма позиции: {fmt(parseNum(v.qty) * parseNum(v.price))}</p>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
-        <button className="btn pri" disabled={!v.name} onClick={() => onSave(v)}>Сохранить</button>
+        <button className="btn pri" disabled={!String(v.name || "").trim() || busy} onClick={save}>{busy ? "Сохраняю…" : "Сохранить"}</button>
       </div>
     </Modal>
   );
@@ -2769,6 +3012,7 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
     { id: "size", label: "Размер", kw: ["размер", "диаметр", "size"] },
     { id: "unit", label: "Ед. изм.", kw: ["ед", "изм", "unit"] },
     { id: "supplier", label: "Поставщик", kw: ["поставщ", "supplier"] },
+    { id: "code", label: "Код / артикул", kw: ["код", "артикул", "code", "sku"] },
   ];
   const [rows, setRows] = useState(null);
   const [map, setMap] = useState({});
@@ -2777,15 +3021,17 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
   const [err, setErr] = useState("");
   const fRef = useRef(null);
   const num = (v) => Number(String(v == null ? "" : v).replace(/\s/g, "").replace(",", ".")) || 0;
-  const findProd = (name) => {
-    const s = String(name || "").toLowerCase().trim();
-    if (!s) return null;
-    return products.find((p) => p.name.toLowerCase() === s)
-        || products.find((p) => p.name.toLowerCase().includes(s) || (p.alt_names || "").toLowerCase().includes(s)) || null;
+  // сопоставление с базой — тем же поиском, что и в «Новая заявка → Загрузить из Excel» (слова, размеры, коды).
+  // Раньше брался первый товар, в названии которого встречается строка: «Труба» подтягивала случайную трубу.
+  const matcher = useMemo(() => buildMatcher(products.filter((p) => p.status !== "archive")), [products]);
+  const findProd = (name, size, code) => {
+    if (!String(name || "").trim()) return null;
+    const best = matcher(String(name) + (size ? " " + size : ""), code)[0];
+    return best && best.score >= MATCH_OK ? best.p : null;
   };
   const guessMap = (header) => {
     const m = {};
-    header.forEach((h, i) => { const hl = String(h || "").toLowerCase(); for (const f of FIELDS) { if (m[f.id] == null && f.kw.some((k) => hl.includes(k))) { m[f.id] = i; break; } } });
+    header.forEach((h, i) => { const hl = String(h || "").toLowerCase(); for (const f of fieldsByPriority(FIELDS)) { if (m[f.id] == null && f.kw.some((k) => hl.includes(k))) { m[f.id] = i; break; } } });
     return m;
   };
   const onFile = (e) => {
@@ -2805,31 +3051,35 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
   const dataRows = rows ? (hasHeader ? rows.slice(1) : rows) : [];
   const header = rows ? (hasHeader ? rows[0] : (rows[0] || []).map((_, i) => "Колонка " + (i + 1))) : [];
   const cell = (row, fid) => (map[fid] == null ? "" : row[map[fid]]);
-  const supByName = (nm) => { const s = suppliers.find((x) => x.name.toLowerCase().trim() === String(nm || "").toLowerCase().trim()); return s ? s.id : null; };
+  const supByName = (nm) => { const k = String(nm || "").toLowerCase().trim(); if (!k) return null; const s = suppliers.find((x) => String(x.name || "").toLowerCase().trim() === k); return s ? s.id : null; };
+  const fileNum = (row, fid) => { if (map[fid] == null) return null; const raw = cell(row, fid); return String(raw == null ? "" : raw).trim() === "" ? null : num(raw); };
 
   const build = () => dataRows.map((row) => {
     const name = String(cell(row, "name") || "").trim();
     if (!name) return null;
-    const prod = findProd(name);
+    const prod = findProd(name, String(cell(row, "size") || "").trim(), cell(row, "code"));
     return {
       product_id: prod ? prod.id : null,
       name: prod ? prod.name : name,
       size: String(cell(row, "size") || (prod ? prod.size : "")).trim(),
       unit: String(cell(row, "unit") || (prod ? prod.unit : "шт")).trim() || "шт",
       qty: num(cell(row, "qty")) || 1,
-      cost: map.cost != null ? num(cell(row, "cost")) : (prod ? prod.cost : 0),
-      price: map.price != null ? num(cell(row, "price")) : (prod ? retailOf(prod) : 0),
+      // число из файла, если в ячейке что-то есть; пустая ячейка — значение из базы товаров
+      cost: fileNum(row, "cost") ?? (prod ? prod.cost : 0),
+      price: fileNum(row, "price") ?? (prod ? retailOf(prod) : 0),
       supplier_id: supByName(cell(row, "supplier")) || (prod ? prod.supplier_id : null),
       _matched: !!prod,
     };
   }).filter(Boolean);
 
-  const run = () => {
+  const preview = useMemo(() => (rows ? build() : []), [rows, map, hasHeader, matcher, suppliers]);
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
     if (map.name == null) { setErr("Укажите колонку «Наименование»"); return; }
-    const out = build().map(({ _matched, ...r }) => r);
-    if (out.length) onSave(out);
+    const out = preview.map(({ _matched, ...r }) => r);
+    if (!out.length) return;
+    setBusy(true); await onSave(out); setBusy(false);
   };
-  const preview = rows ? build() : [];
   const matched = preview.filter((p) => p._matched).length;
 
   const [askCancel, setAskCancel] = useState(false);
@@ -2891,7 +3141,7 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
           </div>
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
             <button className="btn" onClick={tryClose}>Отмена</button>
-            <button className="btn pri" disabled={map.name == null || !preview.length} onClick={run}>Добавить {preview.length} поз. на объект →</button>
+            <button className="btn pri" disabled={map.name == null || !preview.length || busy} onClick={run}>{busy ? "Сохраняю…" : "Добавить " + preview.length + " поз. на объект →"}</button>
           </div>
         </div>
       )}
@@ -2908,7 +3158,9 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
   const blank = () => addRow({ product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: 0, price: 0, supplier_id: "" });
   const upd = (i, k, val) => setRows(rows.map((r, j) => (j === i ? { ...r, [k]: val } : r)));
   const del = (i) => setRows(rows.filter((_, j) => j !== i));
-  const total = rows.reduce((a, r) => a + (Number(r.qty) || 0) * (Number(r.price) || 0), 0);
+  const total = rows.reduce((a, r) => a + parseNum(r.qty) * parseNum(r.price), 0);
+  const valid = rows.filter((r) => String(r.name || "").trim() && parseNum(r.qty) > 0);
+  const [busy, setBusy] = useState(false);
   const [askCancel, setAskCancel] = useState(false);
   const tryClose = () => setAskCancel(true);
   return (
@@ -2919,7 +3171,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
         <button className="btn" onClick={blank}>+ Пустая строка (товара нет в базе)</button>
       </div>
       <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, maxHeight: 360 }}>
-        <table className="t">
+        <table className="t" style={{ minWidth: 760 }}>
           <thead><tr><th>Наименование</th><th style={{width:90}}>Размер</th><th style={{width:70}}>Ед.</th><th style={{width:80}}>Кол-во</th><th style={{width:110}}>Себест.</th><th style={{width:110}}>Цена</th><th style={{width:140}}>Поставщик</th><th></th></tr></thead>
           <tbody>
             {rows.map((r, i) => (
@@ -2927,9 +3179,9 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
                 <td><input className="inp" value={r.name} onChange={(e) => upd(i, "name", e.target.value)} /></td>
                 <td><input className="inp" value={r.size} onChange={(e) => upd(i, "size", e.target.value)} /></td>
                 <td><input className="inp" value={r.unit} onChange={(e) => upd(i, "unit", e.target.value)} /></td>
-                <td><input type="number" className="inp" value={r.qty} onChange={(e) => upd(i, "qty", Number(e.target.value) || 0)} /></td>
-                <td><input type="number" className="inp num" value={r.cost} onChange={(e) => upd(i, "cost", Number(e.target.value) || 0)} /></td>
-                <td><input type="number" className="inp num" value={r.price} onChange={(e) => upd(i, "price", Number(e.target.value) || 0)} /></td>
+                <td><input type="number" className="inp" min={0} value={r.qty} onChange={(e) => upd(i, "qty", e.target.value)} style={{ borderColor: parseNum(r.qty) > 0 ? undefined : "var(--bad)" }} /></td>
+                <td><input type="number" className="inp num" value={r.cost} onChange={(e) => upd(i, "cost", e.target.value)} /></td>
+                <td><input type="number" className="inp num" value={r.price} onChange={(e) => upd(i, "price", e.target.value)} /></td>
                 <td><select className="inp" value={r.supplier_id || ""} onChange={(e) => upd(i, "supplier_id", e.target.value)}><option value="">—</option>{activeSuppliers(suppliers, r.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></td>
                 <td><button className="btn xs dng" onClick={() => del(i)}>✕</button></td>
               </tr>
@@ -2942,7 +3194,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
         <div className="mono" style={{ fontWeight: 700 }}>Позиций: {rows.length} · Сумма: <span style={{ color: "var(--acc2)" }}>{money(total)}</span></div>
         <div className="row">
           <button className="btn" onClick={tryClose}>Отмена</button>
-          <button className="btn pri" disabled={!rows.filter((r) => r.name).length} onClick={() => onSave(rows.filter((r) => r.name))}>{newBatch ? "Создать новую поставку" : "Добавить в текущую поставку"}</button>
+          <button className="btn pri" disabled={!valid.length || busy} onClick={async () => { setBusy(true); await onSave(valid); setBusy(false); }}>{busy ? "Сохраняю…" : newBatch ? "Создать новую поставку" : "Добавить в текущую поставку"}</button>
         </div>
       </div>
     </Modal>
@@ -2955,6 +3207,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
 function EditOpModal({ op, suppliers, isReturn, onClose, onSave }) {
   const usesPay = isPayType(op.type); // оплаты и расходы — со способом оплаты
   const [pay, setPay] = useState(() => payInit(op));
+  const [busy, setBusy] = useState(false);
   const [v, setV] = useState({
     amount: op.amount || 0, op_date: (op.op_date || op.created_at || "").slice(0, 10),
     note: op.note || "", reason: op.reason || "", supplier_id: op.supplier_id || "", item_name: op.item_name || "", user: op.user || "",
@@ -2964,7 +3217,7 @@ function EditOpModal({ op, suppliers, isReturn, onClose, onSave }) {
       {isReturn && <p className="sm" style={{ color: "var(--warn)", marginBottom: 10 }}>⚠ У возврата можно изменить только дату, причину и комментарий. Количество/сумму меняйте так: удалите возврат и оформите новый — иначе разойдётся склад.</p>}
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         {usesPay && <PayFields p={pay} setP={setPay} methods={payMethodsFor(op.type)} usdLabel={payUsdLabel(op.type)} />}
-        {!isReturn && !usesPay && <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: Number(e.target.value) || 0 })} /></Fld>}
+        {!isReturn && !usesPay && <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: e.target.value })} /></Fld>}
         <Fld label="Дата операции"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
         {op.type === "supplier_payment" && <Fld label="Поставщик"><select className="inp" value={v.supplier_id} onChange={(e) => setV({ ...v, supplier_id: e.target.value })}><option value="">—</option>{activeSuppliers(suppliers, v.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>}
         {op.type === "bonus" && <Fld label="Предмет"><input className="inp" value={v.item_name} onChange={(e) => setV({ ...v, item_name: e.target.value })} /></Fld>}
@@ -2979,14 +3232,14 @@ function EditOpModal({ op, suppliers, isReturn, onClose, onSave }) {
       )}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
-        <button className="btn pri" onClick={() => {
+        <button className="btn pri" onClick={async () => {
           const patch = { op_date: v.op_date, note: v.note, reason: v.reason, user: v.user };
-          if (!isReturn) patch.amount = v.amount;
+          if (!isReturn) patch.amount = parseNum(v.amount);
           if (op.type === "supplier_payment") patch.supplier_id = v.supplier_id || null;
           if (op.type === "bonus") patch.item_name = v.item_name || null;
           if (usesPay) Object.assign(patch, payPatch(pay, op.type, false));
-          onSave(patch);
-        }} disabled={usesPay && !(payUsd(pay) > 0)}>Сохранить</button>
+          setBusy(true); await onSave(patch); setBusy(false);
+        }} disabled={busy || (usesPay && !(payUsd(pay) > 0))}>{busy ? "Сохраняю…" : "Сохранить"}</button>
       </div>
     </Modal>
   );
@@ -3013,7 +3266,9 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
   const totalCnt = rows.filter((r) => r.ret > 0).length;
   const batch = uuid();
   const noSup = rows.filter((r) => r.ret > 0 && !r.item.supplier_id).length;
-  const submit = () => {
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true);
     const list = rows.filter((r) => r.ret > 0).map((r) => {
       const toSup = dest === "sup" && !!r.item.supplier_id;
       return {
@@ -3026,7 +3281,8 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
         _toWh: !toSup, _supplier: r.item.supplier_id || null,
       };
     });
-    onSave(list);
+    await onSave(list);
+    setBusy(false);
   };
   return (
     <Modal title="Возврат товара (можно несколько позиций сразу)" onClose={onClose} w={780}>
@@ -3064,7 +3320,7 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
         <div className="mono" style={{ fontWeight: 700 }}>Позиций: {totalCnt} · Итого возврат: <span style={{ color: "var(--bad)" }}>{money(totalSum)}</span></div>
         <div className="row">
           <button className="btn" onClick={onClose}>Отмена</button>
-          <button className="btn pri" disabled={!totalCnt} onClick={submit}>Оформить возврат</button>
+          <button className="btn pri" disabled={!totalCnt || busy} onClick={submit}>{busy ? "Оформляю…" : "Оформить возврат"}</button>
         </div>
       </div>
     </Modal>
@@ -3081,16 +3337,18 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
   const isBonus = type === "bonus";
   const usesPay = isPayType(type); // клиент платит / оплата поставщику / доп. расход — со способом оплаты
   const [pay, setPay] = useState(() => payInit(null));
+  const [busy, setBusy] = useState(false);
   const item = items.find((i) => i.id === v.item_id);
   const retAmount = item ? v.qty * item.price : 0;
-  const submit = () => {
+  const submit = async () => { setBusy(true); await submit0(); setBusy(false); };
+  const submit0 = async () => {
     const base = { object_id: obj.id, type, note: v.note, reason: v.reason, user: v.user, op_date: v.op_date || today() };
     if (isReturn && item) {
-      onSave({ ...base, amount: retAmount, cost_amount: v.qty * item.cost, qty: v.qty, product_id: item.product_id, product_name: item.name, supplier_id: item.supplier_id });
+      await onSave({ ...base, amount: retAmount, cost_amount: v.qty * item.cost, qty: v.qty, product_id: item.product_id, product_name: item.name, supplier_id: item.supplier_id });
     } else if (usesPay) {
-      onSave({ ...base, ...payPatch(pay, type), supplier_id: isSupPay ? v.supplier_id || null : null });
+      await onSave({ ...base, ...payPatch(pay, type), supplier_id: isSupPay ? v.supplier_id || null : null });
     } else {
-      onSave({ ...base, amount: Number(v.amount) || 0, supplier_id: isSupPay ? v.supplier_id || null : null, item_name: isBonus && v.item_name ? v.item_name : null });
+      await onSave({ ...base, amount: parseNum(v.amount), supplier_id: isSupPay ? v.supplier_id || null : null, item_name: isBonus && v.item_name ? v.item_name : null });
     }
   };
   return (
@@ -3119,19 +3377,19 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
-        <button className="btn pri" onClick={submit} disabled={isReturn ? !item || !v.qty : usesPay ? !(payUsd(pay) > 0) || (isSupPay && !v.supplier_id) : !Number(v.amount)} title={isSupPay && !v.supplier_id ? "Выберите поставщика — иначе оплата не уменьшит его долг" : ""}>Сохранить</button>
+        <button className="btn pri" onClick={submit} disabled={busy || (isReturn ? !item || !v.qty : usesPay ? !(payUsd(pay) > 0) || (isSupPay && !v.supplier_id) : !(parseNum(v.amount) > 0))} title={isSupPay && !v.supplier_id ? "Выберите поставщика — иначе оплата не уменьшит его долг" : ""}>{busy ? "Сохраняю…" : "Сохранить"}</button>
       </div>
     </Modal>
   );
 }
 
 /* ============ MASTERS TAB ============ */
-function MastersTab({ data, reload, toast, openObject, fin = true }) {
+function MastersTab({ data, reload, toast, openObject, fin = true, canDel = false }) {
   const { masters, objects, finance_ops } = data;
   const [openId, setOpenId] = useState(null);
   const [edit, setEdit] = useState(null);
   const m = masters.find((x) => x.id === openId);
-  if (m) return <MasterDetail m={m} data={data} reload={reload} toast={toast} fin={fin} back={() => setOpenId(null)} openObject={openObject} onEdit={() => setEdit(m)} edit={edit} setEdit={setEdit} />;
+  if (m) return <MasterDetail m={m} data={data} reload={reload} toast={toast} fin={fin} canDel={canDel} back={() => setOpenId(null)} openObject={openObject} edit={edit} setEdit={setEdit} />;
   return (
     <div>
       <div className="row sect">
@@ -3163,20 +3421,30 @@ function MastersTab({ data, reload, toast, openObject, fin = true }) {
           </tbody>
         </table>
       </div>
-      {edit && <MasterForm m={edit} onClose={() => setEdit(null)} onSave={async (v) => {
-        if (v.id) await db.from("masters").update(v).eq("id", v.id);
-        else await db.from("masters").insert(v);
-        setEdit(null); await reload(); toast("Мастер сохранён");
+      {edit && <MasterForm m={edit} all={masters} onClose={() => setEdit(null)} onSave={async (v) => {
+        const { id, created_at, ...rest } = v;
+        const r = id ? await db.from("masters").update(rest).eq("id", id) : await db.from("masters").insert(rest);
+        if (r.error) return false; // ошибка показана, окно остаётся открытым
+        await logAction(id ? "Изменён мастер" : "Добавлен мастер", "master:" + (rest.name || ""), rest.phone || "");
+        setEdit(null); await reload(); toast("Мастер сохранён"); return true;
       }} />}
     </div>
   );
 }
-function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit, fin = true }) {
+function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit, fin = true, canDel = false }) {
   const { objects, finance_ops } = data;
   const st = masterStats(m, objects, finance_ops);
   const [payForm, setPayForm] = useState(false);
   const [accForm, setAccForm] = useState(false);
   const [delForm, setDelForm] = useState(false);
+  const [delBusy, setDelBusy] = useState(false);
+  const [delOp, setDelOp] = useState(null);
+  const removeOp = async (o) => {
+    const r = await db.from("finance_ops").delete().eq("id", o.id);
+    if (r.error) return;
+    await logAction("Удалена операция: " + opLabel(o.type), "master:" + m.name, fmt(o.amount) + " от " + dt(o.op_date || o.created_at) + (o.item_name ? " · " + o.item_name : "") + (o.note ? " · " + o.note : ""));
+    setDelOp(null); await reload(); toast("Операция удалена");
+  };
   const payOps = finance_ops.filter((x) => x.master_id === m.id && ["bonus", "bonus_payment"].includes(x.type));
   const KPI = ({ l, v, c }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}</div></div>;
   return (
@@ -3224,7 +3492,7 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
       {fin && <h3 className="sect">Бонусы: начисления и выплаты</h3>}
       {fin && <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
-          <thead><tr><th>Дата</th><th>Тип</th><th>Объект</th><th style={{textAlign:"right"}}>Сумма</th><th>Комментарий</th></tr></thead>
+          <thead><tr><th>Дата</th><th>Тип</th><th>Объект</th><th style={{textAlign:"right"}}>Сумма</th><th>Комментарий</th><th></th></tr></thead>
           <tbody>
             {payOps.slice().reverse().map((o) => (
               <tr key={o.id} style={{ opacity: o.voided ? 0.4 : 1, textDecoration: o.voided ? "line-through" : "none" }}>
@@ -3232,10 +3500,17 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
                 <td>{opLabel(o.type)}</td>
                 <td className="sm">{(objects.find((x) => x.id === o.object_id) || {}).name || "—"}</td>
                 <td className="num" style={{ fontWeight: 700, color: o.type === "bonus_payment" ? "var(--ok)" : "inherit" }}>{fmt(o.amount)}</td>
-                <td className="xs mut">{[o.item_name, o.type === "bonus_payment" ? payText(o) : "", o.note].filter(Boolean).join(" · ")}</td>
+                <td className="xs mut">{[o.item_name, o.type === "bonus_payment" ? payText(o) : "", o.note, o.user].filter(Boolean).join(" · ")}</td>
+                <td>{canDel && (delOp === o.id ? (
+                  <div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
+                    <span className="xs" style={{ color: "var(--bad)", textDecoration: "none" }}>Удалить?</span>
+                    <button className="btn xs dng" onClick={() => removeOp(o)}>Да</button>
+                    <button className="btn xs" onClick={() => setDelOp(null)}>Нет</button>
+                  </div>
+                ) : <button className="btn xs dng" onClick={() => setDelOp(o.id)}>удалить</button>)}</td>
               </tr>
             ))}
-            {!payOps.length && <tr><td colSpan={5} className="mut" style={{ textAlign: "center", padding: 20 }}>Операций нет</td></tr>}
+            {!payOps.length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 20 }}>Операций нет</td></tr>}
           </tbody>
         </table>
       </div>}
@@ -3249,15 +3524,22 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
           }} />
         </Modal>
       )}
-      {edit && <MasterForm m={edit} onClose={() => setEdit(null)} onSave={async (v) => {
-        await db.from("masters").update(v).eq("id", v.id);
-        setEdit(null); await reload(); toast("Сохранено");
+      {edit && <MasterForm m={edit} all={data.masters} onClose={() => setEdit(null)} onSave={async (v) => {
+        const { id, created_at, ...rest } = v;
+        const r = await db.from("masters").update(rest).eq("id", id);
+        if (r.error) return false;
+        // имя мастера хранится и текстом в объектах — обновляем его там, чтобы списки не расходились
+        if (rest.name && rest.name !== m.name) await db.from("objects").update({ master: rest.name }).eq("master_id", id);
+        await logAction("Изменён мастер", "master:" + (rest.name || ""), rest.name !== m.name ? "было: " + m.name : "");
+        setEdit(null); await reload(); toast("Сохранено"); return true;
       }} />}
       {fin && accForm && (
         <Modal title={"Начислить бонус — " + m.name} onClose={() => setAccForm(false)} w={520}>
           <BonusAccrueForm objects={st.rows.map((r) => r.o)} onSave={async (op) => {
-            await db.from("finance_ops").insert({ ...op, type: "bonus", master_id: m.id, user: "boss" });
-            setAccForm(false); await reload(); toast("Бонус начислен");
+            const r = await db.from("finance_ops").insert(cleanUuids({ ...op, type: "bonus", master_id: m.id, user: curUserName() || "—" }));
+            if (r.error) return false; // ошибка показана, окно остаётся открытым
+            await logAction("Начислен бонус мастеру", "master:" + m.name, fmt(op.amount) + (op.item_name ? " · " + op.item_name : "") + (op.note ? " · " + op.note : ""));
+            setAccForm(false); await reload(); toast("Бонус начислен"); return true;
           }} />
         </Modal>
       )}
@@ -3266,12 +3548,25 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
           <p style={{ marginBottom: 6 }}>Удалить мастера <b style={{ color: "var(--bad)" }}>{m.name}</b>?</p>
           <p className="sm mut" style={{ marginBottom: 8 }}>Его объекты останутся (имя сохранится текстом), история бонусов и выплат останется в финансах.</p>
           {st.debtToMaster > 0 && <p className="sm" style={{ color: "var(--warn)", marginBottom: 8 }}>⚠ По мастеру есть невыплаченный бонус: {fmt(st.debtToMaster)}</p>}
-          <div className="row" style={{ justifyContent: "flex-end", marginTop: 10 }}>
-            <button className="btn" onClick={() => setDelForm(false)}>Отмена</button>
-            <button className="btn" style={{ background: "var(--bad)", borderColor: "var(--bad)", color: "#fff" }} onClick={async () => {
-              await db.from("masters").delete().eq("id", m.id);
+          {m.status === "active" && <p className="xs mut" style={{ marginBottom: 8 }}>Если мастер просто больше не работает — лучше «Сделать неактивным»: он пропадёт из списков выбора, а история останется.</p>}
+          <div className="row" style={{ justifyContent: "flex-end", marginTop: 10, gap: 8 }}>
+            <button className="btn" disabled={delBusy} onClick={() => setDelForm(false)}>Отмена</button>
+            {m.status === "active" && <button className="btn" disabled={delBusy} onClick={async () => {
+              const r = await db.from("masters").update({ status: "inactive" }).eq("id", m.id);
+              if (r.error) return;
+              await logAction("Мастер отключён", "master:" + m.name, "");
+              setDelForm(false); await reload(); toast("«" + m.name + "» отмечен как неактивный");
+            }}>Сделать неактивным</button>}
+            <button className="btn" disabled={delBusy} style={{ background: "var(--bad)", borderColor: "var(--bad)", color: "#fff" }} onClick={async () => {
+              setDelBusy(true);
+              // имя мастера остаётся в его объектах текстом (ссылку база уберёт сама при удалении)
+              if (st.count) await db.from("objects").update({ master: m.name }).eq("master_id", m.id);
+              const r = await db.from("masters").delete().eq("id", m.id);
+              setDelBusy(false);
+              if (r.error) { await reload(); return; } // ошибка показана (на мастера ссылаются другие записи) — можно сделать его неактивным
+              await logAction("Удалён мастер", "master:" + m.name, "объектов: " + st.count);
               await reload(); toast("Мастер удалён"); back();
-            }}>Удалить</button>
+            }}>{delBusy ? "Удаляю…" : "Удалить"}</button>
           </div>
         </Modal>
       )}
@@ -3281,10 +3576,12 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
 function BonusAccrueForm({ objects, onSave }) {
   const [kind, setKind] = useState("money");
   const [itemName, setItemName] = useState("");
-  const [amount, setAmount] = useState(0);
+  const [amount, setAmount] = useState("");
   const [objId, setObjId] = useState("");
   const [note, setNote] = useState("");
   const [opDate, setOpDate] = useState(today());
+  const [busy, setBusy] = useState(false);
+  const a = parseNum(amount);
   return (
     <div>
       <div className="row" style={{ marginBottom: 12 }}>
@@ -3294,8 +3591,8 @@ function BonusAccrueForm({ objects, onSave }) {
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         {kind === "item" && <div style={{ gridColumn: "1/-1" }}><Fld label="Предмет">
           <input className="inp" value={itemName} onChange={(e) => setItemName(e.target.value)} placeholder="Перфоратор Bosch GBH 2-26 / набор ключей / телефон…" /></Fld></div>}
-        <Fld label={kind === "item" ? "Цена предмета (вручную)" : "Сумма бонуса"}>
-          <input type="number" className="inp" value={amount} onChange={(e) => setAmount(Number(e.target.value) || 0)} /></Fld>
+        <Fld label={kind === "item" ? "Цена предмета, $" : "Сумма бонуса, $"}>
+          <input type="number" className="inp" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Fld>
         <Fld label="Привязать к объекту (опц.)">
           <select className="inp" value={objId} onChange={(e) => setObjId(e.target.value)}>
             <option value="">— без объекта —</option>
@@ -3304,9 +3601,13 @@ function BonusAccrueForm({ objects, onSave }) {
         <Fld label="Дата начисления"><input type="date" className="inp" value={opDate} onChange={(e) => setOpDate(e.target.value)} /></Fld>
         <Fld label="Комментарий"><input className="inp" value={note} onChange={(e) => setNote(e.target.value)} /></Fld>
       </div>
-      <p className="xs mut" style={{ marginTop: 8 }}>{kind === "item" ? "Предмет начислится как бонус по его цене и увеличит долг перед мастером — закроете его «выплатой» при передаче." : objId ? "Сумма уменьшит чистую прибыль выбранного объекта." : "Бонус без объекта — учитывается только в расчётах по мастеру."}</p>
+      <p className="xs mut" style={{ marginTop: 8 }}>{kind === "item" ? "Предмет начислится как бонус по его цене и увеличит долг перед мастером — закроете его «выплатой» при передаче." : objId ? "Сумма уменьшит чистую прибыль выбранного объекта." : "Бонус без объекта уменьшит чистую прибыль компании (Дашборд) и увеличит долг перед мастером."}</p>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
-        <button className="btn pri" disabled={!amount || (kind === "item" && !itemName)} onClick={() => onSave({ amount, item_name: kind === "item" ? itemName : null, object_id: objId || null, note, op_date: opDate || today() })}>Начислить</button>
+        <button className="btn pri" disabled={!(a > 0) || (kind === "item" && !itemName.trim()) || busy} onClick={async () => {
+          setBusy(true);
+          const ok = await onSave({ amount: a, item_name: kind === "item" ? itemName.trim() : null, object_id: objId || null, note, op_date: opDate || today() });
+          if (!ok) setBusy(false);
+        }}>{busy ? "Записываю…" : "Начислить"}</button>
       </div>
     </div>
   );
@@ -3331,22 +3632,31 @@ function BonusPayForm({ debt, onSave }) {
     </div>
   );
 }
-function MasterForm({ m, onClose, onSave }) {
-  const [v, setV] = useState({ ...m });
+function MasterForm({ m, all = [], onClose, onSave }) {
+  const [v, setV] = useState({ status: "active", ...m, bonus_percent: m.bonus_percent ?? 10 });
+  const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setV({ ...v, [k]: e.target.value });
+  const name = String(v.name || "").trim();
+  const dup = name && all.find((x) => x.id !== v.id && String(x.name || "").trim().toLowerCase() === name.toLowerCase());
+  const save = async () => {
+    setBusy(true);
+    const ok = await onSave({ ...v, name, bonus_percent: parseNum(v.bonus_percent) });
+    if (!ok) setBusy(false);
+  };
   return (
     <Modal title={v.id ? "Мастер" : "Новый мастер"} onClose={onClose} w={520}>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        <Fld label="Имя"><input className="inp" value={v.name || ""} onChange={set("name")} /></Fld>
+        <Fld label="Имя"><input className="inp" value={v.name || ""} onChange={set("name")} autoFocus /></Fld>
         <Fld label="Телефон"><input className="inp" value={v.phone || ""} onChange={set("phone")} /></Fld>
         <Fld label="Специализация"><input className="inp" value={v.specialty || ""} onChange={set("specialty")} /></Fld>
-        <Fld label="% бонуса (от валовой)"><input type="number" className="inp" value={v.bonus_percent || 0} onChange={(e) => setV({ ...v, bonus_percent: Number(e.target.value) || 0 })} /></Fld>
-        <Fld label="Статус"><select className="inp" value={v.status} onChange={set("status")}><option value="active">активен</option><option value="inactive">неактивен</option></select></Fld>
+        <Fld label="% бонуса (от валовой)"><input type="number" className="inp" value={v.bonus_percent} onChange={set("bonus_percent")} /></Fld>
+        <Fld label="Статус"><select className="inp" value={v.status || "active"} onChange={set("status")}><option value="active">активен</option><option value="inactive">неактивен</option></select></Fld>
         <Fld label="Заметка"><input className="inp" value={v.note || ""} onChange={set("note")} /></Fld>
       </div>
+      {dup && <p className="sm" style={{ color: "var(--warn)", marginTop: 10 }}>Мастер «{dup.name}» уже есть — проверьте, не дубль ли это.</p>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
-        <button className="btn pri" disabled={!v.name} onClick={() => onSave(v)}>Сохранить</button>
+        <button className="btn pri" disabled={!name || busy} onClick={save}>{busy ? "Сохраняю…" : "Сохранить"}</button>
       </div>
     </Modal>
   );
@@ -3359,18 +3669,25 @@ function WarehouseTab({ data, reload, toast, openObject }) {
   const [editRow, setEditRow] = useState(null);
   const [delRow, setDelRow] = useState(null);
   const [retForm, setRetForm] = useState(null);
+  const [allMoves, setAllMoves] = useState(false);
   const stock = warehouse.filter((w) => (w.qty || 0) > 0);
+  const moves = wh_moves.slice().reverse();
   const totalCost = stock.reduce((a, w) => a + w.qty * (w.cost || 0), 0);
   const totalSale = stock.reduce((a, w) => a + w.qty * (w.price || 0), 0);
   const KPI = ({ l, v, c }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}</div></div>;
   const saveRow = async (patch) => {
-    await db.from("warehouse").update({ qty: patch.qty, cost: patch.cost, price: patch.price }).eq("id", editRow.id);
-    await logAction("Склад: изменена позиция", editRow.name, "кол-во " + editRow.qty + " → " + patch.qty);
+    const r = await db.from("warehouse").update({ qty: patch.qty, cost: patch.cost, price: patch.price }).eq("id", editRow.id);
+    if (r.error) return;
+    const dq = round2(patch.qty - (Number(editRow.qty) || 0));
+    // ручная правка количества — тоже движение склада, чтобы история сходилась с остатком
+    if (dq) await db.from("wh_moves").insert(cleanUuids({ product_id: editRow.product_id || null, name: editRow.name, qty: Math.abs(dq), dir: dq > 0 ? "in" : "out", object_id: null, object_name: null, op_date: today(), user: curUserName(), note: "ручная корректировка остатка" }));
+    await logAction("Склад: изменена позиция", editRow.name, "кол-во " + editRow.qty + " → " + patch.qty + ", себест. " + fmt2(patch.cost) + ", цена " + fmt2(patch.price));
     setEditRow(null); await reload(); toast("Позиция обновлена");
   };
   const confirmDelRow = async () => {
-    await db.from("warehouse").delete().eq("id", delRow.id);
-    await db.from("wh_moves").insert(cleanUuids({ product_id: delRow.product_id, name: delRow.name, qty: delRow.qty, dir: "out", object_id: null, object_name: null, op_date: today(), user: CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username) : "", note: "позиция удалена со склада вручную" }));
+    const r = await db.from("warehouse").delete().eq("id", delRow.id);
+    if (r.error) return;
+    if (Number(delRow.qty) > 0) await db.from("wh_moves").insert(cleanUuids({ product_id: delRow.product_id, name: delRow.name, qty: delRow.qty, dir: "out", object_id: null, object_name: null, op_date: today(), user: curUserName(), note: "позиция удалена со склада вручную" }));
     await logAction("Склад: позиция удалена", delRow.name, "кол-во " + delRow.qty);
     setDelRow(null); await reload(); toast("Позиция удалена со склада");
   };
@@ -3386,8 +3703,9 @@ function WarehouseTab({ data, reload, toast, openObject }) {
       op_date: today(), user: CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username) : "",
     }));
     if (r.error) return;
-    await db.from("warehouse").update({ qty: newQty }).eq("id", row.id);
-    await db.from("wh_moves").insert(cleanUuids({ product_id: row.product_id, name: row.name, qty, dir: "out", object_id: null, object_name: null, op_date: today(), user: CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username) : "", note: "возврат поставщику" }));
+    const u = await db.from("warehouse").update({ qty: newQty }).eq("id", row.id);
+    if (u.error) { await reload(); toast("Возврат записан в долг поставщика, но остаток склада не изменился — исправьте количество вручную (ред.)"); setRetForm(null); return; }
+    await db.from("wh_moves").insert(cleanUuids({ product_id: row.product_id, name: row.name, qty, dir: "out", object_id: null, object_name: null, op_date: today(), user: curUserName(), note: "возврат поставщику" }));
     await logAction("Возврат поставщику со склада", row.name, "кол-во " + qty + ", на сумму себест. " + fmt(costAmount));
     setRetForm(null); await reload(); toast("Возврат поставщику оформлен: −" + fmt(costAmount) + " к долгу");
   };
@@ -3432,7 +3750,7 @@ function WarehouseTab({ data, reload, toast, openObject }) {
         <table className="t">
           <thead><tr><th>Дата</th><th>Направление</th><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th>Объект</th><th>Кто</th></tr></thead>
           <tbody>
-            {wh_moves.slice().reverse().map((mv) => (
+            {(allMoves ? moves : moves.slice(0, 200)).map((mv) => (
               <tr key={mv.id}>
                 <td className="xs mono mut">{dt(mv.op_date || mv.created_at)}</td>
                 <td><Badge c={mv.dir === "in" ? "#3ddc7d" : "#ff707b"}>{mv.dir === "in" ? "⬇ Приход" : "⬆ Отгрузка"}</Badge><div className="xs mut">{mv.note}</div></td>
@@ -3445,21 +3763,28 @@ function WarehouseTab({ data, reload, toast, openObject }) {
             {!wh_moves.length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 20 }}>Движений нет</td></tr>}
           </tbody>
         </table>
+        {moves.length > 200 && <div style={{ padding: 10 }}><button className="btn xs" onClick={() => setAllMoves(!allMoves)}>{allMoves ? "Показать последние 200" : "Показать все (" + moves.length + ")"}</button></div>}
       </div>
       {issue && <IssueForm stock={stock} objects={objects} onClose={() => setIssue(false)} onSave={async (lines, targetObj, user) => {
-        const exNos = (targetObj.items || []).map((i) => i.batch_no || 1);
-        const batchNo = exNos.length ? Math.max(...exNos) + 1 : 1;
-        const items = lines.map((l) => ({
-          id: uuid(), product_id: l.row.product_id, name: l.row.name, size: l.row.size, unit: l.row.unit,
-          qty: l.qty, price: l.row.price || 0, cost: l.row.cost || 0,
-          supplier_id: l.row.supplier_id || null, from_warehouse: true,
-          source_text: "со склада Thermo", confidence: 100,
-          batch_no: batchNo, batch_date: today(),
-        }));
-        await db.from("objects").update({ items: [...(targetObj.items || []), ...items] }).eq("id", targetObj.id);
-        await warehouseOut(lines, targetObj, user);
+        let batchNo = 1;
+        // сначала позиции в объект (по свежей версии объекта); если не записались — склад не трогаем
+        const r = await updateObjectItems(targetObj.id, (cur) => {
+          const exNos = cur.map((i) => i.batch_no || 1);
+          batchNo = exNos.length ? Math.max(...exNos) + 1 : 1;
+          return [...cur, ...lines.map((l) => ({
+            id: uuid(), product_id: l.row.product_id || null, name: l.row.name, size: l.row.size, unit: l.row.unit,
+            qty: l.qty, price: l.row.price || 0, cost: l.row.cost || 0,
+            supplier_id: l.row.supplier_id || null, from_warehouse: true,
+            source_text: "со склада Thermo", confidence: 100,
+            batch_no: batchNo, batch_date: today(),
+          }))];
+        });
+        if (r.error) { await reload(); return false; }
+        const fail = await warehouseOut(lines, targetObj, user);
         setIssue(false); await reload();
-        await logAction("Отгрузка со склада", "object:" + targetObj.name, "позиций: " + lines.length); toast("Отгружено на «" + targetObj.name + "»: " + lines.length + " поз.");
+        await logAction("Отгрузка со склада", "object:" + targetObj.name, "поставка №" + batchNo + ", позиций: " + lines.length + (fail ? ", остаток склада не списан: " + fail : ""));
+        toast("Отгружено на «" + targetObj.name + "»: " + lines.length + " поз." + (fail ? " · ⚠ остаток склада не списан у " + fail + " поз. — поправьте вручную" : ""));
+        return true;
       }} />}
       {editRow && (
         <Modal title="Редактировать позицию склада" onClose={() => setEditRow(null)} w={460}>
@@ -3487,17 +3812,18 @@ function WarehouseEditForm({ row, onCancel, onSave }) {
   const [qty, setQty] = useState(row.qty);
   const [cost, setCost] = useState(row.cost);
   const [price, setPrice] = useState(row.price);
+  const [busy, setBusy] = useState(false);
   return (
     <div>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        <Fld label="Количество"><input type="number" className="inp" value={qty} onChange={(e) => setQty(e.target.value)} /></Fld>
+        <Fld label="Количество"><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)} /></Fld>
         <Fld label="Ед."><div className="inp mono" style={{ background: "var(--panel2)" }}>{row.unit}</div></Fld>
         <Fld label="Себестоимость"><input type="number" className="inp" value={cost} onChange={(e) => setCost(e.target.value)} /></Fld>
         <Fld label="Цена продажи"><input type="number" className="inp" value={price} onChange={(e) => setPrice(e.target.value)} /></Fld>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
         <button className="btn" onClick={onCancel}>Отмена</button>
-        <button className="btn pri" onClick={() => onSave({ qty: Number(qty) || 0, cost: Number(cost) || 0, price: Number(price) || 0 })}>Сохранить</button>
+        <button className="btn pri" disabled={busy} onClick={async () => { setBusy(true); await onSave({ qty: Math.max(0, parseNum(qty)), cost: parseNum(cost), price: parseNum(price) }); setBusy(false); }}>{busy ? "Сохраняю…" : "Сохранить"}</button>
       </div>
     </div>
   );
@@ -3506,6 +3832,7 @@ function SupplierReturnForm({ row, suppliers, onCancel, onSave }) {
   const [qty, setQty] = useState(Math.min(1, row.qty));
   const [supplierId, setSupplierId] = useState(row.supplier_id || "");
   const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
   const costAmount = (Number(qty) || 0) * (row.cost || 0);
   return (
     <div>
@@ -3525,7 +3852,7 @@ function SupplierReturnForm({ row, suppliers, onCancel, onSave }) {
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
         <button className="btn" onClick={onCancel}>Отмена</button>
-        <button className="btn pri" disabled={!supplierId || !qty} onClick={() => onSave(row, Number(qty) || 0, supplierId, reason)}>Оформить возврат</button>
+        <button className="btn pri" disabled={!supplierId || !qty || busy} onClick={async () => { setBusy(true); await onSave(row, Number(qty) || 0, supplierId, reason); setBusy(false); }}>{busy ? "Оформляю…" : "Оформить возврат"}</button>
       </div>
     </div>
   );
@@ -3539,6 +3866,7 @@ function IssueForm({ stock, objects, onClose, onSave }) {
   const lines = rows.filter((r) => r.qty > 0);
   const total = lines.reduce((a, r) => a + r.qty * (r.row.price || 0), 0);
   const target = objects.find((o) => o.id === objId);
+  const [busy, setBusy] = useState(false);
   return (
     <Modal title="Отгрузка со склада на объект" onClose={onClose} w={760}>
       <div className="grid" style={{ gridTemplateColumns: "2fr 1fr", marginBottom: 12 }}>
@@ -3569,7 +3897,7 @@ function IssueForm({ stock, objects, onClose, onSave }) {
         <div className="mono" style={{ fontWeight: 700 }}>Позиций: {lines.length} · Сумма продажи: <span style={{ color: "var(--ok)" }}>{money(total)}</span></div>
         <div className="row">
           <button className="btn" onClick={onClose}>Отмена</button>
-          <button className="btn pri" disabled={!lines.length || !target} onClick={() => onSave(lines, target, user)}>Отгрузить →</button>
+          <button className="btn pri" disabled={!lines.length || !target || busy} onClick={async () => { setBusy(true); const ok = await onSave(lines, target, user); if (!ok) setBusy(false); }}>{busy ? "Отгружаю…" : "Отгрузить →"}</button>
         </div>
       </div>
     </Modal>
@@ -3630,11 +3958,13 @@ function dashEvents(objects, ops, mgr) {
         rev: (i.qty || 0) * (i.price || 0), cost: (i.qty || 0) * (i.cost || 0), key: o.id + "#" + (i.batch_no || 1) });
     });
   });
-  const objOps = [], compExp = [];
+  const objOps = [], compExp = [], dirBonus = [];
   ops.forEach((x) => {
     if (x.voided) return;
     const d = String(x.op_date || x.created_at || "").slice(0, 10);
     if (x.type === "company_expense") { if (!mgr) compExp.push({ ...x, d }); return; }
+    // бонус мастеру без объекта — тоже расход компании (раньше в чистую прибыль не попадал)
+    if (x.type === "bonus" && !x.object_id) { if (!mgr) dirBonus.push({ ...x, d }); return; }
     const o = x.object_id && objById[x.object_id];
     if (!o || o.status === "cancelled" || (mgr && (o.manager || "") !== mgr)) return;
     objOps.push({ ...x, d, o });
@@ -3648,7 +3978,7 @@ function dashEvents(objects, ops, mgr) {
       if (d && (!firstBuy[k] || d < firstBuy[k])) firstBuy[k] = d;
     });
   });
-  return { sales, objOps, compExp, firstBuy };
+  return { sales, objOps, compExp, dirBonus, firstBuy };
 }
 function dashTotals(ev, from, to) {
   const inR = (d) => (!from || d >= from) && (!to || d <= to);
@@ -3665,6 +3995,7 @@ function dashTotals(ev, from, to) {
     else if (x.type === "client_payment") paid += a;
   });
   ev.compExp.forEach((x) => { if (inR(x.d)) cexp += x.amount || 0; });
+  ev.dirBonus.forEach((x) => { if (inR(x.d)) bonus += x.amount || 0; });
   let newC = 0;
   clients.forEach((k) => { const f = ev.firstBuy[k]; if (f && inR(f)) newC++; });
   const netRev = rev - ret - disc, gross = netRev - (cost - retCost), net = gross - exp - bonus - cexp;
@@ -4094,13 +4425,13 @@ function Dashboard({ data }) {
             </select>
           </span>
         </div>
-        {compare && <div className="xs mut" style={{ marginTop: 6 }}>Сравнение с предыдущим периодом: {prevTitle}{mgr ? " · расходы компании не учитываются при фильтре по менеджеру" : ""}</div>}
+        {compare && <div className="xs mut" style={{ marginTop: 6 }}>Сравнение с предыдущим периодом: {prevTitle}{mgr ? " · расходы компании и бонусы без объекта не учитываются при фильтре по менеджеру" : ""}</div>}
       </div>
 
       <div className="kpis sect">
         <DashTile hero label="Выручка" value={cur.netRev} prev={prev && prev.netRev} compare={compare} note={cur.ret || cur.disc ? "продажи " + fmt(cur.rev) + " − возвраты " + fmt(cur.ret) + " − скидки " + fmt(cur.disc) : null} />
         <DashTile label="Валовая прибыль" value={cur.gross} prev={prev && prev.gross} compare={compare} />
-        <DashTile label="Чистая прибыль" value={cur.net} prev={prev && prev.net} compare={compare} note="после доп. расходов, бонусов и расходов компании" />
+        <DashTile label="Чистая прибыль" value={cur.net} prev={prev && prev.net} compare={compare} note="после доп. расходов, бонусов мастерам и расходов компании" />
         <DashTile label="Маржа" value={Math.round(cur.margin * 10) / 10} prev={prev && Math.round(prev.margin * 10) / 10} suffix="%" compare={compare} pp />
         <DashTile label="Поставок (продаж)" value={cur.deals} prev={prev && prev.deals} compare={compare} />
         <DashTile label="Средний чек" value={Math.round(cur.avg)} prev={prev && Math.round(prev.avg)} compare={compare} />
@@ -4174,8 +4505,9 @@ function Dashboard({ data }) {
 
 /* ============ FINANCE TAB ============ */
 function CompanyExpenseForm({ onClose, onSave }) {
-  const [v, setV] = useState({ category: "Зарплата", op_date: today(), note: "", user: CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username) : "" });
+  const [v, setV] = useState({ category: "Зарплата", op_date: today(), note: "", user: curUserName() });
   const [pay, setPay] = useState(() => payInit(null));
+  const [busy, setBusy] = useState(false);
   return (
     <Modal title="Расход компании" onClose={onClose} w={560}>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
@@ -4187,7 +4519,7 @@ function CompanyExpenseForm({ onClose, onSave }) {
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
-        <button className="btn pri" disabled={!(payUsd(pay) > 0)} onClick={() => onSave({ type: "company_expense", object_id: null, category: v.category, ...payPatch(pay, "company_expense"), op_date: v.op_date || today(), note: v.note, user: v.user })}>Сохранить</button>
+        <button className="btn pri" disabled={!(payUsd(pay) > 0) || busy} onClick={async () => { setBusy(true); await onSave({ type: "company_expense", object_id: null, category: v.category, ...payPatch(pay, "company_expense"), op_date: v.op_date || today(), note: v.note, user: v.user }); setBusy(false); }}>{busy ? "Сохраняю…" : "Сохранить"}</button>
       </div>
     </Modal>
   );
@@ -4196,10 +4528,15 @@ function FinanceTab({ data, reload, toast }) {
   const { objects, finance_ops, suppliers } = data;
   const objName = (id) => (objects.find((o) => o.id === id) || {}).name || "—";
   const supName = (id) => (suppliers.find((s) => s.id === id) || {}).name || "";
-  const clientDebts = objects.map((o) => ({ o, f: calcObject(o, finance_ops) })).filter((x) => x.f.clientDebt > 0 && x.o.status !== "cancelled");
+  const clientDebts = objects.map((o) => ({ o, f: calcObject(o, finance_ops) })).filter((x) => x.f.clientDebt > 0.004 && x.o.status !== "cancelled");
+  // поставщики с движением (закупки, оплаты или возвраты) — пустые строки не показываем
+  const supRows = useMemo(() => suppliers.map((s) => ({ s, st: supplierStats(s, objects, finance_ops, data.wh_moves) }))
+    .filter(({ st }) => st.purchases || st.paid || st.returns).sort((a, b) => b.st.balance - a.st.balance), [suppliers, objects, finance_ops, data.wh_moves]);
   const [expForm, setExpForm] = useState(false);
   const [delExp, setDelExp] = useState(null);
-  const monthStart = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10); };
+  const monthStart = () => { const d = new Date(); return localIso(new Date(d.getFullYear(), d.getMonth(), 1)); };
+  const [opsAll, setOpsAll] = useState(false);
+  const [opsQ, setOpsQ] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const inRange = (o) => {
@@ -4213,6 +4550,10 @@ function FinanceTab({ data, reload, toast }) {
   const byCat = {};
   genExpenses.forEach((o) => { byCat[o.category || "Прочее"] = (byCat[o.category || "Прочее"] || 0) + (o.amount || 0); });
   const totalExp = genExpenses.reduce((a, o) => a + (o.amount || 0), 0);
+  // общий список операций — тоже за выбранный период (раньше показывались все операции за всё время)
+  const ql = opsQ.trim().toLowerCase();
+  const periodOps = finance_ops.filter((o) => inRange(o) && (!ql || [objName(o.object_id), supName(o.supplier_id), opLabel(o.type), o.product_name, o.reason, o.note, o.user, o.category].join(" ").toLowerCase().includes(ql)))
+    .sort((a, b) => String(b.op_date || b.created_at || "").localeCompare(String(a.op_date || a.created_at || "")) || String(b.created_at || "").localeCompare(String(a.created_at || "")));
   return (
     <div>
       <h2 className="sect">Финансы и долги</h2>
@@ -4222,8 +4563,8 @@ function FinanceTab({ data, reload, toast }) {
         <Fld label="По дату"><input type="date" className="inp" style={{ width: 150 }} value={to} onChange={(e) => setTo(e.target.value)} /></Fld>
         <div style={{ display: "flex", gap: 4, alignSelf: "flex-end", flexWrap: "wrap" }}>
           <button className="btn xs" onClick={() => { setFrom(monthStart()); setTo(today()); }}>Этот месяц</button>
-          <button className="btn xs" onClick={() => { setFrom(new Date(Date.now() - 7 * 86400000).toISOString().slice(0,10)); setTo(today()); }}>7 дней</button>
-          <button className="btn xs" onClick={() => { setFrom(new Date(Date.now() - 30 * 86400000).toISOString().slice(0,10)); setTo(today()); }}>30 дней</button>
+          <button className="btn xs" onClick={() => { setFrom(daysAgo(6)); setTo(today()); }}>7 дней</button>
+          <button className="btn xs" onClick={() => { setFrom(daysAgo(29)); setTo(today()); }}>30 дней</button>
           <button className="btn xs" onClick={() => { setFrom(""); setTo(""); }}>Весь период</button>
         </div>
       </div>
@@ -4277,14 +4618,22 @@ function FinanceTab({ data, reload, toast }) {
         <div className="card">
           <h3 style={{ marginBottom: 8 }}>Долги поставщикам</h3>
           <table className="t"><thead><tr><th>Поставщик</th><th style={{textAlign:"right"}}>Закупки</th><th style={{textAlign:"right"}}>Оплачено</th><th style={{textAlign:"right"}}>Долг</th></tr></thead>
-            <tbody>{suppliers.map((s) => { const st = supplierStats(s, objects, finance_ops, data.wh_moves); return <tr key={s.id}><td>{s.name}<div className="xs mut">{s.terms}</div></td><td className="num">{fmt(st.purchases)}</td><td className="num">{fmt(st.paid)}</td><td className="num" style={{color:st.balance>0?"var(--bad)":st.balance<0?"var(--ok)":"var(--mut)",fontWeight:700}} title={st.balance<0?"переплата (аванс поставщику)":""}>{st.balance<0?"−"+fmt(-st.balance):fmt(st.balance)}</td></tr>; })}</tbody></table>
+            <tbody>{supRows.map(({ s, st }) => <tr key={s.id}><td>{s.name}<div className="xs mut">{s.terms}</div></td><td className="num">{fmt(st.purchases)}</td><td className="num">{fmt(st.paid)}</td><td className="num" style={{color:st.balance>0?"var(--bad)":st.balance<0?"var(--ok)":"var(--mut)",fontWeight:700}} title={st.balance<0?"переплата (аванс поставщику)":""}>{st.balance<0?"−"+fmt(-st.balance):fmt(st.balance)}</td></tr>)}
+            {!supRows.length && <tr><td colSpan={4} className="mut sm" style={{padding:14}}>Закупок и оплат поставщикам пока нет</td></tr>}
+            {supRows.length > 1 && <tr style={{ background: "var(--panel2)" }}><td style={{ fontWeight: 800 }}>Итого долг</td><td className="num" style={{ fontWeight: 800 }}>{fmt(supRows.reduce((a, r) => a + r.st.purchases, 0))}</td><td className="num" style={{ fontWeight: 800 }}>{fmt(supRows.reduce((a, r) => a + r.st.paid, 0))}</td><td className="num" style={{ fontWeight: 800, color: "var(--bad)" }} title="сумма долгов (переплаты не вычитаются)">{fmt(supRows.reduce((a, r) => a + r.st.debt, 0))}</td></tr>}
+            </tbody></table>
+          {supRows.length < suppliers.length && <p className="xs mut" style={{ marginTop: 6 }}>Поставщики без закупок и оплат не показаны ({suppliers.length - supRows.length}).</p>}
         </div>
+      </div>
+      <div className="row sect" style={{ marginBottom: 8 }}>
+        <h3 style={{ marginRight: "auto" }}>Все операции{(from || to) ? " за период" : ""} <span className="mut sm">({periodOps.length})</span></h3>
+        <input className="inp" style={{ maxWidth: 240 }} placeholder="Поиск: объект, поставщик, комментарий…" value={opsQ} onChange={(e) => setOpsQ(e.target.value)} />
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
           <thead><tr><th>Дата</th><th>Объект</th><th>Тип</th><th style={{textAlign:"right"}}>Сумма</th><th>Детали</th><th>Кто</th></tr></thead>
           <tbody>
-            {finance_ops.slice().reverse().map((o) => (
+            {(opsAll ? periodOps : periodOps.slice(0, 200)).map((o) => (
               <tr key={o.id} style={{ opacity: o.voided ? 0.4 : 1, textDecoration: o.voided ? "line-through" : "none" }}>
                 <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
                 <td className="sm">{objName(o.object_id)}</td>
@@ -4294,9 +4643,10 @@ function FinanceTab({ data, reload, toast }) {
                 <td className="xs mut">{o.user}</td>
               </tr>
             ))}
-            {!finance_ops.length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 22 }}>Операций нет</td></tr>}
+            {!periodOps.length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 22 }}>Операций нет</td></tr>}
           </tbody>
         </table>
+        {periodOps.length > 200 && <div style={{ padding: 10 }}><button className="btn xs" onClick={() => setOpsAll(!opsAll)}>{opsAll ? "Показать последние 200" : "Показать все (" + periodOps.length + ")"}</button></div>}
       </div>
       <VozvratSection objects={objects} finance_ops={finance_ops} suppliers={suppliers} whMoves={data.wh_moves} />
     </div>
@@ -4351,11 +4701,13 @@ function VozvratSection({ objects, finance_ops, suppliers, whMoves }) {
 }
 
 /* ============ ЖУРНАЛ ДЕЙСТВИЙ ============ */
-function LogTab({ data }) {
+function LogTab({ data, reload }) {
   const { audit_log } = data;
+  useEffect(() => { if (reload) reload(["audit_log"]); }, []); // журнал подгружается при открытии вкладки
   const [q, setQ] = useState("");
   const [usr, setUsr] = useState("");
   const [days, setDays] = useState(0);
+  const [all, setAll] = useState(false);
   const cutoff = days ? Date.now() - days * 86400000 : 0;
   const users = [...new Set(audit_log.map((l) => l.user_name).filter(Boolean))];
   const rows = audit_log
@@ -4383,7 +4735,7 @@ function LogTab({ data }) {
         <table className="t">
           <thead><tr><th style={{width:150}}>Дата / время</th><th>Сотрудник</th><th>Роль</th><th>Действие</th><th>Объект/сущность</th><th>Детали</th></tr></thead>
           <tbody>
-            {rows.map((l) => (
+            {(all ? rows : rows.slice(0, 300)).map((l) => (
               <tr key={l.id}>
                 <td className="xs mono mut">{fmtTs(l.ts)}</td>
                 <td className="sm" style={{ fontWeight: 600 }}>{l.user_name}</td>
@@ -4396,6 +4748,7 @@ function LogTab({ data }) {
             {!rows.length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 26 }}>Записей нет</td></tr>}
           </tbody>
         </table>
+        {rows.length > 300 && <div style={{ padding: 10 }}><button className="btn xs" onClick={() => setAll(!all)}>{all ? "Показать последние 300" : "Показать все (" + rows.length + ")"}</button></div>}
       </div>
     </div>
   );
@@ -4413,7 +4766,7 @@ function AdminTab({ data, reload, toast, currentUser }) {
         <button className="btn pri" onClick={() => setEdit({ role: "manager", status: "active" })}>+ Аккаунт</button>
       </div>
       <div className="card sect" style={{ borderColor: "var(--line2)" }}>
-        <p className="sm mut">Руководитель создаёт логины и пароли вручную. Вход в систему — строго по паролю. <b style={{ color: "var(--warn)" }}>Прототип:</b> пароли хранятся локально и это не полноценная защита — на облаке (Supabase Auth) вход станет настоящим.</p>
+        <p className="sm mut">Руководитель создаёт логины и пароли вручную. Вход в систему — строго по паролю (в базе хранится не сам пароль, а его хеш). Отключённый аккаунт войти не может.</p>
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
@@ -4434,11 +4787,12 @@ function AdminTab({ data, reload, toast, currentUser }) {
           </tbody>
         </table>
       </div>
-      {edit && <UserForm u={edit} users={users} onClose={() => setEdit(null)} onSave={async (vals) => {
-        if (vals.id) await db.from("users").update(vals).eq("id", vals.id);
-        else await db.from("users").insert(vals);
-        await logAction(vals.id ? "Изменён аккаунт" : "Создан аккаунт", "user:" + vals.username, "роль: " + vals.role);
-        setEdit(null); await reload(); toast("Аккаунт сохранён");
+      {edit && <UserForm u={edit} users={users} self={currentUser} onClose={() => setEdit(null)} onSave={async (vals) => {
+        const { id, created_at, ...rest } = vals;
+        const r = id ? await db.from("users").update(rest).eq("id", id) : await db.from("users").insert(rest);
+        if (r.error) return false; // ошибка показана, окно остаётся открытым
+        await logAction(id ? "Изменён аккаунт" : "Создан аккаунт", "user:" + rest.username, "роль: " + rest.role + (rest.pass_hash ? ", пароль задан" : ""));
+        setEdit(null); await reload(); toast("Аккаунт сохранён"); return true;
       }} />}
       {del && (
         <Modal title="Удалить аккаунт" onClose={() => setDel(null)} w={420}>
@@ -4446,7 +4800,10 @@ function AdminTab({ data, reload, toast, currentUser }) {
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <button className="btn" onClick={() => setDel(null)}>Отмена</button>
             <button className="btn" style={{ background: "var(--bad)", borderColor: "var(--bad)", color: "#fff" }} onClick={async () => {
-              await db.from("users").delete().eq("id", del.id); setDel(null); await reload(); toast("Аккаунт удалён");
+              const r = await db.from("users").delete().eq("id", del.id);
+              if (r.error) return;
+              await logAction("Удалён аккаунт", "user:" + del.username, del.name || "");
+              setDel(null); await reload(); toast("Аккаунт удалён");
             }}>Удалить</button>
           </div>
         </Modal>
@@ -4454,20 +4811,25 @@ function AdminTab({ data, reload, toast, currentUser }) {
     </div>
   );
 }
-function UserForm({ u, users, onClose, onSave }) {
-  const [v, setV] = useState({ ...u });
+function UserForm({ u, users, self, onClose, onSave }) {
+  const [v, setV] = useState({ role: "manager", status: "active", ...u });
   const [pw, setPw] = useState("");
   const [show, setShow] = useState(false);
   const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setV({ ...v, [k]: e.target.value });
+  const isSelf = !!(self && v.id && v.id === self.id); // себе нельзя снять роль руководителя или отключить вход
   const submit = async () => {
     const uname = (v.username || "").trim().toLowerCase();
     if (!uname) return setErr("Укажите логин");
-    if (users.some((x) => x.username === uname && x.id !== v.id)) return setErr("Такой логин уже есть");
+    if (users.some((x) => String(x.username || "").toLowerCase() === uname && x.id !== v.id)) return setErr("Такой логин уже есть");
     if (!v.id && !pw) return setErr("Задайте пароль");
-    const out = { ...v, username: uname };
-    if (pw) { out.pass_hash = await hashPass(pw); delete out.need_seed_pass; }
-    onSave(out);
+    if (pw && pw.length < 4) return setErr("Пароль слишком короткий — минимум 4 символа");
+    const out = { ...v, username: uname, name: String(v.name || "").trim() };
+    if (pw) { out.pass_hash = await hashPass(pw); out.need_seed_pass = null; }
+    setBusy(true); setErr("");
+    const ok = await onSave(out);
+    if (!ok) setBusy(false);
   };
   return (
     <Modal title={v.id ? "Аккаунт: " + v.username : "Новый аккаунт"} onClose={onClose} w={460}>
@@ -4475,8 +4837,8 @@ function UserForm({ u, users, onClose, onSave }) {
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         <Fld label="Логин"><input className="inp mono" value={v.username || ""} onChange={set("username")} placeholder="manager1" /></Fld>
         <Fld label="Имя сотрудника"><input className="inp" value={v.name || ""} onChange={set("name")} /></Fld>
-        <Fld label="Роль"><select className="inp" value={v.role} onChange={set("role")}><option value="manager">Менеджер</option><option value="boss">Руководитель</option></select></Fld>
-        <Fld label="Статус"><select className="inp" value={v.status} onChange={set("status")}><option value="active">активен</option><option value="disabled">отключён</option></select></Fld>
+        <Fld label="Роль"><select className="inp" value={v.role} disabled={isSelf} title={isSelf ? "Свою роль изменить нельзя" : ""} onChange={set("role")}><option value="manager">Менеджер</option><option value="boss">Руководитель</option></select></Fld>
+        <Fld label="Статус"><select className="inp" value={v.status} disabled={isSelf} title={isSelf ? "Свой аккаунт отключить нельзя" : ""} onChange={set("status")}><option value="active">активен</option><option value="disabled">отключён</option></select></Fld>
         <div style={{ gridColumn: "1/-1" }}><Fld label={v.id ? "Новый пароль (оставьте пустым — без изменений)" : "Пароль"}>
           <div style={{ position: "relative" }}>
             <input type={show ? "text" : "password"} className="inp mono" style={{ paddingRight: 38 }} value={pw} onChange={(e) => setPw(e.target.value)} placeholder="••••••" />
@@ -4487,12 +4849,12 @@ function UserForm({ u, users, onClose, onSave }) {
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
-        <button className="btn pri" onClick={submit}>Сохранить</button>
+        <button className="btn pri" disabled={busy} onClick={submit}>{busy ? "Сохраняю…" : "Сохранить"}</button>
       </div>
     </Modal>
   );
 }
-function LoginScreen({ users, onLogin }) {
+function LoginScreen({ users, onLogin, bootErr, onRetry }) {
   const [username, setUsername] = useState("");
   const [pw, setPw] = useState("");
   const [show, setShow] = useState(false);
@@ -4500,13 +4862,14 @@ function LoginScreen({ users, onLogin }) {
   const [busy, setBusy] = useState(false);
   const submit = async () => {
     setBusy(true); setErr("");
-    const u = users.find((x) => x.username === username.trim().toLowerCase());
+    const u = users.find((x) => String(x.username || "").trim().toLowerCase() === username.trim().toLowerCase());
     if (!u) { setErr("Неверный логин или пароль"); setBusy(false); return; }
     if (u.status !== "active") { setErr("Аккаунт отключён"); setBusy(false); return; }
     // первый вход админа по сид-паролю
     if (!u.pass_hash && u.need_seed_pass) {
       if (pw === u.need_seed_pass) {
-        await db.from("users").update({ pass_hash: await hashPass(pw), need_seed_pass: null }).eq("id", u.id);
+        const r = await db.from("users").update({ pass_hash: await hashPass(pw), need_seed_pass: null }).eq("id", u.id);
+        if (r.error) { setErr("Не удалось сохранить пароль — проверьте соединение"); setBusy(false); return; }
         onLogin(u); return;
       }
       setErr("Неверный логин или пароль"); setBusy(false); return;
@@ -4520,8 +4883,14 @@ function LoginScreen({ users, onLogin }) {
     <div className="te" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
       <style>{CSS}</style>
       <div className="card" style={{ width: 360, boxShadow: "0 24px 60px rgba(18,24,27,.16)" }}>
-        <div className="logo" style={{ textAlign: "center", marginBottom: 4 }}>THERMO<span>•</span>ENGINEERING<small>AI procurement & finance OS</small></div>
+        <div className="logo" style={{ textAlign: "center", marginBottom: 4, color: "var(--txt)" }}>THERMO<span>•</span>ENGINEERING<small style={{ color: "var(--mut)" }}>procurement & finance OS</small></div>
         <h3 style={{ textAlign: "center", margin: "16px 0 14px" }}>Вход в систему</h3>
+        {bootErr && (
+          <div className="sm" style={{ color: "var(--bad)", textAlign: "center", marginBottom: 10 }}>
+            Нет связи с базой данных: {bootErr}
+            <div style={{ marginTop: 6 }}><button className="btn xs" onClick={onRetry}>↻ Повторить</button></div>
+          </div>
+        )}
         {err && <p className="sm" style={{ color: "var(--bad)", textAlign: "center", marginBottom: 10 }}>{err}</p>}
         <div className="grid" style={{ gridTemplateColumns: "1fr" }}>
           <Fld label="Логин"><input className="inp mono" value={username} onChange={(e) => setUsername(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} autoFocus /></Fld>
@@ -4574,11 +4943,35 @@ function AppInner() {
     window.addEventListener("te-db-error", h);
     return () => { window.removeEventListener("te-db-error", h); clearTimeout(tm); };
   }, []);
-  const reload = async () => {
-    const res = await Promise.all(TABLES.map((t) => fetchAllRows(t)));
-    const out = {};
-    TABLES.forEach((t, i) => { out[t] = res[i]; });
-    setData(out);
+  /* Перезагрузка данных из базы.
+     · reload() — рабочие таблицы: поставщики, объекты, операции, мастера, склад, аккаунты. Товары (11 000+ строк),
+       журнал и история заявок здесь не грузятся — после оплат, возвратов и т.п. они не меняются, а грузить их
+       после каждого действия долго;
+     · reload("all") — всё, вместе с товарами (после изменений в базе товаров, восстановления и т.д.);
+     · reload(["audit_log"]) — только указанные таблицы.
+     Если таблица не загрузилась (сбой сети), на экране остаются прежние данные и появляется сообщение — раньше таблица
+     молча становилась пустой. Ответ более раннего запроса не перезаписывает более свежий. */
+  const reloadSeq = useRef(0);
+  const appliedSeq = useRef({});
+  const lastFull = useRef(0);
+  const reload = async (opt) => {
+    const all = opt === "all";
+    const tables = all ? TABLES : Array.isArray(opt) ? opt : TABLES.filter((t) => !["products", "audit_log", "requests"].includes(t));
+    const seq = ++reloadSeq.current;
+    const res = await Promise.all(tables.map((t) => fetchAllRows(t).then((rows) => ({ t, rows }), (err) => ({ t, err }))));
+    const upd = {}, failed = [];
+    res.forEach(({ t, rows, err }) => {
+      if (err) { failed.push(t + " (" + String(err.message || err).replace(/^\w+: /, "") + ")"); return; }
+      if ((appliedSeq.current[t] || 0) > seq) return;
+      appliedSeq.current[t] = seq; upd[t] = rows;
+    });
+    if (Object.keys(upd).length) setData((prev) => ({ ...prev, ...upd }));
+    if (all && !failed.length) lastFull.current = Date.now();
+    if (failed.length) {
+      console.error("[reload]", failed);
+      try { window.dispatchEvent(new CustomEvent("te-db-error", { detail: "Не удалось загрузить из базы: " + failed.join(", ") + ". Показаны прежние данные — проверьте интернет и обновите страницу." })); } catch (e) {}
+    }
+    return { ok: !failed.length, allFailed: failed.length === tables.length, failed };
   };
   const [bootErr, setBootErr] = useState("");
   const restoreRef = useRef(null);
@@ -4587,7 +4980,7 @@ function AppInner() {
   const people = useMemo(() => {
     const set = new Set();
     const add = (n) => { const t = String(n || "").trim(); if (t && !["manager", "boss", "—", "-"].includes(t.toLowerCase())) set.add(t); };
-    (data.users || []).filter((u) => u.status !== "inactive").forEach((u) => add(u.name || u.username));
+    (data.users || []).filter((u) => u.status === "active").forEach((u) => add(u.name || u.username));
     (data.objects || []).forEach((o) => add(o.manager));
     (data.finance_ops || []).forEach((o) => add(o.user));
     (data.wh_moves || []).forEach((m) => add(m.user));
@@ -4598,26 +4991,34 @@ function AppInner() {
     people,
     addPerson: (n) => setExtraPeople((prev) => { if (prev.includes(n)) return prev; const next = [...prev, n]; try { localStorage.setItem("te:people", JSON.stringify(next)); } catch {} return next; }),
   }), [people]);
-  useEffect(() => {
-    (async () => {
-      try {
-        await reload();
-        // восстановить сессию из localStorage
-        const uid = localStorage.getItem("te:session");
-        if (uid) {
-          const { data: users } = await db.from("users").select().eq("id", uid).eq("status", "active");
-          if (users && users.length) { setCurrentUser(users[0]); CURRENT_USER = users[0]; }
-        }
-      } catch (e) {
-        console.error(e); setBootErr(String(e && (e.message || e)));
+  const boot = async () => {
+    try {
+      const r = await reload("all");
+      if (r.allFailed || (r.failed && r.failed.some((x) => x.startsWith("users")))) setBootErr(r.failed.join(", "));
+      else setBootErr("");
+      // восстановить сессию из localStorage
+      const uid = localStorage.getItem("te:session");
+      if (uid && !CURRENT_USER) {
+        const { data: users } = await db.from("users").select().eq("id", uid).eq("status", "active");
+        if (users && users.length) { setCurrentUser(users[0]); CURRENT_USER = users[0]; }
       }
-      setReady(true);
-    })();
+    } catch (e) {
+      console.error(e); setBootErr(String(e && (e.message || e)));
+    }
+    setReady(true);
+  };
+  useEffect(() => { boot(); }, []);
+  // вернулись на вкладку браузера после перерыва — подтягиваем изменения других сотрудников
+  useEffect(() => {
+    const h = () => { if (document.visibilityState === "visible" && CURRENT_USER && Date.now() - lastFull.current > 120000) reload("all"); };
+    document.addEventListener("visibilitychange", h);
+    return () => document.removeEventListener("visibilitychange", h);
   }, []);
   const doLogin = async (u) => {
     setCurrentUser(u); CURRENT_USER = u;
     try { localStorage.setItem("te:session", u.id); } catch (e) {}
-    await reload();
+    await logAction("Вход в систему", "user:" + u.username, "");
+    await reload("all");
   };
   const doLogout = async () => {
     setCurrentUser(null); CURRENT_USER = null;
@@ -4648,19 +5049,18 @@ function AppInner() {
   // при открытии мобильного меню шапка всегда видна, чтобы не закрывать список вкладок
   useEffect(() => { if (mobileMenuOpen) setHdrHidden(false); }, [mobileMenuOpen]);
   // перед восстановлением: подтверждение + автоматически скачиваем бэкап текущей базы
-  const confirmRestore = () => {
+  const confirmRestore = async () => {
     if (!window.confirm("Восстановить базу из бэкапа?\n\nТекущие данные будут заменены содержимым бэкапа. Перед этим автоматически скачается бэкап текущей базы.")) return false;
-    const cur = { _app: "ThermoAI", _date: new Date().toISOString(), _note: "автобэкап перед восстановлением", tables: {} };
-    TABLES.forEach((t) => { cur.tables[t] = data[t] || []; });
-    tryDownloadBackup(JSON.stringify(cur));
+    try { tryDownloadBackup(JSON.stringify(await freshDump("автобэкап перед восстановлением"))); }
+    catch (e) { toast("Восстановление отменено: не удалось сделать бэкап текущей базы (" + e.message + ")"); return false; }
     return true;
   };
   const onRestore = async (e) => {
     const f = e.target.files[0]; if (!f) return;
     e.target.value = "";
-    if (!confirmRestore()) return;
-    try { await importBackup(f); await reload(); toast("База восстановлена из бэкапа"); setBootErr(""); }
-    catch (err) { toast("Ошибка: " + err.message); }
+    if (!(await confirmRestore())) return;
+    try { await importBackup(f); await logAction("База восстановлена из бэкапа", "", f.name); await reload("all"); setBackupOpen(false); setOpenId(null); toast("База восстановлена из бэкапа"); setBootErr(""); }
+    catch (err) { await reload("all"); toast("Ошибка восстановления: " + err.message); }
   };
 
   const roleTabs = (ROLES.find((r) => r.id === role) || ROLES[0]).tabs;
@@ -4676,13 +5076,13 @@ function AppInner() {
       <div className="mut"><span className="spin" /> Загрузка базы…</div>
     </div>
   );
-  if (!currentUser) return <LoginScreen users={data.users || []} onLogin={doLogin} />;
+  if (!currentUser) return <LoginScreen users={data.users || []} onLogin={doLogin} bootErr={bootErr} onRetry={() => { setReady(false); boot(); }} />;
   return (
     <PeopleCtx.Provider value={peopleCtx}>
     <div className={"te" + (darkMode ? " dark" : "")}>
       <style>{CSS}</style>
       <div className={"hdr" + (hdrHidden ? " hide-on-scroll" : "")}>
-        <div className="logo">THERMO<span>•</span>ENGINEERING<small>AI procurement & finance OS</small></div>
+        <div className="logo">THERMO<span>•</span>ENGINEERING<small>procurement & finance OS</small></div>
         <div className="row" style={{ gap: 8 }}>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontWeight: 700, fontSize: 13 }}>{currentUser.name || currentUser.username}</div>
@@ -4696,7 +5096,7 @@ function AppInner() {
           {allTabs.map((t) => <button key={t.id} className={"tab " + (tab === t.id ? "on" : "")} onClick={() => { setTab(t.id); if (t.id !== "objects") setOpenId(null); setMobileMenuOpen(false); }}>{t.label}</button>)}
         </div>
         <button className="burger" onClick={() => setMobileMenuOpen((v) => !v)} title="Меню">{mobileMenuOpen ? "✕" : "☰"}</button>
-        <button className="btn xs" title="Бэкап и восстановление базы" onClick={() => setBackupOpen(true)}>💾 Бэкап</button>
+        {role === "boss" && <button className="btn xs" title="Бэкап и восстановление базы" onClick={() => setBackupOpen(true)}>💾 Бэкап</button>}
         <input ref={restoreRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={onRestore} />
       </div>
       <div className="body">
@@ -4706,19 +5106,20 @@ function AppInner() {
         {tab === "request" && <RequestTabs data={data} reload={reload} toast={toast} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "products" && <ProductsTab data={data} reload={reload} toast={toast} />}
         {tab === "suppliers" && <SuppliersTab data={data} reload={reload} toast={toast} fin={role === "boss"} />}
-        {tab === "masters" && <MastersTab data={data} reload={reload} toast={toast} fin={true} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
+        {tab === "masters" && <MastersTab data={data} reload={reload} toast={toast} fin={true} canDel={role === "boss"} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "wh" && <WarehouseTab data={data} reload={reload} toast={toast} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
-        {tab === "log" && <LogTab data={data} />}
+        {tab === "log" && <LogTab data={data} reload={reload} />}
         {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} />}
         {tab === "finance" && <FinanceTab data={data} reload={reload} toast={toast} />}
       </div>
-      {backupOpen && <BackupModal data={data} onClose={() => setBackupOpen(false)} toast={toast} onFilePick={() => restoreRef.current.click()} onRestoreText={async (text) => {
+      {backupOpen && role === "boss" && <BackupModal data={data} reload={reload} onClose={() => setBackupOpen(false)} toast={toast} onFilePick={() => restoreRef.current.click()} onRestoreText={async (text) => {
         const dump = JSON.parse(text);
-        if (!confirmRestore()) return;
-        await restoreFromSupabase(dump); await reload(); setBackupOpen(false); toast("База восстановлена");
-      }} onWipe={role === "boss" ? () => { setBackupOpen(false); setWipeOpen(true); } : null} />}
-      {wipeOpen && role === "boss" && <WipeModal data={data} onClose={() => setWipeOpen(false)} onDone={async () => {
-        await reload(); setWipeOpen(false); setOpenId(null); toast("База очищена. Товары, поставщики и мастера сохранены.");
+        if (!(await confirmRestore())) return;
+        try { await restoreFromSupabase(dump); } catch (e) { await reload("all"); throw e; }
+        await logAction("База восстановлена из бэкапа", "", "из текста"); await reload("all"); setBackupOpen(false); setOpenId(null); toast("База восстановлена");
+      }} onWipe={() => { setBackupOpen(false); setWipeOpen(true); }} />}
+      {wipeOpen && role === "boss" && <WipeModal data={data} reload={reload} onClose={() => setWipeOpen(false)} onDone={async () => {
+        await reload("all"); setWipeOpen(false); setOpenId(null); toast("База очищена. Товары, поставщики и мастера сохранены.");
       }} />}
       {msg && <div className="toast">{msg}</div>}
       {dbErr && <div className="toast" role="alert" title="Нажмите, чтобы закрыть" onClick={() => setDbErr("")}
@@ -4732,7 +5133,8 @@ function AppInner() {
    Справочники сохраняются: товары (названия, цены), поставщики, мастера, аккаунты.
    Перед удалением автоматически скачивается бэкап. */
 const WIPE_WORD = "ОЧИСТИТЬ";
-function WipeModal({ data, onClose, onDone }) {
+function WipeModal({ data, reload, onClose, onDone }) {
+  useEffect(() => { if (reload) reload(["requests", "audit_log", "warehouse", "wh_moves"]); }, []); // точные количества для подтверждения
   const [wh, setWh] = useState(false);
   const [log, setLog] = useState(false);
   const [word, setWord] = useState("");
@@ -4743,23 +5145,26 @@ function WipeModal({ data, onClose, onDone }) {
   const ok = word.trim().toUpperCase() === WIPE_WORD;
   const run = async () => {
     setBusy(true); setErr("");
+    setStep("Скачиваю бэкап…");
+    let dump;
+    try { dump = await freshDump("автобэкап перед очисткой"); }
+    catch (e) { setErr("Не удалось сделать бэкап перед очисткой (" + e.message + "). Ничего не удалено — проверьте интернет и попробуйте ещё раз."); setStep(""); setBusy(false); return; }
+    if (!tryDownloadBackup(JSON.stringify(dump))) { setErr("Браузер не дал скачать бэкап — очистка отменена."); setStep(""); setBusy(false); return; }
     try {
-      setStep("Скачиваю бэкап…");
-      const dump = { _app: "ThermoAI", _date: new Date().toISOString(), _note: "автобэкап перед очисткой", tables: {} };
-      TABLES.forEach((t) => { dump.tables[t] = data[t] || []; });
-      tryDownloadBackup(JSON.stringify(dump));
       const tables = ["finance_ops", "requests", "objects"];
       if (wh) tables.push("wh_moves", "warehouse");
       if (log) tables.push("audit_log");
       for (const t of tables) {
         setStep("Удаляю: " + t + "…");
-        const rows = await fetchAllRows(t);
-        await deleteByIds(t, rows.map((r) => r.id));
+        await deleteByIds(t, (dump.tables[t] || []).map((r) => r.id));
+        // строки, добавленные кем-то за эти секунды
+        const rest = await fetchAllRows(t);
+        if (rest.length) await deleteByIds(t, rest.map((r) => r.id));
       }
       await logAction("База очищена", "", "удалено: " + tables.join(", "));
       setStep("");
       await onDone();
-    } catch (e) { setErr("Ошибка очистки: " + e.message + ". Часть данных могла быть удалена — бэкап скачан, его можно восстановить."); }
+    } catch (e) { setErr("Ошибка очистки: " + e.message + ". Часть данных могла быть удалена — бэкап скачан, из него всё можно восстановить."); setStep(""); }
     setBusy(false);
   };
   const Li = ({ children }) => <li style={{ margin: "3px 0" }}>{children}</li>;
@@ -4798,22 +5203,109 @@ function WipeModal({ data, onClose, onDone }) {
     </Modal>
   );
 }
-function BackupModal({ data, onClose, toast, onFilePick, onRestoreText, onWipe }) {
+/* Привязка товаров к поставщикам из файла бэкапа.
+   01.10 при восстановлении базы у всех товаров пропал поставщик (ON DELETE SET NULL). Из бэкапа, где связи ещё были,
+   поставщик возвращается только тем товарам, у которых его сейчас нет; остальные данные не меняются.
+   Товар ищется по id, а если его переимпортировали — по названию и размеру (только если такое название одно). */
+function RelinkSuppliers({ data, reload, toast }) {
+  const products = data.products || [], suppliers = data.suppliers || [];
+  const noSup = useMemo(() => products.filter((p) => !p.supplier_id).length, [products]);
+  const [plan, setPlan] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [prog, setProg] = useState("");
+  const [err, setErr] = useState("");
+  const fRef = useRef(null);
+  const onFile = async (e) => {
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+    setErr(""); setPlan(null);
+    try {
+      const dump = JSON.parse(await f.text());
+      const bp = (dump && dump.tables && dump.tables.products) || [];
+      const bs = (dump && dump.tables && dump.tables.suppliers) || [];
+      if (!bp.length) throw new Error("в файле нет товаров — выберите файл бэкапа Thermo (thermo_backup_….json)");
+      const supIds = new Set(suppliers.map((x) => x.id));
+      const supByName = {}; suppliers.forEach((x) => { supByName[String(x.name || "").trim().toLowerCase()] = x.id; });
+      const bsName = {}; bs.forEach((x) => { bsName[x.id] = String(x.name || "").trim().toLowerCase(); });
+      const resolve = (sid) => (supIds.has(sid) ? sid : supByName[bsName[sid]] || null);
+      const nkey = (p) => String(p.name || "").trim().toLowerCase().replace(/\s+/g, " ") + "|" + String(p.size || "").trim().toLowerCase();
+      const cur = new Map(products.map((p) => [p.id, p]));
+      const curByName = new Map(), dupCur = new Set();
+      products.forEach((p) => { const k = nkey(p); if (curByName.has(k)) dupCur.add(k); else curByName.set(k, p); });
+      const dupB = new Set(), seenB = new Set();
+      bp.forEach((p) => { const k = nkey(p); if (seenB.has(k)) dupB.add(k); else seenB.add(k); });
+      const bySup = {}, done = new Set();
+      let n = 0, byName = 0, withSup = 0;
+      bp.forEach((b) => {
+        if (!b.supplier_id) return;
+        withSup++;
+        const sid = resolve(b.supplier_id); if (!sid) return;
+        let p = cur.get(b.id), viaName = false;
+        if (!p) { const k = nkey(b); if (!dupCur.has(k) && !dupB.has(k)) { p = curByName.get(k); viaName = true; } }
+        if (!p || p.supplier_id || done.has(p.id)) return;
+        done.add(p.id); (bySup[sid] = bySup[sid] || []).push(p.id); n++; if (viaName) byName++;
+      });
+      setPlan({ bySup, n, byName, withSup, fname: f.name, date: dump._date });
+    } catch (e2) { setErr("Не удалось прочитать файл: " + e2.message); }
+  };
+  const run = async () => {
+    setBusy(true); setErr("");
+    let done = 0;
+    try {
+      for (const [sid, ids] of Object.entries(plan.bySup)) {
+        for (let i = 0; i < ids.length; i += 200) {
+          const chunk = ids.slice(i, i + 200);
+          if (sb) { const r = await sb.from("products").update({ supplier_id: sid }).in("id", chunk); if (r.error) throw new Error(r.error.message); }
+          else for (const id of chunk) { const r = await db.from("products").update({ supplier_id: sid }).eq("id", id); if (r.error) throw new Error(r.error.message || String(r.error)); }
+          done += chunk.length; setProg(done + " / " + plan.n);
+        }
+      }
+      await logAction("Восстановлена привязка товаров к поставщикам", "products", "товаров: " + done + " · файл " + plan.fname);
+      setPlan(null); await reload("all"); toast("Поставщик восстановлен у " + done + " товаров");
+    } catch (e) { setErr("Ошибка: " + e.message + ". Уже исправлено: " + done + ". Выберите файл ещё раз — продолжится с оставшихся."); setPlan(null); await reload("all"); }
+    setBusy(false); setProg("");
+  };
+  return (
+    <div style={{ marginTop: 22, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+      <h3 style={{ marginBottom: 6 }}>Поставщики у товаров</h3>
+      <p className="xs mut" style={{ marginBottom: 8 }}>
+        {noSup ? <>Без поставщика: <b style={{ color: "var(--warn)" }}>{noSup.toLocaleString("ru-RU")}</b> из {products.length.toLocaleString("ru-RU")} товаров. Закупки таких товаров не попадают в долг поставщику. Поставщика можно вернуть из файла бэкапа, где он ещё был указан (например, thermo_backup_2026-10-01_2.json) — другие данные не изменятся.</>
+          : <>У всех товаров указан поставщик ✓</>}
+      </p>
+      {err && <p className="sm" style={{ color: "var(--bad)", marginBottom: 6 }}>{err}</p>}
+      {noSup > 0 && !plan && <button className="btn" disabled={busy} onClick={() => fRef.current.click()}>🔗 Восстановить из файла бэкапа…</button>}
+      <input ref={fRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={onFile} />
+      {plan && (
+        <div className="card" style={{ padding: 10 }}>
+          <div className="sm" style={{ marginBottom: 8 }}>Файл «{plan.fname}»{plan.date ? " (бэкап от " + dt(plan.date) + ")" : ""}: товаров с поставщиком — {plan.withSup.toLocaleString("ru-RU")}.{" "}
+            {plan.n ? <>Можно восстановить поставщика у <b>{plan.n.toLocaleString("ru-RU")}</b> товаров{plan.byName ? " (из них по названию: " + plan.byName + ")" : ""}.</> : <b>Подходящих товаров нет — в этом файле поставщики тоже не указаны или товары другие.</b>}</div>
+          <div className="row" style={{ gap: 8, justifyContent: "flex-end" }}>
+            {busy && <span className="sm mut" style={{ marginRight: "auto" }}><span className="spin" /> {prog}</span>}
+            <button className="btn" disabled={busy} onClick={() => setPlan(null)}>Отмена</button>
+            {plan.n > 0 && <button className="btn pri" disabled={busy} onClick={run}>{busy ? "Записываю…" : "Восстановить у " + plan.n}</button>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+function BackupModal({ data, reload, onClose, toast, onFilePick, onRestoreText, onWipe }) {
   // JSON бэкапа собирается только по кнопке — при большой базе (15 000+ товаров это несколько МБ)
-  // вывод всего текста в поле при открытии окна подвешивал браузер
-  const buildJson = () => {
-    const dump = { _app: "ThermoAI", _date: new Date().toISOString(), tables: {} };
-    TABLES.forEach((t) => { dump.tables[t] = data[t] || []; });
-    return JSON.stringify(dump);
+  // вывод всего текста в поле при открытии окна подвешивал браузер. Данные берутся свежие из базы.
+  const [packing, setPacking] = useState(false);
+  const buildJson = async () => {
+    setPacking(true); setErr("");
+    try { return JSON.stringify(await freshDump()); }
+    catch (e) { setErr("Не удалось прочитать базу для бэкапа: " + e.message); return null; }
+    finally { setPacking(false); }
   };
   const totalRows = TABLES.reduce((a, t) => a + (data[t] || []).length, 0);
   const [manualJson, setManualJson] = useState("");
   const [restoreTxt, setRestoreTxt] = useState("");
   const [err, setErr] = useState("");
   const taRef = useRef(null);
-  const download = () => { const ok = tryDownloadBackup(buildJson()); toast(ok ? "Файл бэкапа скачан" : "Скачивание заблокировано — используйте «Копировать»"); };
+  const download = async () => { const json = await buildJson(); if (!json) return; const ok = tryDownloadBackup(json); toast(ok ? "Файл бэкапа скачан" : "Скачивание заблокировано — используйте «Копировать»"); };
   const copy = async () => {
-    const json = buildJson();
+    const json = await buildJson(); if (!json) return;
     try { await navigator.clipboard.writeText(json); toast("Бэкап скопирован в буфер (" + Math.round(json.length / 1024) + " КБ)"); return; } catch (e) {}
     setManualJson(json); toast("Автокопирование недоступно — выделите текст в поле и скопируйте вручную");
   };
@@ -4822,8 +5314,8 @@ function BackupModal({ data, onClose, toast, onFilePick, onRestoreText, onWipe }
       <h3 style={{ marginBottom: 6 }}>Сохранить</h3>
       <p className="xs mut" style={{ marginBottom: 8 }}>Скачайте файл бэкапа (рекомендуется) или скопируйте его текст. В бэкап входит вся база: {totalRows.toLocaleString("ru-RU")} записей, из них товаров {(data.products || []).length.toLocaleString("ru-RU")}.</p>
       <div className="row" style={{ marginTop: 8, marginBottom: manualJson ? 8 : 18 }}>
-        <button className="btn pri" onClick={download}>⬇ Скачать файлом</button>
-        <button className="btn" onClick={copy}>📋 Копировать бэкап</button>
+        <button className="btn pri" disabled={packing} onClick={download}>{packing ? <span><span className="spin" /> Собираю…</span> : "⬇ Скачать файлом"}</button>
+        <button className="btn" disabled={packing} onClick={copy}>📋 Копировать бэкап</button>
       </div>
       {manualJson && <textarea ref={taRef} readOnly className="inp" style={{ minHeight: 90, fontSize: 10, marginBottom: 18 }} value={manualJson} onFocus={(e) => e.target.select()} />}
       <h3 style={{ marginBottom: 6 }}>Восстановить</h3>
@@ -4836,6 +5328,7 @@ function BackupModal({ data, onClose, toast, onFilePick, onRestoreText, onWipe }
         <button className="btn" onClick={onFilePick}>…или выбрать файл .json</button>
       </div>
       <p className="xs mut" style={{ marginTop: 10 }}>Восстановление полностью заменяет текущую базу содержимым бэкапа.</p>
+      <RelinkSuppliers data={data} reload={reload} toast={toast} />
       {onWipe && (
         <div style={{ marginTop: 22, paddingTop: 14, borderTop: "1px dashed var(--bad)" }}>
           <h3 style={{ marginBottom: 6, color: "var(--bad)" }}>Опасная зона</h3>
