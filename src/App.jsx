@@ -732,6 +732,8 @@ function xlSheetXml(rows, cols, types) {
       cs += cell(r, n - 1, v[1], 8);
       if (n > 3) merges.push("B" + (r + 1) + ":" + xlCol(n - 2) + (r + 1));
     }
+    // объединение ячеек внутри строки таблицы: merge: [[с, по], …] (номера колонок с 0)
+    if ((k === "head" || k === "row") && row.merge) row.merge.forEach(([a, b]) => merges.push(xlCol(a) + (r + 1) + ":" + xlCol(b) + (r + 1)));
     const ht = k === "title" ? ' ht="22" customHeight="1"' : "";
     return '<row r="' + (r + 1) + '"' + ht + ">" + cs + "</row>";
   }).join("");
@@ -2905,6 +2907,13 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     setDelAsk(null); await reload(); toast("Операция удалена" + whNote);
   };
   const safe = (s) => String(s || "object").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
+  /* Excel клиенту — утверждённый шаблон (руководитель, 03.10.2026), менять только по его просьбе:
+     ОБЪЕКТ: имя (крупно) · «Клиент: … · тел. …» и «Дата: …» жирным
+     ПОСТАВКА №N от дата → № | Наименование | Кол-во | Ед. | Цена | Сумма → «Итого по поставке №N»
+     возвраты по датам: «Дата: …» (красным) → ВОЗВРАТЫ → та же шапка, строки красным → «Итого возвратов :» (минусом)
+     оплаты по датам: «Дата: …» → ОПЛАТЫ → № | Способ оплаты | Кол-во (сумма в валюте) | Курс | Сумма $ → «Итого оплачено :»
+     итог: Сумма выданного товара: / Скидка: / Возвраты: (красным) / Оплачено: / Баланс :
+     шрифты: текст — Baskerville Old Face, числа — Times New Roman */
   const exportClient = () => {
     const rows = [
       { k: "title", v: ["ОБЪЕКТ: " + (obj.name || "")] },
@@ -2913,10 +2922,20 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       { k: "blank" },
     ];
     const tot = (label, v, red) => rows.push({ k: "total", v: [label, v], red });
+    const HEAD = ["№", "Наименование", "Кол-во", "Ед.", "Цена", "Сумма"];
+    const opDay = (o) => String(o.op_date || o.created_at || "").slice(0, 10);
+    const byDay = (list) => {
+      const g = [];
+      list.slice().sort((a, b) => opDay(a).localeCompare(opDay(b))).forEach((o) => {
+        const last = g[g.length - 1];
+        if (last && last.day === opDay(o)) last.ops.push(o); else g.push({ day: opDay(o), ops: [o] });
+      });
+      return g;
+    };
     let n = 1;
     batches.forEach((b) => {
       rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
-      rows.push({ k: "head", v: ["№", "Наименование", "Кол-во", "Ед.", "Цена", "Сумма"] });
+      rows.push({ k: "head", v: HEAD });
       let sub = 0;
       b.items.forEach((i) => {
         const s = Math.round(i.qty * i.price * 100) / 100; sub += s;
@@ -2925,24 +2944,36 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       tot("Итого по поставке №" + b.no, Math.round(sub * 100) / 100);
       rows.push({ k: "blank" });
     });
-    const returns = ops.filter((o) => o.type === "return" && !o.voided);
-    if (returns.length) {
+    // возвраты — блоками по дате
+    byDay(ops.filter((o) => o.type === "return" && !o.voided)).forEach(({ day, ops: list }) => {
+      rows.push({ k: "section", v: ["Дата: " + dt(day)], red: true });
+      rows.push({ k: "blank" });
       rows.push({ k: "section", v: ["ВОЗВРАТЫ"], red: true });
-      rows.push({ k: "head", v: ["№", "Наименование", "Кол-во", "Ед.", "Дата", "Сумма"] });
-      returns.forEach((o, k) => rows.push({ k: "row", v: [k + 1, o.product_name || "", o.qty || "", o.unit || "", dt(o.op_date || o.created_at), -(o.amount || 0)], red: true }));
-      tot("Итого возвратов", -f.retSale, true);
+      rows.push({ k: "head", v: HEAD });
+      let sub = 0;
+      list.forEach((o, k) => {
+        const amt = round2(o.amount || 0), q = Number(o.qty) || 0; sub += amt;
+        rows.push({ k: "row", v: [k + 1, o.product_name || "", q || "", o.unit || "", q ? round2(amt / q) : "", amt], red: true });
+      });
+      tot("Итого возвратов :", -round2(sub), true);
       rows.push({ k: "blank" });
-    }
-    // оплаты клиента
-    const pays = ops.filter((o) => o.type === "client_payment" && !o.voided)
-      .sort((a, b) => String(a.op_date || a.created_at).localeCompare(String(b.op_date || b.created_at)));
-    if (pays.length) {
+    });
+    // оплаты клиента — блоками по дате: способ, сумма в валюте оплаты, курс, сумма в $
+    byDay(ops.filter((o) => o.type === "client_payment" && !o.voided)).forEach(({ day, ops: list }) => {
+      rows.push({ k: "section", v: ["Дата: " + dt(day)] });
+      rows.push({ k: "blank" });
       rows.push({ k: "section", v: ["ОПЛАТЫ"] });
-      rows.push({ k: "head", v: ["№", "Дата · способ оплаты", "", "", "", "Сумма"] });
-      pays.forEach((o, k) => rows.push({ k: "row", v: [k + 1, [dt(o.op_date || o.created_at), payText(o), o.note].filter(Boolean).join(" · "), "", "", "", round2(o.amount || 0)] }));
-      tot("Итого оплачено", round2(f.paidClient));
+      rows.push({ k: "head", v: ["№", "Способ оплаты", "Кол-во", "Курс", "", "Сумма"], merge: [[3, 4]] });
+      let sub = 0;
+      list.forEach((o, k) => {
+        const i = payInfo(o), usd = round2(o.amount || 0); sub += usd;
+        const uzs = i.cur === "uzs";
+        const label = i.id ? (payMethod(i.id).cur === null ? i.label + (uzs ? " сум" : " $") : i.label) : "Оплата";
+        rows.push({ k: "row", v: [k + 1, label, uzs ? (i.uzs ? fmt(i.uzs) : "") : usd, uzs ? (i.rate ? fmt(i.rate) : "") : 1, "", usd], merge: [[3, 4]] });
+      });
+      tot("Итого оплачено :", round2(sub));
       rows.push({ k: "blank" });
-    }
+    });
     tot("Сумма выданного товара:", round2(f.sale));
     if (f.discount) tot("Скидка:", -round2(f.discount));
     if (f.retSale) tot("Возвраты:", -round2(f.retSale), true);
