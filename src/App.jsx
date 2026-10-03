@@ -906,19 +906,31 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [] }) {
   const listRef = useRef(null);
   const supName = useMemo(() => { const m = {}; suppliers.forEach((s) => { m[s.id] = s.name; }); return m; }, [suppliers]);
   const idx = useMemo(() => products.map((p) => prodSearchText(p, supName[p.supplier_id])), [products, supName]);
+  // фильтр по поставщику: выбран поставщик — показываются только его товары (без ввода текста — все его товары)
+  const [sf, setSf] = useState("");
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  const active = q.trim().length >= 2 || (!!sf && open);
   const hits = useMemo(() => {
     const words = searchWords(q);
-    if (q.trim().length < 2) return [];
+    if (!active) return [];
     const out = [];
     for (let i = 0; i < products.length; i++) {
       const p = products[i];
       if (p.status === "archive") continue;
+      if (sf && p.supplier_id !== sf) continue;
       const s = idx[i];
       if (words.every((w) => s.includes(w))) out.push(p);
     }
     return out;
-  }, [q, products, idx]);
-  useEffect(() => { setTop(0); if (listRef.current) listRef.current.scrollTop = 0; }, [q]);
+  }, [q, products, idx, sf, active]);
+  useEffect(() => { setTop(0); if (listRef.current) listRef.current.scrollTop = 0; }, [q, sf]);
   // при навигации стрелками держим активную строку в видимой области
   useEffect(() => {
     const el = listRef.current;
@@ -928,6 +940,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [] }) {
     else if (y + ROW > el.scrollTop + el.clientHeight) el.scrollTop = y + ROW - el.clientHeight;
   }, [activeIdx]);
   const pick = (p) => { onPick(p); setQ(""); setActiveIdx(-1); };
+  const supCount = useMemo(() => { const m = {}; products.forEach((p) => { if (p.supplier_id && p.status !== "archive") m[p.supplier_id] = (m[p.supplier_id] || 0) + 1; }); return m; }, [products]);
   const onKeyDown = (e) => {
     if (!hits.length) return;
     if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, hits.length - 1)); }
@@ -935,16 +948,26 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [] }) {
     else if (e.key === "PageDown") { e.preventDefault(); setActiveIdx((i) => Math.min(i + 7, hits.length - 1)); }
     else if (e.key === "PageUp") { e.preventDefault(); setActiveIdx((i) => Math.max(i - 7, 0)); }
     else if (e.key === "Enter" && activeIdx >= 0) { e.preventDefault(); pick(hits[activeIdx]); }
-    else if (e.key === "Escape") { setQ(""); setActiveIdx(-1); }
+    else if (e.key === "Escape") { setQ(""); setActiveIdx(-1); setOpen(false); }
   };
   const start = Math.max(0, Math.floor(top / ROW) - 8);
   const end = Math.min(hits.length, Math.ceil((top + BOX_H) / ROW) + 8);
-  const noHits = q.trim().length >= 2 && !hits.length;
+  const noHits = active && !hits.length;
   return (
-    <div style={{ position: "relative", minWidth: 220, flex: 1, zIndex: hits.length || noHits ? 999 : "auto" }}>
-      <input className="inp" placeholder={placeholder || "Поиск товара для добавления…"} value={q}
-        onChange={(e) => { setQ(e.target.value); setActiveIdx(-1); }}
-        onKeyDown={onKeyDown} />
+    <div ref={boxRef} style={{ position: "relative", minWidth: 220, flex: 1, zIndex: hits.length || noHits ? 999 : "auto" }}>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {suppliers.length > 0 && (
+          <select className="inp" style={{ width: 190, flex: "0 0 auto" }} value={sf} title="Только товары этого поставщика"
+            onChange={(e) => { setSf(e.target.value); setOpen(!!e.target.value); setActiveIdx(-1); }}>
+            <option value="">Все поставщики</option>
+            {suppliers.filter((x) => x.status !== "inactive" && supCount[x.id]).map((x) => <option key={x.id} value={x.id}>{x.name} ({supCount[x.id]})</option>)}
+          </select>
+        )}
+        <input className="inp" style={{ flex: "1 1 180px", width: "auto", minWidth: 0 }} placeholder={sf ? "Поиск среди товаров поставщика…" : placeholder || "Поиск товара для добавления…"} value={q}
+          onChange={(e) => { setQ(e.target.value); setActiveIdx(-1); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={onKeyDown} />
+      </div>
       {(hits.length > 0 || noHits) && (
         <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, boxShadow: "0 16px 44px rgba(0,0,0,.18), 0 0 0 1px rgba(255,31,48,.15)", isolation: "isolate", overflow: "hidden" }}>
           <div className="xs mut" style={{ padding: "6px 11px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between" }}>
@@ -2263,7 +2286,8 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   const filteredProducts = useMemo(() => products.filter((p) => p.status !== "archive"), [products]);
   const supById = useMemo(() => { const m = {}; suppliers.forEach((x) => { m[x.id] = x; }); return m; }, [suppliers]);
   // поставщик строки: у товара из базы — его поставщик; если в базе не указан — выбранный в строке
-  const lineSup = (l) => { const p = l.product_id ? prodById(l.product_id) : null; return (p && p.supplier_id) || l.supplier_id || null; };
+  // в строке можно выбрать другого поставщика (если этот товар берут не у того, кто указан в базе)
+  const lineSup = (l) => { const p = l.product_id ? prodById(l.product_id) : null; return l.supplier_id || (p && p.supplier_id) || null; };
   const noSupCount = lines.filter((l) => !lineSup(l)).length;
   const setSupForEmpty = (sid) => { if (sid) setLines((prev) => prev.map((l) => (lineSup(l) ? l : { ...l, supplier_id: sid }))); };
 
@@ -2475,10 +2499,12 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                 <tbody>
                   {lines.map((l) => {
                     const p = l.product_id ? prodById(l.product_id) : null;
+                    const curSup = lineSup(l);
                     const supSel = (
-                      <select className="inp" style={{ marginTop: 4, borderColor: l.supplier_id ? undefined : "color-mix(in srgb, var(--warn) 60%, transparent)" }} value={l.supplier_id || ""} onChange={(e) => setLine(l.id, { supplier_id: e.target.value || null })} title="Поставщик">
+                      <select className="inp" style={{ marginTop: 4, borderColor: curSup ? undefined : "color-mix(in srgb, var(--warn) 60%, transparent)" }} value={curSup || ""}
+                        onChange={(e) => setLine(l.id, { supplier_id: e.target.value && !(p && p.supplier_id === e.target.value) ? e.target.value : null })} title="Поставщик для этой закупки">
                         <option value="">— поставщик —</option>
-                        {activeSuppliers(suppliers, l.supplier_id).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                        {activeSuppliers(suppliers, curSup).map((x) => <option key={x.id} value={x.id}>{x.name}{p && p.supplier_id === x.id ? " (из базы)" : ""}</option>)}
                       </select>
                     );
                     return (
@@ -2497,9 +2523,9 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                           ) : (
                             <>
                               <div style={{ fontWeight: 600 }}>{l.name}</div>
-                              <div className="xs mut">{[l.size, p && p.supplier_id ? (supById[p.supplier_id] || {}).name : ""].filter(Boolean).join(" · ")}</div>
+                              {l.size && <div className="xs mut">{l.size}</div>}
                               {!p && <div className="xs" style={{ color: "var(--warn)" }}>товара больше нет в базе — сохранится как ручная позиция</div>}
-                              {(!p || !p.supplier_id) && supSel}
+                              {supSel}
                             </>
                           )}
                         </td>
