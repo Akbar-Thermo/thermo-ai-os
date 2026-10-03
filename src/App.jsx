@@ -3377,23 +3377,36 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
     </>
   );
 }
-function EditOpModal({ op, suppliers, isReturn, onClose, onSave }) {
-  const usesPay = isPayType(op.type); // оплаты и расходы — со способом оплаты
+function EditOpModal({ op, suppliers, isReturn, onClose, onSave, products = null, objects = null }) {
+  // бонус мастеру: деньгами — со способом оплаты, предметом — название + цена
+  const bonusItem = op.type === "bonus" && !!op.item_name;
+  const bonusMoney = op.type === "bonus" && !op.item_name;
+  const usesPay = isPayType(op.type) || bonusMoney; // оплаты и расходы — со способом оплаты
   const [pay, setPay] = useState(() => payInit(op));
   const [busy, setBusy] = useState(false);
   const [v, setV] = useState({
     amount: op.amount || 0, op_date: (op.op_date || op.created_at || "").slice(0, 10),
     note: op.note || "", reason: op.reason || "", supplier_id: op.supplier_id || "", item_name: op.item_name || "", user: op.user || "",
+    object_id: op.object_id || "",
   });
   return (
     <Modal title={"Редактировать: " + opLabel(op.type)} onClose={onClose} w={520}>
       {isReturn && <p className="sm" style={{ color: "var(--warn)", marginBottom: 10 }}>⚠ У возврата можно изменить только дату, причину и комментарий. Количество/сумму меняйте так: удалите возврат и оформите новый — иначе разойдётся склад.</p>}
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        {usesPay && <PayFields p={pay} setP={setPay} methods={payMethodsFor(op.type)} usdLabel={payUsdLabel(op.type)} />}
-        {!isReturn && !usesPay && <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: e.target.value })} /></Fld>}
+        {bonusItem && products && <div style={{ gridColumn: "1/-1" }}><Fld label="Найти в товарах поставщиков (необязательно)">
+          <ProductPicker closeOnPick products={products} suppliers={suppliers || []} placeholder="поиск товара: название, код, поставщик…"
+            onPick={(p) => setV((x) => ({ ...x, item_name: p.name + (p.size ? " · " + p.size : ""), amount: String(Number(p.cost) || retailOf(p) || x.amount) }))} />
+        </Fld></div>}
+        {bonusItem && <div style={{ gridColumn: "1/-1" }}><Fld label="Предмет (можно написать вручную)"><input className="inp" autoComplete="off" autoCorrect="off" spellCheck={false} name="te_bonus_thing_edit" data-lpignore="true" data-form-type="other" value={v.item_name} onChange={(e) => setV({ ...v, item_name: e.target.value })} /></Fld></div>}
+        {usesPay && <PayFields p={pay} setP={setPay} methods={bonusMoney ? OUT_METHODS : payMethodsFor(op.type)} usdLabel={bonusMoney ? "Бонус, $" : payUsdLabel(op.type)} />}
+        {!isReturn && !usesPay && <Fld label={bonusItem ? "Цена предмета, $" : "Сумма"}><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: e.target.value })} /></Fld>}
+        {objects && (op.type === "bonus" || op.type === "bonus_payment") && <Fld label="Объект"><select className="inp" value={v.object_id} onChange={(e) => setV({ ...v, object_id: e.target.value })}>
+          <option value="">— без объекта —</option>
+          {objects.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+        </select></Fld>}
         <Fld label="Дата операции"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
         {op.type === "supplier_payment" && <Fld label="Поставщик"><select className="inp" value={v.supplier_id} onChange={(e) => setV({ ...v, supplier_id: e.target.value })}><option value="">—</option>{activeSuppliers(suppliers, v.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>}
-        {op.type === "bonus" && <Fld label="Предмет"><input className="inp" value={v.item_name} onChange={(e) => setV({ ...v, item_name: e.target.value })} /></Fld>}
+        {bonusItem && !products && <Fld label="Предмет"><input className="inp" autoComplete="off" value={v.item_name} onChange={(e) => setV({ ...v, item_name: e.target.value })} /></Fld>}
         {!usesPay && (isReturn || op.reason != null) && <Fld label="Причина"><input className="inp" value={v.reason} onChange={(e) => setV({ ...v, reason: e.target.value })} /></Fld>}
         <Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} /></Fld>
         <Fld label="Ответственный"><PersonSelect value={v.user} onChange={(u) => setV({ ...v, user: u })} /></Fld>
@@ -3409,10 +3422,11 @@ function EditOpModal({ op, suppliers, isReturn, onClose, onSave }) {
           const patch = { op_date: v.op_date, note: v.note, reason: v.reason, user: v.user };
           if (!isReturn) patch.amount = parseNum(v.amount);
           if (op.type === "supplier_payment") patch.supplier_id = v.supplier_id || null;
-          if (op.type === "bonus") patch.item_name = v.item_name || null;
+          if (bonusItem) patch.item_name = v.item_name.trim() || op.item_name;
+          if (objects && (op.type === "bonus" || op.type === "bonus_payment")) patch.object_id = v.object_id || null;
           if (usesPay) Object.assign(patch, payPatch(pay, op.type, false));
           setBusy(true); await onSave(patch); setBusy(false);
-        }} disabled={busy || (usesPay && !(payUsd(pay) > 0))}>{busy ? "Сохраняю…" : "Сохранить"}</button>
+        }} disabled={busy || (usesPay ? !(payUsd(pay) > 0) : !isReturn && !(parseNum(v.amount) > 0)) || (bonusItem && !v.item_name.trim())}>{busy ? "Сохраняю…" : "Сохранить"}</button>
       </div>
     </Modal>
   );
@@ -3612,6 +3626,7 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
   const [delForm, setDelForm] = useState(false);
   const [delBusy, setDelBusy] = useState(false);
   const [delOp, setDelOp] = useState(null);
+  const [editOp, setEditOp] = useState(null);
   const removeOp = async (o) => {
     const r = await db.from("finance_ops").delete().eq("id", o.id);
     if (r.error) return;
@@ -3674,19 +3689,31 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
                 <td className="sm">{(objects.find((x) => x.id === o.object_id) || {}).name || "—"}</td>
                 <td className="num" style={{ fontWeight: 700, color: o.type === "bonus_payment" ? "var(--ok)" : "inherit" }}>{fmt(o.amount)}</td>
                 <td className="xs mut">{[o.item_name, o.type === "bonus_payment" || o.type === "bonus" ? payText(o) : "", o.note, o.user].filter(Boolean).join(" · ")}</td>
-                <td>{canDel && (delOp === o.id ? (
-                  <div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
+                <td><div className="row" style={{ gap: 4, flexWrap: "nowrap", justifyContent: "flex-end" }}>
+                  {delOp !== o.id && !o.voided && <button className="btn xs" onClick={() => setEditOp(o)}>изм.</button>}
+                  {canDel && (delOp === o.id ? (<>
                     <span className="xs" style={{ color: "var(--bad)", textDecoration: "none" }}>Удалить?</span>
                     <button className="btn xs dng" onClick={() => removeOp(o)}>Да</button>
                     <button className="btn xs" onClick={() => setDelOp(null)}>Нет</button>
-                  </div>
-                ) : <button className="btn xs dng" onClick={() => setDelOp(o.id)}>удалить</button>)}</td>
+                  </>) : <button className="btn xs dng" onClick={() => setDelOp(o.id)}>удалить</button>)}
+                </div></td>
               </tr>
             ))}
             {!payOps.length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 20 }}>Операций нет</td></tr>}
           </tbody>
         </table>
       </div>}
+      {fin && editOp && <EditOpModal op={editOp} suppliers={data.suppliers} products={data.products} objects={st.rows.map((r) => r.o).concat(editOp.object_id && !st.rows.some((r) => r.o.id === editOp.object_id) ? objects.filter((x) => x.id === editOp.object_id) : [])}
+        onClose={() => setEditOp(null)} onSave={async (patch) => {
+          const o = editOp;
+          const log = [...(o.edit_log || []), { at: new Date().toISOString(), before: { amount: o.amount, op_date: o.op_date, note: o.note, reason: o.reason, item_name: o.item_name || null, object_id: o.object_id || null } }];
+          const r = await db.from("finance_ops").update(cleanUuids({ ...patch, edited: true, edit_log: log })).eq("id", o.id);
+          if (r.error) return;
+          const pt = (x) => (x.pay_method ? " (" + payText(x) + ")" : "");
+          const nm = (x) => (x.item_name ? " «" + x.item_name + "»" : "");
+          await logAction("Изменена операция: " + opLabel(o.type), "master:" + m.name, "было " + fmt(o.amount) + nm(o) + pt(o) + " → стало " + fmt(patch.amount) + nm({ ...o, ...patch }) + pt({ ...o, ...patch }));
+          setEditOp(null); await reload(); toast("Изменено (было и стало — в «Журнале»)");
+        }} />}
       {fin && payForm && (
         <Modal title={"Выплата бонуса — " + m.name} onClose={() => setPayForm(false)} w={560}>
           <BonusPayForm debt={st.debtToMaster} onSave={async (p) => {
