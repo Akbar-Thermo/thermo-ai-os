@@ -889,7 +889,14 @@ function DiscardConfirm({ text, onStay, onDiscard }) {
     </div>
   );
 }
-function ProductPicker({ products, onPick, placeholder }) {
+// текст для поиска товара: название, код, размер, бренд и ПОСТАВЩИК (по «water pro» находятся все товары
+// поставщика Water Pro, а не только те, где это слово есть в названии) + слитная версия («waterpro» = «water pro»)
+const prodSearchText = (p, supName) => {
+  const t = [p.name, p.alt_names, p.code, p.sku, p.size, p.brand, p.category, supName].filter(Boolean).join(" ").toLowerCase().replace(/ё/g, "е");
+  return t + " " + t.replace(/[\s\-_."']+/g, "");
+};
+const searchWords = (q) => q.toLowerCase().replace(/ё/g, "е").trim().split(/\s+/).filter(Boolean);
+function ProductPicker({ products, onPick, placeholder, suppliers = [] }) {
   // показываем ВСЕ найденные товары (без лимита). Список прокручивается, рисуются только видимые строки.
   // Поиск по словам: «труба 25» найдёт «ХВС ТРУБА PN16 - 25» (все слова, в любом порядке).
   const ROW = 50, BOX_H = 380;
@@ -897,9 +904,10 @@ function ProductPicker({ products, onPick, placeholder }) {
   const [activeIdx, setActiveIdx] = useState(-1);
   const [top, setTop] = useState(0);
   const listRef = useRef(null);
-  const idx = useMemo(() => products.map((p) => (p.name + " " + (p.alt_names || "") + " " + (p.code || "")).toLowerCase()), [products]);
+  const supName = useMemo(() => { const m = {}; suppliers.forEach((s) => { m[s.id] = s.name; }); return m; }, [suppliers]);
+  const idx = useMemo(() => products.map((p) => prodSearchText(p, supName[p.supplier_id])), [products, supName]);
   const hits = useMemo(() => {
-    const words = q.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const words = searchWords(q);
     if (q.trim().length < 2) return [];
     const out = [];
     for (let i = 0; i < products.length; i++) {
@@ -953,7 +961,7 @@ function ProductPicker({ products, onPick, placeholder }) {
                       style={{ position: "absolute", top: i * ROW, left: 0, right: 0, height: ROW, boxSizing: "border-box", padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === activeIdx ? "var(--acc-tint)" : "var(--panel)", overflow: "hidden" }}
                       onClick={() => pick(p)}>
                       <div style={{ fontWeight: 600, fontSize: 13, color: "var(--txt)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
-                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, p.size].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}</div>
+                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, p.size, supName[p.supplier_id]].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}</div>
                     </div>
                   );
                 })}
@@ -1024,13 +1032,13 @@ function ProductsTab({ data, reload, toast }) {
   const sorted = useMemo(() => [...products].sort(productOrder), [products]); // по коду: 1, 2, 3…
   const needRenum = useMemo(() => codesNeedRenumber(products), [products]);
   const [renum, setRenum] = useState(null); // null | { busy, done, total, err }
-  const searchIdx = useMemo(() => sorted.map((p) => (p.name + " " + (p.alt_names || "") + " " + p.code + " " + (p.category || "")).toLowerCase()), [products]);
+  const searchIdx = useMemo(() => { const sn = {}; suppliers.forEach((x) => { sn[x.id] = x.name; }); return sorted.map((p) => prodSearchText(p, sn[p.supplier_id])); }, [sorted, suppliers]);
   const list = useMemo(() => {
-    const ql = dq.toLowerCase();
+    const qw = searchWords(dq);
     return sorted.filter((p, i) =>
       (!supF || p.supplier_id === supF) &&
       (!brandF || p.brand === brandF) &&
-      (!ql || searchIdx[i].includes(ql))
+      (!qw.length || qw.every((w) => searchIdx[i].includes(w)))
     );
   }, [sorted, searchIdx, dq, supF, brandF]);
   // перенумеровать все коды 1…N (порядок: уже пронумерованные, затем по дате добавления и названию)
@@ -2439,7 +2447,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
           {xlImport && <RequestExcelImport products={filteredProducts} onClose={() => setXlImport(false)} onAdd={addImported} />}
 
           <div className="row" style={{ marginBottom: 12, gap: 10 }}>
-            <ProductPicker products={filteredProducts} placeholder="Поиск товара по названию / коду — начните вводить…" onPick={addFromBase} />
+            <ProductPicker products={filteredProducts} suppliers={suppliers} placeholder="Поиск товара по названию / коду — начните вводить…" onPick={addFromBase} />
           </div>
 
           {lines.length === 0 && (
@@ -3170,7 +3178,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
     <>
     <Modal title={newBatch ? "Новая поставка" : "Добавить позиции вручную"} onClose={tryClose} w={860}>
       <div className="row" style={{ marginBottom: 10 }}>
-        <ProductPicker products={products} placeholder="найти товар в базе и добавить строку…" onPick={(p) => addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, cost: p.cost, price: retailOf(p), supplier_id: p.supplier_id })} />
+        <ProductPicker products={products} suppliers={suppliers} placeholder="найти товар в базе и добавить строку…" onPick={(p) => addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, cost: p.cost, price: retailOf(p), supplier_id: p.supplier_id })} />
         <button className="btn" onClick={blank}>+ Пустая строка (товара нет в базе)</button>
       </div>
       <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, maxHeight: 360 }}>
