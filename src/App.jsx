@@ -2933,21 +2933,21 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     }
     return ok;
   };
-  // «% к цене»: цена каждой позиции (всего объекта или одной поставки) умножается на (1 + %/100);
-  // возвраты по этим позициям пересчитываются по новой цене
+  // «Наценка от себестоимости»: цена каждой позиции = себестоимость × (1 + %/100) (всего объекта или одной поставки);
+  // позиции без себестоимости не меняются; возвраты по изменённым позициям пересчитываются по новой цене
   const applyPercent = async (pct, batchNo) => {
     const k = 1 + pct / 100;
-    const inScope = (i) => batchNo == null || (i.batch_no || 1) === batchNo;
+    const inScope = (i) => (batchNo == null || (i.batch_no || 1) === batchNo) && Number(i.cost) > 0;
     const before = (obj.items || []).filter(inScope).reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0);
-    const newPrice = (i) => round2((Number(i.price) || 0) * k);
+    const newPrice = (i) => round2((Number(i.cost) || 0) * k);
     if (!(await confirmLowPrice((obj.items || []).filter(inScope).map((i) => ({ name: i.name, price: newPrice(i), cost: i.cost }))))) return false;
     const ok = await saveItems((cur) => cur.map((i) => (inScope(i) ? { ...i, price: newPrice(i) } : i)));
     if (!ok) return false;
     const after = (obj.items || []).filter(inScope).reduce((a, i) => a + (Number(i.qty) || 0) * newPrice(i), 0);
-    await logAction("Процент к цене товаров: " + (pct > 0 ? "+" : "") + fmt(pct) + "%", "object:" + obj.name, (batchNo == null ? "все поставки" : "поставка №" + batchNo) + ": было " + fmt2(before) + " → стало " + fmt2(after));
+    await logAction("Наценка от себестоимости: " + fmt(pct) + "%", "object:" + obj.name, (batchNo == null ? "все поставки" : "поставка №" + batchNo) + ": было " + fmt2(before) + " → стало " + fmt2(after));
     const n = await syncReturns((obj.items || []).map((i) => (inScope(i) ? { ...i, price: newPrice(i) } : i)));
     if (n) await reload();
-    toast("Цены изменены на " + (pct > 0 ? "+" : "") + fmt(pct) + "%: " + fmt2(before) + " → " + fmt2(after) + (n ? " · возвраты пересчитаны" : ""));
+    toast("Наценка " + fmt(pct) + "% от себестоимости: " + fmt2(before) + " → " + fmt2(after) + (n ? " · возвраты пересчитаны" : ""));
     return true;
   };
   // «Отгрузить товар»: отмеченные позиции становятся отгруженными → появляется долг поставщикам
@@ -3232,7 +3232,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         <h3 style={{ marginRight: "auto" }}>Финансовые операции</h3>
         {OP_TYPES.filter((t) => (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes(t.id)).map((t) => <React.Fragment key={t.id}>
           <button className="btn xs" onClick={() => setOpForm({ type: t.id })}>+ {t.label}</button>
-          {t.id === "discount" && (obj.items || []).length > 0 && <button className="btn xs" onClick={() => setPctForm(true)} title="Поднять (или снизить) цены всех товаров объекта на процент">+ % к цене товаров</button>}
+          {t.id === "discount" && (obj.items || []).length > 0 && <button className="btn xs" onClick={() => setPctForm(true)} title="Цена продажи = себестоимость + наценка %">+ Наценка от себестоимости</button>}
         </React.Fragment>)}
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
@@ -3312,15 +3312,18 @@ function PercentModal({ obj, batches, onClose, onApply }) {
   const [scope, setScope] = useState("all");
   const [busy, setBusy] = useState(false);
   const p = parseNum(pct);
-  const list = (obj.items || []).filter((i) => scope === "all" || String(i.batch_no || 1) === scope);
+  const inBatch = (obj.items || []).filter((i) => scope === "all" || String(i.batch_no || 1) === scope);
+  const list = inBatch.filter((i) => Number(i.cost) > 0);
+  const noCost = inBatch.length - list.length;
   const before = list.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0);
-  const after = list.reduce((a, i) => a + (Number(i.qty) || 0) * round2((Number(i.price) || 0) * (1 + p / 100)), 0);
-  const valid = p !== 0 && p > -100;
+  const cost = list.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.cost) || 0), 0);
+  const after = list.reduce((a, i) => a + (Number(i.qty) || 0) * round2((Number(i.cost) || 0) * (1 + p / 100)), 0);
+  const valid = pct !== "" && p > -100;
   return (
-    <Modal title="Процент к цене товаров" onClose={onClose} w={480}>
-      <p className="sm mut" style={{ marginBottom: 10 }}>Цена каждой позиции изменится на указанный процент. Чтобы снизить цены — введите минус (например −5).</p>
+    <Modal title="Наценка от себестоимости" onClose={onClose} w={500}>
+      <p className="sm mut" style={{ marginBottom: 10 }}>Новая цена продажи каждой позиции = <b>себестоимость + наценка %</b>. Текущие цены продажи заменяются.</p>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        <Fld label="Процент, %"><input type="number" className="inp" autoFocus style={{ fontSize: 18, fontWeight: 700 }} value={pct} onChange={(e) => setPct(e.target.value)} placeholder="например 10" /></Fld>
+        <Fld label="Наценка, %"><input type="number" className="inp" autoFocus style={{ fontSize: 18, fontWeight: 700 }} value={pct} onChange={(e) => setPct(e.target.value)} placeholder="например 20" /></Fld>
         <Fld label="К каким товарам">
           <select className="inp" value={scope} onChange={(e) => setScope(e.target.value)}>
             <option value="all">Все поставки объекта</option>
@@ -3329,16 +3332,17 @@ function PercentModal({ obj, batches, onClose, onApply }) {
         </Fld>
       </div>
       <div className="row" style={{ marginTop: 8, gap: 6 }}>
-        {[3, 5, 10, 15, 20].map((x) => <button key={x} className={"btn xs " + (p === x ? "pri" : "")} onClick={() => setPct(String(x))}>+{x}%</button>)}
+        {[10, 15, 20, 25, 30].map((x) => <button key={x} className={"btn xs " + (p === x && pct !== "" ? "pri" : "")} onClick={() => setPct(String(x))}>{x}%</button>)}
       </div>
       <div className="card" style={{ marginTop: 12, padding: "10px 12px" }}>
-        <div className="sm">Позиций: <b>{list.length}</b></div>
-        <div className="sm">Сумма товара сейчас: <b className="mono">{fmt2(before)}</b></div>
-        <div className="sm">После изменения: <b className="mono" style={{ color: valid ? (p > 0 ? "var(--ok)" : "var(--warn)") : "var(--mut)" }}>{fmt2(valid ? after : before)}</b>{valid && <span className="xs mut"> ({after - before >= 0 ? "+" : "−"}{fmt2(Math.abs(after - before))})</span>}</div>
+        <div className="sm">Позиций: <b>{list.length}</b>{noCost > 0 && <span style={{ color: "var(--warn)" }}> · без себестоимости: {noCost} (их цена не изменится)</span>}</div>
+        <div className="sm">Себестоимость: <b className="mono">{fmt2(cost)}</b></div>
+        <div className="sm">Сумма продажи сейчас: <b className="mono">{fmt2(before)}</b></div>
+        <div className="sm">После наценки: <b className="mono" style={{ color: valid ? "var(--ok)" : "var(--mut)" }}>{fmt2(valid ? after : before)}</b>{valid && <span className="xs mut"> ({after - before >= 0 ? "+" : "−"}{fmt2(Math.abs(after - before))} к текущей · прибыль {fmt2(after - cost)})</span>}</div>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
-        <button className="btn pri" disabled={!valid || !list.length || busy} onClick={async () => { setBusy(true); await onApply(p, scope === "all" ? null : Number(scope)); setBusy(false); }}>{busy ? "Применяю…" : "Применить " + (p > 0 ? "+" : "") + (valid ? fmt(p) : "") + "%"}</button>
+        <button className="btn pri" disabled={!valid || !list.length || busy} onClick={async () => { setBusy(true); await onApply(p, scope === "all" ? null : Number(scope)); setBusy(false); }}>{busy ? "Применяю…" : "Применить наценку " + (valid ? fmt(p) + "%" : "")}</button>
       </div>
     </Modal>
   );
