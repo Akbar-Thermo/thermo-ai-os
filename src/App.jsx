@@ -681,13 +681,13 @@ const XL_FONT = (name, b, sz, red, it) => "<font>" + (b ? "<b/>" : "") + (it ? "
 const XL_TXT = "Baskerville Old Face", XL_NUM = "Times New Roman";
 const XL_XF = (num, font, border, extra = "", align = "") => '<xf numFmtId="' + num + '" fontId="' + font + '" fillId="' + (extra === "fill" ? 2 : 0) + '" borderId="' + border + '" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">' + (align ? "<alignment " + align + "/>" : "") + "</xf>";
 const XL_STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-  + '<numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.00"/></numFmts>'
+  + '<numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0.00"/><numFmt numFmtId="165" formatCode="#,##0.00##"/></numFmts>'
   + '<fonts count="12">' + XL_FONT(XL_TXT, 0, 11) + XL_FONT(XL_TXT, 1, 11) + XL_FONT(XL_TXT, 1, 14) + XL_FONT(XL_NUM, 0, 11) + XL_FONT(XL_NUM, 1, 11)
   + XL_FONT(XL_TXT, 0, 11, 1) + XL_FONT(XL_NUM, 0, 11, 1) + XL_FONT(XL_TXT, 1, 11, 1) + XL_FONT(XL_NUM, 1, 11, 1)
   + XL_FONT(XL_NUM, 0, 11, 2) + XL_FONT(XL_NUM, 1, 11, 2) + XL_FONT(XL_TXT, 1, 28, 1, 1) + '</fonts>'
   + '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE8E8E8"/><bgColor indexed="64"/></patternFill></fill></fills>'
   + '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color auto="1"/></left><right style="thin"><color auto="1"/></right><top style="thin"><color auto="1"/></top><bottom style="thin"><color auto="1"/></bottom><diagonal/></border></borders>'
-  + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="26">'
+  + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="28">'
   + XL_XF(0, 0, 0)                                                     // 0
   + XL_XF(0, 2, 0)                                                     // 1 заголовок
   + XL_XF(0, 1, 0)                                                     // 2 жирный
@@ -714,9 +714,11 @@ const XL_STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><style
   + XL_XF(164, 9, 1, "", 'vertical="center"')                           // 23 = 11 зелёный (прибыль)
   + XL_XF(164, 10, 1)                                                   // 24 = 12 зелёный жирный
   + XL_XF(0, 11, 1, "", 'horizontal="center" vertical="center"')         // 25 шапка-логотип «Thermo Engineering»
+  + XL_XF(165, 3, 1, "", 'vertical="center"')                           // 26 точная цена (до 4 знаков)
+  + XL_XF(165, 6, 1, "", 'vertical="center"')                           // 27 = 26 красный
   + '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
 const XL_NUMSTYLE = { 0: 14, 5: 10, 6: 11, 8: 12, 9: 13 };
-const XL_REDSTYLE = { 2: 22, 4: 15, 9: 21, 7: 18, 10: 16, 11: 17, 12: 19, 13: 20 };
+const XL_REDSTYLE = { 2: 22, 4: 15, 9: 21, 7: 18, 10: 16, 11: 17, 12: 19, 13: 20, 26: 27 };
 const XL_GREENSTYLE = { 11: 23, 12: 24 };
 const XL_BRAND = "Thermo Engineering";
 function xlSheetXml(rows0, cols, types, opt = {}) {
@@ -749,7 +751,7 @@ function xlSheetXml(rows0, cols, types, opt = {}) {
     } else if (k === "head") {
       cs = v.map((x, c) => cell(r, c, x, 3)).join("");
     } else if (k === "row") {
-      cs = cols.map((_, c) => { const t = types[c] || "t"; return cell(r, c, v[c], t === "m" ? 6 : t === "n" ? 5 : t === "c" ? 9 : 4); }).join("");
+      cs = cols.map((_, c) => { const t = types[c] || "t"; return cell(r, c, v[c], t === "p" ? (typeof v[c] === "number" ? 26 : 6) : t === "m" ? 6 : t === "n" ? 5 : t === "c" ? 9 : 4); }).join("");
     } else if (k === "sum") {
       // итоговая строка таблицы: подписи жирно вправо, числа жирно
       cs = cols.map((_, c) => { const x = v[c]; return cell(r, c, x, typeof x === "number" ? 8 : x ? 7 : 0); }).join("");
@@ -3088,7 +3090,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     ];
     const HEAD = ["№", "Наименование", "Кол-во", "Ед.", "Себест. за ед.", "Цена за ед.", "Наценка за ед.", "Наценка, %", "Сумма себест.", "Сумма продажи", "Прибыль"];
     const pct = (c, p) => (c > 0 ? round2(((p - c) / c) * 100) : "");
-    let n = 1, tc = 0, ts = 0;
+    let n = 1, tc = 0, ts = 0, noCost = 0;
     batches.forEach((b) => {
       rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
       rows.push({ k: "head", v: HEAD });
@@ -3097,7 +3099,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         const q = Number(i.qty) || 0, c = Number(i.cost) || 0, p = Number(i.price) || 0;
         const sc = round2(q * c), ss = round2(q * p);
         bc += sc; bs += ss;
-        rows.push({ k: "row", v: [n++, i.name + (i.from_warehouse ? " (со склада)" : "") + (i.supplier_id ? " · " + supName(i.supplier_id) : ""), q, i.unit || "", c, p, round2(p - c), pct(c, p), sc, ss, round2(ss - sc)], red: p < c });
+        if (!(c > 0)) noCost++;
+        rows.push({ k: "row", v: [n++, i.name + (i.from_warehouse ? " (со склада)" : "") + (i.supplier_id ? " · " + supName(i.supplier_id) : ""), q, i.unit || "", Math.round(c * 10000) / 10000, p, Math.round((p - c) * 10000) / 10000, c > 0 ? pct(c, p) : "нет себест.", sc, ss, round2(ss - sc)], red: p < c || !(c > 0) });
       });
       tc += bc; ts += bs;
       rows.push({ k: "sum", v: ["", "Итого по поставке №" + b.no, "", "", "", "", "", pct(bc, bs), round2(bc), round2(bs), round2(bs - bc)], merge: [[1, 6]] });
@@ -3113,7 +3116,10 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       if (f.bonus) rows.push({ k: "sum", v: ["", "Бонус мастеру", "", "", "", "", "", "", "", "", -round2(f.bonus)], merge: [[1, 6]] });
       rows.push({ k: "sum", v: ["", "Чистая прибыль (маржа " + fmt(round2(f.margin)) + "% от продажи)", "", "", "", "", "", "", "", "", round2(f.net)], merge: [[1, 6]] });
     }
-    const r = downloadStyledXLSX("Себестоимость_" + safe(obj.name) + ".xlsx", "Себестоимость", rows, [5, 46, 8, 6, 12, 12, 12, 10, 13, 13, 12], ["c", "t", "n", "c", "m", "m", "m", "m", "m", "m", "m"], { green: [10] });
+    rows.push({ k: "blank" });
+    rows.push({ k: "info", v: ["Наценка, % считается от себестоимости по фактическим ценам. Цена продажи округляется до центов, поэтому у дешёвых позиций (несколько центов) процент заметно отличается от заданного."] });
+    if (noCost) rows.push({ k: "section", v: ["⚠ У " + noCost + " поз. не указана себестоимость — прибыль и наценка по ним завышены. Укажите себестоимость в объекте (кнопка «ред.»)."], red: true });
+    const r = downloadStyledXLSX("Себестоимость_" + safe(obj.name) + ".xlsx", "Себестоимость", rows, [5, 46, 8, 6, 12, 12, 12, 11, 13, 13, 12], ["c", "t", "n", "c", "p", "m", "p", "m", "m", "m", "m"], { green: [10] });
     toast(r === "xlsx" ? "Excel с себестоимостью скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
   const exportDelivery = () => {
