@@ -86,10 +86,9 @@ const OBJ_STATUSES = [
   { id: "draft", label: "Черновик", c: "var(--t-neutral)" },
   { id: "review", label: "На проверке", c: "var(--t-warn)" },
   { id: "approved", label: "Согласовано", c: "var(--t-strong)" },
+  { id: "waiting", label: "В ожидании", c: "var(--t-violet)" },
   { id: "partial", label: "Частично оплачено", c: "var(--t-bad)" },
   { id: "paid", label: "Оплачено", c: "var(--t-ok)" },
-  { id: "shipped", label: "Отгружено", c: "var(--t-violet)" },
-  { id: "settled", label: "Рассчитано", c: "var(--t-info)" },
   { id: "closed", label: "Закрыто", c: "var(--t-ok)" },
   { id: "cancelled", label: "Отменено", c: "var(--t-bad)" },
 ];
@@ -445,7 +444,13 @@ const today = () => localIso(new Date());
 const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return localIso(d); };
 // отгрузка: долг поставщику появляется только после «Отгрузить товар». Старые позиции (без пометки) считаются отгруженными
 const isShipped = (i) => !!i && i.shipped !== false;
-const stById = (id) => OBJ_STATUSES.find((s) => s.id === id) || OBJ_STATUSES[0];
+// убранные статусы: у старых объектов показываются как есть, в списках выбора — только если объект уже в таком статусе
+const OLD_STATUSES = [
+  { id: "shipped", label: "Отгружено (старый статус)", c: "var(--t-neutral)" },
+  { id: "settled", label: "Рассчитано (старый статус)", c: "var(--t-neutral)" },
+];
+const stById = (id) => OBJ_STATUSES.find((s) => s.id === id) || OLD_STATUSES.find((s) => s.id === id) || OBJ_STATUSES[0];
+const statusOptions = (cur) => { const old = OLD_STATUSES.find((s) => s.id === cur); return old ? [...OBJ_STATUSES, old] : OBJ_STATUSES; };
 const opLabel = (id) => (OP_TYPES.find((o) => o.id === id) || {}).label || id;
 
 // операции по объектам — индекс строится один раз на каждый загруженный список операций
@@ -732,6 +737,9 @@ function xlSheetXml(rows, cols, types) {
       cs = v.map((x, c) => cell(r, c, x, 3)).join("");
     } else if (k === "row") {
       cs = cols.map((_, c) => { const t = types[c] || "t"; return cell(r, c, v[c], t === "m" ? 6 : t === "n" ? 5 : t === "c" ? 9 : 4); }).join("");
+    } else if (k === "sum") {
+      // итоговая строка таблицы: подписи жирно вправо, числа жирно
+      cs = cols.map((_, c) => { const x = v[c]; return cell(r, c, x, typeof x === "number" ? 8 : x ? 7 : 0); }).join("");
     } else if (k === "total") {
       cs = cell(r, 0, "", 0);
       for (let c = 1; c < n - 1; c++) cs += cell(r, c, c === 1 ? v[0] : "", 7);
@@ -739,7 +747,7 @@ function xlSheetXml(rows, cols, types) {
       if (n > 3) merges.push("B" + (r + 1) + ":" + xlCol(n - 2) + (r + 1));
     }
     // объединение ячеек внутри строки таблицы: merge: [[с, по], …] (номера колонок с 0)
-    if ((k === "head" || k === "row") && row.merge) row.merge.forEach(([a, b]) => merges.push(xlCol(a) + (r + 1) + ":" + xlCol(b) + (r + 1)));
+    if ((k === "head" || k === "row" || k === "sum") && row.merge) row.merge.forEach(([a, b]) => merges.push(xlCol(a) + (r + 1) + ":" + xlCol(b) + (r + 1)));
     const ht = k === "title" ? ' ht="22" customHeight="1"' : "";
     return '<row r="' + (r + 1) + '"' + ht + ">" + cs + "</row>";
   }).join("");
@@ -2775,7 +2783,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         <input className="inp" style={{ maxWidth: 220 }} placeholder="Поиск: объект, клиент, телефон…" value={q} onChange={(e) => setQ(e.target.value)} />
         <select className="inp" style={{ maxWidth: 180 }} value={stF} onChange={(e) => setStF(e.target.value)}>
           <option value="">Все статусы</option>
-          {OBJ_STATUSES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
+          {[...OBJ_STATUSES, ...OLD_STATUSES.filter((x) => objects.some((o) => o.status === x.id))].map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
         </select>
         <button className="btn pri" onClick={goRequest}>+ Новая заявка</button>
       </div>
@@ -3030,6 +3038,45 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     const r = downloadStyledXLSX("Объект_" + safe(obj.name) + ".xlsx", "Клиенту", rows, [6, 60, 10, 7, 13, 15], ["c", "t", "n", "c", "m", "m"]);
     toast(r === "xlsx" ? "Excel для клиента скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
+  // внутренний Excel: себестоимость, цена и наценка по каждой позиции (клиенту не отправлять)
+  const exportCost = () => {
+    const rows = [
+      { k: "title", v: ["СЕБЕСТОИМОСТЬ И НАЦЕНКА: " + (obj.name || "")] },
+      { k: "section", v: ["Клиент: " + (obj.client || "—") + (obj.phone ? " · тел. " + obj.phone : "")] },
+      { k: "section", v: ["Дата: " + new Date().toLocaleDateString("ru-RU") + " · статус: " + stById(obj.status).label] },
+      { k: "section", v: ["Внутренний документ — клиенту не отправлять"], red: true },
+      { k: "blank" },
+    ];
+    const HEAD = ["№", "Наименование", "Кол-во", "Ед.", "Себест. за ед.", "Цена за ед.", "Наценка за ед.", "Наценка, %", "Сумма себест.", "Сумма продажи", "Прибыль"];
+    const pct = (c, p) => (c > 0 ? round2(((p - c) / c) * 100) : "");
+    let n = 1, tc = 0, ts = 0;
+    batches.forEach((b) => {
+      rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
+      rows.push({ k: "head", v: HEAD });
+      let bc = 0, bs = 0;
+      b.items.forEach((i) => {
+        const q = Number(i.qty) || 0, c = Number(i.cost) || 0, p = Number(i.price) || 0;
+        const sc = round2(q * c), ss = round2(q * p);
+        bc += sc; bs += ss;
+        rows.push({ k: "row", v: [n++, i.name + (i.from_warehouse ? " (со склада)" : "") + (i.supplier_id ? " · " + supName(i.supplier_id) : ""), q, i.unit || "", c, p, round2(p - c), pct(c, p), sc, ss, round2(ss - sc)], red: p < c });
+      });
+      tc += bc; ts += bs;
+      rows.push({ k: "sum", v: ["", "Итого по поставке №" + b.no, "", "", "", "", "", pct(bc, bs), round2(bc), round2(bs), round2(bs - bc)], merge: [[1, 6]] });
+      rows.push({ k: "blank" });
+    });
+    rows.push({ k: "head", v: ["", "ИТОГО ПО ОБЪЕКТУ", "", "", "", "", "", "Наценка, %", "Себест.", "Продажа", "Прибыль"], merge: [[1, 6]] });
+    rows.push({ k: "sum", v: ["", "Товар выдан", "", "", "", "", "", pct(tc, ts), round2(tc), round2(ts), round2(ts - tc)], merge: [[1, 6]] });
+    if (f.retSale) rows.push({ k: "sum", v: ["", "Возвраты", "", "", "", "", "", "", -round2(f.retCost), -round2(f.retSale), -round2(f.retSale - f.retCost)], merge: [[1, 6]], red: true });
+    if (f.discount) rows.push({ k: "sum", v: ["", "Скидка клиенту", "", "", "", "", "", "", "", -round2(f.discount), -round2(f.discount)], merge: [[1, 6]] });
+    rows.push({ k: "sum", v: ["", "Валовая прибыль", "", "", "", "", "", pct(f.costNet, f.saleNet), round2(f.costNet), round2(f.saleNet), round2(f.gross)], merge: [[1, 6]] });
+    if (fin) {
+      if (f.expense) rows.push({ k: "sum", v: ["", "Доп. расходы", "", "", "", "", "", "", "", "", -round2(f.expense)], merge: [[1, 6]] });
+      if (f.bonus) rows.push({ k: "sum", v: ["", "Бонус мастеру", "", "", "", "", "", "", "", "", -round2(f.bonus)], merge: [[1, 6]] });
+      rows.push({ k: "sum", v: ["", "Чистая прибыль (маржа " + fmt(round2(f.margin)) + "% от продажи)", "", "", "", "", "", "", "", "", round2(f.net)], merge: [[1, 6]] });
+    }
+    const r = downloadStyledXLSX("Себестоимость_" + safe(obj.name) + ".xlsx", "Себестоимость", rows, [5, 46, 8, 6, 12, 12, 12, 10, 13, 13, 12], ["c", "t", "n", "c", "m", "m", "m", "m", "m", "m", "m"]);
+    toast(r === "xlsx" ? "Excel с себестоимостью скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
+  };
   const exportDelivery = () => {
     const rows = [
       { k: "title", v: ["ЛИСТ ДОСТАВКИ: " + (obj.name || "")] },
@@ -3085,10 +3132,11 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
           </div>
         </div>
         <select className="inp" style={{ maxWidth: 190 }} value={obj.status} onChange={(e) => setStatus(e.target.value)}>
-          {OBJ_STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          {statusOptions(obj.status).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
         </select>
         <button className="btn" onClick={exportClient}>⬇ Excel клиенту</button>
         <button className="btn" onClick={exportDelivery}>🚚 Лист доставки</button>
+        <button className="btn" onClick={exportCost} title="Внутренний: себестоимость, цена и наценка по каждой позиции">📊 Excel себестоимость</button>
       </div>
 
       <div className="kpis sect">
