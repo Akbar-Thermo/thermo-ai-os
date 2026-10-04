@@ -3656,7 +3656,7 @@ function MastersTab({ data, reload, toast, openObject, fin = true, canDel = fals
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
-          <thead><tr><th>Мастер</th><th>Специализация</th>{fin && <th>% бонуса</th>}<th style={{textAlign:"right"}}>Объектов</th><th style={{textAlign:"right"}}>Сумма товаров</th>{fin && <th style={{textAlign:"right"}}>Вал. прибыль</th>}{fin && <th style={{textAlign:"right"}}>Бонус начислен</th>}{fin && <th style={{textAlign:"right"}}>Выплачено</th>}{fin && <th style={{textAlign:"right"}}>Долг мастеру</th>}<th></th></tr></thead>
+          <thead><tr><th>Мастер</th><th>Специализация</th>{fin && <th>% бонуса</th>}<th style={{textAlign:"right"}}>Объектов</th><th style={{textAlign:"right"}}>Сумма товаров</th>{fin && <th style={{textAlign:"right"}}>Вал. прибыль</th>}{fin && <th style={{textAlign:"right"}}>Бонус начислен</th>}{fin && <th style={{textAlign:"right"}}>Выплачено</th>}{fin && <th style={{textAlign:"right"}}>Долг мастеру</th>}</tr></thead>
           <tbody>
             {masters.map((x) => {
               const st = masterStats(x, objects, finance_ops);
@@ -3671,11 +3671,10 @@ function MastersTab({ data, reload, toast, openObject, fin = true, canDel = fals
                   {fin && <td className="num">{fmt(st.accrued)}</td>}
                   {fin && <td className="num" style={{ color: "var(--ok)" }}>{fmt(st.paid)}</td>}
                   {fin && <td className="num" style={{ color: st.debtToMaster > 0 ? "var(--warn)" : "var(--mut)", fontWeight: 700 }}>{fmt(st.debtToMaster)}</td>}
-                  <td>{fin && <button className="btn xs" onClick={(e) => { e.stopPropagation(); setEdit(x); }}>ред.</button>}</td>
                 </tr>
               );
             })}
-            {!masters.length && <tr><td colSpan={fin ? 10 : 5} className="mut" style={{ textAlign: "center", padding: 24 }}>Мастеров нет</td></tr>}
+            {!masters.length && <tr><td colSpan={fin ? 9 : 4} className="mut" style={{ textAlign: "center", padding: 24 }}>Мастеров нет</td></tr>}
           </tbody>
         </table>
       </div>
