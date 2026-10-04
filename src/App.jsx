@@ -677,17 +677,17 @@ const xlCol = (c) => { let s = ""; c++; while (c) { const m = (c - 1) % 26; s = 
 // стили: 0 обычный, 1 заголовок 14 жирный, 2 жирный, 3 шапка, 4 текст в рамке, 5 число в рамке, 6 сумма в рамке,
 //        7 подпись итога (жирный, вправо, рамка), 8 сумма итога (жирная, рамка), 9 по центру в рамке;
 //        10–14 — те же для чисел (Times New Roman), 15–21 — красные варианты
-const XL_FONT = (name, b, sz, red) => "<font>" + (b ? "<b/>" : "") + '<sz val="' + sz + '"/>' + (red === 2 ? '<color rgb="FF00873C"/>' : red ? '<color rgb="FFC00000"/>' : "") + '<name val="' + name + '"/></font>';
+const XL_FONT = (name, b, sz, red, it) => "<font>" + (b ? "<b/>" : "") + (it ? "<i/>" : "") + '<sz val="' + sz + '"/>' + (red === 2 ? '<color rgb="FF00873C"/>' : red ? '<color rgb="FFC00000"/>' : "") + '<name val="' + name + '"/></font>';
 const XL_TXT = "Baskerville Old Face", XL_NUM = "Times New Roman";
 const XL_XF = (num, font, border, extra = "", align = "") => '<xf numFmtId="' + num + '" fontId="' + font + '" fillId="' + (extra === "fill" ? 2 : 0) + '" borderId="' + border + '" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">' + (align ? "<alignment " + align + "/>" : "") + "</xf>";
 const XL_STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
   + '<numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.00"/></numFmts>'
-  + '<fonts count="11">' + XL_FONT(XL_TXT, 0, 11) + XL_FONT(XL_TXT, 1, 11) + XL_FONT(XL_TXT, 1, 14) + XL_FONT(XL_NUM, 0, 11) + XL_FONT(XL_NUM, 1, 11)
+  + '<fonts count="12">' + XL_FONT(XL_TXT, 0, 11) + XL_FONT(XL_TXT, 1, 11) + XL_FONT(XL_TXT, 1, 14) + XL_FONT(XL_NUM, 0, 11) + XL_FONT(XL_NUM, 1, 11)
   + XL_FONT(XL_TXT, 0, 11, 1) + XL_FONT(XL_NUM, 0, 11, 1) + XL_FONT(XL_TXT, 1, 11, 1) + XL_FONT(XL_NUM, 1, 11, 1)
-  + XL_FONT(XL_NUM, 0, 11, 2) + XL_FONT(XL_NUM, 1, 11, 2) + '</fonts>'
+  + XL_FONT(XL_NUM, 0, 11, 2) + XL_FONT(XL_NUM, 1, 11, 2) + XL_FONT(XL_TXT, 1, 28, 1, 1) + '</fonts>'
   + '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE8E8E8"/><bgColor indexed="64"/></patternFill></fill></fills>'
   + '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color auto="1"/></left><right style="thin"><color auto="1"/></right><top style="thin"><color auto="1"/></top><bottom style="thin"><color auto="1"/></bottom><diagonal/></border></borders>'
-  + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="25">'
+  + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="26">'
   + XL_XF(0, 0, 0)                                                     // 0
   + XL_XF(0, 2, 0)                                                     // 1 заголовок
   + XL_XF(0, 1, 0)                                                     // 2 жирный
@@ -713,11 +713,15 @@ const XL_STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><style
   + XL_XF(0, 7, 0)                                                      // 22 = 2 красный (раздел)
   + XL_XF(164, 9, 1, "", 'vertical="center"')                           // 23 = 11 зелёный (прибыль)
   + XL_XF(164, 10, 1)                                                   // 24 = 12 зелёный жирный
+  + XL_XF(0, 11, 1, "", 'horizontal="center" vertical="center"')         // 25 шапка-логотип «Thermo Engineering»
   + '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
 const XL_NUMSTYLE = { 0: 14, 5: 10, 6: 11, 8: 12, 9: 13 };
 const XL_REDSTYLE = { 2: 22, 4: 15, 9: 21, 7: 18, 10: 16, 11: 17, 12: 19, 13: 20 };
 const XL_GREENSTYLE = { 11: 23, 12: 24 };
-function xlSheetXml(rows, cols, types, opt = {}) {
+const XL_BRAND = "Thermo Engineering";
+function xlSheetXml(rows0, cols, types, opt = {}) {
+  // каждая выгрузка начинается с шапки «Thermo Engineering»
+  const rows = [{ k: "brand" }, ...rows0];
   const n = cols.length, merges = [];
   const green = new Set(opt.green || []); // колонки, где числа зелёные (например «Прибыль»)
   let red = false;
@@ -739,6 +743,9 @@ function xlSheetXml(rows, cols, types, opt = {}) {
     if (k === "title" || k === "info" || k === "section") {
       cs = cell(r, 0, v[0], k === "title" ? 1 : k === "section" ? 2 : 0);
       if (n > 1) merges.push("A" + (r + 1) + ":" + xlCol(n - 1) + (r + 1));
+    } else if (k === "brand") {
+      cs = cols.map((_, c) => cell(r, c, c === 0 ? XL_BRAND : "", 25)).join("");
+      if (n > 1) merges.push("A" + (r + 1) + ":" + xlCol(n - 1) + (r + 1));
     } else if (k === "head") {
       cs = v.map((x, c) => cell(r, c, x, 3)).join("");
     } else if (k === "row") {
@@ -754,7 +761,7 @@ function xlSheetXml(rows, cols, types, opt = {}) {
     }
     // объединение ячеек внутри строки таблицы: merge: [[с, по], …] (номера колонок с 0)
     if ((k === "head" || k === "row" || k === "sum") && row.merge) row.merge.forEach(([a, b]) => merges.push(xlCol(a) + (r + 1) + ":" + xlCol(b) + (r + 1)));
-    const ht = k === "title" ? ' ht="22" customHeight="1"' : "";
+    const ht = k === "brand" ? ' ht="42" customHeight="1"' : k === "title" ? ' ht="22" customHeight="1"' : "";
     return '<row r="' + (r + 1) + '"' + ht + ">" + cs + "</row>";
   }).join("");
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
@@ -765,16 +772,48 @@ function xlSheetXml(rows, cols, types, opt = {}) {
     + '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>'
     + '<pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/></worksheet>';
 }
-function styledXlsxBlob(sheetName, rows, cols, types, opt) {
-  const name = xlEsc(String(sheetName || "Лист1").replace(/[\\/?*[\]:]/g, " ").slice(0, 31));
+// несколько листов: sheets = [{ name, rows, cols, types, opt }]
+function styledXlsxBook(sheets) {
+  const used = new Set();
+  const names = sheets.map((sh, i) => {
+    let nm = String(sh.name || "Лист" + (i + 1)).replace(/[\\/?*[\]:]/g, " ").slice(0, 31);
+    while (used.has(nm)) nm = (nm.slice(0, 28) + " " + (i + 1));
+    used.add(nm); return xlEsc(nm);
+  });
+  const ids = sheets.map((_, i) => i + 1);
   return xlZip([
-    ["[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
+    ["[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' + ids.map((i) => '<Override PartName="/xl/worksheets/sheet' + i + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join("") + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
     ["_rels/.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
-    ["xl/workbook.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="' + name + '" sheetId="1" r:id="rId1"/></sheets></workbook>'],
-    ["xl/_rels/workbook.xml.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'],
+    ["xl/workbook.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + ids.map((i) => '<sheet name="' + names[i - 1] + '" sheetId="' + i + '" r:id="rId' + i + '"/>').join("") + '</sheets></workbook>'],
+    ["xl/_rels/workbook.xml.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + ids.map((i) => '<Relationship Id="rId' + i + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + i + '.xml"/>').join("") + '<Relationship Id="rId' + (sheets.length + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'],
     ["xl/styles.xml", XL_STYLES],
-    ["xl/worksheets/sheet1.xml", xlSheetXml(rows, cols, types, opt)],
+    ...sheets.map((sh, i) => ["xl/worksheets/sheet" + (i + 1) + ".xml", xlSheetXml(sh.rows, sh.cols, sh.types, sh.opt)]),
   ]);
+}
+function styledXlsxBlob(sheetName, rows, cols, types, opt) {
+  return styledXlsxBook([{ name: sheetName || "Лист1", rows, cols, types, opt }]);
+}
+// простая таблица (массив массивов) → строки генератора: 1-я строка — шапка, [] — пустая, [текст] — заголовок раздела
+function xlFromTable(name, table) {
+  const n = Math.max(1, ...table.map((r) => r.length));
+  const types = [], cols = [];
+  for (let c = 0; c < n; c++) {
+    const nums = table.slice(1).map((r) => r[c]).filter((x) => typeof x === "number");
+    types.push(nums.length ? (nums.some((x) => !Number.isInteger(x)) ? "m" : "n") : "t");
+    cols.push(Math.min(48, Math.max(10, ...table.map((r) => String(r[c] == null ? "" : r[c]).length + 3))));
+  }
+  const rows = table.map((r, i) => {
+    if (!r.length) return { k: "blank" };
+    if (r.length === 1 && i > 0) return { k: "section", v: [r[0]] };
+    if (i === 0) return { k: "head", v: [...r, ...Array(n - r.length).fill("")] };
+    return { k: "row", v: r };
+  });
+  return { name, rows, cols, types };
+}
+function downloadBlob(filename, blob) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 // скачать таблицу с рамками; при ошибке — CSV
 function downloadStyledXLSX(filename, sheetName, rows, cols, types, opt) {
@@ -4779,8 +4818,8 @@ function Dashboard({ data }) {
 
   const exportXlsx = () => {
     try {
-      const wb = XLSX.utils.book_new();
-      const add = (name, rows) => XLSX.utils.book_append_sheet(wb, makeSheet(rows), name);
+      const book = [];
+      const add = (name, rows) => book.push(xlFromTable(name, rows));
       const K = [["Показатель", "Период: " + periodTitle].concat(compare ? ["Пред. период: " + prevTitle, "Изменение, %"] : [])];
       const kp = [["Выручка (нетто)", "netRev"], ["Валовая прибыль", "gross"], ["Чистая прибыль", "net"], ["Маржа, %", "margin"], ["Поставок (продаж)", "deals"], ["Средний чек", "avg"], ["Клиентов", "clients"], ["Новых клиентов", "newC"], ["Поступило оплат", "paid"], ["Возвраты", "ret"], ["Скидки", "disc"], ["Расходы компании", "cexp"]];
       kp.forEach(([l, k]) => { const a = Math.round(cur[k] * 100) / 100; const row = [l, a]; if (compare) { const b = Math.round(prev[k] * 100) / 100; row.push(b, b ? Math.round(((a - b) / Math.abs(b)) * 1000) / 10 : ""); } K.push(row); });
@@ -4796,7 +4835,7 @@ function Dashboard({ data }) {
       add("Менеджеры", sheet(ranks.mgr)); add("Мастера", sheet(ranks.master));
       add("Клиенты", sheet(ranks.client, [["Телефон", (r) => r.phone || ""], ["Долг сейчас", (r) => r.debt]]));
       add("Поставщики", sheet(ranks.sup, [["Долг сейчас", (r) => r.debt]]));
-      XLSX.writeFile(wb, "dashboard_" + (from || "all") + "_" + (to || dToday()) + ".xlsx");
+      downloadBlob("dashboard_" + (from || "all") + "_" + (to || dToday()) + ".xlsx", styledXlsxBook(book));
     } catch (e) { console.error(e); alert("Не удалось выгрузить Excel: " + e.message); }
   };
 
