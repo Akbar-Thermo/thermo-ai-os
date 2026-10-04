@@ -2861,6 +2861,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   const [impItems, setImpItems] = useState(false);
   const [delItemId, setDelItemId] = useState(null);
   const [shipForm, setShipForm] = useState(false);
+  const [pctForm, setPctForm] = useState(false);
   const supName = (id) => (suppliers.find((s) => s.id === id) || {}).name || "—";
   const itemName = (iid) => ((obj.items || []).find((i) => i.id === iid) || {}).name || "";
 
@@ -2929,6 +2930,23 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       toast(n ? "Позиция обновлена, возвраты пересчитаны по новой цене" : "Позиция обновлена");
     }
     return ok;
+  };
+  // «% к цене»: цена каждой позиции (всего объекта или одной поставки) умножается на (1 + %/100);
+  // возвраты по этим позициям пересчитываются по новой цене
+  const applyPercent = async (pct, batchNo) => {
+    const k = 1 + pct / 100;
+    const inScope = (i) => batchNo == null || (i.batch_no || 1) === batchNo;
+    const before = (obj.items || []).filter(inScope).reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0);
+    const newPrice = (i) => round2((Number(i.price) || 0) * k);
+    if (!(await confirmLowPrice((obj.items || []).filter(inScope).map((i) => ({ name: i.name, price: newPrice(i), cost: i.cost }))))) return false;
+    const ok = await saveItems((cur) => cur.map((i) => (inScope(i) ? { ...i, price: newPrice(i) } : i)));
+    if (!ok) return false;
+    const after = (obj.items || []).filter(inScope).reduce((a, i) => a + (Number(i.qty) || 0) * newPrice(i), 0);
+    await logAction("Процент к цене товаров: " + (pct > 0 ? "+" : "") + fmt(pct) + "%", "object:" + obj.name, (batchNo == null ? "все поставки" : "поставка №" + batchNo) + ": было " + fmt2(before) + " → стало " + fmt2(after));
+    const n = await syncReturns((obj.items || []).map((i) => (inScope(i) ? { ...i, price: newPrice(i) } : i)));
+    if (n) await reload();
+    toast("Цены изменены на " + (pct > 0 ? "+" : "") + fmt(pct) + "%: " + fmt2(before) + " → " + fmt2(after) + (n ? " · возвраты пересчитаны" : ""));
+    return true;
   };
   // «Отгрузить товар»: отмеченные позиции становятся отгруженными → появляется долг поставщикам
   const shipItems = async (ids, date, on = true) => {
@@ -3206,7 +3224,10 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       )}
       <div className="row sect">
         <h3 style={{ marginRight: "auto" }}>Финансовые операции</h3>
-        {OP_TYPES.filter((t) => (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes(t.id)).map((t) => <button key={t.id} className="btn xs" onClick={() => setOpForm({ type: t.id })}>+ {t.label}</button>)}
+        {OP_TYPES.filter((t) => (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes(t.id)).map((t) => <React.Fragment key={t.id}>
+          <button className="btn xs" onClick={() => setOpForm({ type: t.id })}>+ {t.label}</button>
+          {t.id === "discount" && (obj.items || []).length > 0 && <button className="btn xs" onClick={() => setPctForm(true)} title="Поднять (или снизить) цены всех товаров объекта на процент">+ % к цене товаров</button>}
+        </React.Fragment>)}
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
@@ -3244,6 +3265,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         </Modal>
       )}
       {editItem && <ItemEditModal item={editItem} suppliers={suppliers} fin={fin} onClose={() => setEditItem(null)} onSave={async (it) => { if (await saveItem(it)) setEditItem(null); }} />}
+      {pctForm && <PercentModal obj={obj} batches={batches} onClose={() => setPctForm(false)} onApply={async (pct, no) => { if (await applyPercent(pct, no)) setPctForm(false); }} />}
       {shipForm && <ShipModal obj={obj} batches={batches} fin={fin} supName={supName} onClose={() => setShipForm(false)}
         onShip={async (ids, date) => { if (await shipItems(ids, date, true)) setShipForm(false); }}
         onUnship={async (ids) => { await shipItems(ids, null, false); }} />}
@@ -3279,6 +3301,42 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   );
 }
 
+function PercentModal({ obj, batches, onClose, onApply }) {
+  const [pct, setPct] = useState("");
+  const [scope, setScope] = useState("all");
+  const [busy, setBusy] = useState(false);
+  const p = parseNum(pct);
+  const list = (obj.items || []).filter((i) => scope === "all" || String(i.batch_no || 1) === scope);
+  const before = list.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0);
+  const after = list.reduce((a, i) => a + (Number(i.qty) || 0) * round2((Number(i.price) || 0) * (1 + p / 100)), 0);
+  const valid = p !== 0 && p > -100;
+  return (
+    <Modal title="Процент к цене товаров" onClose={onClose} w={480}>
+      <p className="sm mut" style={{ marginBottom: 10 }}>Цена каждой позиции изменится на указанный процент. Чтобы снизить цены — введите минус (например −5).</p>
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <Fld label="Процент, %"><input type="number" className="inp" autoFocus style={{ fontSize: 18, fontWeight: 700 }} value={pct} onChange={(e) => setPct(e.target.value)} placeholder="например 10" /></Fld>
+        <Fld label="К каким товарам">
+          <select className="inp" value={scope} onChange={(e) => setScope(e.target.value)}>
+            <option value="all">Все поставки объекта</option>
+            {batches.length > 1 && batches.map((b) => <option key={b.no} value={String(b.no)}>Поставка №{b.no} · {dt(b.date)}</option>)}
+          </select>
+        </Fld>
+      </div>
+      <div className="row" style={{ marginTop: 8, gap: 6 }}>
+        {[3, 5, 10, 15, 20].map((x) => <button key={x} className={"btn xs " + (p === x ? "pri" : "")} onClick={() => setPct(String(x))}>+{x}%</button>)}
+      </div>
+      <div className="card" style={{ marginTop: 12, padding: "10px 12px" }}>
+        <div className="sm">Позиций: <b>{list.length}</b></div>
+        <div className="sm">Сумма товара сейчас: <b className="mono">{fmt2(before)}</b></div>
+        <div className="sm">После изменения: <b className="mono" style={{ color: valid ? (p > 0 ? "var(--ok)" : "var(--warn)") : "var(--mut)" }}>{fmt2(valid ? after : before)}</b>{valid && <span className="xs mut"> ({after - before >= 0 ? "+" : "−"}{fmt2(Math.abs(after - before))})</span>}</div>
+      </div>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
+        <button className="btn" onClick={onClose}>Отмена</button>
+        <button className="btn pri" disabled={!valid || !list.length || busy} onClick={async () => { setBusy(true); await onApply(p, scope === "all" ? null : Number(scope)); setBusy(false); }}>{busy ? "Применяю…" : "Применить " + (p > 0 ? "+" : "") + (valid ? fmt(p) : "") + "%"}</button>
+      </div>
+    </Modal>
+  );
+}
 function ShipModal({ obj, batches, fin, supName, onClose, onShip, onUnship }) {
   const items = (obj.items || []).filter((i) => !i.from_warehouse);
   const pending = items.filter((i) => !isShipped(i));
