@@ -1163,7 +1163,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
                       style={{ position: "absolute", top: i * ROW, left: 0, right: 0, height: ROW, boxSizing: "border-box", padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === activeIdx ? "var(--acc-tint)" : "var(--panel)", overflow: "hidden" }}
                       onClick={() => pick(p)}>
                       <div style={{ fontWeight: 600, fontSize: 13, color: "var(--txt)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
-                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, p.size, supName[p.supplier_id]].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}</div>
+                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, supName[p.supplier_id]].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}</div>
                     </div>
                   );
                 })}
@@ -1201,7 +1201,6 @@ const ProductRow = memo(function ProductRow({ p, checked, sup, onToggle, onEdit 
       <td className="sm">{p.brand}</td>
       <td className="sm">{sup}</td>
       <td title={p.name}><div style={{ fontWeight: 600 }}>{p.name}</div>{(p.category || p.alt_names) && <div className="xs mut">{[p.category, p.alt_names].filter(Boolean).join(" · ")}</div>}</td>
-      <td className="mono xs">{p.size}</td>
       <td className="sm">{p.unit}</td>
       <td className="num">{fmt2(p.cost)}</td>
       <td className="num">{Number(p.price) > 0 ? fmt2(p.price) : <span className="mut" title={"Розничная цена не задана — при добавлении в объект: себестоимость + " + DEFAULT_MARKUP + "%"}>≈ {fmt2(retailOf(p))}</span>}</td>
@@ -1310,20 +1309,20 @@ function ProductsTab({ data, reload, toast }) {
       <div className="card vt-box" ref={boxRef} style={{ padding: 0 }} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
         <table className="t vt">
           <colgroup><col style={{ width: 36 }} /><col style={{ width: 110 }} /><col style={{ width: 110 }} /><col style={{ width: 140 }} /><col /><col style={{ width: 90 }} /><col style={{ width: 70 }} /><col style={{ width: 120 }} /><col style={{ width: 110 }} /><col style={{ width: 78 }} /></colgroup>
-          <thead><tr><th><input type="checkbox" checked={allSel} onChange={toggleAll} title="Выбрать все отфильтрованные" /></th><th>Код</th><th>Бренд</th><th>Поставщик</th><th>Наименование</th><th>Размер/Ø</th><th>Ед.изм</th><th style={{textAlign:"right"}}>Себестоимость</th><th style={{textAlign:"right"}}>Розничная</th><th></th></tr></thead>
+          <thead><tr><th><input type="checkbox" checked={allSel} onChange={toggleAll} title="Выбрать все отфильтрованные" /></th><th>Код</th><th>Бренд</th><th>Поставщик</th><th>Наименование</th><th>Ед.изм</th><th style={{textAlign:"right"}}>Себестоимость</th><th style={{textAlign:"right"}}>Розничная</th><th></th></tr></thead>
           <tbody>
             {(() => {
               const start = Math.max(0, Math.floor(scrollTop / PROD_ROW_H) - 15);
               const end = Math.min(list.length, Math.ceil((scrollTop + viewH) / PROD_ROW_H) + 15);
               return (<>
-                {start > 0 && <tr style={{ height: start * PROD_ROW_H }}><td colSpan={10} style={{ padding: 0, border: 0 }} /></tr>}
+                {start > 0 && <tr style={{ height: start * PROD_ROW_H }}><td colSpan={9} style={{ padding: 0, border: 0 }} /></tr>}
                 {list.slice(start, end).map((p) => (
                   <ProductRow key={p.id} p={p} checked={selSet.has(p.id)} sup={supName(p.supplier_id)} onToggle={toggle} onEdit={setEdit} />
                 ))}
-                {end < list.length && <tr style={{ height: (list.length - end) * PROD_ROW_H }}><td colSpan={10} style={{ padding: 0, border: 0 }} /></tr>}
+                {end < list.length && <tr style={{ height: (list.length - end) * PROD_ROW_H }}><td colSpan={9} style={{ padding: 0, border: 0 }} /></tr>}
               </>);
             })()}
-            {!list.length && <tr><td colSpan={10} className="mut" style={{ textAlign: "center", padding: 26 }}>Ничего не найдено</td></tr>}
+            {!list.length && <tr><td colSpan={9} className="mut" style={{ textAlign: "center", padding: 26 }}>Ничего не найдено</td></tr>}
           </tbody>
         </table>
       </div>
@@ -1385,7 +1384,6 @@ function ProductForm({ p, products = [], suppliers, onClose, onSave }) {
         <Fld label="Бренд"><input className="inp" value={v.brand || ""} onChange={set("brand")} /></Fld>
         <div style={{ gridColumn: "1/-1" }}><Fld label="Название"><input className="inp" value={v.name || ""} onChange={set("name")} /></Fld></div>
         <div style={{ gridColumn: "1/-1" }}><Fld label="Другие названия (для поиска)"><input className="inp" value={v.alt_names || ""} onChange={set("alt_names")} placeholder="через запятую: батарея, радиатор…" /></Fld></div>
-        <Fld label="Размер"><input className="inp" value={v.size || ""} onChange={set("size")} /></Fld>
         <Fld label="Ед. изм."><input className="inp" value={v.unit || ""} onChange={set("unit")} /></Fld>
         <Fld label="Поставщик"><select className="inp" value={v.supplier_id || ""} onChange={set("supplier_id")}><option value="">—</option>{activeSuppliers(suppliers, v.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>
         <Fld label="Себестоимость, $"><input type="number" className="inp" value={v.cost} onChange={set("cost")} /></Fld>
@@ -1523,7 +1521,7 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
         price_updated: new Date().toISOString(),
       });
     }
-    if (!out.length) { setErr("Не найдено ни одной строки: нужно минимум 4 колонки через TAB или «;» (артикул, название, категория, размер…)"); return; }
+    if (!out.length) { setErr("Не найдено ни одной строки: нужно минимум 4 колонки через TAB или «;» (артикул, название, категория…)"); return; }
     setBusy(true); setErr("");
     try { await batchInsert("products", out, 500, (d, n) => setProg(d + " / " + n)); onDone(out.length); }
     catch (e) { setErr("Ошибка импорта: " + e.message); }
@@ -1565,7 +1563,7 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
           </div>
           <h3 style={{ marginBottom: 8 }}>Сопоставление колонок <span className="xs mut">(авто-определено — проверьте)</span></h3>
           <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(170px,1fr))", marginBottom: 14 }}>
-            {FIELDS.map((f) => (
+            {FIELDS.filter((f) => f.id !== "size").map((f) => (
               <Fld key={f.id} label={f.label}>
                 <select className="inp" value={map[f.id] == null ? "" : map[f.id]} onChange={(e) => setMap({ ...map, [f.id]: e.target.value === "" ? null : Number(e.target.value) })}>
                   <option value="">— нет —</option>
@@ -1582,13 +1580,12 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
           <h3 style={{ margin: "12px 0 8px" }}>Предпросмотр (первые 5)</h3>
           <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 8 }}>
             <table className="t">
-              <thead><tr><th>Название</th><th>Категория</th><th>Размер</th><th>Ед</th><th style={{textAlign:"right"}}>Закуп</th><th style={{textAlign:"right"}}>Продажа</th><th style={{textAlign:"right"}}>Остаток</th><th>Поставщик</th><th>Бренд</th></tr></thead>
+              <thead><tr><th>Название</th><th>Категория</th><th>Ед</th><th style={{textAlign:"right"}}>Закуп</th><th style={{textAlign:"right"}}>Продажа</th><th style={{textAlign:"right"}}>Остаток</th><th>Поставщик</th><th>Бренд</th></tr></thead>
               <tbody>
                 {dataRows.slice(0, 5).map((r, i) => (
                   <tr key={i}>
                     <td className="sm" style={{ fontWeight: 600 }}>{String(cell(r, "name"))}</td>
                     <td className="sm">{String(cell(r, "category"))}</td>
-                    <td className="mono xs">{String(cell(r, "size"))}</td>
                     <td className="sm">{String(cell(r, "unit")) || "шт"}</td>
                     <td className="num">{fmt(num(cell(r, "cost")))}</td>
                     <td className="num">{fmt(num(cell(r, "price")))}</td>
@@ -1695,7 +1692,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast }) 
     let n = 1;
     batches.forEach((g) => {
       rows.push({ k: "section", v: [g.obj_name + " · Поставка №" + g.no + " от " + dt(g.date)] });
-      g.items.forEach((it) => rows.push({ k: "row", v: [n++, it.name + (it.size ? " · " + it.size : ""), Number(it.qty) || 0, it.unit || "", Number(it.cost) || 0, round2((it.qty || 0) * (it.cost || 0))] }));
+      g.items.forEach((it) => rows.push({ k: "row", v: [n++, it.name, Number(it.qty) || 0, it.unit || "", Number(it.cost) || 0, round2((it.qty || 0) * (it.cost || 0))] }));
     });
     if (!batches.length) rows.push({ k: "info", v: ["Поступлений нет"] });
     rows.push({ k: "total", v: ["Итого получено", round2(totalReceived)] }, { k: "blank" });
@@ -1749,7 +1746,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast }) 
                   </tr>
                   {!closed[g.key] && g.items.map((it, i) => (
                     <tr key={g.key + i}>
-                      <td className="sm" style={{ paddingLeft: 28 }}>{it.name}{it.size && <div className="xs mut">{it.size}</div>}</td>
+                      <td className="sm" style={{ paddingLeft: 28 }}>{it.name}</td>
                       <td className="num">{it.qty}</td>
                       <td className="xs mut">{it.unit}</td>
                       <td className="num">{fmt(it.cost)}</td>
@@ -1783,7 +1780,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast }) 
                 </tr>
                 {!rClosed[g.key] && g.ops.map((o) => (
                   <tr key={o.id}>
-                    <td className="sm" style={{ paddingLeft: 28 }}>{o.product_name || "—"}{o.size && <div className="xs mut">{o.size}</div>}</td>
+                    <td className="sm" style={{ paddingLeft: 28 }}>{o.product_name || "—"}</td>
                     <td className="num">{o.qty || "—"}{o.unit ? <span className="xs mut"> {o.unit}</span> : null}</td>
                     <td className="num" style={{ color: "var(--warn)" }}>{fmt(o.cost_amount || 0)}</td>
                     <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
@@ -2339,7 +2336,7 @@ function RequestExcelImport({ products, onClose, onAdd }) {
           <div className="card clk" style={{ borderStyle: "dashed", textAlign: "center", padding: 34 }} onClick={() => fRef.current.click()}>
             <div style={{ fontSize: 26, marginBottom: 6 }}>📊</div>
             <div style={{ fontWeight: 700 }}>Выбрать файл Excel (.xlsx / .xls / .csv)</div>
-            <div className="xs mut" style={{ marginTop: 4 }}>Список материалов: наименование и количество (размер, единица, код — если есть). Каждая строка найдётся в базе товаров; спорные совпадения можно поправить перед добавлением.</div>
+            <div className="xs mut" style={{ marginTop: 4 }}>Список материалов: наименование и количество (единица, код — если есть). Каждая строка найдётся в базе товаров; спорные совпадения можно поправить перед добавлением.</div>
           </div>
           <input ref={fRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={onFile} />
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}><button className="btn" onClick={onClose}>Отмена</button></div>
@@ -2354,7 +2351,7 @@ function RequestExcelImport({ products, onClose, onAdd }) {
             <button className="btn xs" onClick={() => { setRows(null); setMap({}); setPick({}); }}>↺ другой файл</button>
           </div>
           <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(170px,1fr))", marginBottom: 12 }}>
-            {FIELDS.map((f) => (
+            {FIELDS.filter((f) => f.id !== "size").map((f) => (
               <Fld key={f.id} label={f.label}>
                 <select className="inp" value={map[f.id] == null ? "" : map[f.id]} onChange={(e) => { setPick({}); setMap({ ...map, [f.id]: e.target.value === "" ? null : Number(e.target.value) }); }}>
                   <option value="">— нет —</option>
@@ -2373,11 +2370,11 @@ function RequestExcelImport({ products, onClose, onAdd }) {
                   return (
                     <tr key={it.i}>
                       <td className="xs mut">{k + 1}</td>
-                      <td className="sm"><b style={{ fontWeight: 600 }}>{it.name}</b>{(it.size || it.unit) && <div className="xs mut">{[it.size, it.unit].filter(Boolean).join(" · ")}</div>}</td>
+                      <td className="sm"><b style={{ fontWeight: 600 }}>{it.name}</b>{it.unit && <div className="xs mut">{it.unit}</div>}</td>
                       <td className="num">{fmt(it.qty)}</td>
                       <td>
                         <select className="inp" value={c} onChange={(e) => setPick({ ...pick, [it.i]: e.target.value })}>
-                          {it.cands.map((x) => <option key={x.p.id} value={x.p.id}>{x.p.name}{x.p.size ? " · " + x.p.size : ""} — код {x.p.code} ({x.by || pct(x.score)})</option>)}
+                          {it.cands.map((x) => <option key={x.p.id} value={x.p.id}>{x.p.name} — код {x.p.code} ({x.by || pct(x.score)})</option>)}
                           <option value="">— нет в базе: добавить как ручную позицию —</option>
                         </select>
                       </td>
@@ -2686,16 +2683,12 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                           {l.manual ? (
                             <>
                               <input className="inp" placeholder="Название товара" value={l.name} onChange={(e) => setLine(l.id, { name: e.target.value })} />
-                              <div className="row" style={{ marginTop: 4, gap: 6 }}>
-                                <input className="inp" style={{ width: 90 }} placeholder="размер" value={l.size} onChange={(e) => setLine(l.id, { size: e.target.value })} />
-                              </div>
                               {supSel}
                               <div className="xs mut" style={{ marginTop: 3 }}>добавлено вручную</div>
                             </>
                           ) : (
                             <>
                               <div style={{ fontWeight: 600 }}>{l.name}</div>
-                              {l.size && <div className="xs mut">{l.size}</div>}
                               {!p && <div className="xs" style={{ color: "var(--warn)" }}>товара больше нет в базе — сохранится как ручная позиция</div>}
                               {supSel}
                             </>
@@ -3122,12 +3115,12 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       });
       Object.entries(g).forEach(([s, items]) => {
         rows.push({ k: "section", v: ["Поставщик: " + s] });
-        rows.push({ k: "head", v: ["№", "Наименование", "Размер", "Кол-во", "Ед.", "Получено ✓"] });
-        items.forEach((i, k) => rows.push({ k: "row", v: [k + 1, i.name, i.size || "", i.qty, i.unit, ""] }));
+        rows.push({ k: "head", v: ["№", "Наименование", "Кол-во", "Ед.", "Получено ✓"] });
+        items.forEach((i, k) => rows.push({ k: "row", v: [k + 1, i.name, i.qty, i.unit, ""] }));
         rows.push({ k: "blank" });
       });
     });
-    const r = downloadStyledXLSX("Доставка_" + safe(obj.name) + ".xlsx", "Доставка", rows, [6, 60, 14, 10, 7, 13], ["c", "t", "c", "n", "c", "c"]);
+    const r = downloadStyledXLSX("Доставка_" + safe(obj.name) + ".xlsx", "Доставка", rows, [6, 66, 10, 8, 15], ["c", "t", "n", "c", "c"]);
     toast(r === "xlsx" ? "Лист доставки скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
   const batches = useMemo(() => {
@@ -3374,7 +3367,7 @@ function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem,
   useEffect(() => { setPrice(i.price); }, [i.price]);
   return (
     <tr>
-      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.size ? <span className="xs mut mono"> · {i.size}</span> : null}{i.from_warehouse && <div className="xs mut">со склада Thermo</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}</td>
+      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">со склада Thermo</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}</td>
       <td><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)}
         onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (v !== Number(i.qty)) { if (!(await setItemQty(i.id, v))) setQty(i.qty); } else setQty(i.qty); }} /></td>
       <td className="sm">{i.unit}</td>
@@ -3403,7 +3396,6 @@ function ItemEditModal({ item, suppliers, fin, onClose, onSave }) {
     <Modal title="Редактировать позицию" onClose={onClose} w={560}>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         <div style={{ gridColumn: "1/-1" }}><Fld label="Наименование"><input className="inp" value={v.name || ""} onChange={set("name")} /></Fld></div>
-        <Fld label="Размер"><input className="inp" value={v.size || ""} onChange={set("size")} /></Fld>
         <Fld label="Ед. изм."><input className="inp" value={v.unit || ""} onChange={set("unit")} /></Fld>
         <Fld label="Количество"><input type="number" className="inp" min={0} value={v.qty} onChange={set("qty")} /></Fld>
         <Fld label="Себестоимость"><input type="number" className="inp" value={v.cost} onChange={set("cost")} /></Fld>
@@ -3527,7 +3519,7 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
           </div>
           <h3 style={{ marginBottom: 8 }}>Сопоставление колонок</h3>
           <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", marginBottom: 14 }}>
-            {FIELDS.map((f) => (
+            {FIELDS.filter((f) => f.id !== "size").map((f) => (
               <Fld key={f.id} label={f.label}>
                 <select className="inp" value={map[f.id] == null ? "" : map[f.id]} onChange={(e) => setMap({ ...map, [f.id]: e.target.value === "" ? null : Number(e.target.value) })}>
                   <option value="">— нет —</option>
@@ -3539,12 +3531,11 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
           <h3 style={{ margin: "12px 0 8px" }}>Предпросмотр (первые 6)</h3>
           <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 8 }}>
             <table className="t">
-              <thead><tr><th>Наименование</th><th>Размер</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"right"}}>Себест.</th><th style={{textAlign:"right"}}>Цена</th><th>База</th></tr></thead>
+              <thead><tr><th>Наименование</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"right"}}>Себест.</th><th style={{textAlign:"right"}}>Цена</th><th>База</th></tr></thead>
               <tbody>
                 {preview.slice(0, 6).map((p, i) => (
                   <tr key={i}>
                     <td className="sm" style={{ fontWeight: 600 }}>{p.name}</td>
-                    <td className="mono xs">{p.size}</td>
                     <td className="num">{p.qty}</td>
                     <td className="sm">{p.unit}</td>
                     <td className="num">{fmt(p.cost)}</td>
@@ -3588,12 +3579,11 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
       </div>
       <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, maxHeight: 360 }}>
         <table className="t" style={{ minWidth: 760 }}>
-          <thead><tr><th>Наименование</th><th style={{width:90}}>Размер</th><th style={{width:70}}>Ед.</th><th style={{width:80}}>Кол-во</th><th style={{width:110}}>Цена</th><th style={{width:140}}>Поставщик</th><th></th></tr></thead>
+          <thead><tr><th>Наименование</th><th style={{width:70}}>Ед.</th><th style={{width:80}}>Кол-во</th><th style={{width:110}}>Цена</th><th style={{width:140}}>Поставщик</th><th></th></tr></thead>
           <tbody>
             {rows.map((r, i) => (
               <tr key={i}>
                 <td><input className="inp" value={r.name} onChange={(e) => upd(i, "name", e.target.value)} /></td>
-                <td><input className="inp" value={r.size} onChange={(e) => upd(i, "size", e.target.value)} /></td>
                 <td><input className="inp" value={r.unit} onChange={(e) => upd(i, "unit", e.target.value)} /></td>
                 <td><input type="number" className="inp" min={0} value={r.qty} onChange={(e) => upd(i, "qty", e.target.value)} style={{ borderColor: parseNum(r.qty) > 0 ? undefined : "var(--bad)" }} /></td>
                 <td><input type="number" className="inp num" value={r.price} onChange={(e) => upd(i, "price", e.target.value)} /></td>
@@ -3601,7 +3591,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
                 <td><button className="btn xs dng" onClick={() => del(i)}>✕</button></td>
               </tr>
             ))}
-            {!rows.length && <tr><td colSpan={7} className="mut" style={{ textAlign: "center", padding: 20 }}>Добавьте строки через поиск по базе или «Пустая строка»</td></tr>}
+            {!rows.length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 20 }}>Добавьте строки через поиск по базе или «Пустая строка»</td></tr>}
           </tbody>
         </table>
       </div>
@@ -3637,7 +3627,7 @@ function EditOpModal({ op, suppliers, isReturn, onClose, onSave, products = null
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         {bonusItem && products && <div style={{ gridColumn: "1/-1" }}><Fld label="Найти в товарах поставщиков (необязательно)">
           <ProductPicker closeOnPick products={products} suppliers={suppliers || []} placeholder="поиск товара: название, код, поставщик…"
-            onPick={(p) => setV((x) => ({ ...x, item_name: p.name + (p.size ? " · " + p.size : ""), amount: String(Number(p.cost) || retailOf(p) || x.amount) }))} />
+            onPick={(p) => setV((x) => ({ ...x, item_name: p.name, amount: String(Number(p.cost) || retailOf(p) || x.amount) }))} />
         </Fld></div>}
         {bonusItem && <div style={{ gridColumn: "1/-1" }}><Fld label="Предмет (можно написать вручную)"><input className="inp" autoComplete="off" autoCorrect="off" spellCheck={false} name="te_bonus_thing_edit" data-lpignore="true" data-form-type="other" value={v.item_name} onChange={(e) => setV({ ...v, item_name: e.target.value })} /></Fld></div>}
         {usesPay && <PayFields p={pay} setP={setPay} methods={bonusMoney ? OUT_METHODS : payMethodsFor(op.type)} usdLabel={bonusMoney ? "Бонус, $" : payUsdLabel(op.type)} />}
@@ -4036,7 +4026,7 @@ function BonusAccrueForm({ objects, onSave, products = [], suppliers = [] }) {
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         {kind === "item" && <div style={{ gridColumn: "1/-1" }}><Fld label="Найти в товарах поставщиков (необязательно)">
           <ProductPicker closeOnPick products={products} suppliers={suppliers} placeholder="поиск товара: название, код, поставщик…"
-            onPick={(p) => { setItemName(p.name + (p.size ? " · " + p.size : "")); setAmount(String(Number(p.cost) || retailOf(p) || "")); }} />
+            onPick={(p) => { setItemName(p.name); setAmount(String(Number(p.cost) || retailOf(p) || "")); }} />
         </Fld></div>}
         {kind === "item" && <div style={{ gridColumn: "1/-1" }}><Fld label="Предмет (можно написать вручную)">
           <input className="inp" autoComplete="off" autoCorrect="off" spellCheck={false} name="te_bonus_thing" id="te_bonus_thing" data-lpignore="true" data-form-type="other" value={itemName} onChange={(e) => setItemName(e.target.value)} placeholder="Перфоратор Bosch GBH 2-26, набор ключей, дрель…" /></Fld></div>}
@@ -4173,12 +4163,11 @@ function WarehouseTab({ data, reload, toast, openObject }) {
       </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
-          <thead><tr><th>Товар</th><th>Размер</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"right"}}>Закуп</th><th style={{textAlign:"right"}}>Продажа</th><th style={{textAlign:"right"}}>Сумма (закуп)</th><th></th></tr></thead>
+          <thead><tr><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"right"}}>Закуп</th><th style={{textAlign:"right"}}>Продажа</th><th style={{textAlign:"right"}}>Сумма (закуп)</th><th></th></tr></thead>
           <tbody>
             {stock.map((w) => (
               <tr key={w.id}>
                 <td style={{ fontWeight: 600 }}>{w.name}</td>
-                <td className="mono xs">{w.size}</td>
                 <td className="num" style={{ fontWeight: 700, color: "var(--acc2)" }}>{w.qty}</td>
                 <td className="sm">{w.unit}</td>
                 <td className="num">{fmt(w.cost)}</td>
@@ -4333,7 +4322,7 @@ function IssueForm({ stock, objects, onClose, onSave }) {
           <tbody>
             {rows.map((r, i) => (
               <tr key={r.row.id} style={{ background: r.qty > 0 ? "rgba(61,220,125,.07)" : "none" }}>
-                <td className="sm" style={{ fontWeight: 600 }}>{r.row.name}<div className="xs mut">{r.row.size} · {r.row.unit}</div></td>
+                <td className="sm" style={{ fontWeight: 600 }}>{r.row.name}<div className="xs mut">{r.row.unit}</div></td>
                 <td className="num">{r.row.qty}</td>
                 <td><input type="number" className="inp" min={0} max={r.row.qty} value={r.qty} onChange={(e) => setQty(i, e.target.value)} /></td>
                 <td className="num">{fmt(r.row.price)}</td>
@@ -5205,7 +5194,7 @@ function VozvratSection({ objects, finance_ops, suppliers, whMoves }) {
           <table className="t"><thead><tr><th>Дата</th><th>Объект</th><th>Товар</th><th>Куда</th><th style={{textAlign:"right"}}>Кол-во</th><th style={{textAlign:"right"}}>Себест.</th><th>Причина</th></tr></thead>
             <tbody>{returns.slice().reverse().map((o) => {
               const obj = objects.find((x) => x.id === o.object_id);
-              return <tr key={o.id}><td className="xs mono mut">{dt(o.op_date||o.created_at)}</td><td className="sm">{obj ? obj.name : "—"}</td><td className="sm">{o.product_name||"—"}<div className="xs mut">{o.size||""}</div></td><td className="xs">{kind(o)}</td><td className="num">{o.qty||"—"}</td><td className="num" style={{color:"var(--warn)",fontWeight:700}}>{fmt(o.cost_amount||0)}</td><td className="xs mut">{o.reason||o.note||""}</td></tr>;
+              return <tr key={o.id}><td className="xs mono mut">{dt(o.op_date||o.created_at)}</td><td className="sm">{obj ? obj.name : "—"}</td><td className="sm">{o.product_name||"—"}</td><td className="xs">{kind(o)}</td><td className="num">{o.qty||"—"}</td><td className="num" style={{color:"var(--warn)",fontWeight:700}}>{fmt(o.cost_amount||0)}</td><td className="xs mut">{o.reason||o.note||""}</td></tr>;
             })}
             {!returns.length && <tr><td colSpan={7} className="mut sm" style={{padding:14}}>Возвратов нет</td></tr>}</tbody>
           </table>
