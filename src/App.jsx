@@ -2449,7 +2449,6 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
     setSavingMaster(false);
   };
 
-  const totalCost = lines.reduce((a, l) => { const p = l.product_id ? prodById(l.product_id) : null; return a + qn(l.qty) * (Number(p ? p.cost : l.cost) || 0); }, 0);
 
   const doSave = async (saleK) => {
     setBusy(true); setErr("");
@@ -2526,8 +2525,8 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
     const zero = lines.find((l) => !(qn(l.qty) > 0));
     if (zero) { setErr("Укажите количество больше нуля: «" + (zero.name || "позиция без названия") + "»"); return; }
     setErr("");
-    // статус спрашиваем при каждом сохранении: у нового объекта — выбрать обязательно, у существующего — текущий по умолчанию
-    setSaveStatus(selObj ? (selObj.status || "draft") : "");
+    // статус в заявке не выбирается: новый объект — «Черновик», у существующего статус не меняется (меняют в карточке объекта)
+    setSaveStatus(selObj ? (selObj.status || "draft") : "draft");
     setMarkupModal(true);
   };
 
@@ -2634,7 +2633,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
             <div style={{ overflow: "auto" }}>
               <table className="t" style={{ minWidth: 820 }}>
                 <thead><tr>
-                  <th>Товар</th><th style={{ width: 90 }}>Кол-во</th><th style={{ width: 70 }}>Ед.</th><th style={{ textAlign: "right" }}>Себестоимость</th><th style={{ textAlign: "right", color: "var(--ok)" }}>Цена продажи</th><th style={{ textAlign: "right" }}>Сумма (себест.)</th><th title="Сколько такого товара есть на Складе Thermo">Склад</th><th></th>
+                  <th>Товар</th><th style={{ width: 90 }}>Кол-во</th><th style={{ width: 70 }}>Ед.</th><th style={{ textAlign: "right", color: "var(--ok)" }}>Цена продажи</th><th title="Сколько такого товара есть на Складе Thermo">Склад</th><th></th>
                 </tr></thead>
                 <tbody>
                   {lines.map((l) => {
@@ -2650,7 +2649,6 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                               <input className="inp" placeholder="Название товара" value={l.name} onChange={(e) => setLine(l.id, { name: e.target.value })} />
                               <div className="row" style={{ marginTop: 4, gap: 6 }}>
                                 <input className="inp" style={{ width: 90 }} placeholder="размер" value={l.size} onChange={(e) => setLine(l.id, { size: e.target.value })} />
-                                <input type="number" className="inp" style={{ width: 100 }} placeholder="себестоимость" value={l.cost} onChange={(e) => setLine(l.id, { cost: e.target.value })} />
                               </div>
                               {supSel}
                               <div className="xs mut" style={{ marginTop: 3 }}>добавлено вручную</div>
@@ -2670,9 +2668,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                             ? <input className="inp" style={{ width: 64 }} value={l.unit} onChange={(e) => setLine(l.id, { unit: e.target.value })} />
                             : <span className="mut">{l.unit}</span>}
                         </td>
-                        <td className="num">{fmt2(p ? p.cost : parseNum(l.cost))}</td>
-                        <td><input type="number" className="inp" style={{ width: 100, textAlign: "right", fontWeight: 700, ...(l.manualPrice != null && l.manualPrice !== "" && parseNum(l.manualPrice) < (p ? Number(p.cost) || 0 : parseNum(l.cost)) ? { color: "var(--bad)", borderColor: "var(--bad)" } : { color: "var(--ok)" }) }} placeholder="авто" value={l.manualPrice != null ? l.manualPrice : ""} onChange={(e) => setLine(l.id, { manualPrice: e.target.value === "" ? null : e.target.value })} title="Цена продажи (оставьте пустым — рассчитается по наценке)" /></td>
-                        <td className="num" style={{ fontWeight: 700 }}>{fmt(qn(l.qty) * (p ? Number(p.cost) || 0 : parseNum(l.cost)))}</td>
+                        <td><input type="number" className="inp" style={{ width: 100, textAlign: "right", fontWeight: 700, ...(l.manualPrice != null && l.manualPrice !== "" && parseNum(l.manualPrice) < (p ? Number(p.cost) || 0 : parseNum(l.cost)) ? { color: "var(--bad)", borderColor: "var(--bad)" } : { color: "var(--ok)" }) }} placeholder={l.manual ? "цена" : "авто"} value={l.manualPrice != null ? l.manualPrice : ""} onChange={(e) => setLine(l.id, { manualPrice: e.target.value === "" ? null : e.target.value })} title="Цена продажи (оставьте пустым — рассчитается по наценке)" /></td>
                         <td className="num" title={p && whQty[p.id] ? "Есть на Складе Thermo — можно отгрузить оттуда (Склад → «Отправить на объект»)" : ""} style={{ color: p && whQty[p.id] ? "var(--ok)" : "var(--mut)", fontWeight: p && whQty[p.id] ? 700 : 400 }}>{p && whQty[p.id] ? fmt(whQty[p.id]) : "—"}</td>
                         <td><button className="btn xs dng" onClick={() => setDelLine(l.id)}>✕</button></td>
                       </tr>
@@ -2686,7 +2682,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
           <div className="row" style={{ marginTop: 12 }}>
             <button className="btn xs" onClick={addManualLine}>+ добавить позицию вручную (нет в базе)</button>
             <div className="mono" style={{ fontWeight: 700, marginLeft: "auto" }}>
-              Позиций: {lines.length} · Себестоимость: <span style={{ color: "var(--acc2)" }}>{money(totalCost)}</span>
+              Позиций: {lines.length}
             </div>
           </div>
 
@@ -2709,14 +2705,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
 
           {markupModal && (
             <Modal title="Сохранение в объект" onClose={() => setMarkupModal(false)} w={460}>
-              <Fld label={"Статус объекта" + (selObj ? " «" + selObj.name + "»" : "")}>
-                <select className="inp" autoFocus value={saveStatus} onChange={(e) => setSaveStatus(e.target.value)}
-                  style={{ fontWeight: 700, color: saveStatus ? stById(saveStatus).c : "var(--bad)", borderColor: saveStatus ? undefined : "var(--bad)" }}>
-                  {!saveStatus && <option value="">— выберите статус —</option>}
-                  {OBJ_STATUSES.map((st) => <option key={st.id} value={st.id} style={{ color: "var(--txt)" }}>{st.label}</option>)}
-                </select>
-              </Fld>
-              <h3 style={{ margin: "14px 0 6px" }}>Наценка на розничную цену</h3>
+              <h3 style={{ margin: "0 0 6px" }}>Наценка на розничную цену</h3>
               <p className="sm mut" style={{ marginBottom: 12 }}>Розничная цена каждой позиции = себестоимость + наценка. Применяется ко всему списку. После сохранения цены можно поправить вручную на странице объекта.</p>
               <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
                 <Fld label="Наценка, %">
@@ -2726,7 +2715,6 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                 </Fld>
                 <div className="fld"><label>Предпросмотр</label>
                   <div className="inp mono" style={{ background: "var(--panel)" }}>
-                    <div className="xs mut">себест: {fmt(totalCost)}</div>
                     <div style={{ fontWeight: 700, color: "var(--ok)" }}>продажа: {fmt(totalSalePreview)}</div>
                   </div>
                 </div>
@@ -2736,7 +2724,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
               </div>
               <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
                 <button className="btn" onClick={() => setMarkupModal(false)}>Отмена</button>
-                <button className="btn pri" disabled={busy || !saveStatus} title={!saveStatus ? "Выберите статус объекта" : ""} onClick={async () => {
+                <button className="btn pri" disabled={busy} onClick={async () => {
                   const rows = lines.map((l) => { const p = l.product_id ? prodById(l.product_id) : null, c = p ? Number(p.cost) || 0 : parseNum(l.cost);
                     return { name: p ? p.name : l.name, cost: c, price: l.manualPrice != null && l.manualPrice !== "" ? parseNum(l.manualPrice) : Math.round(c * saleK * 100) / 100 }; });
                   if (!(await confirmLowPrice(rows))) return;
@@ -3155,13 +3143,13 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
         <table className="t" style={{ minWidth: 760 }}>
-          <thead><tr><th>Товар</th><th style={{width:90}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"center",width:120}}>Цена</th><th style={{textAlign:"right"}}>Сумма</th><th>Поставщик</th><th></th></tr></thead>
+          <thead><tr><th>Товар</th><th style={{width:90}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"center",width:120}}>Цена</th><th style={{textAlign:"right"}}>Сумма</th><th></th></tr></thead>
           <tbody>
             {batches.map((b) => (
               <React.Fragment key={b.no}>
                 {batches.length > 1 || (obj.items || []).some((i) => i.batch_no) ? (
                   <tr className="clk" onClick={() => toggleBatch(b.no)}>
-                    <td colSpan={7} style={{ background: "var(--acc-tint)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
+                    <td colSpan={6} style={{ background: "var(--acc-tint)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
                       {closedBatches[b.no] ? "▸" : "▾"} 🚚 ПОСТАВКА №{b.no} · {dt(b.date)} · позиций: {b.items.length} · на сумму {fmt(b.items.reduce((a, i) => a + i.qty * i.price, 0))}
                       {b.items.some((i) => !isShipped(i)) ? <span style={{ color: "var(--warn)" }}> · не отгружено: {b.items.filter((i) => !isShipped(i)).length}</span> : b.items.some((i) => i.shipped) ? <span style={{ color: "var(--ok)" }}> · отгружено ✓</span> : null}
                       <span className="xs mut" style={{ fontWeight: 500 }}>  — нажмите чтобы {closedBatches[b.no] ? "раскрыть" : "свернуть"}</span>
@@ -3173,7 +3161,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
                 ))}
               </React.Fragment>
             ))}
-            {!(obj.items || []).length && <tr><td colSpan={7} className="mut" style={{ textAlign: "center", padding: 22 }}>Материалов нет — добавьте через «Новая заявка»</td></tr>}
+            {!(obj.items || []).length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 22 }}>Материалов нет — добавьте через «Новая заявка»</td></tr>}
           </tbody>
         </table>
       </div>
@@ -3354,8 +3342,7 @@ function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem,
       <td style={{ textAlign: "center" }}><input type="number" className="inp num" min={0} style={{ width: 104, textAlign: "right", margin: "0 auto", display: "block" }} value={price} onChange={(e) => setPrice(e.target.value)}
         onBlur={async () => { const v = Math.max(0, parseNum(price)); if (v !== Number(i.price)) { if (!(await confirmLowPrice([{ name: i.name, price: v, cost: i.cost }])) || !(await setItemPrice(i.id, v))) setPrice(i.price); } else setPrice(i.price); }} /></td>
       <td className="num" style={{ fontWeight: 700 }}>{fmt((Number(qty) || 0) * (Number(price) || 0))}</td>
-      <td className="sm">{supName(i.supplier_id)}</td>
-      <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
+      <td><div className="row" style={{ gap: 4, flexWrap: "nowrap", justifyContent: "flex-end" }}>
         <button className="btn xs" onClick={() => setEditItem(i)}>ред.</button>
         <button className="btn xs dng" onClick={() => setDelItemId(i.id)}>✕</button>
       </div></td>
@@ -3562,7 +3549,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
       </div>
       <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, maxHeight: 360 }}>
         <table className="t" style={{ minWidth: 760 }}>
-          <thead><tr><th>Наименование</th><th style={{width:90}}>Размер</th><th style={{width:70}}>Ед.</th><th style={{width:80}}>Кол-во</th><th style={{width:110}}>Себест.</th><th style={{width:110}}>Цена</th><th style={{width:140}}>Поставщик</th><th></th></tr></thead>
+          <thead><tr><th>Наименование</th><th style={{width:90}}>Размер</th><th style={{width:70}}>Ед.</th><th style={{width:80}}>Кол-во</th><th style={{width:110}}>Цена</th><th style={{width:140}}>Поставщик</th><th></th></tr></thead>
           <tbody>
             {rows.map((r, i) => (
               <tr key={i}>
@@ -3570,13 +3557,12 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
                 <td><input className="inp" value={r.size} onChange={(e) => upd(i, "size", e.target.value)} /></td>
                 <td><input className="inp" value={r.unit} onChange={(e) => upd(i, "unit", e.target.value)} /></td>
                 <td><input type="number" className="inp" min={0} value={r.qty} onChange={(e) => upd(i, "qty", e.target.value)} style={{ borderColor: parseNum(r.qty) > 0 ? undefined : "var(--bad)" }} /></td>
-                <td><input type="number" className="inp num" value={r.cost} onChange={(e) => upd(i, "cost", e.target.value)} /></td>
                 <td><input type="number" className="inp num" value={r.price} onChange={(e) => upd(i, "price", e.target.value)} /></td>
                 <td><select className="inp" value={r.supplier_id || ""} onChange={(e) => upd(i, "supplier_id", e.target.value)}><option value="">—</option>{activeSuppliers(suppliers, r.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></td>
                 <td><button className="btn xs dng" onClick={() => del(i)}>✕</button></td>
               </tr>
             ))}
-            {!rows.length && <tr><td colSpan={8} className="mut" style={{ textAlign: "center", padding: 20 }}>Добавьте строки через поиск по базе или «Пустая строка»</td></tr>}
+            {!rows.length && <tr><td colSpan={7} className="mut" style={{ textAlign: "center", padding: 20 }}>Добавьте строки через поиск по базе или «Пустая строка»</td></tr>}
           </tbody>
         </table>
       </div>
