@@ -443,6 +443,8 @@ const dt = (s) => {
 const localIso = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 const today = () => localIso(new Date());
 const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return localIso(d); };
+// отгрузка: долг поставщику появляется только после «Отгрузить товар». Старые позиции (без пометки) считаются отгруженными
+const isShipped = (i) => !!i && i.shipped !== false;
 const stById = (id) => OBJ_STATUSES.find((s) => s.id === id) || OBJ_STATUSES[0];
 const opLabel = (id) => (OP_TYPES.find((o) => o.id === id) || {}).label || id;
 
@@ -506,7 +508,7 @@ function supplierStats(sup, objects, ops, whMoves) {
   let purchases = 0;
   objects.forEach((ob) => {
     if (ob.status === "cancelled") return;
-    (ob.items || []).forEach((i) => { if (i.supplier_id === sup.id && !i.from_warehouse) purchases += (i.qty || 0) * (i.cost || 0); });
+    (ob.items || []).forEach((i) => { if (i.supplier_id === sup.id && !i.from_warehouse && isShipped(i)) purchases += (i.qty || 0) * (i.cost || 0); });
   });
   const ids = supplierReturnIds(ops, whMoves);
   const o = ops.filter((x) => !x.voided && x.supplier_id === sup.id);
@@ -1564,8 +1566,8 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast }) 
   objects.forEach((ob) => {
     if (ob.status === "cancelled") return;
     (ob.items || []).forEach((it) => {
-      if (it.supplier_id === s.id && !it.from_warehouse) {
-        received.push({ ...it, obj_name: ob.name, obj_id: ob.id, date: it.batch_date || ob.created_at });
+      if (it.supplier_id === s.id && !it.from_warehouse && isShipped(it)) {
+        received.push({ ...it, obj_name: ob.name, obj_id: ob.id, date: it.shipped_date || it.batch_date || ob.created_at });
       }
     });
   });
@@ -2446,7 +2448,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
           qty: qn(l.qty), price: l.manualPrice != null && l.manualPrice !== "" ? parseNum(l.manualPrice) : Math.round(cost * saleK * 100) / 100, cost,
           supplier_id: lineSup(l),
           source_text: p ? p.name : l.name, confidence: 100,
-          batch_no: batchNo, batch_date: today(),
+          batch_no: batchNo, batch_date: today(), shipped: false,
         };
       });
       let obj = selObj, batchNo = 1, items;
@@ -2829,6 +2831,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   const [addItems, setAddItems] = useState(false);
   const [impItems, setImpItems] = useState(false);
   const [delItemId, setDelItemId] = useState(null);
+  const [shipForm, setShipForm] = useState(false);
   const supName = (id) => (suppliers.find((s) => s.id === id) || {}).name || "—";
   const itemName = (iid) => ((obj.items || []).find((i) => i.id === iid) || {}).name || "";
 
@@ -2898,6 +2901,18 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     }
     return ok;
   };
+  // «Отгрузить товар»: отмеченные позиции становятся отгруженными → появляется долг поставщикам
+  const shipItems = async (ids, date, on = true) => {
+    const set = new Set(ids);
+    const ok = await saveItems((cur) => cur.map((i) => (set.has(i.id) ? (on ? { ...i, shipped: true, shipped_date: date || today() } : { ...i, shipped: false, shipped_date: null }) : i)));
+    if (ok) {
+      const list = (obj.items || []).filter((i) => set.has(i.id));
+      const sum = list.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.cost) || 0), 0);
+      await logAction(on ? "Товар отгружен" : "Отгрузка отменена", "object:" + obj.name, "позиций: " + list.length + (fin ? ", себестоимость: " + fmt2(sum) : "") + (on ? ", дата: " + dt(date || today()) : ""));
+      toast(on ? "Отгружено позиций: " + list.length + " — долг поставщикам обновлён" : "Отгрузка отменена: " + list.length + " поз.");
+    }
+    return ok;
+  };
   // newBatch: true → создаём новую поставку с новым номером. false → добавляем в последнюю существующую поставку (или №1, если поставок ещё нет)
   const addManualItems = async (rows, newBatch) => {
     let batchNo = 1;
@@ -2909,7 +2924,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       return [...cur, ...rows.map((r) => ({
         id: uuid(), product_id: r.product_id || null, name: r.name, size: r.size, unit: r.unit || "шт",
         qty: parseNum(r.qty), price: parseNum(r.price), cost: parseNum(r.cost), supplier_id: r.supplier_id || null,
-        source_text: "добавлено вручную", confidence: 100, batch_no: batchNo, batch_date: batchDate, manual: true,
+        source_text: "добавлено вручную", confidence: 100, batch_no: batchNo, batch_date: batchDate, manual: true, shipped: false,
       }))];
     });
     if (ok) {
@@ -3049,6 +3064,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     return Object.values(map).sort((a, b) => a.no - b.no);
   }, [obj]);
 
+  const unshippedCnt = (obj.items || []).filter((i) => !isShipped(i)).length;
   const KPI = ({ l, v, c }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}</div></div>;
   const shownOps = ops.filter((o) => !MASTER_ONLY_OPS.includes(o.type) && (fin || MANAGER_OP_TYPES.includes(o.type))).slice().reverse();
   return (
@@ -3083,6 +3099,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
 
       <div className="row sect" style={{ marginBottom: 8 }}>
         <h3 style={{ marginRight: "auto" }}>Материалы объекта</h3>
+        {(obj.items || []).some((i) => !i.from_warehouse) && <button className="btn" style={unshippedCnt ? { borderColor: "var(--warn)", color: "var(--warn)", fontWeight: 700 } : undefined} onClick={() => setShipForm(true)}>🚚 Отгрузить товар{unshippedCnt ? " (" + unshippedCnt + ")" : " ✓"}</button>}
         <button className="btn" onClick={() => setAddItems(true)}>+ Список вручную</button>
         <button className="btn pri" onClick={() => setAddItems("newbatch")}>📦 Новая поставка</button>
         <button className="btn" onClick={() => setImpItems(true)}>📊 Импорт Excel</button>
@@ -3097,6 +3114,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
                   <tr className="clk" onClick={() => toggleBatch(b.no)}>
                     <td colSpan={7} style={{ background: "var(--acc-tint)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
                       {closedBatches[b.no] ? "▸" : "▾"} 🚚 ПОСТАВКА №{b.no} · {dt(b.date)} · позиций: {b.items.length} · на сумму {fmt(b.items.reduce((a, i) => a + i.qty * i.price, 0))}
+                      {b.items.some((i) => !isShipped(i)) ? <span style={{ color: "var(--warn)" }}> · не отгружено: {b.items.filter((i) => !isShipped(i)).length}</span> : b.items.some((i) => i.shipped) ? <span style={{ color: "var(--ok)" }}> · отгружено ✓</span> : null}
                       <span className="xs mut" style={{ fontWeight: 500 }}>  — нажмите чтобы {closedBatches[b.no] ? "раскрыть" : "свернуть"}</span>
                     </td>
                   </tr>
@@ -3157,6 +3175,9 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         </Modal>
       )}
       {editItem && <ItemEditModal item={editItem} suppliers={suppliers} fin={fin} onClose={() => setEditItem(null)} onSave={async (it) => { if (await saveItem(it)) setEditItem(null); }} />}
+      {shipForm && <ShipModal obj={obj} batches={batches} fin={fin} supName={supName} onClose={() => setShipForm(false)}
+        onShip={async (ids, date) => { if (await shipItems(ids, date, true)) setShipForm(false); }}
+        onUnship={async (ids) => { await shipItems(ids, null, false); }} />}
       {addItems && <AddItemsModal products={products} suppliers={suppliers} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} onSave={async (rows) => { if (await addManualItems(rows, addItems === "newbatch")) setAddItems(false); }} />}
       {impItems && <ObjectExcelImport products={products} suppliers={suppliers} onClose={() => setImpItems(false)} onSave={async (rows) => { if (await addManualItems(rows, false)) setImpItems(false); }} />}
       {editOp && <EditOpModal op={editOp} suppliers={suppliers} isReturn={editOp.type === "return"} onClose={() => setEditOp(null)} onSave={async (patch) => {
@@ -3189,6 +3210,84 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   );
 }
 
+function ShipModal({ obj, batches, fin, supName, onClose, onShip, onUnship }) {
+  const items = (obj.items || []).filter((i) => !i.from_warehouse);
+  const pending = items.filter((i) => !isShipped(i));
+  const [sel, setSel] = useState(() => new Set(pending.map((i) => i.id)));
+  const [date, setDate] = useState(today());
+  const [busy, setBusy] = useState(false);
+  const [showDone, setShowDone] = useState(!pending.length);
+  const toggle = (id) => { const n = new Set(sel); n.has(id) ? n.delete(id) : n.add(id); setSel(n); };
+  const selSum = pending.filter((i) => sel.has(i.id)).reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.cost) || 0), 0);
+  const bySup = {};
+  pending.filter((i) => sel.has(i.id)).forEach((i) => { const k = i.supplier_id ? supName(i.supplier_id) : "без поставщика"; bySup[k] = (bySup[k] || 0) + (Number(i.qty) || 0) * (Number(i.cost) || 0); });
+  const done = items.filter((i) => isShipped(i) && i.shipped);
+  return (
+    <Modal title={"Отгрузить товар — " + obj.name} onClose={onClose} w={760}>
+      <p className="sm mut" style={{ marginBottom: 10 }}>Долг перед поставщиками появляется только после отгрузки. Отметьте позиции, которые отгружаются клиенту.</p>
+      {pending.length ? (<>
+        <div className="row" style={{ gap: 8, marginBottom: 8 }}>
+          <button className="btn xs" onClick={() => setSel(new Set(pending.map((i) => i.id)))}>выбрать все</button>
+          <button className="btn xs" onClick={() => setSel(new Set())}>снять все</button>
+          <span className="xs mut" style={{ marginLeft: "auto" }}>Дата отгрузки</span>
+          <input type="date" className="inp" style={{ width: 160 }} value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <div className="card" style={{ padding: 0, overflow: "auto", maxHeight: 380 }}>
+          <table className="t">
+            <thead><tr><th style={{ width: 34 }}></th><th>Товар</th><th style={{ textAlign: "right" }}>Кол-во</th><th>Поставщик</th>{fin && <th style={{ textAlign: "right" }}>Себест. сумма</th>}</tr></thead>
+            <tbody>
+              {batches.map((b) => {
+                const list = b.items.filter((i) => !i.from_warehouse && !isShipped(i));
+                if (!list.length) return null;
+                const all = list.every((i) => sel.has(i.id));
+                return (
+                  <React.Fragment key={b.no}>
+                    <tr className="clk" onClick={() => { const n = new Set(sel); list.forEach((i) => (all ? n.delete(i.id) : n.add(i.id))); setSel(n); }}>
+                      <td style={{ background: "var(--acc-tint)" }}><input type="checkbox" readOnly checked={all} /></td>
+                      <td colSpan={fin ? 4 : 3} style={{ background: "var(--acc-tint)", fontWeight: 800, fontSize: 12 }}>ПОСТАВКА №{b.no} · {dt(b.date)} · позиций: {list.length}</td>
+                    </tr>
+                    {list.map((i) => (
+                      <tr key={i.id} className="clk" onClick={() => toggle(i.id)}>
+                        <td><input type="checkbox" readOnly checked={sel.has(i.id)} /></td>
+                        <td className="sm" style={{ fontWeight: 600 }}>{i.name}</td>
+                        <td className="num">{fmt(i.qty)} {i.unit}</td>
+                        <td className="sm">{i.supplier_id ? supName(i.supplier_id) : <span className="mut">—</span>}</td>
+                        {fin && <td className="num">{fmt2((Number(i.qty) || 0) * (Number(i.cost) || 0))}</td>}
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {fin && sel.size > 0 && <div className="xs mut" style={{ marginTop: 8 }}>Долг поставщикам увеличится: {Object.entries(bySup).map(([k, v]) => k + " — " + fmt2(v)).join(" · ")} · всего <b>{fmt2(selSum)}</b></div>}
+        <div className="row" style={{ justifyContent: "flex-end", marginTop: 12, gap: 8 }}>
+          <button className="btn" onClick={onClose}>Отмена</button>
+          <button className="btn pri" disabled={!sel.size || busy} onClick={async () => { setBusy(true); await onShip([...sel], date); setBusy(false); }}>{busy ? "Отгружаю…" : "🚚 Отгрузить (" + sel.size + ")"}</button>
+        </div>
+      </>) : <p className="sm" style={{ color: "var(--ok)", marginBottom: 8 }}>✓ Все позиции отгружены</p>}
+      {done.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <button className="btn xs" onClick={() => setShowDone(!showDone)}>{showDone ? "▾" : "▸"} Отгружено ранее ({done.length})</button>
+          {showDone && <div className="card" style={{ padding: 0, overflow: "auto", maxHeight: 260, marginTop: 8 }}>
+            <table className="t">
+              <thead><tr><th>Товар</th><th style={{ textAlign: "right" }}>Кол-во</th><th>Поставщик</th><th>Дата отгрузки</th><th></th></tr></thead>
+              <tbody>{done.map((i) => (
+                <tr key={i.id}>
+                  <td className="sm">{i.name}</td><td className="num">{fmt(i.qty)} {i.unit}</td>
+                  <td className="sm">{i.supplier_id ? supName(i.supplier_id) : "—"}</td>
+                  <td className="xs mono">{dt(i.shipped_date)}</td>
+                  <td>{fin && <button className="btn xs" disabled={busy} onClick={async () => { setBusy(true); await onUnship([i.id]); setBusy(false); }}>отменить</button>}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>}
+        </div>
+      )}
+    </Modal>
+  );
+}
 // Строка таблицы материалов объекта: количество/цена редактируются свободно на экране,
 // в базу уходят только по потере фокуса (onBlur) — чтобы не слать запрос на каждое нажатие клавиши
 // и не ловить промежуточные значения вроде "1" при наборе "15".
@@ -3199,7 +3298,7 @@ function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem,
   useEffect(() => { setPrice(i.price); }, [i.price]);
   return (
     <tr>
-      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.size ? <span className="xs mut mono"> · {i.size}</span> : null}{i.from_warehouse && <div className="xs mut">со склада Thermo</div>}</td>
+      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.size ? <span className="xs mut mono"> · {i.size}</span> : null}{i.from_warehouse && <div className="xs mut">со склада Thermo</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}</td>
       <td><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)}
         onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (v !== Number(i.qty)) { if (!(await setItemQty(i.id, v))) setQty(i.qty); } else setQty(i.qty); }} /></td>
       <td className="sm">{i.unit}</td>
@@ -3510,7 +3609,8 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
   });
   const [rows, setRows] = useState(items.map((i) => {
     const done = returned[i.id] || returned[i.product_id] || 0;
-    return { item: i, done, avail: Math.max(0, i.qty - done), ret: 0 };
+    // неотгруженный товар клиенту не выдан — вернуть его нельзя
+    return { item: i, done, avail: isShipped(i) ? Math.max(0, i.qty - done) : 0, ret: 0, notShipped: !isShipped(i) };
   }));
   const [reason, setReason] = useState("");
   const [opDate, setOpDate] = useState(today());
@@ -3548,7 +3648,7 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
           <tbody>
             {rows.map((r, i) => (
               <tr key={r.item.id} style={{ background: r.ret > 0 ? "var(--acc-tint)" : "none", opacity: r.avail === 0 ? 0.45 : 1 }}>
-                <td className="sm" style={{ fontWeight: 600 }}>{r.item.name}<div className="xs mut">{fmt(r.item.price)} / {r.item.unit}</div></td>
+                <td className="sm" style={{ fontWeight: 600 }}>{r.item.name}<div className="xs mut">{fmt(r.item.price)} / {r.item.unit}{r.notShipped && <span style={{ color: "var(--warn)" }}> · не отгружено</span>}</div></td>
                 <td className="num">{r.item.qty}</td>
                 <td className="num mut">{r.done}</td>
                 <td className="num">{r.avail}</td>
