@@ -677,16 +677,17 @@ const xlCol = (c) => { let s = ""; c++; while (c) { const m = (c - 1) % 26; s = 
 // стили: 0 обычный, 1 заголовок 14 жирный, 2 жирный, 3 шапка, 4 текст в рамке, 5 число в рамке, 6 сумма в рамке,
 //        7 подпись итога (жирный, вправо, рамка), 8 сумма итога (жирная, рамка), 9 по центру в рамке;
 //        10–14 — те же для чисел (Times New Roman), 15–21 — красные варианты
-const XL_FONT = (name, b, sz, red) => "<font>" + (b ? "<b/>" : "") + '<sz val="' + sz + '"/>' + (red ? '<color rgb="FFC00000"/>' : "") + '<name val="' + name + '"/></font>';
+const XL_FONT = (name, b, sz, red) => "<font>" + (b ? "<b/>" : "") + '<sz val="' + sz + '"/>' + (red === 2 ? '<color rgb="FF00873C"/>' : red ? '<color rgb="FFC00000"/>' : "") + '<name val="' + name + '"/></font>';
 const XL_TXT = "Baskerville Old Face", XL_NUM = "Times New Roman";
 const XL_XF = (num, font, border, extra = "", align = "") => '<xf numFmtId="' + num + '" fontId="' + font + '" fillId="' + (extra === "fill" ? 2 : 0) + '" borderId="' + border + '" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">' + (align ? "<alignment " + align + "/>" : "") + "</xf>";
 const XL_STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
   + '<numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.00"/></numFmts>'
-  + '<fonts count="9">' + XL_FONT(XL_TXT, 0, 11) + XL_FONT(XL_TXT, 1, 11) + XL_FONT(XL_TXT, 1, 14) + XL_FONT(XL_NUM, 0, 11) + XL_FONT(XL_NUM, 1, 11)
-  + XL_FONT(XL_TXT, 0, 11, 1) + XL_FONT(XL_NUM, 0, 11, 1) + XL_FONT(XL_TXT, 1, 11, 1) + XL_FONT(XL_NUM, 1, 11, 1) + '</fonts>'
+  + '<fonts count="11">' + XL_FONT(XL_TXT, 0, 11) + XL_FONT(XL_TXT, 1, 11) + XL_FONT(XL_TXT, 1, 14) + XL_FONT(XL_NUM, 0, 11) + XL_FONT(XL_NUM, 1, 11)
+  + XL_FONT(XL_TXT, 0, 11, 1) + XL_FONT(XL_NUM, 0, 11, 1) + XL_FONT(XL_TXT, 1, 11, 1) + XL_FONT(XL_NUM, 1, 11, 1)
+  + XL_FONT(XL_NUM, 0, 11, 2) + XL_FONT(XL_NUM, 1, 11, 2) + '</fonts>'
   + '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE8E8E8"/><bgColor indexed="64"/></patternFill></fill></fills>'
   + '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color auto="1"/></left><right style="thin"><color auto="1"/></right><top style="thin"><color auto="1"/></top><bottom style="thin"><color auto="1"/></bottom><diagonal/></border></borders>'
-  + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="23">'
+  + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="25">'
   + XL_XF(0, 0, 0)                                                     // 0
   + XL_XF(0, 2, 0)                                                     // 1 заголовок
   + XL_XF(0, 1, 0)                                                     // 2 жирный
@@ -710,11 +711,15 @@ const XL_STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><style
   + XL_XF(0, 6, 1, "", 'horizontal="center" vertical="center"')         // 20 = 13 красный
   + XL_XF(0, 5, 1, "", 'horizontal="center" vertical="center"')         // 21 = 9 красный
   + XL_XF(0, 7, 0)                                                      // 22 = 2 красный (раздел)
+  + XL_XF(164, 9, 1, "", 'vertical="center"')                           // 23 = 11 зелёный (прибыль)
+  + XL_XF(164, 10, 1)                                                   // 24 = 12 зелёный жирный
   + '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
 const XL_NUMSTYLE = { 0: 14, 5: 10, 6: 11, 8: 12, 9: 13 };
 const XL_REDSTYLE = { 2: 22, 4: 15, 9: 21, 7: 18, 10: 16, 11: 17, 12: 19, 13: 20 };
-function xlSheetXml(rows, cols, types) {
+const XL_GREENSTYLE = { 11: 23, 12: 24 };
+function xlSheetXml(rows, cols, types, opt = {}) {
   const n = cols.length, merges = [];
+  const green = new Set(opt.green || []); // колонки, где числа зелёные (например «Прибыль»)
   let red = false;
   const cell = (r, c, v, s) => {
     const ref = xlCol(c) + (r + 1);
@@ -722,6 +727,7 @@ function xlSheetXml(rows, cols, types) {
     // числа и строки только из цифр (даты, телефоны) — шрифтом для цифр
     if ((isNum || (typeof v === "string" && /^[\d\s.,:\/+\-−]+$/.test(v) && /\d/.test(v))) && XL_NUMSTYLE[s] != null) s = XL_NUMSTYLE[s];
     if (red && XL_REDSTYLE[s] != null) s = XL_REDSTYLE[s];
+    else if (!red && green.has(c) && XL_GREENSTYLE[s] != null && !(typeof v === "number" && v < 0)) s = XL_GREENSTYLE[s];
     if (v === "" || v == null) return '<c r="' + ref + '" s="' + s + '"/>';
     if (isNum) return '<c r="' + ref + '" s="' + s + '"><v>' + v + "</v></c>";
     return '<c r="' + ref + '" s="' + s + '" t="inlineStr"><is><t xml:space="preserve">' + xlEsc(v) + "</t></is></c>";
@@ -759,7 +765,7 @@ function xlSheetXml(rows, cols, types) {
     + '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>'
     + '<pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/></worksheet>';
 }
-function styledXlsxBlob(sheetName, rows, cols, types) {
+function styledXlsxBlob(sheetName, rows, cols, types, opt) {
   const name = xlEsc(String(sheetName || "Лист1").replace(/[\\/?*[\]:]/g, " ").slice(0, 31));
   return xlZip([
     ["[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
@@ -767,13 +773,13 @@ function styledXlsxBlob(sheetName, rows, cols, types) {
     ["xl/workbook.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="' + name + '" sheetId="1" r:id="rId1"/></sheets></workbook>'],
     ["xl/_rels/workbook.xml.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'],
     ["xl/styles.xml", XL_STYLES],
-    ["xl/worksheets/sheet1.xml", xlSheetXml(rows, cols, types)],
+    ["xl/worksheets/sheet1.xml", xlSheetXml(rows, cols, types, opt)],
   ]);
 }
 // скачать таблицу с рамками; при ошибке — CSV
-function downloadStyledXLSX(filename, sheetName, rows, cols, types) {
+function downloadStyledXLSX(filename, sheetName, rows, cols, types, opt) {
   try {
-    const blob = styledXlsxBlob(sheetName, rows, cols, types);
+    const blob = styledXlsxBlob(sheetName, rows, cols, types, opt);
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
@@ -2617,7 +2623,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
           {lines.length > 0 && noSupCount > 0 && (
             <div className="row sm" style={{ marginBottom: 10, gap: 8, padding: "8px 10px", border: "1px solid color-mix(in srgb, var(--warn) 45%, transparent)", borderRadius: 9, background: "color-mix(in srgb, var(--warn) 7%, transparent)" }}>
               <span style={{ color: "var(--warn)", fontWeight: 600 }}>Без поставщика: {noSupCount} поз.</span>
-              <span className="xs mut" style={{ flex: "1 1 260px" }}>Закупка без поставщика не попадёт в его долг. Выберите поставщика в строке или сразу для всех:</span>
+              <span className="xs mut" style={{ flex: "1 1 260px" }}>Закупка без поставщика не попадёт в его долг. Выберите поставщика сразу для всех:</span>
               <select className="inp" style={{ width: 200 }} value="" onChange={(e) => setSupForEmpty(e.target.value)}>
                 <option value="">— всем без поставщика —</option>
                 {activeSuppliers(suppliers).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
@@ -2634,13 +2640,8 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                   {lines.map((l) => {
                     const p = l.product_id ? prodById(l.product_id) : null;
                     const curSup = lineSup(l);
-                    const supSel = (
-                      <select className="inp" style={{ marginTop: 4, borderColor: curSup ? undefined : "color-mix(in srgb, var(--warn) 60%, transparent)" }} value={curSup || ""}
-                        onChange={(e) => setLine(l.id, { supplier_id: e.target.value && !(p && p.supplier_id === e.target.value) ? e.target.value : null })} title="Поставщик для этой закупки">
-                        <option value="">— поставщик —</option>
-                        {activeSuppliers(suppliers, curSup).map((x) => <option key={x.id} value={x.id}>{x.name}{p && p.supplier_id === x.id ? " (из базы)" : ""}</option>)}
-                      </select>
-                    );
+                    // поставщик — только для информации (выбор в строке убран по просьбе руководителя)
+                    const supSel = curSup ? <div className="xs mut" style={{ marginTop: 3 }}>{(suppliers.find((x) => x.id === curSup) || {}).name || ""}</div> : null;
                     return (
                       <tr key={l.id}>
                         <td style={{ minWidth: 240 }}>
@@ -3074,7 +3075,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       if (f.bonus) rows.push({ k: "sum", v: ["", "Бонус мастеру", "", "", "", "", "", "", "", "", -round2(f.bonus)], merge: [[1, 6]] });
       rows.push({ k: "sum", v: ["", "Чистая прибыль (маржа " + fmt(round2(f.margin)) + "% от продажи)", "", "", "", "", "", "", "", "", round2(f.net)], merge: [[1, 6]] });
     }
-    const r = downloadStyledXLSX("Себестоимость_" + safe(obj.name) + ".xlsx", "Себестоимость", rows, [5, 46, 8, 6, 12, 12, 12, 10, 13, 13, 12], ["c", "t", "n", "c", "m", "m", "m", "m", "m", "m", "m"]);
+    const r = downloadStyledXLSX("Себестоимость_" + safe(obj.name) + ".xlsx", "Себестоимость", rows, [5, 46, 8, 6, 12, 12, 12, 10, 13, 13, 12], ["c", "t", "n", "c", "m", "m", "m", "m", "m", "m", "m"], { green: [10] });
     toast(r === "xlsx" ? "Excel с себестоимостью скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
   const exportDelivery = () => {
