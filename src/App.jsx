@@ -3089,13 +3089,13 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
         <table className="t" style={{ minWidth: 760 }}>
-          <thead><tr><th>Товар</th><th>Размер</th><th style={{width:90}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"right"}}>Цена</th><th style={{textAlign:"right"}}>Сумма</th><th>Поставщик</th><th></th></tr></thead>
+          <thead><tr><th>Товар</th><th style={{width:90}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"center",width:120}}>Цена</th><th style={{textAlign:"right"}}>Сумма</th><th>Поставщик</th><th></th></tr></thead>
           <tbody>
             {batches.map((b) => (
               <React.Fragment key={b.no}>
                 {batches.length > 1 || (obj.items || []).some((i) => i.batch_no) ? (
                   <tr className="clk" onClick={() => toggleBatch(b.no)}>
-                    <td colSpan={8} style={{ background: "var(--acc-tint)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
+                    <td colSpan={7} style={{ background: "var(--acc-tint)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
                       {closedBatches[b.no] ? "▸" : "▾"} 🚚 ПОСТАВКА №{b.no} · {dt(b.date)} · позиций: {b.items.length} · на сумму {fmt(b.items.reduce((a, i) => a + i.qty * i.price, 0))}
                       <span className="xs mut" style={{ fontWeight: 500 }}>  — нажмите чтобы {closedBatches[b.no] ? "раскрыть" : "свернуть"}</span>
                     </td>
@@ -3106,7 +3106,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
                 ))}
               </React.Fragment>
             ))}
-            {!(obj.items || []).length && <tr><td colSpan={8} className="mut" style={{ textAlign: "center", padding: 22 }}>Материалов нет — добавьте через «Новая заявка»</td></tr>}
+            {!(obj.items || []).length && <tr><td colSpan={7} className="mut" style={{ textAlign: "center", padding: 22 }}>Материалов нет — добавьте через «Новая заявка»</td></tr>}
           </tbody>
         </table>
       </div>
@@ -3199,12 +3199,11 @@ function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem,
   useEffect(() => { setPrice(i.price); }, [i.price]);
   return (
     <tr>
-      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">со склада Thermo</div>}</td>
-      <td className="mono xs">{i.size}</td>
+      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.size ? <span className="xs mut mono"> · {i.size}</span> : null}{i.from_warehouse && <div className="xs mut">со склада Thermo</div>}</td>
       <td><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)}
         onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (v !== Number(i.qty)) { if (!(await setItemQty(i.id, v))) setQty(i.qty); } else setQty(i.qty); }} /></td>
       <td className="sm">{i.unit}</td>
-      <td><input type="number" className="inp num" min={0} style={{ width: 104, textAlign: "right" }} value={price} onChange={(e) => setPrice(e.target.value)}
+      <td style={{ textAlign: "center" }}><input type="number" className="inp num" min={0} style={{ width: 104, textAlign: "right", margin: "0 auto", display: "block" }} value={price} onChange={(e) => setPrice(e.target.value)}
         onBlur={async () => { const v = Math.max(0, parseNum(price)); if (v !== Number(i.price)) { if (!(await confirmLowPrice([{ name: i.name, price: v, cost: i.cost }])) || !(await setItemPrice(i.id, v))) setPrice(i.price); } else setPrice(i.price); }} /></td>
       <td className="num" style={{ fontWeight: 700 }}>{fmt((Number(qty) || 0) * (Number(price) || 0))}</td>
       <td className="sm">{supName(i.supplier_id)}</td>
