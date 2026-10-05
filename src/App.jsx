@@ -926,6 +926,48 @@ function ClientInput({ value, objects, onChange, onPick, onEnter, phoneMode = fa
     </div>
   );
 }
+// выбор мастера в том же виде, что и подсказки клиента/телефона: поиск + список (имя · телефон · специализация)
+function MasterPicker({ masters, value, onChange, onAdd }) {
+  const cur = masters.find((m) => m.id === value) || null;
+  const [q, setQ] = useState(cur ? cur.name : "");
+  const [open, setOpen] = useState(false);
+  const [act, setAct] = useState(-1);
+  useEffect(() => { setQ(cur ? cur.name : ""); }, [value, cur && cur.name]);
+  const list = masters.filter((m) => m.status === "active");
+  const qq = q.trim().toLowerCase();
+  const typed = !cur || qq !== String(cur.name).toLowerCase();
+  const hits = list.filter((m) => !typed || !qq || [m.name, m.phone, m.specialty].filter(Boolean).join(" ").toLowerCase().includes(qq));
+  const rows = [...hits.map((m) => ({ m })), { add: true }];
+  const pick = (r) => { setOpen(false); setAct(-1); if (r.add) { onAdd(); return; } onChange(r.m); setQ(r.m.name); };
+  return (
+    <div style={{ position: "relative" }}>
+      <input className="inp" value={q} autoComplete="off" autoCorrect="off" spellCheck={false} name="te_ms_n" data-lpignore="true" data-form-type="other" placeholder="— выберите мастера —"
+        onChange={(e) => { setQ(e.target.value); setOpen(true); setAct(-1); if (!e.target.value.trim() && cur) onChange(null); }}
+        onFocus={(e) => { setOpen(true); e.target.select(); }}
+        onBlur={() => setTimeout(() => { setOpen(false); setQ(cur ? cur.name : ""); }, 150)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setAct((i) => Math.min(rows.length - 1, i + 1)); }
+          else if (e.key === "ArrowUp") { e.preventDefault(); setAct((i) => Math.max(0, i - 1)); }
+          else if (e.key === "Escape") setOpen(false);
+          else if (e.key === "Enter") { e.preventDefault(); const r = act >= 0 ? rows[act] : hits.length === 1 && typed ? rows[0] : null; if (r) pick(r); else setOpen(false); }
+        }} />
+      {open && (
+        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, boxShadow: "0 16px 44px rgba(0,0,0,.18)", overflow: "hidden", maxHeight: 320, overflowY: "auto" }}>
+          <div className="xs mut" style={{ padding: "6px 11px", borderBottom: "1px solid var(--line)" }}>{hits.length ? "Мастера" : "Не найдено"}</div>
+          {rows.map((r, i) => (
+            <div key={r.add ? "__add" : r.m.id} className="clk pick-row" style={{ padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === act || (!r.add && r.m.id === value) ? "var(--acc-tint)" : "var(--panel)" }}
+              onMouseDown={(e) => e.preventDefault()} onClick={() => pick(r)}>
+              {r.add ? <div style={{ fontWeight: 600, fontSize: 13, color: "var(--acc)" }}>+ добавить нового мастера…</div> : <>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{r.m.name}{r.m.id === value ? " ✓" : ""}</div>
+                {(r.m.phone || r.m.specialty) && <div className="xs mut">{[r.m.phone, r.m.specialty].filter(Boolean).join(" · ")}</div>}
+              </>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 function PersonSelect({ value, onChange, placeholder = "—", compact = false, hideEmpty = false }) {
   const { people, addPerson } = useContext(PeopleCtx);
   const [adding, setAdding] = useState(false);
@@ -2792,15 +2834,9 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                   <label>Мастер</label>
                   {!addingMaster ? (
                     <>
-                      <select className="inp" value={newObj.master_id} onChange={(e) => {
-                        if (e.target.value === "__add__") { setAddingMaster(true); return; }
-                        const m = masters.find((x) => x.id === e.target.value);
-                        setNewObj({ ...newObj, master_id: e.target.value, master: m ? m.name : "" });
-                      }}>
-                        <option value="" disabled hidden>—</option>
-                        {masters.filter((m) => m.status === "active").map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                        <option value="__add__">+ добавить нового мастера…</option>
-                      </select>
+                      <MasterPicker masters={masters} value={newObj.master_id}
+                        onChange={(m) => setNewObj((x) => ({ ...x, master_id: m ? m.id : "", master: m ? m.name : "" }))}
+                        onAdd={() => setAddingMaster(true)} />
                     </>
                   ) : (
                     <div className="card sect" style={{ padding: 10 }}>
