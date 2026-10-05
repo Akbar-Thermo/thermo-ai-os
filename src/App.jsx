@@ -900,7 +900,7 @@ function ClientInput({ value, objects, onChange, onPick, onEnter }) {
   const pick = (c) => { onPick(c); setOpen(false); setAct(-1); };
   return (
     <div ref={box} style={{ position: "relative" }}>
-      <input className="inp" value={value || ""} autoComplete="off" placeholder={clients.length ? "имя или телефон — выберите из списка или впишите нового" : ""}
+      <input className="inp" value={value || ""} autoComplete="off" autoCorrect="off" spellCheck={false} name="te_client_name" data-lpignore="true" data-form-type="other" placeholder={clients.length ? "начните вводить — список прошлых клиентов" : ""}
         onChange={(e) => { onChange(e.target.value); setOpen(true); setAct(-1); }}
         onFocus={() => setOpen(true)}
         onKeyDown={(e) => {
