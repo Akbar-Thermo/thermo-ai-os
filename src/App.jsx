@@ -873,7 +873,58 @@ function Modal({ title, onClose, children, w = 640 }) {
    появляется в списке у всех. Отдельная таблица в базе не нужна. */
 const PeopleCtx = createContext({ people: [], addPerson: () => {} });
 const curUserName = () => (CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username || "") : "");
-function PersonSelect({ value, onChange, placeholder = "—", compact = false }) {
+// поле «Клиент» с подсказками: клиенты из прошлых объектов (имя · телефон); выбор подставляет и телефон
+function ClientInput({ value, objects, onChange, onPick, onEnter }) {
+  const [open, setOpen] = useState(false);
+  const [act, setAct] = useState(-1);
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  const clients = useMemo(() => {
+    const m = new Map();
+    objects.slice().sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || ""))).forEach((o) => {
+      if (!String(o.client || "").trim()) return;
+      const k = clientKey(o);
+      const c = m.get(k);
+      if (c) { c.n++; if (!c.phone && o.phone) c.phone = o.phone; }
+      else m.set(k, { k, client: String(o.client).trim(), phone: o.phone || "", n: 1, last: o.name });
+    });
+    return [...m.values()];
+  }, [objects]);
+  const q = String(value || "").trim().toLowerCase(), qd = q.replace(/\D/g, "");
+  const hits = clients.filter((c) => !q || c.client.toLowerCase().includes(q) || (qd.length >= 3 && String(c.phone).replace(/\D/g, "").includes(qd))).slice(0, 8);
+  const pick = (c) => { onPick(c); setOpen(false); setAct(-1); };
+  return (
+    <div ref={box} style={{ position: "relative" }}>
+      <input className="inp" value={value || ""} autoComplete="off" placeholder={clients.length ? "имя или телефон — выберите из списка или впишите нового" : ""}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); setAct(-1); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" && hits.length) { e.preventDefault(); setOpen(true); setAct((i) => Math.min(hits.length - 1, i + 1)); }
+          else if (e.key === "ArrowUp" && hits.length) { e.preventDefault(); setAct((i) => Math.max(0, i - 1)); }
+          else if (e.key === "Escape") setOpen(false);
+          else if (e.key === "Enter") { e.preventDefault(); if (open && act >= 0 && hits[act]) pick(hits[act]); else { setOpen(false); onEnter && onEnter(e.target); } }
+        }} />
+      {open && hits.length > 0 && !(hits.length === 1 && hits[0].client.toLowerCase() === q) && (
+        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, boxShadow: "0 16px 44px rgba(0,0,0,.18)", overflow: "hidden", maxHeight: 300, overflowY: "auto" }}>
+          <div className="xs mut" style={{ padding: "6px 11px", borderBottom: "1px solid var(--line)" }}>Клиенты из прошлых объектов</div>
+          {hits.map((c, i) => (
+            <div key={c.k} className="clk pick-row" style={{ padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === act ? "var(--acc-tint)" : "var(--panel)" }}
+              onMouseDown={(e) => e.preventDefault()} onClick={() => pick(c)}>
+              <div style={{ fontWeight: 600, fontSize: 13 }}>{c.client}</div>
+              <div className="xs mut">{[c.phone, "объектов: " + c.n, c.last].filter(Boolean).join(" · ")}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+function PersonSelect({ value, onChange, placeholder = "—", compact = false, hideEmpty = false }) {
   const { people, addPerson } = useContext(PeopleCtx);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
@@ -901,7 +952,7 @@ function PersonSelect({ value, onChange, placeholder = "—", compact = false })
   );
   return (
     <select className="inp" style={compact ? small : undefined} value={value || ""} onChange={(e) => { if (e.target.value === "__add__") setAdding(true); else onChange(e.target.value); }}>
-      <option value="">{placeholder}</option>
+      {hideEmpty ? <option value="" disabled hidden>{placeholder}</option> : <option value="">{placeholder}</option>}
       {opts.map((p) => <option key={p} value={p}>{p}</option>)}
       <option value="__add__">+ добавить нового…</option>
     </select>
@@ -2727,7 +2778,10 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
             {!objId && (
               <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
                 <Fld label="Название объекта"><input className="inp" value={newObj.name} onChange={(e) => setNewObj({ ...newObj, name: e.target.value })} placeholder="Дом, ул. Чиланзар 12" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.target.closest(".grid").querySelectorAll("input,select")[1]?.focus(); }}} /></Fld>
-                <Fld label="Клиент"><input className="inp" value={newObj.client} onChange={(e) => setNewObj({ ...newObj, client: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.target.closest(".grid").querySelectorAll("input,select")[2]?.focus(); }}} /></Fld>
+                <Fld label="Клиент"><ClientInput value={newObj.client} objects={data.objects || []}
+                  onChange={(v) => setNewObj((x) => ({ ...x, client: v }))}
+                  onPick={(c) => setNewObj((x) => ({ ...x, client: c.client, phone: c.phone || x.phone }))}
+                  onEnter={(el) => el.closest(".grid").querySelectorAll("input,select")[2]?.focus()} /></Fld>
                 <Fld label="Телефон клиента"><input className="inp" value={newObj.phone} onChange={(e) => setNewObj({ ...newObj, phone: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.target.closest(".grid").querySelectorAll("input,select")[3]?.focus(); }}} /></Fld>
                 <div className="fld">
                   <label>Мастер</label>
@@ -2738,7 +2792,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                         const m = masters.find((x) => x.id === e.target.value);
                         setNewObj({ ...newObj, master_id: e.target.value, master: m ? m.name : "" });
                       }}>
-                        <option value="">—</option>
+                        <option value="" disabled hidden>—</option>
                         {masters.filter((m) => m.status === "active").map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                         <option value="__add__">+ добавить нового мастера…</option>
                       </select>
@@ -2756,7 +2810,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                     </div>
                   )}
                 </div>
-                <Fld label="Менеджер"><PersonSelect value={newObj.manager} onChange={(m) => setNewObj({ ...newObj, manager: m })} /></Fld>
+                <Fld label="Менеджер"><PersonSelect hideEmpty value={newObj.manager} onChange={(m) => setNewObj({ ...newObj, manager: m })} /></Fld>
                 <Fld label="Адрес"><input className="inp" value={newObj.address} onChange={(e) => setNewObj({ ...newObj, address: e.target.value })} /></Fld>
               </div>
             )}
