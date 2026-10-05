@@ -901,7 +901,7 @@ function ClientInput({ value, objects, onChange, onPick, onEnter, phoneMode = fa
   const pick = (c) => { onPick(c); setOpen(false); setAct(-1); };
   return (
     <div ref={box} style={{ position: "relative" }}>
-      <input className="inp" value={value || ""} autoComplete="off" autoCorrect="off" spellCheck={false} name={phoneMode ? "te_client_tel" : "te_client_name"} inputMode={phoneMode ? "tel" : undefined} data-lpignore="true" data-form-type="other" placeholder={phoneMode ? "" : clients.length ? "начните вводить — список прошлых клиентов" : ""}
+      <input className="inp" value={value || ""} autoComplete="off" autoCorrect="off" spellCheck={false} name={phoneMode ? "te_cl_n2" : "te_cl_n1"} id={phoneMode ? "te_cl_n2" : "te_cl_n1"} data-lpignore="true" data-form-type="other" placeholder={phoneMode ? "" : clients.length ? "начните вводить — список прошлых клиентов" : ""}
         onChange={(e) => { onChange(e.target.value); setOpen(true); setAct(-1); }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 120)}
@@ -2784,7 +2784,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                   onChange={(v) => setNewObj((x) => ({ ...x, client: v }))}
                   onPick={(c) => setNewObj((x) => ({ ...x, client: c.client, phone: c.phone || x.phone }))}
                   onEnter={(el) => el.closest(".grid").querySelectorAll("input,select")[2]?.focus()} /></Fld>
-                <Fld label="Телефон клиента"><ClientInput phoneMode value={newObj.phone} objects={data.objects || []}
+                <Fld label={"Теле\u2060фон клиента"}><ClientInput phoneMode value={newObj.phone} objects={data.objects || []}
                   onChange={(v) => setNewObj((x) => ({ ...x, phone: v }))}
                   onPick={(c) => setNewObj((x) => ({ ...x, phone: c.phone, client: x.client && x.client.trim() ? x.client : c.client }))}
                   onEnter={(el) => el.closest(".grid").querySelectorAll("input,select")[3]?.focus()} /></Fld>
