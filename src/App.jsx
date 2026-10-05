@@ -2499,7 +2499,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
           qty: qn(l.qty), price: l.manualPrice != null && l.manualPrice !== "" ? parseNum(l.manualPrice) : Math.round(cost * saleK * 100) / 100, cost,
           supplier_id: lineSup(l),
           source_text: p ? p.name : l.name, confidence: 100,
-          batch_no: batchNo, batch_date: today(), shipped: false,
+          batch_no: batchNo, batch_date: today(), shipped: false, added_at: new Date().toISOString(),
         };
       });
       let obj = selObj, batchNo = 1, items;
@@ -2973,7 +2973,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       return [...cur, ...rows.map((r) => ({
         id: uuid(), product_id: r.product_id || null, name: r.name, size: r.size, unit: r.unit || "шт",
         qty: parseNum(r.qty), price: parseNum(r.price), cost: parseNum(r.cost), supplier_id: r.supplier_id || null,
-        source_text: "добавлено вручную", confidence: 100, batch_no: batchNo, batch_date: batchDate, manual: true, shipped: false,
+        source_text: "добавлено вручную", confidence: 100, batch_no: batchNo, batch_date: batchDate, manual: true, shipped: false, added_at: new Date().toISOString(),
       }))];
     });
     if (ok) {
@@ -4283,7 +4283,7 @@ function WarehouseTab({ data, reload, toast, openObject }) {
             qty: l.qty, price: l.row.price || 0, cost: l.row.cost || 0,
             supplier_id: l.row.supplier_id || null, from_warehouse: true,
             source_text: "со склада Thermo", confidence: 100,
-            batch_no: batchNo, batch_date: today(),
+            batch_no: batchNo, batch_date: today(), added_at: new Date().toISOString(),
           }))];
         });
         if (r.error) { await reload(); return false; }
@@ -4455,13 +4455,16 @@ const clientKey = (o) => {
 };
 
 // все события (продажи по позициям, операции) один раз; итоги по любому периоду считаются из них
+// час события (местное время) для графика «по часам»: берём метку времени, только если она в тот же день, что и дата события
+const hourOf = (d, ts) => { if (!ts) return 0; const t = new Date(ts); if (isNaN(t)) return 0; return localIso(t) === d ? t.getHours() : 0; };
 function dashEvents(objects, ops, mgr) {
   const objById = {}, sales = [];
   objects.forEach((o) => {
     objById[o.id] = o;
     if (o.status === "cancelled" || (mgr && (o.manager || "") !== mgr)) return;
     (o.items || []).forEach((i) => {
-      sales.push({ d: String(i.batch_date || o.created_at || "").slice(0, 10), o, i,
+      const d = String(i.batch_date || o.created_at || "").slice(0, 10);
+      sales.push({ d, h: hourOf(d, i.added_at || ((i.batch_no || 1) === 1 ? o.created_at : null)), o, i,
         rev: (i.qty || 0) * (i.price || 0), cost: (i.qty || 0) * (i.cost || 0), key: o.id + "#" + (i.batch_no || 1) });
     });
   });
@@ -4474,7 +4477,7 @@ function dashEvents(objects, ops, mgr) {
     if (x.type === "bonus" && !x.object_id) { if (!mgr) dirBonus.push({ ...x, d }); return; }
     const o = x.object_id && objById[x.object_id];
     if (!o || o.status === "cancelled" || (mgr && (o.manager || "") !== mgr)) return;
-    objOps.push({ ...x, d, o });
+    objOps.push({ ...x, d, h: hourOf(d, x.created_at), o });
   });
   // первая покупка клиента — по всем объектам, чтобы «новый клиент» не зависел от фильтра менеджера
   const firstBuy = {};
@@ -4786,7 +4789,20 @@ function Dashboard({ data }) {
     const dates = ev.sales.map((s) => s.d).filter(Boolean).sort();
     const f = from || dates[0] || dToday(), t = to || (dates.length && dates[dates.length - 1] > dToday() ? dates[dates.length - 1] : dToday());
     const days = dDiff(f, t) + 1;
-    const gran = days <= 45 ? "day" : days <= 210 ? "week" : "month";
+    // один день — по часам
+    const gran = days <= 1 ? "hour" : days <= 45 ? "day" : days <= 210 ? "week" : "month";
+    if (gran === "hour") {
+      const hh = (h) => String(h).padStart(2, "0") + ":00";
+      const list = Array.from({ length: 24 }, (_, h) => ({ key: String(h), label: hh(h), title: dt(f) + " " + hh(h) + "–" + String(h).padStart(2, "0") + ":59", rev: 0, gross: 0, deals: 0, _d: new Set() }));
+      ev.sales.forEach((s) => { if (s.d !== f) return; const b = list[s.h || 0]; b.rev += s.rev; b.gross += s.rev - s.cost; b._d.add(s.key); });
+      ev.objOps.forEach((x) => {
+        if (x.d !== f) return; const b = list[x.h || 0];
+        if (x.type === "return") { b.rev -= x.amount || 0; b.gross -= (x.amount || 0) - (x.cost_amount || 0); }
+        else if (x.type === "discount") { b.rev -= x.amount || 0; b.gross -= x.amount || 0; }
+      });
+      list.forEach((b) => { b.deals = b._d.size; delete b._d; });
+      return { list, gran };
+    }
     const keyOf = (d) => {
       if (gran === "day") return d;
       if (gran === "month") return d.slice(0, 7);
@@ -4958,7 +4974,7 @@ function Dashboard({ data }) {
 
       <div className="card sect">
         <div className="row" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
-          <h3 style={{ marginRight: "auto" }}>Динамика продаж <span className="xs mut" style={{ fontWeight: 500 }}>по {buckets.gran === "day" ? "дням" : buckets.gran === "week" ? "неделям" : "месяцам"}</span></h3>
+          <h3 style={{ marginRight: "auto" }}>Динамика продаж <span className="xs mut" style={{ fontWeight: 500 }}>по {buckets.gran === "hour" ? "часам" : buckets.gran === "day" ? "дням" : buckets.gran === "week" ? "неделям" : "месяцам"}</span></h3>
           <span className="row xs" style={{ gap: 12 }}>
             <span className="row" style={{ gap: 5 }}><span style={{ width: 14, height: 3, borderRadius: 2, background: "var(--viz-s1)", display: "inline-block" }} />Выручка</span>
             <span className="row" style={{ gap: 5 }}><span style={{ width: 14, height: 3, borderRadius: 2, background: "var(--viz-s2)", display: "inline-block" }} />Валовая прибыль</span>
