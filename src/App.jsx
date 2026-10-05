@@ -713,7 +713,7 @@ const XL_STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><style
   + XL_FONT(XL_NUM, 0, 11, 2) + XL_FONT(XL_NUM, 1, 11, 2) + XL_FONT(XL_TXT, 1, 28, 1, 1) + '</fonts>'
   + '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE8E8E8"/><bgColor indexed="64"/></patternFill></fill></fills>'
   + '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color auto="1"/></left><right style="thin"><color auto="1"/></right><top style="thin"><color auto="1"/></top><bottom style="thin"><color auto="1"/></bottom><diagonal/></border></borders>'
-  + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="28">'
+  + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="32">'
   + XL_XF(0, 0, 0)                                                     // 0
   + XL_XF(0, 2, 0)                                                     // 1 заголовок
   + XL_XF(0, 1, 0)                                                     // 2 жирный
@@ -742,9 +742,13 @@ const XL_STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><style
   + XL_XF(0, 11, 1, "", 'horizontal="center" vertical="center"')         // 25 шапка-логотип «Thermo Engineering»
   + XL_XF(165, 3, 1, "", 'vertical="center"')                           // 26 точная цена (до 4 знаков)
   + XL_XF(165, 6, 1, "", 'vertical="center"')                           // 27 = 26 красный
+  + XL_XF(0, 1, 0, "", 'horizontal="center" vertical="center"')         // 28 итог внизу: подпись (жирный, по центру, без рамки)
+  + XL_XF(164, 4, 0, "", 'vertical="center"')                           // 29 итог внизу: сумма (жирная, без рамки)
+  + XL_XF(0, 7, 0, "", 'horizontal="center" vertical="center"')         // 30 = 28 красный
+  + XL_XF(164, 8, 0, "", 'vertical="center"')                           // 31 = 29 красный
   + '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
 const XL_NUMSTYLE = { 0: 14, 5: 10, 6: 11, 8: 12, 9: 13 };
-const XL_REDSTYLE = { 2: 22, 4: 15, 9: 21, 7: 18, 10: 16, 11: 17, 12: 19, 13: 20, 26: 27 };
+const XL_REDSTYLE = { 2: 22, 4: 15, 9: 21, 7: 18, 10: 16, 11: 17, 12: 19, 13: 20, 26: 27, 28: 30, 29: 31 };
 const XL_GREENSTYLE = { 11: 23, 12: 24 };
 const XL_BRAND = "Thermo Engineering";
 function xlSheetXml(rows0, cols, types, opt = {}) {
@@ -781,6 +785,12 @@ function xlSheetXml(rows0, cols, types, opt = {}) {
     } else if (k === "sum") {
       // итоговая строка таблицы: подписи жирно вправо, числа жирно
       cs = cols.map((_, c) => { const x = v[c]; return cell(r, c, x, typeof x === "number" ? 8 : x ? 7 : 0); }).join("");
+    } else if (k === "ftotal") {
+      // итоговый блок внизу (шаблон клиента): подпись по центру колонок 3…n-1, сумма в последней, без рамок
+      cs = cell(r, 0, "", 0) + cell(r, 1, "", 0);
+      for (let c = 2; c < n - 1; c++) cs += cell(r, c, c === 2 ? v[0] : "", 28);
+      cs += cell(r, n - 1, v[1], 29);
+      if (n > 4) merges.push("C" + (r + 1) + ":" + xlCol(n - 2) + (r + 1));
     } else if (k === "total") {
       cs = cell(r, 0, "", 0);
       for (let c = 1; c < n - 1; c++) cs += cell(r, c, c === 1 ? v[0] : "", 7);
@@ -853,7 +863,7 @@ function downloadStyledXLSX(filename, sheetName, rows, cols, types, opt) {
     return "xlsx";
   } catch (e) {
     console.error(e);
-    try { downloadCSV(filename.replace(/\.xlsx$/i, ".csv"), rows.map((r) => (r.k === "total" ? ["", r.v[0], "", "", "", r.v[1]] : r.v || []))); return "csv"; } catch (e2) { console.error(e2); return false; }
+    try { downloadCSV(filename.replace(/\.xlsx$/i, ".csv"), rows.map((r) => (r.k === "total" || r.k === "ftotal" ? ["", r.v[0], "", "", "", r.v[1]] : r.v || []))); return "csv"; } catch (e2) { console.error(e2); return false; }
   }
 }
 async function batchInsert(table, rows, chunkSize = 500, onProgress) {
@@ -3298,7 +3308,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
      ПОСТАВКА №N от дата → № | Наименование | Кол-во | Ед. | Цена | Сумма → «Итого по поставке №N»
      возвраты по датам: «Дата: …» (красным) → ВОЗВРАТЫ → та же шапка, строки красным → «Итого возвратов :» (минусом)
      оплаты по датам: «Дата: …» → ОПЛАТЫ → № | Способ оплаты | Кол-во (сумма в валюте) | Курс | Сумма $ → «Итого оплачено :»
-     итог: Сумма выданного товара: / Скидка: / Возвраты: (красным) / Оплачено: / Баланс :
+     итог (без рамок, подпись по центру, сумма справа): Сумма выданного товара: / Скидка: / Возвраты: (красным) / Оплачено: / Баланс : (или «Переплата клиента :»)
      шрифты: текст — Baskerville Old Face, числа — Times New Roman */
   const exportClient = () => {
     const rows = [
@@ -3360,11 +3370,13 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       tot("Итого оплачено :", round2(sub));
       rows.push({ k: "blank" });
     });
-    tot("Сумма выданного товара:", round2(f.sale));
-    if (f.discount) tot("Скидка:", -round2(f.discount));
-    if (f.retSale) tot("Возвраты:", -round2(f.retSale), true);
-    tot("Оплачено:", round2(f.paidClient));
-    tot(f.clientDebt < 0 ? "Переплата клиента :" : "Баланс :", Math.abs(round2(f.clientDebt)));
+    // итоговый блок — как в утверждённом шаблоне: без рамок, подпись по центру, сумма справа
+    const ftot = (label, v, red) => rows.push({ k: "ftotal", v: [label, v], red });
+    ftot("Сумма выданного товара:", round2(f.sale));
+    if (f.discount) ftot("Скидка:", -round2(f.discount));
+    if (f.retSale) ftot("Возвраты:", -round2(f.retSale), true);
+    ftot("Оплачено:", round2(f.paidClient));
+    ftot(f.clientDebt < 0 ? "Переплата клиента :" : "Баланс :", Math.abs(round2(f.clientDebt)));
     const r = downloadStyledXLSX("Объект_" + safe(obj.name) + ".xlsx", "Клиенту", rows, [6, 60, 10, 7, 13, 15], ["c", "t", "n", "c", "m", "m"]);
     toast(r === "xlsx" ? "Excel для клиента скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
