@@ -2811,9 +2811,9 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
 
       {step === 0 && (
         <div className="card">
-          <div className="split">
-            <div>
-              <h3 style={{ marginBottom: 10 }}>Существующий объект</h3>
+          <div>
+            <div style={{ marginBottom: 14 }}>
+              <h3 style={{ marginBottom: 10 }}>Объект</h3>
               <select className="inp" value={objId} onChange={(e) => setObjId(e.target.value)}>
                 <option value="">— создать новый —</option>
                 {activeObjects.map((o) => <option key={o.id} value={o.id}>{o.name} ({o.client})</option>)}
