@@ -1154,6 +1154,122 @@ let _confirmSet = null;
 function askConfirm(o) {
   return new Promise((res) => { if (!_confirmSet) return res(window.confirm(o.title + "\n\n" + (o.text || ""))); _confirmSet({ ...o, res }); });
 }
+/* Единый вид выпадающих списков: вместо системного списка браузера у всех <select class="inp"> открывается
+   наш список (как у подсказок клиента/мастера). Сам <select> остаётся настоящим — значение меняется через него
+   и событие change, поэтому все обработчики onChange работают как раньше. На телефоне — системный список. */
+const SEL_SETTER = typeof HTMLSelectElement !== "undefined" ? Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set : null;
+function SelectPopupHost() {
+  const [st, setSt] = useState(null); // { sel, rect, opts, q, act }
+  const stRef = useRef(null);
+  stRef.current = st;
+  const listRef = useRef(null);
+  const fine = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(pointer: fine)").matches : true;
+  const optsOf = (sel) => [...sel.options].filter((o) => !o.hidden).map((o) => ({
+    value: o.value, label: o.textContent, disabled: o.disabled,
+    group: o.parentElement && o.parentElement.tagName === "OPTGROUP" ? o.parentElement.label : "",
+  }));
+  const open = (sel) => {
+    const opts = optsOf(sel);
+    if (!opts.length) return;
+    const cur = opts.findIndex((o) => o.value === sel.value);
+    setSt({ sel, rect: sel.getBoundingClientRect(), opts, q: "", act: cur >= 0 ? cur : opts.findIndex((o) => !o.disabled) });
+  };
+  const close = (refocus) => { const s0 = stRef.current; setSt(null); if (refocus && s0 && s0.sel && s0.sel.isConnected) s0.sel.focus(); };
+  const choose = (o) => {
+    const s0 = stRef.current;
+    if (!s0 || !o || o.disabled) return;
+    const sel = s0.sel;
+    close(true);
+    if (sel.value !== o.value && SEL_SETTER) { SEL_SETTER.call(sel, o.value); sel.dispatchEvent(new Event("change", { bubbles: true })); }
+  };
+  const shown = (s0) => {
+    const q = (s0.q || "").trim().toLowerCase();
+    return q ? s0.opts.filter((o) => o.label.toLowerCase().includes(q)) : s0.opts;
+  };
+  useEffect(() => {
+    if (!fine) return;
+    const isOurs = (t) => t && t.tagName === "SELECT" && t.classList.contains("inp") && !t.multiple && !t.disabled && !t.hasAttribute("data-native");
+    const onDown = (e) => {
+      const s0 = stRef.current;
+      if (isOurs(e.target) && e.button === 0) {
+        e.preventDefault();
+        if (s0 && s0.sel === e.target) { close(true); return; }
+        e.target.focus();
+        open(e.target);
+        return;
+      }
+      if (s0 && listRef.current && !listRef.current.contains(e.target)) close(false);
+    };
+    const onKey = (e) => {
+      const s0 = stRef.current;
+      if (!s0) {
+        // открыть: ↓ / пробел / Alt+↓ на выбранном списке (Enter оставляем для перехода между полями)
+        if (isOurs(e.target) && (e.key === "ArrowDown" || e.key === " " || (e.altKey && e.key === "ArrowDown"))) { e.preventDefault(); open(e.target); }
+        return;
+      }
+      const list = shown(s0);
+      const step = (d) => { let i = s0.act; for (let k = 0; k < list.length; k++) { i = (i + d + list.length) % list.length; if (!list[i].disabled) break; } setSt({ ...s0, act: i }); };
+      if (e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); step(1); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); e.stopPropagation(); step(-1); }
+      else if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); choose(list[s0.act]); }
+      else if (e.key === "Escape" || e.key === "Tab") { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); } close(e.key === "Escape"); }
+      else if (e.key === "Backspace") { if (e.target === s0.sel) { e.preventDefault(); setSt({ ...s0, q: s0.q.slice(0, -1), act: 0 }); } }
+      else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && e.target === s0.sel) { e.preventDefault(); const q = s0.q + e.key; const l2 = shown({ ...s0, q }); setSt({ ...s0, q, act: Math.max(0, l2.findIndex((o) => !o.disabled)) }); }
+    };
+    const onScroll = (e) => { const s0 = stRef.current; if (s0 && !(listRef.current && listRef.current.contains(e.target))) close(false); };
+    const onResize = () => { if (stRef.current) close(false); };
+    document.addEventListener("mousedown", onDown, true);
+    document.addEventListener("keydown", onKey, true);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    return () => {
+      document.removeEventListener("mousedown", onDown, true);
+      document.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [fine]);
+  useEffect(() => {
+    if (!st || !listRef.current) return;
+    const el = listRef.current.querySelector("[data-act='1']");
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest" });
+  }, [st && st.act, st && st.q]);
+  if (!st) return null;
+  const list = shown(st);
+  const r = st.rect, vh = window.innerHeight, vw = window.innerWidth;
+  const maxH = 320, below = vh - r.bottom - 8, up = below < 200 && r.top > below;
+  const width = Math.max(r.width, 200);
+  const left = Math.min(Math.max(8, r.left), vw - width - 8);
+  const style = { position: "fixed", left, width, zIndex: 3000, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8,
+    boxShadow: "0 16px 44px rgba(0,0,0,.25)", overflow: "hidden", display: "flex", flexDirection: "column",
+    ...(up ? { bottom: vh - r.top + 4, maxHeight: Math.min(maxH, r.top - 8) } : { top: r.bottom + 4, maxHeight: Math.min(maxH, Math.max(160, below)) }) };
+  let lastGroup = null;
+  return (
+    <div ref={listRef} style={style} onMouseDown={(e) => e.preventDefault()}>
+      {(st.q || st.opts.length > 10) && <div className="xs mut" style={{ padding: "6px 11px", borderBottom: "1px solid var(--line)" }}>{st.q ? "Поиск: «" + st.q + "» · найдено " + list.length : "Начните печатать для поиска"}</div>}
+      <div style={{ overflowY: "auto" }}>
+        {list.map((o, i) => {
+          const head = o.group && o.group !== lastGroup ? <div key={"g" + i} className="xs mut" style={{ padding: "6px 11px", borderBottom: "1px solid var(--line)", fontWeight: 700 }}>{o.group}</div> : null;
+          lastGroup = o.group;
+          const isCur = o.value === st.sel.value;
+          return (
+            <React.Fragment key={i + ":" + o.value}>
+              {head}
+              <div data-act={i === st.act ? "1" : "0"} className={o.disabled ? "" : "clk pick-row"} onClick={() => choose(o)}
+                style={{ padding: "8px 11px", borderBottom: "1px solid var(--line)", fontSize: 13, fontWeight: isCur ? 700 : 500,
+                  color: o.disabled ? "var(--mut)" : o.value === "__add__" ? "var(--acc)" : "var(--txt)",
+                  backgroundColor: i === st.act ? "var(--acc-tint)" : "var(--panel)", display: "flex", gap: 8, alignItems: "center" }}>
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label || "—"}</span>
+                {isCur && <span style={{ color: "var(--acc)" }}>✓</span>}
+              </div>
+            </React.Fragment>
+          );
+        })}
+        {!list.length && <div className="xs mut" style={{ padding: "10px 11px" }}>Ничего не найдено</div>}
+      </div>
+    </div>
+  );
+}
 function ConfirmHost() {
   const [c, setC] = useState(null);
   useEffect(() => { _confirmSet = setC; return () => { _confirmSet = null; }; }, []);
@@ -6077,6 +6193,7 @@ function AppInner() {
         await reload("all"); setWipeOpen(false); setOpenId(null); toast("База очищена. Товары, поставщики и мастера сохранены.");
       }} />}
       <ConfirmHost />
+      <SelectPopupHost />
       {msg && <div className="toast">{msg}</div>}
       {dbErr && <div className="toast" role="alert" title="Нажмите, чтобы закрыть" onClick={() => setDbErr("")}
         style={{ bottom: msg ? 84 : 20, borderColor: "var(--bad)", color: "var(--bad)", maxWidth: 460, cursor: "pointer" }}>⚠ {dbErr}</div>}
