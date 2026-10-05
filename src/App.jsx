@@ -3323,7 +3323,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     if (f.discount) tot("Скидка:", -round2(f.discount));
     if (f.retSale) tot("Возвраты:", -round2(f.retSale), true);
     tot("Оплачено:", -round2(f.paidClient));
-    tot(f.clientDebt < 0 ? "Баланс (переплата клиента):" : "Баланс :", round2(f.clientDebt));
+    tot(f.clientDebt < 0 ? "Переплата клиента :" : "Баланс :", Math.abs(round2(f.clientDebt)));
     const r = downloadStyledXLSX("Объект_" + safe(obj.name) + ".xlsx", "Клиенту", rows, [6, 60, 10, 7, 13, 15], ["c", "t", "n", "c", "m", "m"]);
     toast(r === "xlsx" ? "Excel для клиента скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
@@ -3435,7 +3435,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       <div className="kpis sect">
         <KPI l="Сумма товара (нетто)" v={f.saleNet} />
         <KPI l="Оплачено клиентом" v={f.paidClient} c="var(--ok)" />
-        <KPI l={f.clientDebt < 0 ? "Переплата клиента" : "Долг клиента"} v={f.clientDebt} c={f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--ok)" : "var(--mut)"} />
+        <KPI l={f.clientDebt < 0 ? "Переплата клиента" : "Долг клиента"} v={Math.abs(f.clientDebt)} c={f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--txt)" : "var(--mut)"} />
       </div>
 
       <div className="row sect" style={{ marginBottom: 8 }}>
