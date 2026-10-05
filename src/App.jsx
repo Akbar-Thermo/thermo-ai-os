@@ -890,8 +890,9 @@ function ClientInput({ value, objects, onChange, onPick, onEnter, phoneMode = fa
       if (!String(o.client || "").trim()) return;
       const k = clientKey(o);
       const c = m.get(k);
-      if (c) { c.n++; if (!c.phone && o.phone) c.phone = o.phone; }
-      else m.set(k, { k, client: String(o.client).trim(), phone: o.phone || "", n: 1, last: o.name });
+      // объекты идут от новых к старым: мастер — из последнего объекта клиента, где он указан
+      if (c) { c.n++; if (!c.phone && o.phone) c.phone = o.phone; if (!c.master_id && o.master_id) { c.master_id = o.master_id; c.master = o.master || ""; } }
+      else m.set(k, { k, client: String(o.client).trim(), phone: o.phone || "", n: 1, last: o.name, master_id: o.master_id || "", master: o.master_id ? o.master || "" : "" });
     });
     return [...m.values()];
   }, [objects]);
@@ -2692,6 +2693,12 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   const noSupCount = lines.filter((l) => !lineSup(l)).length;
   const setSupForEmpty = (sid) => { if (sid) setLines((prev) => prev.map((l) => (lineSup(l) ? l : { ...l, supplier_id: sid }))); };
 
+  // мастер клиента из его прошлого объекта — подставляется, если мастер ещё не выбран и он активен
+  const clientMaster = (x, c) => {
+    if (x.master_id || !c.master_id) return {};
+    const m = masters.find((mm) => mm.id === c.master_id && mm.status === "active");
+    return m ? { master_id: m.id, master: m.name } : {};
+  };
   const saveNewMaster = async () => {
     if (!newMasterName.trim()) return;
     setSavingMaster(true);
@@ -2842,10 +2849,10 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                 <Fld label="Название объекта"><input className="inp" value={newObj.name} onChange={(e) => setNewObj({ ...newObj, name: e.target.value })} placeholder="Дом, ул. Чиланзар 12" /></Fld>
                 <Fld label="Клиент"><ClientInput value={newObj.client} objects={data.objects || []}
                   onChange={(v) => setNewObj((x) => ({ ...x, client: v }))}
-                  onPick={(c) => setNewObj((x) => ({ ...x, client: c.client, phone: c.phone || x.phone }))} /></Fld>
+                  onPick={(c) => setNewObj((x) => ({ ...x, client: c.client, phone: c.phone || x.phone, ...clientMaster(x, c) }))} /></Fld>
                 <Fld label={"Теле\u2060фон клиента"}><ClientInput phoneMode value={newObj.phone} objects={data.objects || []}
                   onChange={(v) => setNewObj((x) => ({ ...x, phone: v }))}
-                  onPick={(c) => setNewObj((x) => ({ ...x, phone: c.phone, client: x.client && x.client.trim() ? x.client : c.client }))} /></Fld>
+                  onPick={(c) => setNewObj((x) => ({ ...x, phone: c.phone, client: x.client && x.client.trim() ? x.client : c.client, ...clientMaster(x, c) }))} /></Fld>
                 <div className="fld">
                   <label>Мастер</label>
                   {!addingMaster ? (
