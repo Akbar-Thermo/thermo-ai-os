@@ -588,6 +588,25 @@ async function warehouseIn(returnOps, sourceObjName) {
   return failed;
 }
 // отгрузка со склада: остаток берём свежий из базы (на экране он мог устареть). Возвращает число ошибок.
+// строки, которые есть на Складе Thermo, берём сначала со склада (fromWh !== false), остаток — у поставщика.
+// mk(row, qty, whRow|null) → позиция объекта. Возвращает { items, whOut } (whOut — что списать со склада после сохранения).
+function splitByWarehouse(rows, warehouse, mk) {
+  const left = {}, items = [], whOut = [];
+  rows.forEach((r) => {
+    let q = Number(r.qty) || 0;
+    if (r.product_id && r.fromWh !== false) {
+      const w = (warehouse || []).find((x) => x.product_id === r.product_id && Number(x.qty) > 0);
+      if (w) {
+        if (left[w.id] == null) left[w.id] = Number(w.qty) || 0;
+        const take = round2(Math.min(q, left[w.id]));
+        if (take > 0) { items.push(mk(r, take, w)); whOut.push({ row: w, qty: take }); left[w.id] = round2(left[w.id] - take); q = round2(q - take); }
+      }
+    }
+    if (q > 0) items.push(mk(r, q, null));
+  });
+  return { items, whOut };
+}
+const whItemPatch = (w) => ({ from_warehouse: true, cost: Number(w.cost) || 0, supplier_id: w.supplier_id || null, source_text: "со склада Thermo", shipped: undefined });
 async function warehouseOut(lines, targetObj, user) {
   let failed = 0;
   for (const l of lines) {
@@ -2659,7 +2678,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   const qn = (x) => parseNum(x); // количество в строке хранится так, как его ввели (можно очистить поле)
 
   const addFromBase = (p) => {
-    if (whQty[p.id]) toast("🏬 «" + p.name + "» есть на Складе Thermo: " + fmt(whQty[p.id]) + " " + (p.unit || "шт") + " — можно отправить со склада (Склад Thermo → «Отправить на объект»)");
+    if (whQty[p.id]) toast("🏬 «" + p.name + "» есть на Складе Thermo: " + fmt(whQty[p.id]) + " " + (p.unit || "шт") + " — будет отдано со склада");
     setLines((prev) => {
       const ex = prev.find((l) => l.product_id === p.id);
       if (ex) return prev.map((l) => (l.product_id === p.id ? { ...l, qty: qn(l.qty) + 1 } : l));
@@ -2724,17 +2743,24 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   const doSave = async (saleK) => {
     setBusy(true); setErr("");
     try {
-      const mkItems = (batchNo) => lines.map((l) => {
-        const p = l.product_id ? prodById(l.product_id) : null;
-        const cost = p ? Number(p.cost) || 0 : parseNum(l.cost);
-        return {
-          id: uuid(), product_id: p ? p.id : null, name: p ? p.name : String(l.name || "").trim(), size: p ? p.size : l.size, unit: p ? p.unit : l.unit,
-          qty: qn(l.qty), price: l.manualPrice != null && l.manualPrice !== "" ? parseNum(l.manualPrice) : Math.round(cost * saleK * 100) / 100, cost,
-          supplier_id: lineSup(l),
-          source_text: p ? p.name : l.name, confidence: 100,
-          batch_no: batchNo, batch_date: today(), shipped: false, added_at: new Date().toISOString(),
-        };
-      });
+      let whOut = [];
+      const mkItems = (batchNo) => {
+        const sp = splitByWarehouse(lines.map((l) => ({ ...l, qty: qn(l.qty), product_id: l.product_id && prodById(l.product_id) ? l.product_id : null })), data.warehouse, (l, qty, w) => {
+          const p = l.product_id ? prodById(l.product_id) : null;
+          const cost = p ? Number(p.cost) || 0 : parseNum(l.cost);
+          const it = {
+            id: uuid(), product_id: p ? p.id : null, name: p ? p.name : String(l.name || "").trim(), size: p ? p.size : l.size, unit: p ? p.unit : l.unit,
+            qty, price: l.manualPrice != null && l.manualPrice !== "" ? parseNum(l.manualPrice) : Math.round(cost * saleK * 100) / 100, cost,
+            supplier_id: lineSup(l),
+            source_text: p ? p.name : l.name, confidence: 100,
+            batch_no: batchNo, batch_date: today(), shipped: false, added_at: new Date().toISOString(),
+          };
+          if (w) { Object.assign(it, whItemPatch(w)); delete it.shipped; }
+          return it;
+        });
+        whOut = sp.whOut;
+        return sp.items;
+      };
       let obj = selObj, batchNo = 1, items;
       if (!obj) {
         // новый объект создаётся сразу вместе с позициями — одной записью (раньше объект создавался пустым,
@@ -2761,6 +2787,8 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
         }, extra);
         if (r.error) throw new Error("позиции не сохранены: " + (r.error.message || r.error) + ". Заявка осталась на экране — попробуйте ещё раз.");
       }
+      // товар со Склада Thermo — списываем со склада (после того как позиции сохранены)
+      const whFail = whOut.length ? await warehouseOut(whOut, obj, curUserName()) : 0;
       // история заявок — не критично: при ошибке поставка всё равно сохранена
       await db.from("requests").insert(cleanUuids({
         object_id: obj.id, mode: "manual", source: "manual",
@@ -2778,7 +2806,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
         }
       }
       await logAction("Заявка сохранена", "object:" + obj.name, "поставка №" + batchNo + ", позиций: " + items.length + (linked ? ", товарам указан поставщик: " + linked : ""));
-      toast("Поставка №" + batchNo + " сохранена: " + items.length + " поз. → «" + obj.name + "»");
+      toast("Поставка №" + batchNo + " сохранена: " + items.length + " поз. → «" + obj.name + "»" + (whOut.length ? " · со Склада Thermo: " + whOut.length + " поз." : "") + (whFail ? " · ⚠ склад не списан у " + whFail + " поз." : ""));
       setStep(0); setLines([]); setObjId(""); setMarkupModal(false);
       setNewObj({ name: "", client: "", phone: "", master: "", master_id: "", manager: "", address: "" });
       clearDraft();
@@ -2919,7 +2947,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
             <div style={{ overflow: "auto" }}>
               <table className="t" style={{ minWidth: 820 }}>
                 <thead><tr>
-                  <th>Товар</th><th style={{ width: 90 }}>Кол-во</th><th style={{ width: 70 }}>Ед.</th><th style={{ textAlign: "right", color: "var(--ok)" }}>Цена продажи</th><th title="Сколько такого товара есть на Складе Thermo">Склад</th><th></th>
+                  <th>Товар</th><th style={{ width: 90 }}>Кол-во</th><th style={{ width: 70 }}>Ед.</th><th style={{ textAlign: "right", color: "var(--ok)" }}>Цена продажи</th><th title="Есть на Складе Thermo — отдаётся со склада (галочка)">Склад Thermo</th><th></th>
                 </tr></thead>
                 <tbody>
                   {lines.map((l) => {
@@ -2951,7 +2979,12 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                             : <span className="mut">{l.unit}</span>}
                         </td>
                         <td><input type="number" className="inp" style={{ width: 100, textAlign: "right", fontWeight: 700, ...(l.manualPrice != null && l.manualPrice !== "" && parseNum(l.manualPrice) < (p ? Number(p.cost) || 0 : parseNum(l.cost)) ? { color: "var(--bad)", borderColor: "var(--bad)" } : { color: "var(--ok)" }) }} placeholder={l.manual ? "цена" : "авто"} value={l.manualPrice != null ? l.manualPrice : ""} onChange={(e) => setLine(l.id, { manualPrice: e.target.value === "" ? null : e.target.value })} title="Цена продажи (оставьте пустым — рассчитается по наценке)" /></td>
-                        <td className="num" title={p && whQty[p.id] ? "Есть на Складе Thermo — можно отгрузить оттуда (Склад → «Отправить на объект»)" : ""} style={{ color: p && whQty[p.id] ? "var(--ok)" : "var(--mut)", fontWeight: p && whQty[p.id] ? 700 : 400 }}>{p && whQty[p.id] ? fmt(whQty[p.id]) : "—"}</td>
+                        <td className="sm">{p && whQty[p.id] ? (
+                          <label className="row" style={{ gap: 5, flexWrap: "nowrap", cursor: "pointer", color: l.fromWh !== false ? "var(--ok)" : "var(--mut)", fontWeight: 700 }} title="Отдать со Склада Thermo (снимите галочку — закупить у поставщика)">
+                            <input type="checkbox" checked={l.fromWh !== false} onChange={(e) => setLine(l.id, { fromWh: e.target.checked })} />
+                            <span>со склада: {fmt(Math.min(qn(l.qty), whQty[p.id]))}{qn(l.qty) > whQty[p.id] ? <span className="xs mut" style={{ fontWeight: 400 }}> (+{fmt(qn(l.qty) - whQty[p.id])} у пост.)</span> : null}</span>
+                          </label>
+                        ) : <span className="mut">—</span>}</td>
                         <td><button className="btn xs dng" onClick={() => setDelLine(l.id)}>✕</button></td>
                       </tr>
                     );
@@ -3212,21 +3245,29 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   };
   // newBatch: true → создаём новую поставку с новым номером. false → добавляем в последнюю существующую поставку (или №1, если поставок ещё нет)
   const addManualItems = async (rows, newBatch) => {
-    let batchNo = 1;
+    let batchNo = 1, whOut = [];
     const ok = await saveItems((cur) => {
       const exNos = cur.map((i) => i.batch_no || 1);
       const lastNo = exNos.length ? Math.max(...exNos) : 0;
       batchNo = newBatch ? lastNo + 1 : (lastNo || 1);
       const batchDate = newBatch || !lastNo ? today() : (cur.find((i) => (i.batch_no || 1) === batchNo) || {}).batch_date || today();
-      return [...cur, ...rows.map((r) => ({
-        id: uuid(), product_id: r.product_id || null, name: r.name, size: r.size, unit: r.unit || "шт",
-        qty: parseNum(r.qty), price: parseNum(r.price), cost: parseNum(r.cost), supplier_id: r.supplier_id || null,
-        source_text: "добавлено вручную", confidence: 100, batch_no: batchNo, batch_date: batchDate, manual: true, shipped: false, added_at: new Date().toISOString(),
-      }))];
+      const sp = splitByWarehouse(rows.map((r) => ({ ...r, qty: parseNum(r.qty) })), data.warehouse, (r, qty, w) => {
+        const it = {
+          id: uuid(), product_id: r.product_id || null, name: r.name, size: r.size, unit: r.unit || "шт",
+          qty, price: parseNum(r.price), cost: parseNum(r.cost), supplier_id: r.supplier_id || null,
+          source_text: "добавлено вручную", confidence: 100, batch_no: batchNo, batch_date: batchDate, manual: true, shipped: false, added_at: new Date().toISOString(),
+        };
+        if (w) { Object.assign(it, whItemPatch(w)); delete it.shipped; }
+        return it;
+      });
+      whOut = sp.whOut;
+      return [...cur, ...sp.items];
     });
+    let whFail = 0;
+    if (ok && whOut.length) { whFail = await warehouseOut(whOut, obj, curUserName()); await reload(); }
     if (ok) {
       await logAction(newBatch ? "Новая поставка" : "Добавлены позиции", "object:" + obj.name, "поставка №" + batchNo + ", позиций: " + rows.length);
-      toast((newBatch ? "Новая поставка №" + batchNo + ": " : "Добавлено в поставку №" + batchNo + ": ") + rows.length + " поз.");
+      toast((newBatch ? "Новая поставка №" + batchNo + ": " : "Добавлено в поставку №" + batchNo + ": ") + rows.length + " поз." + (whOut.length ? " · со Склада Thermo: " + whOut.length + " поз." : "") + (whFail ? " · ⚠ склад не списан у " + whFail + " поз." : ""));
     }
     return ok;
   };
@@ -3900,7 +3941,10 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
             {rows.map((r, i) => (
               <tr key={i}>
                 <td><input className="inp" value={r.name} onChange={(e) => upd(i, "name", e.target.value)} />
-                  {r.product_id && whQty[r.product_id] ? <div className="xs" style={{ color: "var(--ok)", fontWeight: 700, marginTop: 3 }}>🏬 есть на Складе Thermo: {fmt(whQty[r.product_id])} — можно отправить со склада</div> : null}</td>
+                  {r.product_id && whQty[r.product_id] ? <label className="row xs" style={{ gap: 5, marginTop: 3, cursor: "pointer", color: r.fromWh !== false ? "var(--ok)" : "var(--mut)", fontWeight: 700 }}>
+                    <input type="checkbox" checked={r.fromWh !== false} onChange={(e) => upd(i, "fromWh", e.target.checked)} />
+                    🏬 со Склада Thermo (есть {fmt(whQty[r.product_id])}){parseNum(r.qty) > whQty[r.product_id] ? " · остальное у поставщика" : ""}
+                  </label> : null}</td>
                 <td><input className="inp" value={r.unit} onChange={(e) => upd(i, "unit", e.target.value)} /></td>
                 <td><input type="number" className="inp" min={0} value={r.qty} onChange={(e) => upd(i, "qty", e.target.value)} style={{ borderColor: parseNum(r.qty) > 0 ? undefined : "var(--bad)" }} /></td>
                 <td><input type="number" className="inp num" value={r.price} onChange={(e) => upd(i, "price", e.target.value)} /></td>
