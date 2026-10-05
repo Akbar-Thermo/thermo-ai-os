@@ -2810,26 +2810,42 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
       {err && <div className="card sect" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{err}</div>}
 
       {step === 0 && (
-        <div className="card">
+        // Enter переходит к следующему полю; на последнем поле (или в выбранном существующем объекте) — «Далее»
+        <div className="card" onKeyDown={(e) => {
+          if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+          const t = e.target;
+          if (!(t instanceof HTMLInputElement || t instanceof HTMLSelectElement)) return;
+          e.preventDefault();
+          const card = e.currentTarget;
+          const next = () => {
+            const els = [...card.querySelectorAll("input:not([type=hidden]), select")].filter((x) => !x.disabled && x.offsetParent !== null);
+            const i = els.indexOf(t);
+            if (i < 0) return; // поле исчезло (например, открылась форма нового мастера)
+            if (i < els.length - 1) { els[i + 1].focus(); if (els[i + 1].select && els[i + 1].tagName === "INPUT") els[i + 1].select(); }
+            else { const b = card.querySelector("[data-next-step]"); if (b && !b.disabled) b.click(); }
+          };
+          setTimeout(next, 0); // после выбора из списка (клиент/телефон/мастер) поле успевает обновиться
+        }}>
           <div>
             <div style={{ marginBottom: 14 }}>
               <h3 style={{ marginBottom: 10 }}>Объект</h3>
-              <select className="inp" value={objId} onChange={(e) => setObjId(e.target.value)}>
-                <option value="">— создать новый —</option>
-                {activeObjects.map((o) => <option key={o.id} value={o.id}>{o.name} ({o.client})</option>)}
-              </select>
+              <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
+                <select className="inp" value={objId} onChange={(e) => setObjId(e.target.value)}>
+                  <option value="" disabled hidden>— создать новый —</option>
+                  {activeObjects.map((o) => <option key={o.id} value={o.id}>{o.name} ({o.client})</option>)}
+                </select>
+                {objId && <button className="btn" style={{ whiteSpace: "nowrap" }} onClick={() => setObjId("")}>+ Создать новый</button>}
+              </div>
             </div>
             {!objId && (
               <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                <Fld label="Название объекта"><input className="inp" value={newObj.name} onChange={(e) => setNewObj({ ...newObj, name: e.target.value })} placeholder="Дом, ул. Чиланзар 12" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.target.closest(".grid").querySelectorAll("input,select")[1]?.focus(); }}} /></Fld>
+                <Fld label="Название объекта"><input className="inp" value={newObj.name} onChange={(e) => setNewObj({ ...newObj, name: e.target.value })} placeholder="Дом, ул. Чиланзар 12" /></Fld>
                 <Fld label="Клиент"><ClientInput value={newObj.client} objects={data.objects || []}
                   onChange={(v) => setNewObj((x) => ({ ...x, client: v }))}
-                  onPick={(c) => setNewObj((x) => ({ ...x, client: c.client, phone: c.phone || x.phone }))}
-                  onEnter={(el) => el.closest(".grid").querySelectorAll("input,select")[2]?.focus()} /></Fld>
+                  onPick={(c) => setNewObj((x) => ({ ...x, client: c.client, phone: c.phone || x.phone }))} /></Fld>
                 <Fld label={"Теле\u2060фон клиента"}><ClientInput phoneMode value={newObj.phone} objects={data.objects || []}
                   onChange={(v) => setNewObj((x) => ({ ...x, phone: v }))}
-                  onPick={(c) => setNewObj((x) => ({ ...x, phone: c.phone, client: x.client && x.client.trim() ? x.client : c.client }))}
-                  onEnter={(el) => el.closest(".grid").querySelectorAll("input,select")[3]?.focus()} /></Fld>
+                  onPick={(c) => setNewObj((x) => ({ ...x, phone: c.phone, client: x.client && x.client.trim() ? x.client : c.client }))} /></Fld>
                 <div className="fld">
                   <label>Мастер</label>
                   {!addingMaster ? (
@@ -2857,7 +2873,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
             )}
           </div>
           <div className="row" style={{ marginTop: 16, justifyContent: "flex-end" }}>
-            <button className="btn pri" disabled={!objId && !newObj.name} onClick={() => setStep(1)}>Далее →</button>
+            <button className="btn pri" data-next-step disabled={!objId && !newObj.name} onClick={() => setStep(1)}>Далее →</button>
           </div>
         </div>
       )}
