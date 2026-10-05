@@ -82,6 +82,10 @@ const db = dbWrap(dbModule.db);
    ============================================================ */
 
 const SEGMENTS = ["эконом", "комфорт", "премиум"];
+// в базе хранится «комфорт», на экране — «Стандарт»
+const SEG_LABEL = { "эконом": "Эконом", "комфорт": "Стандарт", "премиум": "Премиум" };
+const SEG_COLOR = { "эконом": "var(--t-info)", "комфорт": "var(--t-strong)", "премиум": "var(--t-violet)" };
+const supSeg = (sup) => (sup && SEGMENTS.includes(sup.segment) ? sup.segment : "комфорт");
 const OBJ_STATUSES = [
   { id: "draft", label: "Черновик", c: "var(--t-neutral)" },
   { id: "review", label: "На проверке", c: "var(--t-warn)" },
@@ -1912,7 +1916,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
           <tbody>
             {shown.map(({ s, st }) => (
               <tr key={s.id} style={{ opacity: s.status === "inactive" ? 0.55 : 1 }}>
-                <td style={{ fontWeight: 700 }}>{s.name}{s.status === "inactive" && <> <Badge c="#9a9a9a">неактивен</Badge></>}</td>
+                <td style={{ fontWeight: 700 }}>{s.name}{s.status === "inactive" && <> <Badge c="#9a9a9a">неактивен</Badge></>}<div><Badge c={SEG_COLOR[supSeg(s)]}>{SEG_LABEL[supSeg(s)]}</Badge></div></td>
                 <td className="sm">{s.contact}<div className="xs mut mono">{s.phone}</div></td>
                 <td className="sm mut">{s.terms}</td>
                 <td className="num">{fmt(st.purchases)}</td>
@@ -2098,6 +2102,7 @@ function SupplierForm({ s, all = [], hasNote = true, onSave }) {
         <Fld label="Телефон"><input className="inp" value={v.phone || ""} onChange={set("phone")} /></Fld>
         <Fld label="Условия оплаты"><input className="inp" value={v.terms || ""} onChange={set("terms")} /></Fld>
         <Fld label="Статус"><select className="inp" value={v.status || "active"} onChange={set("status")}><option value="active">активен</option><option value="inactive">неактивен (скрыт из списков выбора)</option></select></Fld>
+        <Fld label="Сегмент (для расчёта «3 сегмента»)"><select className="inp" value={supSeg(v)} onChange={set("segment")}>{SEGMENTS.map((x) => <option key={x} value={x}>{SEG_LABEL[x]}</option>)}</select></Fld>
         {hasNote && <Fld label="Примечание"><input className="inp" value={v.note || ""} onChange={set("note")} /></Fld>}
       </div>
       {dup && <p className="sm" style={{ color: "var(--warn)", marginTop: 10 }}>Поставщик «{dup.name}» уже есть — выберите другое название, чтобы закупки и долги не разделились на два поставщика.</p>}
@@ -2259,6 +2264,119 @@ function buildMatcher(products) {
   };
 }
 const MATCH_OK = 0.75, MATCH_MIN = 0.45;
+/* ============ «3 сегмента»: тот же список в товарах поставщиков Эконом / Стандарт / Премиум ============
+   Для каждой строки в каждом сегменте: если товар строки уже от поставщика этого сегмента — он сам,
+   иначе — самый похожий по названию товар поставщиков этого сегмента (слова и цифры размеров; бренды не учитываются).
+   Неподходящее совпадение можно заменить вручную. Цена = себестоимость + наценка. */
+function SegmentCalc({ lines, products, suppliers, markup, picks, setPicks, onClose }) {
+  const [mk, setMk] = useState(String(markup || 0));
+  const [edit, setEdit] = useState(null); // { lineId, seg } — открыт поиск в ячейке
+  const k = 1 + (parseNum(mk) || 0) / 100;
+  const supById = useMemo(() => { const m = {}; suppliers.forEach((x) => { m[x.id] = x; }); return m; }, [suppliers]);
+  const prodById = useMemo(() => { const m = {}; products.forEach((p) => { m[p.id] = p; }); return m; }, [products]);
+  const segOfProd = (p) => (p && p.supplier_id && supById[p.supplier_id] ? supSeg(supById[p.supplier_id]) : null);
+  // товары каждого сегмента (только активные поставщики) и их поисковики
+  const segData = useMemo(() => {
+    const out = {};
+    SEGMENTS.forEach((sg) => {
+      const list = products.filter((p) => { const sp = p.supplier_id && supById[p.supplier_id]; return sp && sp.status !== "inactive" && supSeg(sp) === sg; });
+      out[sg] = { list, match: list.length ? buildMatcher(list) : () => [] };
+    });
+    return out;
+  }, [products, supById]);
+  // слова, которые не описывают сам товар: названия поставщиков и бренды
+  const noise = useMemo(() => {
+    const st = new Set();
+    suppliers.forEach((x) => mtTokens(x.name).forEach((t) => st.add(t)));
+    products.forEach((p) => { if (p.brand) mtTokens(p.brand).forEach((t) => st.add(t)); });
+    return st;
+  }, [suppliers, products]);
+  const query = (l) => { const p = l.product_id ? prodById[l.product_id] : null; const nm = p ? p.name : l.name; return mtTokens(nm).filter((t) => /\d/.test(t) || !noise.has(t)).join(" "); };
+  const auto = useMemo(() => {
+    const res = {};
+    lines.forEach((l) => {
+      const p = l.product_id ? prodById[l.product_id] : null, own = segOfProd(p), q = query(l);
+      res[l.id] = {};
+      SEGMENTS.forEach((sg) => {
+        if (p && own === sg) { res[l.id][sg] = { p, score: 1, own: true, cands: [] }; return; }
+        const cands = q ? segData[sg].match(q).filter((c) => c.score >= MATCH_MIN) : [];
+        res[l.id][sg] = { p: cands[0] ? cands[0].p : null, score: cands[0] ? cands[0].score : 0, cands };
+      });
+    });
+    return res;
+  }, [lines, segData, prodById, noise]);
+  const cell = (l, sg) => {
+    const pk = picks[l.id] && picks[l.id][sg];
+    if (pk !== undefined) return { p: pk ? prodById[pk] : null, manual: true, cands: auto[l.id][sg].cands };
+    return auto[l.id][sg];
+  };
+  const qty = (l) => Number(l.qty) || 0;
+  const priceOf = (l, c) => (c.own && l.manualPrice != null && l.manualPrice !== "" ? parseNum(l.manualPrice) : round2((Number(c.p.cost) || 0) * k));
+  const tot = SEGMENTS.map((sg) => {
+    let sale = 0, cost = 0, found = 0;
+    lines.forEach((l) => { const c = cell(l, sg); if (!c.p) return; found++; sale += qty(l) * priceOf(l, c); cost += qty(l) * (Number(c.p.cost) || 0); });
+    return { sg, sale, cost, found, cnt: segData[sg].list.length };
+  });
+  const setPick = (lineId, sg, val) => setPicks((prev) => ({ ...prev, [lineId]: { ...(prev[lineId] || {}), [sg]: val } }));
+  return (
+    <Modal title="Расчёт в трёх сегментах" onClose={onClose} w={1180}>
+      <div className="row" style={{ gap: 10, marginBottom: 10 }}>
+        <p className="sm mut" style={{ marginRight: "auto", flex: "1 1 420px" }}>Для каждой позиции подобран похожий товар у поставщиков каждого сегмента. Сегмент поставщика задаётся в «Поставщики → ред.». Неподходящий товар замените в ячейке.</p>
+        <Fld label="Наценка, %"><input type="number" className="inp" style={{ width: 110, fontWeight: 700 }} value={mk} onChange={(e) => setMk(e.target.value)} /></Fld>
+      </div>
+      <div className="grid" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: 12 }}>
+        {tot.map((t) => (
+          <div key={t.sg} className="kpi" style={{ borderTop: "3px solid " + SEG_COLOR[t.sg] }}>
+            <div className="l">{SEG_LABEL[t.sg]} <span className="xs mut">· поставщиков: {suppliers.filter((x) => x.status !== "inactive" && supSeg(x) === t.sg).length}</span></div>
+            <div className="v">{fmt2(t.sale)}</div>
+            <div className="xs mut">себестоимость {fmt2(t.cost)} · прибыль <b style={{ color: "var(--ok)" }}>{fmt2(t.sale - t.cost)}</b></div>
+            <div className="xs" style={{ color: t.found < lines.length ? "var(--warn)" : "var(--ok)" }}>подобрано {t.found} из {lines.length}{t.found < lines.length ? " — остальные не входят в сумму" : ""}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ overflow: "auto", maxHeight: "55vh" }}>
+        <table className="t" style={{ minWidth: 1000 }}>
+          <thead><tr><th>Позиция заявки</th><th style={{ textAlign: "right" }}>Кол-во</th>{SEGMENTS.map((sg) => <th key={sg} style={{ minWidth: 260 }}>{SEG_LABEL[sg]}</th>)}</tr></thead>
+          <tbody>
+            {lines.map((l) => (
+              <tr key={l.id}>
+                <td className="sm" style={{ fontWeight: 600, minWidth: 200 }}>{l.name || "—"}</td>
+                <td className="num">{fmt(qty(l))} <span className="xs mut">{l.unit}</span></td>
+                {SEGMENTS.map((sg) => {
+                  const c = cell(l, sg);
+                  const isEdit = edit && edit.lineId === l.id && edit.seg === sg;
+                  return (
+                    <td key={sg} className="sm" style={{ verticalAlign: "top", background: c.p ? undefined : "color-mix(in srgb, var(--warn) 7%, transparent)" }}>
+                      {c.p ? <>
+                        <div style={{ fontWeight: 600 }}>{c.p.name}</div>
+                        <div className="xs mut">{(supById[c.p.supplier_id] || {}).name || ""}{c.own ? " · товар из заявки" : c.manual ? " · выбрано вручную" : " · совпадение " + Math.round((c.score || 0) * 100) + "%"}</div>
+                        <div className="xs mono">{fmt2(priceOf(l, c))} × {fmt(qty(l))} = <b>{fmt2(priceOf(l, c) * qty(l))}</b></div>
+                      </> : <div className="xs" style={{ color: "var(--warn)" }}>не найдено</div>}
+                      {isEdit ? (
+                        <div style={{ marginTop: 4 }}>
+                          {c.cands && c.cands.length > 0 && <select className="inp" style={{ marginBottom: 4 }} value="" onChange={(e) => { if (e.target.value) { setPick(l.id, sg, e.target.value); setEdit(null); } }}>
+                            <option value="">— похожие —</option>
+                            {c.cands.map((x) => <option key={x.p.id} value={x.p.id}>{x.p.name} · {(supById[x.p.supplier_id] || {}).name} ({Math.round(x.score * 100)}%)</option>)}
+                          </select>}
+                          <ProductPicker closeOnPick products={segData[sg].list} suppliers={suppliers.filter((x) => supSeg(x) === sg)} placeholder={"поиск в сегменте «" + SEG_LABEL[sg] + "»…"} onPick={(p) => { setPick(l.id, sg, p.id); setEdit(null); }} />
+                          <div className="row" style={{ gap: 4, marginTop: 4 }}>
+                            <button className="btn xs" onClick={() => { setPick(l.id, sg, ""); setEdit(null); }}>нет в сегменте</button>
+                            {picks[l.id] && picks[l.id][sg] !== undefined && <button className="btn xs" onClick={() => { setPicks((prev) => { const n = { ...prev, [l.id]: { ...(prev[l.id] || {}) } }; delete n[l.id][sg]; return n; }); setEdit(null); }}>авто</button>}
+                            <button className="btn xs" onClick={() => setEdit(null)}>закрыть</button>
+                          </div>
+                        </div>
+                      ) : <button className="btn xs" style={{ marginTop: 4 }} onClick={() => setEdit({ lineId: l.id, seg: sg })}>заменить</button>}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Modal>
+  );
+}
 function RequestExcelImport({ products, onClose, onAdd }) {
   const FIELDS = [
     { id: "name", label: "Наименование*", kw: ["наименован", "назван", "товар", "name", "номенклат", "материал"] },
@@ -2417,6 +2535,8 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   const [lines, setLines] = useState(() => { try { return JSON.parse(localStorage.getItem(draftKey) || "{}").lines || []; } catch { return []; } });
   const [delLine, setDelLine] = useState(null);
   const [xlImport, setXlImport] = useState(false);
+  const [segCalc, setSegCalc] = useState(false);
+  const [segPick, setSegPick] = useState({}); // ручной выбор в «3 сегмента»: { [lineId]: { [seg]: productId | "" } }
   const [markupModal, setMarkupModal] = useState(false);
   const [markup, setMarkup] = useState(15);
   const [markupCustom, setMarkupCustom] = useState("");
@@ -2651,8 +2771,10 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
         <div className="card">
           <div className="row" style={{ marginBottom: 12 }}>
             <h3 style={{ marginRight: "auto" }}>Подбор товаров</h3>
+            <button className="btn" disabled={!lines.length} onClick={() => setSegCalc(true)} title="Посчитать список сразу в трёх сегментах поставщиков: Эконом / Стандарт / Премиум">⚖ 3 сегмента</button>
             <button className="btn" onClick={() => setXlImport(true)}>📊 Загрузить из Excel</button>
           </div>
+          {segCalc && <SegmentCalc lines={lines} products={filteredProducts} suppliers={suppliers} markup={effectiveMarkup} picks={segPick} setPicks={setSegPick} onClose={() => setSegCalc(false)} />}
           {xlImport && <RequestExcelImport products={filteredProducts} onClose={() => setXlImport(false)} onAdd={addImported} />}
 
           <div className="row" style={{ marginBottom: 12, gap: 10 }}>
