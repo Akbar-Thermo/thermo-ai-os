@@ -2834,16 +2834,13 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
           setTimeout(next, 0); // после выбора из списка (клиент/телефон/мастер) поле успевает обновиться
         }}>
           <div>
-            <div style={{ marginBottom: 14 }}>
-              <h3 style={{ marginBottom: 10 }}>Объект</h3>
-              <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
-                <select className="inp" value={objId} onChange={(e) => setObjId(e.target.value)}>
-                  <option value="" disabled hidden>— создать новый —</option>
-                  {activeObjects.map((o) => <option key={o.id} value={o.id}>{o.name} ({o.client})</option>)}
-                </select>
-                {objId && <button className="btn" style={{ whiteSpace: "nowrap" }} onClick={() => setObjId("")}>+ Создать новый</button>}
+            {objId && (
+              // выбор существующего объекта убран; если заявка уже привязана к объекту — показываем его и даём вернуться к новому
+              <div className="row" style={{ marginBottom: 14, gap: 8 }}>
+                <div style={{ marginRight: "auto" }}><span className="mut sm">Объект: </span><b>{(activeObjects.find((o) => o.id === objId) || {}).name || "—"}</b></div>
+                <button className="btn" onClick={() => setObjId("")}>+ Создать новый</button>
               </div>
-            </div>
+            )}
             {!objId && (
               <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
                 <Fld label="Название объекта"><input className="inp" value={newObj.name} onChange={(e) => setNewObj({ ...newObj, name: e.target.value })} placeholder="Дом, ул. Чиланзар 12" /></Fld>
@@ -3322,7 +3319,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     tot("Сумма выданного товара:", round2(f.sale));
     if (f.discount) tot("Скидка:", -round2(f.discount));
     if (f.retSale) tot("Возвраты:", -round2(f.retSale), true);
-    tot("Оплачено:", -round2(f.paidClient));
+    tot("Оплачено:", round2(f.paidClient));
     tot(f.clientDebt < 0 ? "Переплата клиента :" : "Баланс :", Math.abs(round2(f.clientDebt)));
     const r = downloadStyledXLSX("Объект_" + safe(obj.name) + ".xlsx", "Клиенту", rows, [6, 60, 10, 7, 13, 15], ["c", "t", "n", "c", "m", "m"]);
     toast(r === "xlsx" ? "Excel для клиента скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
