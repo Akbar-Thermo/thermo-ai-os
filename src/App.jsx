@@ -167,7 +167,7 @@ function EmployeeSelect({ value, onChange, employees, onAdded }) {
   );
   return (
     <select className="inp" value={value || ""} style={{ borderColor: value ? undefined : "var(--bad)" }} onChange={(e) => { if (e.target.value === "__add__") setAdding(true); else onChange(e.target.value); }}>
-      <option value="">— выберите сотрудника —</option>
+      <option value="" disabled hidden>— выберите сотрудника —</option>
       {employees.map((x) => <option key={x} value={x}>{x}</option>)}
       <option value="__add__">+ добавить сотрудника…</option>
     </select>
@@ -1916,7 +1916,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
           <tbody>
             {shown.map(({ s, st }) => (
               <tr key={s.id} style={{ opacity: s.status === "inactive" ? 0.55 : 1 }}>
-                <td style={{ fontWeight: 700 }}>{s.name}{s.status === "inactive" && <> <Badge c="#9a9a9a">неактивен</Badge></>}<div><Badge c={SEG_COLOR[supSeg(s)]}>{SEG_LABEL[supSeg(s)]}</Badge></div></td>
+                <td style={{ fontWeight: 700 }}>{s.name}{s.status === "inactive" && <> <Badge c="#9a9a9a">неактивен</Badge></>}{" "}<Badge c={SEG_COLOR[supSeg(s)]}>{SEG_LABEL[supSeg(s)]}</Badge></td>
                 <td className="sm">{s.contact}<div className="xs mut mono">{s.phone}</div></td>
                 <td className="sm mut">{s.terms}</td>
                 <td className="num">{fmt(st.purchases)}</td>
