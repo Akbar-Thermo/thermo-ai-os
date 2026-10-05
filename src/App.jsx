@@ -874,7 +874,7 @@ function Modal({ title, onClose, children, w = 640 }) {
 const PeopleCtx = createContext({ people: [], addPerson: () => {} });
 const curUserName = () => (CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username || "") : "");
 // поле «Клиент» с подсказками: клиенты из прошлых объектов (имя · телефон); выбор подставляет и телефон
-function ClientInput({ value, objects, onChange, onPick, onEnter }) {
+function ClientInput({ value, objects, onChange, onPick, onEnter, phoneMode = false }) {
   const [open, setOpen] = useState(false);
   const [act, setAct] = useState(-1);
   const box = useRef(null);
@@ -896,27 +896,29 @@ function ClientInput({ value, objects, onChange, onPick, onEnter }) {
     return [...m.values()];
   }, [objects]);
   const q = String(value || "").trim().toLowerCase(), qd = q.replace(/\D/g, "");
-  const hits = clients.filter((c) => !q || c.client.toLowerCase().includes(q) || (qd.length >= 3 && String(c.phone).replace(/\D/g, "").includes(qd))).slice(0, 8);
+  const hits = clients.filter((c) => (phoneMode ? c.phone : true) && (!q || (!phoneMode && c.client.toLowerCase().includes(q)) || (qd.length >= (phoneMode ? 1 : 3) && String(c.phone).replace(/\D/g, "").includes(qd)) || (phoneMode && !qd && c.client.toLowerCase().includes(q)))).slice(0, 8);
+  const same = (c) => (phoneMode ? String(c.phone).replace(/\D/g, "") === qd && !!qd : c.client.toLowerCase() === q);
   const pick = (c) => { onPick(c); setOpen(false); setAct(-1); };
   return (
     <div ref={box} style={{ position: "relative" }}>
-      <input className="inp" value={value || ""} autoComplete="off" autoCorrect="off" spellCheck={false} name="te_client_name" data-lpignore="true" data-form-type="other" placeholder={clients.length ? "начните вводить — список прошлых клиентов" : ""}
+      <input className="inp" value={value || ""} autoComplete="off" autoCorrect="off" spellCheck={false} name={phoneMode ? "te_client_tel" : "te_client_name"} inputMode={phoneMode ? "tel" : undefined} data-lpignore="true" data-form-type="other" placeholder={phoneMode ? "" : clients.length ? "начните вводить — список прошлых клиентов" : ""}
         onChange={(e) => { onChange(e.target.value); setOpen(true); setAct(-1); }}
         onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 120)}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" && hits.length) { e.preventDefault(); setOpen(true); setAct((i) => Math.min(hits.length - 1, i + 1)); }
           else if (e.key === "ArrowUp" && hits.length) { e.preventDefault(); setAct((i) => Math.max(0, i - 1)); }
           else if (e.key === "Escape") setOpen(false);
           else if (e.key === "Enter") { e.preventDefault(); if (open && act >= 0 && hits[act]) pick(hits[act]); else { setOpen(false); onEnter && onEnter(e.target); } }
         }} />
-      {open && hits.length > 0 && !(hits.length === 1 && hits[0].client.toLowerCase() === q) && (
+      {open && hits.length > 0 && !(hits.length === 1 && same(hits[0])) && (
         <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, boxShadow: "0 16px 44px rgba(0,0,0,.18)", overflow: "hidden", maxHeight: 300, overflowY: "auto" }}>
           <div className="xs mut" style={{ padding: "6px 11px", borderBottom: "1px solid var(--line)" }}>Клиенты из прошлых объектов</div>
           {hits.map((c, i) => (
             <div key={c.k} className="clk pick-row" style={{ padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === act ? "var(--acc-tint)" : "var(--panel)" }}
               onMouseDown={(e) => e.preventDefault()} onClick={() => pick(c)}>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>{c.client}</div>
-              <div className="xs mut">{[c.phone, "объектов: " + c.n, c.last].filter(Boolean).join(" · ")}</div>
+              <div style={{ fontWeight: 600, fontSize: 13 }}>{phoneMode ? c.phone : c.client}</div>
+              <div className="xs mut">{[phoneMode ? c.client : c.phone, "объектов: " + c.n, c.last].filter(Boolean).join(" · ")}</div>
             </div>
           ))}
         </div>
@@ -2782,7 +2784,10 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                   onChange={(v) => setNewObj((x) => ({ ...x, client: v }))}
                   onPick={(c) => setNewObj((x) => ({ ...x, client: c.client, phone: c.phone || x.phone }))}
                   onEnter={(el) => el.closest(".grid").querySelectorAll("input,select")[2]?.focus()} /></Fld>
-                <Fld label="Телефон клиента"><input className="inp" value={newObj.phone} onChange={(e) => setNewObj({ ...newObj, phone: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.target.closest(".grid").querySelectorAll("input,select")[3]?.focus(); }}} /></Fld>
+                <Fld label="Телефон клиента"><ClientInput phoneMode value={newObj.phone} objects={data.objects || []}
+                  onChange={(v) => setNewObj((x) => ({ ...x, phone: v }))}
+                  onPick={(c) => setNewObj((x) => ({ ...x, phone: c.phone, client: x.client && x.client.trim() ? x.client : c.client }))}
+                  onEnter={(el) => el.closest(".grid").querySelectorAll("input,select")[3]?.focus()} /></Fld>
                 <div className="fld">
                   <label>Мастер</label>
                   {!addingMaster ? (
