@@ -101,6 +101,7 @@ const OP_TYPES = [
   { id: "bonus", label: "Бонус мастеру (начисление)" },
   { id: "bonus_payment", label: "Выплата бонуса мастеру" },
   { id: "company_expense", label: "Расход компании" },
+  { id: "wh_purchase", label: "Приход на склад (закупка)" },
 ];
 // бонусы мастеру начисляются и показываются только в разделе «Мастера»
 // оплата поставщику — только из раздела «Поставщики» (кнопка на странице объекта убрана)
@@ -517,6 +518,8 @@ function supplierStats(sup, objects, ops, whMoves) {
   });
   const ids = supplierReturnIds(ops, whMoves);
   const o = ops.filter((x) => !x.voided && x.supplier_id === sup.id);
+  // закупка на Склад Thermo вручную — тоже долг поставщику
+  purchases += o.filter((x) => x.type === "wh_purchase").reduce((a, x) => a + (x.cost_amount || 0), 0);
   const paid = o.filter((x) => x.type === "supplier_payment").reduce((a, x) => a + (x.amount || 0), 0);
   const returns = o.filter((x) => x.type === "return" && ids.has(x.id)).reduce((a, x) => a + (x.cost_amount || 0), 0);
   const balance = round2(purchases - returns - paid); // < 0 — переплата (аванс поставщику)
@@ -1622,6 +1625,11 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast }) 
         received.push({ ...it, obj_name: ob.name, obj_id: ob.id, date: it.shipped_date || it.batch_date || ob.created_at });
       }
     });
+  });
+  // приходы на Склад Thermo вручную (закупка у поставщика)
+  ops.filter((o) => !o.voided && o.type === "wh_purchase" && o.supplier_id === s.id).forEach((o) => {
+    const q = Number(o.qty) || 0;
+    received.push({ id: o.id, name: o.product_name || "—", qty: q, unit: o.unit || "шт", cost: q ? (o.cost_amount || 0) / q : 0, obj_name: "Склад Thermo", obj_id: "wh:" + o.id, batch_no: 1, date: o.op_date || o.created_at });
   });
   // Возвраты поставщику (уменьшают долг). Возвраты клиентов на Склад Thermo долг не уменьшают — показаны отдельно
   const retIdsAkt = supplierReturnIds(ops, whMoves);
@@ -4171,6 +4179,42 @@ function MasterForm({ m, all = [], onClose, onSave }) {
 }
 
 /* ============ СКЛАД THERMO ============ */
+function WhInForm({ products, suppliers, warehouse, onClose, onSave }) {
+  const [v, setV] = useState({ product_id: null, name: "", unit: "шт", qty: 1, cost: "", price: "", supplier_id: "", toDebt: true, op_date: today(), note: "" });
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setV({ ...v, [k]: e.target.value });
+  const cur = v.product_id ? warehouse.find((w) => w.product_id === v.product_id) : null;
+  const ok = v.name.trim() && parseNum(v.qty) > 0;
+  return (
+    <Modal title="Приход на склад вручную" onClose={onClose} w={620}>
+      <Fld label="Найти товар в базе (или впишите название ниже)">
+        <ProductPicker closeOnPick products={products} suppliers={suppliers} placeholder="поиск: название, код, поставщик…"
+          onPick={(p) => { const w = warehouse.find((x) => x.product_id === p.id); setV({ ...v, product_id: p.id, name: p.name, unit: p.unit || "шт", cost: String(w ? w.cost : Number(p.cost) || ""), price: String(w ? w.price : retailOf(p) || ""), supplier_id: p.supplier_id || "" }); }} />
+      </Fld>
+      <div className="grid" style={{ gridTemplateColumns: "2fr 1fr 1fr", marginTop: 8 }}>
+        <Fld label="Название*"><input className="inp" value={v.name} onChange={(e) => setV({ ...v, name: e.target.value, product_id: null })} placeholder="товар не из базы — впишите название" /></Fld>
+        <Fld label="Кол-во*"><input type="number" className="inp" min={0} value={v.qty} onChange={set("qty")} style={{ borderColor: parseNum(v.qty) > 0 ? undefined : "var(--bad)" }} /></Fld>
+        <Fld label="Ед."><input className="inp" value={v.unit} onChange={set("unit")} /></Fld>
+        <Fld label="Себест. за ед., $"><input type="number" className="inp" value={v.cost} onChange={set("cost")} /></Fld>
+        <Fld label="Цена за ед., $"><input type="number" className="inp" value={v.price} onChange={set("price")} /></Fld>
+        <Fld label="Дата"><input type="date" className="inp" value={v.op_date} onChange={set("op_date")} /></Fld>
+        <Fld label="Поставщик">
+          <select className="inp" value={v.supplier_id} onChange={set("supplier_id")}><option value="">— без поставщика —</option>{activeSuppliers(suppliers, v.supplier_id).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+        </Fld>
+        <div style={{ gridColumn: "span 2" }}><Fld label="Комментарий"><input className="inp" value={v.note} onChange={set("note")} placeholder="откуда товар, накладная…" /></Fld></div>
+      </div>
+      {v.supplier_id && <label className="row sm" style={{ gap: 6, marginTop: 6, cursor: "pointer" }}>
+        <input type="checkbox" checked={v.toDebt} onChange={(e) => setV({ ...v, toDebt: e.target.checked })} />
+        Куплено у поставщика — добавить в долг поставщику <b className="mono">{fmt2(parseNum(v.qty) * parseNum(v.cost))}</b>
+      </label>}
+      {cur && <p className="xs mut" style={{ marginTop: 6 }}>На складе уже есть {fmt(cur.qty)} {cur.unit} — количество прибавится, себестоимость и цена станут как указано выше.</p>}
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
+        <button className="btn" onClick={onClose}>Отмена</button>
+        <button className="btn pri" disabled={!ok || busy} onClick={async () => { setBusy(true); const r = await onSave({ ...v, name: v.name.trim() }); if (!r) setBusy(false); }}>{busy ? "Сохраняю…" : "Оприходовать"}</button>
+      </div>
+    </Modal>
+  );
+}
 function WarehouseTab({ data, reload, toast, openObject }) {
   const { warehouse, wh_moves, objects, suppliers } = data;
   const [issue, setIssue] = useState(false);
@@ -4178,7 +4222,28 @@ function WarehouseTab({ data, reload, toast, openObject }) {
   const [delRow, setDelRow] = useState(null);
   const [retForm, setRetForm] = useState(null);
   const [allMoves, setAllMoves] = useState(false);
+  const [inForm, setInForm] = useState(false);
   const stock = warehouse.filter((w) => (w.qty || 0) > 0);
+  // приход вручную: товар из базы или новый; если строка склада есть — добавляем количество
+  const submitIn = async (v) => {
+    const qty = parseNum(v.qty), cost = parseNum(v.cost), price = parseNum(v.price);
+    const f = await whFind(v.product_id || null, v.name, "");
+    if (f.error) return false;
+    let r;
+    if (f.row) r = await db.from("warehouse").update({ qty: round2((Number(f.row.qty) || 0) + qty), cost, price, ...(v.supplier_id ? { supplier_id: v.supplier_id } : {}) }).eq("id", f.row.id);
+    else r = await db.from("warehouse").insert(cleanUuids({ product_id: v.product_id || null, name: v.name, qty, cost, price, unit: v.unit || "шт", size: "", supplier_id: v.supplier_id || null }));
+    if (r.error) return false;
+    await db.from("wh_moves").insert(cleanUuids({ product_id: v.product_id || null, name: v.name, qty, dir: "in", object_id: null, object_name: null, op_date: v.op_date || today(), user: curUserName(), note: "приход вручную" + (v.note ? ": " + v.note : "") }));
+    let debtNote = "";
+    if (v.supplier_id && v.toDebt) {
+      const o = await db.from("finance_ops").insert(cleanUuids({ type: "wh_purchase", object_id: null, supplier_id: v.supplier_id, product_id: v.product_id || null, product_name: v.name, unit: v.unit || "шт", qty, cost_amount: round2(qty * cost), amount: round2(qty * cost), op_date: v.op_date || today(), note: v.note || "", user: curUserName() }));
+      debtNote = o.error ? " · ⚠ долг поставщику не записан" : " · долг поставщику +" + fmt2(qty * cost);
+    }
+    const supN = v.supplier_id ? (suppliers.find((x) => x.id === v.supplier_id) || {}).name : "";
+    await logAction("Склад: приход вручную", v.name, "кол-во " + fmt(qty) + ", себест. " + fmt2(cost) + ", цена " + fmt2(price) + (supN ? ", поставщик " + supN + (v.toDebt ? " (в долг)" : "") : ""));
+    setInForm(false); await reload(); toast("Приход на склад: " + v.name + " × " + fmt(qty) + debtNote);
+    return true;
+  };
   const moves = wh_moves.slice().reverse();
   const totalCost = stock.reduce((a, w) => a + w.qty * (w.cost || 0), 0);
   const totalSale = stock.reduce((a, w) => a + w.qty * (w.price || 0), 0);
@@ -4220,7 +4285,8 @@ function WarehouseTab({ data, reload, toast, openObject }) {
   return (
     <div>
       <div className="row sect">
-        <h2 style={{ marginRight: "auto" }}>Склад Thermo <span className="mut sm">(возвраты с объектов)</span></h2>
+        <h2 style={{ marginRight: "auto" }}>Склад Thermo <span className="mut sm">(возвраты с объектов и приход вручную)</span></h2>
+        <button className="btn" onClick={() => setInForm(true)}>+ Приход вручную</button>
         <button className="btn pri" disabled={!stock.length} onClick={() => setIssue(true)}>→ Отправить на объект</button>
       </div>
       <div className="kpis sect">
@@ -4272,6 +4338,7 @@ function WarehouseTab({ data, reload, toast, openObject }) {
         </table>
         {moves.length > 200 && <div style={{ padding: 10 }}><button className="btn xs" onClick={() => setAllMoves(!allMoves)}>{allMoves ? "Показать последние 200" : "Показать все (" + moves.length + ")"}</button></div>}
       </div>
+      {inForm && <WhInForm products={data.products || []} suppliers={suppliers} warehouse={warehouse} onClose={() => setInForm(false)} onSave={submitIn} />}
       {issue && <IssueForm stock={stock} objects={objects} onClose={() => setIssue(false)} onSave={async (lines, targetObj, user) => {
         let batchNo = 1;
         // сначала позиции в объект (по свежей версии объекта); если не записались — склад не трогаем
