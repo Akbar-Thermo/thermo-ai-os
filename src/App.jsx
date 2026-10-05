@@ -1180,7 +1180,9 @@ const prodSearchText = (p, supName) => {
   return t + " " + t.replace(/[\s\-_."']+/g, "");
 };
 const searchWords = (q) => q.toLowerCase().replace(/ё/g, "е").trim().split(/\s+/).filter(Boolean);
-function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnPick = false }) {
+// остаток на Складе Thermo по товару (product_id → кол-во)
+const whQtyMap = (warehouse) => { const m = {}; (warehouse || []).forEach((w) => { if (w.product_id && Number(w.qty) > 0) m[w.product_id] = (m[w.product_id] || 0) + Number(w.qty); }); return m; };
+function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnPick = false, whQty = null }) {
   // показываем ВСЕ найденные товары (без лимита). Список прокручивается, рисуются только видимые строки.
   // Поиск по словам: «труба 25» найдёт «ХВС ТРУБА PN16 - 25» (все слова, в любом порядке).
   const ROW = 50, BOX_H = 380;
@@ -1268,7 +1270,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
                       style={{ position: "absolute", top: i * ROW, left: 0, right: 0, height: ROW, boxSizing: "border-box", padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === activeIdx ? "var(--acc-tint)" : "var(--panel)", overflow: "hidden" }}
                       onClick={() => pick(p)}>
                       <div style={{ fontWeight: 600, fontSize: 13, color: "var(--txt)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
-                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, supName[p.supplier_id]].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}</div>
+                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, supName[p.supplier_id]].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}{whQty && whQty[p.id] ? <b style={{ color: "var(--ok)" }}> · 🏬 есть на Складе Thermo: {fmt(whQty[p.id])}</b> : null}</div>
                     </div>
                   );
                 })}
@@ -2657,6 +2659,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   const qn = (x) => parseNum(x); // количество в строке хранится так, как его ввели (можно очистить поле)
 
   const addFromBase = (p) => {
+    if (whQty[p.id]) toast("🏬 «" + p.name + "» есть на Складе Thermo: " + fmt(whQty[p.id]) + " " + (p.unit || "шт") + " — можно отправить со склада (Склад Thermo → «Отправить на объект»)");
     setLines((prev) => {
       const ex = prev.find((l) => l.product_id === p.id);
       if (ex) return prev.map((l) => (l.product_id === p.id ? { ...l, qty: qn(l.qty) + 1 } : l));
@@ -2681,7 +2684,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
     setLines((prev) => [...prev, { id: uuid(), product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: "", supplier_id: null, manual: true }]);
   };
   // сколько такого товара лежит на Складе Thermo (возвраты) — можно отгрузить оттуда вместо закупки
-  const whQty = useMemo(() => { const m = {}; (data.warehouse || []).forEach((w) => { if (w.product_id && Number(w.qty) > 0) m[w.product_id] = (m[w.product_id] || 0) + Number(w.qty); }); return m; }, [data.warehouse]);
+  const whQty = useMemo(() => whQtyMap(data.warehouse), [data.warehouse]);
   const setLine = (id, patch) => setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const confirmRemoveLine = () => { if (delLine) { setLines((prev) => prev.filter((l) => l.id !== delLine)); setDelLine(null); } };
 
@@ -2893,7 +2896,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
           {xlImport && <RequestExcelImport products={filteredProducts} onClose={() => setXlImport(false)} onAdd={addImported} />}
 
           <div className="row" style={{ marginBottom: 12, gap: 10 }}>
-            <ProductPicker products={filteredProducts} suppliers={suppliers} placeholder="Поиск товара по названию / коду — начните вводить…" onPick={addFromBase} />
+            <ProductPicker products={filteredProducts} suppliers={suppliers} whQty={whQty} placeholder="Поиск товара по названию / коду — начните вводить…" onPick={addFromBase} />
           </div>
 
           {lines.length === 0 && (
@@ -3520,7 +3523,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       {shipForm && <ShipModal obj={obj} batches={batches} fin={fin} supName={supName} onClose={() => setShipForm(false)}
         onShip={async (ids, date) => { if (await shipItems(ids, date, true)) setShipForm(false); }}
         onUnship={async (ids) => { await shipItems(ids, null, false); }} />}
-      {addItems && <AddItemsModal products={products} suppliers={suppliers} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} onSave={async (rows) => { if (await addManualItems(rows, addItems === "newbatch")) setAddItems(false); }} />}
+      {addItems && <AddItemsModal products={products} suppliers={suppliers} whQty={whQtyMap(data.warehouse)} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} onSave={async (rows) => { if (await addManualItems(rows, addItems === "newbatch")) setAddItems(false); }} />}
       {impItems && <ObjectExcelImport products={products} suppliers={suppliers} onClose={() => setImpItems(false)} onSave={async (rows) => { if (await addManualItems(rows, false)) setImpItems(false); }} />}
       {editOp && <EditOpModal op={editOp} suppliers={suppliers} isReturn={editOp.type === "return"} onClose={() => setEditOp(null)} onSave={async (patch) => {
         const log = [...(editOp.edit_log || []), { at: new Date().toISOString(), before: { amount: editOp.amount, op_date: editOp.op_date, note: editOp.note, reason: editOp.reason } }];
@@ -3872,7 +3875,7 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
     </>
   );
 }
-function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
+function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty = {} }) {
   const [rows, setRows] = useState([]);
   const addRow = (r) => setRows([...rows, r]);
   const blank = () => addRow({ product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: 0, price: 0, supplier_id: "" });
@@ -3887,7 +3890,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
     <>
     <Modal title={newBatch ? "Новая поставка" : "Добавить позиции вручную"} onClose={tryClose} w={860}>
       <div className="row" style={{ marginBottom: 10 }}>
-        <ProductPicker products={products} suppliers={suppliers} placeholder="найти товар в базе и добавить строку…" onPick={(p) => addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, cost: p.cost, price: retailOf(p), supplier_id: p.supplier_id })} />
+        <ProductPicker products={products} suppliers={suppliers} whQty={whQty} placeholder="найти товар в базе и добавить строку…" onPick={(p) => addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, cost: p.cost, price: retailOf(p), supplier_id: p.supplier_id })} />
         <button className="btn" onClick={blank}>+ Пустая строка (товара нет в базе)</button>
       </div>
       <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, maxHeight: 360 }}>
@@ -3896,7 +3899,8 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave }) {
           <tbody>
             {rows.map((r, i) => (
               <tr key={i}>
-                <td><input className="inp" value={r.name} onChange={(e) => upd(i, "name", e.target.value)} /></td>
+                <td><input className="inp" value={r.name} onChange={(e) => upd(i, "name", e.target.value)} />
+                  {r.product_id && whQty[r.product_id] ? <div className="xs" style={{ color: "var(--ok)", fontWeight: 700, marginTop: 3 }}>🏬 есть на Складе Thermo: {fmt(whQty[r.product_id])} — можно отправить со склада</div> : null}</td>
                 <td><input className="inp" value={r.unit} onChange={(e) => upd(i, "unit", e.target.value)} /></td>
                 <td><input type="number" className="inp" min={0} value={r.qty} onChange={(e) => upd(i, "qty", e.target.value)} style={{ borderColor: parseNum(r.qty) > 0 ? undefined : "var(--bad)" }} /></td>
                 <td><input type="number" className="inp num" value={r.price} onChange={(e) => upd(i, "price", e.target.value)} /></td>
