@@ -876,7 +876,39 @@ async function batchInsert(table, rows, chunkSize = 500, onProgress) {
 }
 
 /* ============ SHARED UI ============ */
-const Fld = ({ label, children }) => (<div className="fld"><label>{label}</label>{children}</div>);
+// браузер (особенно Яндекс) по словам «Имя», «Телефон», «Адрес» в подписи поля включает свои подсказки
+// (сохранённые номера/имена). Невидимый символ внутри этих слов не даёт браузеру их распознать, текст выглядит так же.
+const NO_AUTOFILL_WORDS = /(тел)(ефон)|(им)(я)|(фам)(илия)|(отч)(ество)|(адр)(ес)|(поч)(та)|(e-?ma)(il)|(гор)(од)|(инд)(екс)/gi;
+const noAutofillLabel = (t) => (typeof t === "string" ? t.replace(NO_AUTOFILL_WORDS, (m) => m.slice(0, Math.ceil(m.length / 2)) + "\u2060" + m.slice(Math.ceil(m.length / 2))) : t);
+const Fld = ({ label, children }) => (<div className="fld"><label>{noAutofillLabel(label)}</label>{children}</div>);
+// всем полям ввода в системе — отключаем автозаполнение браузера (кроме пароля на входе)
+let NO_AF_SEQ = 0;
+const noAutofillInput = (el) => {
+  if (!el || el.tagName !== "INPUT" || el.dataset.teAf) return;
+  const t = (el.type || "text").toLowerCase();
+  if (["password", "hidden", "checkbox", "radio", "file", "date", "range", "color", "submit", "button"].includes(t)) return;
+  el.dataset.teAf = "1";
+  el.setAttribute("autocomplete", "off");
+  el.setAttribute("autocorrect", "off");
+  el.setAttribute("data-lpignore", "true");
+  el.setAttribute("data-form-type", "other");
+  if (!el.name || /tel|phone|mail|name|addr|fio|city|zip|login|user/i.test(el.name)) el.setAttribute("name", "te_f" + ++NO_AF_SEQ);
+  const ph = el.getAttribute("placeholder");
+  if (ph && NO_AUTOFILL_WORDS.test(ph)) { NO_AUTOFILL_WORDS.lastIndex = 0; el.setAttribute("placeholder", noAutofillLabel(ph)); }
+  NO_AUTOFILL_WORDS.lastIndex = 0;
+};
+function NoAutofillGuard() {
+  useEffect(() => {
+    const scan = (root) => { if (root.tagName === "INPUT") noAutofillInput(root); if (root.querySelectorAll) root.querySelectorAll("input").forEach(noAutofillInput); };
+    scan(document.body);
+    const mo = new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach((n) => { if (n.nodeType === 1) scan(n); })));
+    mo.observe(document.body, { childList: true, subtree: true });
+    const onFocus = (e) => noAutofillInput(e.target);
+    document.addEventListener("focusin", onFocus, true);
+    return () => { mo.disconnect(); document.removeEventListener("focusin", onFocus, true); };
+  }, []);
+  return null;
+}
 // бейдж: старые яркие hex-цвета переводятся в спокойные тона темы (читаются и в светлой, и в тёмной теме)
 const BADGE_TONE = { "#fff": "--t-strong", "#ffffff": "--t-strong", "#9a9a9a": "--t-neutral", "#d6d6d6": "--t-neutral", "#ffb020": "--t-warn", "#ff707b": "--t-bad", "#ff4d5e": "--t-bad", "#3ddc7d": "--t-ok", "#4db8ff": "--t-info" };
 const Badge = ({ c, children }) => {
@@ -6226,6 +6258,7 @@ function AppInner() {
       }} />}
       <ConfirmHost />
       <SelectPopupHost />
+      <NoAutofillGuard />
       {msg && <div className="toast">{msg}</div>}
       {dbErr && <div className="toast" role="alert" title="Нажмите, чтобы закрыть" onClick={() => setDbErr("")}
         style={{ bottom: msg ? 84 : 20, borderColor: "var(--bad)", color: "var(--bad)", maxWidth: 460, cursor: "pointer" }}>⚠ {dbErr}</div>}
