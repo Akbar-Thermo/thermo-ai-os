@@ -2507,6 +2507,14 @@ function buildMatcher(products) {
   };
 }
 const MATCH_OK = 0.75, MATCH_MIN = 0.45;
+// цвета выделения строк в «Подбор товаров» (по кругу: нет → жёлтый → зелёный → синий → красный → нет)
+const LINE_MARKS = [
+  { id: "", bg: "", dot: "" },
+  { id: "y", bg: "rgba(255,193,7,.20)", dot: "#f5b800" },
+  { id: "g", bg: "rgba(46,204,113,.18)", dot: "#2ecc71" },
+  { id: "b", bg: "rgba(52,152,219,.18)", dot: "#3498db" },
+  { id: "r", bg: "rgba(255,31,48,.14)", dot: "#ff1f30" },
+];
 /* ============ «3 сегмента»: тот же список в товарах поставщиков Эконом / Стандарт / Премиум ============
    Для каждой строки в каждом сегменте: если товар строки уже от поставщика этого сегмента — он сам,
    иначе — самый похожий по названию товар поставщиков этого сегмента (слова и цифры размеров; бренды не учитываются).
@@ -2808,7 +2816,8 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
     setLines((prev) => {
       const ex = prev.find((l) => l.product_id === p.id);
       if (ex) return prev.map((l) => (l.product_id === p.id ? { ...l, qty: qn(l.qty) + 1 } : l));
-      return [...prev, { id: uuid(), product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, cost: p.cost, supplier_id: null, manual: false }];
+      // новый товар — в начало списка (сверху)
+      return [{ id: uuid(), product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, cost: p.cost, supplier_id: null, manual: false }, ...prev];
     });
   };
   // строки из Excel: найденные товары складываются с уже выбранными, остальные — ручные позиции
@@ -2826,11 +2835,23 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
     toast("Из Excel добавлено строк: " + rows.length + " (найдено в базе: " + rows.filter((r) => r.product_id).length + ")");
   };
   const addManualLine = () => {
-    setLines((prev) => [...prev, { id: uuid(), product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: "", supplier_id: null, manual: true }]);
+    setLines((prev) => [{ id: uuid(), product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: "", supplier_id: null, manual: true }, ...prev]);
   };
   // сколько такого товара лежит на Складе Thermo (возвраты) — можно отгрузить оттуда вместо закупки
   const whQty = useMemo(() => whQtyMap(data.warehouse), [data.warehouse]);
   const setLine = (id, patch) => setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  // перетаскивание строк (за «⠿») и цветная пометка строки
+  const [dragId, setDragId] = useState(null);
+  const [overId, setOverId] = useState(null);
+  const moveLine = (fromId, toId) => setLines((prev) => {
+    if (!fromId || fromId === toId) return prev;
+    const a = prev.slice(), i = a.findIndex((l) => l.id === fromId);
+    if (i < 0) return prev;
+    const [it] = a.splice(i, 1);
+    const j = toId ? a.findIndex((l) => l.id === toId) : a.length;
+    a.splice(j < 0 ? a.length : j, 0, it);
+    return a;
+  });
   const confirmRemoveLine = () => { if (delLine) { setLines((prev) => prev.filter((l) => l.id !== delLine)); setDelLine(null); } };
 
   const filteredProducts = useMemo(() => products.filter((p) => p.status !== "archive"), [products]);
@@ -3073,7 +3094,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
             <div style={{ overflow: "auto" }}>
               <table className="t" style={{ minWidth: 820 }}>
                 <thead><tr>
-                  <th>Товар</th><th style={{ width: 90 }}>Кол-во</th><th style={{ width: 70 }}>Ед.</th><th style={{ textAlign: "right", color: "var(--ok)" }}>Цена продажи</th><th title="Есть на Складе Thermo — отдаётся со склада (галочка)">Склад Thermo</th><th></th>
+                  <th style={{ width: 54 }} title="Перетащите за ⠿, чтобы поменять порядок; цветной кружок — выделить строку"></th><th>Товар</th><th style={{ width: 90 }}>Кол-во</th><th style={{ width: 70 }}>Ед.</th><th style={{ textAlign: "right", color: "var(--ok)" }}>Цена продажи</th><th title="Есть на Складе Thermo — отдаётся со склада (галочка)">Склад Thermo</th><th></th>
                 </tr></thead>
                 <tbody>
                   {lines.map((l) => {
@@ -3081,8 +3102,21 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                     const curSup = lineSup(l);
                     // поставщик — только для информации (выбор в строке убран по просьбе руководителя)
                     const supSel = curSup ? <div className="xs mut" style={{ marginTop: 3 }}>{(suppliers.find((x) => x.id === curSup) || {}).name || ""}</div> : null;
+                    const mark = LINE_MARKS.find((m) => m.id === l.mark);
                     return (
-                      <tr key={l.id}>
+                      <tr key={l.id} draggable={dragId === l.id}
+                        onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", l.id); } catch (er) {} }}
+                        onDragOver={(e) => { if (!dragId) return; e.preventDefault(); if (overId !== l.id) setOverId(l.id); }}
+                        onDrop={(e) => { e.preventDefault(); moveLine(dragId, l.id); setDragId(null); setOverId(null); }}
+                        onDragEnd={() => { setDragId(null); setOverId(null); }}
+                        style={{ background: mark ? mark.bg : undefined, opacity: dragId === l.id ? 0.45 : 1,
+                          boxShadow: overId === l.id && dragId && dragId !== l.id ? "inset 0 3px 0 var(--acc)" : undefined }}>
+                        <td style={{ whiteSpace: "nowrap", verticalAlign: "middle" }}>
+                          <span title="Зажмите и перетащите, чтобы поменять место" onMouseDown={() => setDragId(l.id)} onMouseUp={() => { if (!overId) setDragId(null); }}
+                            style={{ cursor: "grab", fontSize: 18, color: "var(--mut)", padding: "0 4px", userSelect: "none" }}>⠿</span>
+                          <button type="button" title="Выделить строку цветом" onClick={() => { const i = LINE_MARKS.findIndex((m) => m.id === (l.mark || "")); setLine(l.id, { mark: LINE_MARKS[(i + 1) % LINE_MARKS.length].id }); }}
+                            style={{ width: 16, height: 16, borderRadius: 8, border: "1px solid var(--line)", background: mark ? mark.dot : "transparent", cursor: "pointer", verticalAlign: "middle", padding: 0 }} />
+                        </td>
                         <td style={{ minWidth: 240 }}>
                           {l.manual ? (
                             <>
