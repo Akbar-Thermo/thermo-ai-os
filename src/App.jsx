@@ -126,6 +126,15 @@ const STAFF_ROLE = "staff";
 const isStaff = (u) => !!u && u.role === STAFF_ROLE;
 // вид и сотрудник лежат в колонках item_name / product_name; если их нет в базе — в начале комментария «[Аванс · Имя]»
 const SAL_NOTE_RE = /^\[([^·\]]+?)\s*·\s*([^\]]+)\]\s*/;
+// в базе может не быть колонки category у finance_ops (тогда она отбрасывается при записи):
+// статья расхода дублируется в size, а у старых записей зарплата узнаётся по виду выплаты и сотруднику
+function normFinOp(o) {
+  if (!o || o.type !== "company_expense" || o.category) return o;
+  let cat = "";
+  if (o.size && EXPENSE_CATEGORIES.includes(o.size)) cat = o.size;
+  else if ((SALARY_KINDS.includes(o.item_name) && o.product_name) || SAL_NOTE_RE.test(o.note || "")) cat = SALARY_CAT;
+  return cat ? { ...o, category: cat } : o;
+}
 function salaryInfo(o) {
   if (!isSalary(o)) return null;
   let kind = o.item_name || "", emp = o.product_name || "", note = o.note || "";
@@ -5597,7 +5606,7 @@ function CompanyExpenseForm({ onClose, onSave, boss = false, employees = [], onE
         <button className="btn" onClick={onClose}>Отмена</button>
         <button className="btn pri" disabled={!(payUsd(pay) > 0) || busy || (sal && !v.emp)} title={sal && !v.emp ? "Выберите сотрудника" : ""} onClick={async () => {
           setBusy(true);
-          const op = { type: "company_expense", object_id: null, category: v.category, ...payPatch(pay, "company_expense"), op_date: v.op_date || today(), note: v.note, user: v.user };
+          const op = { type: "company_expense", object_id: null, category: v.category, size: v.category, ...payPatch(pay, "company_expense"), op_date: v.op_date || today(), note: v.note, user: v.user };
           if (sal) { op.item_name = v.kind; op.product_name = v.emp; }
           await onSave(op); setBusy(false);
         }}>{busy ? "Сохраняю…" : "Сохранить"}</button>
@@ -6132,7 +6141,7 @@ function AppInner() {
     res.forEach(({ t, rows, err }) => {
       if (err) { failed.push(t + " (" + String(err.message || err).replace(/^\w+: /, "") + ")"); return; }
       if ((appliedSeq.current[t] || 0) > seq) return;
-      appliedSeq.current[t] = seq; upd[t] = rows;
+      appliedSeq.current[t] = seq; upd[t] = t === "finance_ops" ? rows.map(normFinOp) : rows;
     });
     if (Object.keys(upd).length) setData((prev) => ({ ...prev, ...upd }));
     if (all && !failed.length) lastFull.current = Date.now();
