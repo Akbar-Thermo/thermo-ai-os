@@ -6194,6 +6194,31 @@ function AppInner() {
     }
     return { ok: !failed.length, allFailed: failed.length === tables.length, failed };
   };
+  // авто-бонус мастеру: когда объект оплачен (статус «Оплачено»/«Закрыто» или клиент оплатил всё),
+  // а бонус по объекту ещё не начислен — начисляем % мастера от валовой прибыли (одна запись «бонус», её можно изменить)
+  const autoBonusBusy = useRef(new Set());
+  useEffect(() => {
+    if (!currentUser || role !== "boss" || !data.objects.length) return;
+    const t = setTimeout(async () => {
+      let made = 0;
+      for (const o of data.objects) {
+        if (!o.master_id || o.status === "cancelled" || autoBonusBusy.current.has(o.id)) continue;
+        const m = data.masters.find((x) => x.id === o.master_id);
+        const pct = m ? Number(m.bonus_percent) || 0 : 0;
+        if (!(pct > 0)) continue;
+        if (data.finance_ops.some((x) => x.type === "bonus" && x.object_id === o.id && !x.voided)) continue;
+        const f = calcObject(o, data.finance_ops);
+        const paid = ["paid", "closed"].includes(o.status) || (f.saleNet > 0 && f.clientDebt <= 0);
+        if (!paid || !(f.gross > 0)) continue;
+        autoBonusBusy.current.add(o.id);
+        const amount = round2(f.gross * pct / 100);
+        const r = await db.from("finance_ops").insert(cleanUuids({ type: "bonus", master_id: m.id, object_id: o.id, amount, note: "авто: " + fmt(pct) + "% от валовой прибыли " + fmt2(f.gross), op_date: today(), user: "авто" }));
+        if (!r.error) { made++; await logAction("Авто-бонус мастеру", "master:" + m.name, "объект «" + o.name + "»: " + fmt(pct) + "% × " + fmt2(f.gross) + " = " + fmt2(amount)); }
+      }
+      if (made) { await reload(); toast("Мастерам начислен бонус по оплаченным объектам: " + made); }
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [currentUser, role, data.objects, data.finance_ops, data.masters]);
   const [bootErr, setBootErr] = useState("");
   const restoreRef = useRef(null);
   // список людей для полей «Менеджер» / «Ответственный»
