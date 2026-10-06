@@ -156,30 +156,73 @@ async function addEmployee(name) {
   await logAction("Добавлен сотрудник", "staff:" + n, "");
   return true;
 }
-function EmployeeSelect({ value, onChange, employees, onAdded }) {
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState("");
+// сотрудник: переименовать (и в его выплатах) / убрать из списка — общие функции для финансов и окна выбора
+async function renameEmployeeDb(data, employees, oldName, newName) {
+  const nn = String(newName || "").trim().replace(/\s+/g, " ");
+  if (!nn || nn === oldName) return true;
+  if (employees.some((x) => x !== oldName && x.toLowerCase() === nn.toLowerCase())) return false;
+  const u = (data.users || []).find((x) => isStaff(x) && String(x.name || "").trim() === oldName);
+  if (u) { const r = await db.from("users").update({ name: nn }).eq("id", u.id); if (r.error) return false; }
+  const ids = (data.finance_ops || []).filter((o) => o.type === "company_expense" && o.product_name === oldName).map((o) => o.id);
+  for (const id of ids) await db.from("finance_ops").update({ product_name: nn }).eq("id", id);
+  await logAction("Сотрудник переименован", "staff:" + nn, "было: " + oldName + (ids.length ? ", выплат: " + ids.length : ""));
+  return true;
+}
+function EmployeeManager({ data, employees, onClose, onChanged }) {
+  const [names, setNames] = useState({});
+  const [newName, setNewName] = useState("");
+  const [del, setDel] = useState(null);
   const [busy, setBusy] = useState(false);
-  const save = async () => {
-    const n = name.trim().replace(/\s+/g, " "); if (!n) return;
-    setBusy(true);
-    if (!employees.some((x) => x.toLowerCase() === n.toLowerCase())) { await addEmployee(n); if (onAdded) await onAdded(); }
-    setBusy(false); onChange(n); setAdding(false); setName("");
-  };
-  if (adding) return (
-    <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
-      <input className="inp" autoFocus placeholder="Имя и фамилия сотрудника" value={name} onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } else if (e.key === "Escape") setAdding(false); }} />
-      <button className="btn xs pri" disabled={!name.trim() || busy} onClick={save}>{busy ? "…" : "OK"}</button>
-      <button className="btn xs" onClick={() => { setAdding(false); setName(""); }}>✕</button>
-    </div>
-  );
+  const staffOf = (n) => (data.users || []).find((x) => isStaff(x) && String(x.name || "").trim() === n);
+  const dupNew = employees.some((x) => x.toLowerCase() === newName.trim().toLowerCase());
+  const add = async () => { if (!newName.trim() || dupNew) return; setBusy(true); if (await addEmployee(newName)) { setNewName(""); await onChanged(); } setBusy(false); };
   return (
-    <select className="inp" value={value || ""} style={{ borderColor: value ? undefined : "var(--bad)" }} onChange={(e) => { if (e.target.value === "__add__") setAdding(true); else onChange(e.target.value); }}>
-      <option value="" disabled hidden>— выберите сотрудника —</option>
-      {employees.map((x) => <option key={x} value={x}>{x}</option>)}
-      <option value="__add__">+ добавить сотрудника…</option>
-    </select>
+    <Modal title="Сотрудники" onClose={onClose} w={520}>
+      <div style={{ maxHeight: 360, overflow: "auto" }}>
+        <table className="t"><tbody>
+          {employees.map((n) => (
+            <tr key={n}>
+              <td><input className="inp" value={names[n] != null ? names[n] : n} onChange={(e) => setNames({ ...names, [n]: e.target.value })} /></td>
+              <td style={{ width: 150, textAlign: "right" }}>{staffOf(n) && (del === n ? (
+                <span className="row" style={{ gap: 4, flexWrap: "nowrap", justifyContent: "flex-end" }}>
+                  <span className="xs" style={{ color: "var(--bad)" }}>Убрать?</span>
+                  <button className="btn xs dng" onClick={async () => { const r = await db.from("users").delete().eq("id", staffOf(n).id); if (r.error) return; await logAction("Удалён сотрудник", "staff:" + n, ""); setDel(null); await onChanged(); }}>Да</button>
+                  <button className="btn xs" onClick={() => setDel(null)}>Нет</button>
+                </span>
+              ) : <button className="btn xs dng" title="Убрать из списка (выплаты сохранятся)" onClick={() => setDel(n)}>✕</button>)}</td>
+            </tr>
+          ))}
+          {!employees.length && <tr><td className="mut sm" style={{ padding: 12 }}>Сотрудников пока нет</td></tr>}
+        </tbody></table>
+      </div>
+      <div className="row" style={{ gap: 8, marginTop: 10 }}>
+        <input className="inp" style={{ flex: 1 }} placeholder="Имя нового сотрудника" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }} />
+        <button className="btn" disabled={!newName.trim() || dupNew || busy} onClick={add}>+ Добавить сотрудника</button>
+      </div>
+      <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+        <button className="btn" onClick={onClose}>Отмена</button>
+        <button className="btn pri" disabled={busy} onClick={async () => {
+          setBusy(true);
+          let n = 0;
+          for (const [o, nn] of Object.entries(names)) if (String(nn).trim() && String(nn).trim() !== o && (await renameEmployeeDb(data, employees, o, nn))) n++;
+          if (n) await onChanged();
+          setBusy(false); onClose(n);
+        }}>Готово</button>
+      </div>
+    </Modal>
+  );
+}
+function EmployeeSelect({ value, onChange, employees, onAdded, data }) {
+  const [manage, setManage] = useState(false);
+  return (
+    <>
+      <select className="inp" value={value || ""} style={{ borderColor: value ? undefined : "var(--bad)" }} onChange={(e) => { if (e.target.value === "__edit__") setManage(true); else onChange(e.target.value); }}>
+        <option value="" disabled hidden>— выберите сотрудника —</option>
+        {employees.map((x) => <option key={x} value={x}>{x}</option>)}
+        <option value="__edit__">✎ Изменить (добавить / переименовать / убрать)</option>
+      </select>
+      {manage && <EmployeeManager data={data || {}} employees={employees} onClose={() => setManage(false)} onChanged={async () => { if (onAdded) await onAdded(); }} />}
+    </>
   );
 }
 
@@ -5583,7 +5626,7 @@ function Dashboard({ data }) {
 }
 
 /* ============ FINANCE TAB ============ */
-function CompanyExpenseForm({ onClose, onSave, boss = false, employees = [], onEmployeeAdded }) {
+function CompanyExpenseForm({ onClose, onSave, boss = false, employees = [], onEmployeeAdded, data = {} }) {
   const cats = boss ? EXPENSE_CATEGORIES : EXPENSE_CATEGORIES.filter((c) => c !== SALARY_CAT);
   const [v, setV] = useState({ category: cats[0], op_date: today(), note: "", user: curUserName(), kind: "Зарплата", emp: "" });
   const sal = v.category === SALARY_CAT;
@@ -5596,7 +5639,7 @@ function CompanyExpenseForm({ onClose, onSave, boss = false, employees = [], onE
         {sal && <Fld label="Вид выплаты">
           <div className="row" style={{ gap: 4 }}>{SALARY_KINDS.map((k) => <button key={k} type="button" className={"btn xs " + (v.kind === k ? "pri" : "")} onClick={() => setV({ ...v, kind: k })}>{k}</button>)}</div>
         </Fld>}
-        {sal && <Fld label="Сотрудник"><EmployeeSelect value={v.emp} onChange={(emp) => setV({ ...v, emp })} employees={employees} onAdded={onEmployeeAdded} /></Fld>}
+        {sal && <Fld label="Сотрудник"><EmployeeSelect value={v.emp} onChange={(emp) => setV({ ...v, emp })} employees={employees} onAdded={onEmployeeAdded} data={data} /></Fld>}
         <PayFields p={pay} setP={setPay} methods={OUT_METHODS} usdLabel={payUsdLabel("company_expense")} />
         <Fld label="Дата"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
         <Fld label="Кто внёс"><PersonSelect value={v.user} onChange={(u) => setV({ ...v, user: u })} /></Fld>
@@ -5777,7 +5820,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
           )}
         </div>
       )}
-      {expForm && <CompanyExpenseForm boss={boss} employees={employees} onEmployeeAdded={() => reload(["users"])} onClose={() => setExpForm(false)} onSave={async (op) => {
+      {expForm && <CompanyExpenseForm boss={boss} employees={employees} data={data} onEmployeeAdded={() => reload()} onClose={() => setExpForm(false)} onSave={async (op) => {
         const r = await db.from("finance_ops").insert(cleanUuids(op));
         if (r.error) return; // ошибка показана, окно остаётся открытым
         // в базе нет колонок для вида выплаты / сотрудника — сохраняем их в начале комментария
