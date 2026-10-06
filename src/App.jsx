@@ -5634,6 +5634,20 @@ function FinanceTab({ data, reload, toast, boss = false }) {
   const [staffOpen, setStaffOpen] = useState(false);
   const [newEmp, setNewEmp] = useState("");
   const [delEmp, setDelEmp] = useState(null);
+  const [staffEdit, setStaffEdit] = useState(false);
+  const [renames, setRenames] = useState({});
+  // переименование сотрудника: имя в списке и в его прошлых выплатах
+  const renameEmployee = async (oldName, newName) => {
+    const nn = String(newName || "").trim().replace(/\s+/g, " ");
+    if (!nn || nn === oldName) return true;
+    if (employees.some((x) => x.toLowerCase() === nn.toLowerCase())) { toast("Сотрудник «" + nn + "» уже есть"); return false; }
+    const u = staffUser(oldName);
+    if (u) { const r = await db.from("users").update({ name: nn }).eq("id", u.id); if (r.error) return false; }
+    const ids = (data.finance_ops || []).filter((o) => o.type === "company_expense" && o.product_name === oldName).map((o) => o.id);
+    for (const id of ids) await db.from("finance_ops").update({ product_name: nn }).eq("id", id);
+    await logAction("Сотрудник переименован", "staff:" + nn, "было: " + oldName + (ids.length ? ", выплат: " + ids.length : ""));
+    return true;
+  };
   // выплаты по сотрудникам за период: зарплата / аванс / премия
   const staffRows = useMemo(() => {
     if (!boss) return [];
@@ -5701,12 +5715,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
       {boss && (
         <div className="card sect">
           <div className="row" style={{ marginBottom: staffOpen ? 8 : 0 }}>
-            <h3 className="clk" style={{ marginRight: "auto" }} onClick={() => setStaffOpen(!staffOpen)}>{staffOpen ? "▾" : "▸"} Сотрудники и зарплата{(from || to) ? " за период" : ""} <span className="mut sm">({employees.length})</span></h3>
-            {staffOpen && <>
-              <input className="inp" style={{ maxWidth: 220 }} placeholder="Имя нового сотрудника" value={newEmp} onChange={(e) => setNewEmp(e.target.value)}
-                onKeyDown={async (e) => { if (e.key === "Enter" && newEmp.trim()) { if (await addEmployee(newEmp)) { setNewEmp(""); await reload(["users"]); toast("Сотрудник добавлен"); } } }} />
-              <button className="btn" disabled={!newEmp.trim() || employees.some((x) => x.toLowerCase() === newEmp.trim().toLowerCase())} onClick={async () => { if (await addEmployee(newEmp)) { setNewEmp(""); await reload(["users"]); toast("Сотрудник добавлен"); } }}>+ Сотрудник</button>
-            </>}
+            <h3 className="clk" style={{ marginRight: "auto" }} onClick={() => { setStaffOpen(!staffOpen); setStaffEdit(false); }}>{staffOpen ? "▾" : "▸"} Сотрудники и зарплата{(from || to) ? " за период" : ""} <span className="mut sm">({employees.length})</span></h3>
           </div>
           {staffOpen && (
             <div style={{ overflow: "auto" }}>
@@ -5715,10 +5724,12 @@ function FinanceTab({ data, reload, toast, boss = false }) {
                 <tbody>
                   {staffRows.map((r) => (
                     <tr key={r.name}>
-                      <td className="sm" style={{ fontWeight: 600 }}>{r.name}</td>
+                      <td className="sm" style={{ fontWeight: 600 }}>{staffEdit ? (
+                        <input className="inp" style={{ maxWidth: 240 }} value={renames[r.name] != null ? renames[r.name] : r.name} onChange={(e) => setRenames({ ...renames, [r.name]: e.target.value })} />
+                      ) : r.name}</td>
                       {SALARY_KINDS.map((k) => <td key={k} className="num">{r[k] ? fmt(r[k]) : <span className="mut">—</span>}</td>)}
                       <td className="num" style={{ fontWeight: 700 }}>{fmt(r.total)}</td>
-                      <td>{staffUser(r.name) && (delEmp === r.name ? (
+                      <td>{staffEdit && staffUser(r.name) && (delEmp === r.name ? (
                         <div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
                           <span className="xs" style={{ color: "var(--bad)" }}>Убрать из списка?</span>
                           <button className="btn xs dng" onClick={async () => { const r2 = await db.from("users").delete().eq("id", staffUser(r.name).id); if (r2.error) return; await logAction("Удалён сотрудник", "staff:" + r.name, ""); setDelEmp(null); await reload(["users"]); toast("Сотрудник убран из списка (выплаты сохранены)"); }}>Да</button>
@@ -5727,9 +5738,32 @@ function FinanceTab({ data, reload, toast, boss = false }) {
                       ) : <button className="btn xs dng" title="Убрать из списка выбора" onClick={() => setDelEmp(r.name)}>✕</button>)}</td>
                     </tr>
                   ))}
-                  {!staffRows.length && <tr><td colSpan={6} className="mut sm" style={{ padding: 14 }}>Сотрудников пока нет — добавьте здесь или при выплате зарплаты</td></tr>}
+                  {!staffRows.length && <tr><td colSpan={6} className="mut sm" style={{ padding: 14 }}>Сотрудников пока нет — нажмите «Изменить» и добавьте</td></tr>}
                 </tbody>
               </table>
+              {/* внизу — «Изменить»: переименование, удаление и добавление сотрудника */}
+              {!staffEdit ? (
+                <div className="row" style={{ justifyContent: "flex-end", marginTop: 10 }}>
+                  <button className="btn" onClick={() => { setStaffEdit(true); setRenames({}); setNewEmp(""); }}>✎ Изменить</button>
+                </div>
+              ) : (
+                <div className="card" style={{ marginTop: 10, padding: 10 }}>
+                  <div className="row" style={{ gap: 8 }}>
+                    <input className="inp" style={{ maxWidth: 260 }} placeholder="Имя нового сотрудника" value={newEmp} onChange={(e) => setNewEmp(e.target.value)}
+                      onKeyDown={async (e) => { if (e.key === "Enter" && newEmp.trim()) { if (await addEmployee(newEmp)) { setNewEmp(""); await reload(["users"]); toast("Сотрудник добавлен"); } } }} />
+                    <button className="btn" disabled={!newEmp.trim() || employees.some((x) => x.toLowerCase() === newEmp.trim().toLowerCase())} onClick={async () => { if (await addEmployee(newEmp)) { setNewEmp(""); await reload(["users"]); toast("Сотрудник добавлен"); } }}>+ Добавить сотрудника</button>
+                    <span style={{ marginLeft: "auto" }} />
+                    <button className="btn" onClick={() => { setStaffEdit(false); setRenames({}); setDelEmp(null); }}>Отмена</button>
+                    <button className="btn pri" onClick={async () => {
+                      let n = 0;
+                      for (const [oldN, newN] of Object.entries(renames)) { if (String(newN).trim() && String(newN).trim() !== oldN) { if (await renameEmployee(oldN, newN)) n++; } }
+                      setStaffEdit(false); setRenames({}); setDelEmp(null);
+                      if (n) { await reload(); toast("Переименовано: " + n); }
+                    }}>Готово</button>
+                  </div>
+                  <p className="xs mut" style={{ marginTop: 6 }}>Имя можно исправить прямо в таблице; ✕ — убрать сотрудника из списка (его выплаты сохранятся).</p>
+                </div>
+              )}
             </div>
           )}
         </div>
