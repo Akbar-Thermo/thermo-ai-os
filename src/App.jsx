@@ -116,7 +116,7 @@ const ROLES = [
   { id: "boss", label: "Руководитель", tabs: ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "admin"] },
 ];
 const MANAGER_OP_TYPES = ["client_payment", "return", "discount"];
-const EXPENSE_CATEGORIES = ["Зарплата", "Аренда", "Коммунальные", "Обед / питание", "Доставка", "Заправка транспорта", "Освежения", "Связь / интернет", "Налоги", "Реклама", "Хозрасходы", "Прочее"];
+const EXPENSE_CATEGORIES = ["Зарплата", "Аренда", "Коммунальные", "Обед / питание", "Доставка", "Заправка транспорта", "Освежения", "Для showroom", "Связь / интернет", "Налоги", "Реклама", "Хозрасходы", "Прочее"];
 // зарплату видит только руководитель
 const SALARY_CAT = "Зарплата";
 const isSalary = (o) => o && o.type === "company_expense" && o.category === SALARY_CAT;
