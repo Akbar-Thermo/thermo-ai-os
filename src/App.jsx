@@ -114,7 +114,10 @@ const MASTER_ONLY_OPS = ["bonus", "bonus_payment"];
 const ROLES = [
   { id: "manager", label: "Менеджер", tabs: ["request", "objects", "products", "wh", "suppliers", "masters", "finance"] },
   { id: "boss", label: "Руководитель", tabs: ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "admin"] },
+  // доставщик: только объекты для доставки (без цен) и Склад Thermo (без цен)
+  { id: "driver", label: "Доставщик", tabs: ["delivery", "wh"] },
 ];
+const roleLabel = (r) => (ROLES.find((x) => x.id === r) || {}).label || "—";
 const MANAGER_OP_TYPES = ["client_payment", "return", "discount"];
 const EXPENSE_CATEGORIES = ["Зарплата", "Аренда", "Коммунальные", "Обед / питание", "Доставка", "Заправка транспорта", "Освежения", "Для showroom", "Связь / интернет", "Налоги", "Реклама", "Хозрасходы", "Прочее"];
 // зарплату видит только руководитель
@@ -659,6 +662,36 @@ function splitByWarehouse(rows, warehouse, mk) {
   return { items, whOut };
 }
 const whItemPatch = (w) => ({ from_warehouse: true, cost: Number(w.cost) || 0, supplier_id: w.supplier_id || null, source_text: "со склада Thermo", shipped: undefined });
+// поставки объекта: [{ no, date, items }]
+const objBatches = (obj) => {
+  const map = {};
+  (obj.items || []).forEach((i) => { const no = i.batch_no || 1; (map[no] = map[no] || { no, date: i.batch_date || obj.created_at, items: [] }).items.push(i); });
+  return Object.values(map).sort((a, b) => a.no - b.no);
+};
+// «Лист доставки» (Excel без цен): по поставкам и поставщикам / Складу Thermo
+function downloadDeliverySheet(obj, suppliers) {
+  const supName = (id) => ((suppliers || []).find((x) => x.id === id) || {}).name || "—";
+  const rows = [
+    { k: "title", v: ["ЛИСТ ДОСТАВКИ: " + (obj.name || "")] },
+    { k: "info", v: ["Адрес: " + (obj.address || "—")] },
+    { k: "info", v: ["Клиент: " + (obj.client || "—") + (obj.phone ? " · тел. " + obj.phone : "")] },
+    { k: "info", v: ["Мастер: " + (obj.master || "—")] },
+    { k: "blank" },
+  ];
+  objBatches(obj).forEach((b) => {
+    rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
+    const g = {};
+    b.items.forEach((i) => { const k = i.from_warehouse ? "СКЛАД THERMO" : supName(i.supplier_id); (g[k] = g[k] || []).push(i); });
+    Object.entries(g).forEach(([sn, items]) => {
+      rows.push({ k: "section", v: ["Поставщик: " + sn] });
+      rows.push({ k: "head", v: ["№", "Наименование", "Кол-во", "Ед.", "Получено ✓"] });
+      items.forEach((i, k) => rows.push({ k: "row", v: [k + 1, i.name, i.qty, i.unit, ""] }));
+      rows.push({ k: "blank" });
+    });
+  });
+  const safeName = String(obj.name || "object").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
+  return downloadStyledXLSX("Доставка_" + safeName + ".xlsx", "Доставка", rows, [6, 66, 10, 8, 15], ["c", "t", "n", "c", "c"]);
+}
 async function warehouseOut(lines, targetObj, user) {
   let failed = 0;
   for (const l of lines) {
@@ -3659,28 +3692,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     toast(r === "xlsx" ? "Excel с себестоимостью скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
   const exportDelivery = () => {
-    const rows = [
-      { k: "title", v: ["ЛИСТ ДОСТАВКИ: " + (obj.name || "")] },
-      { k: "info", v: ["Адрес: " + (obj.address || "—")] },
-      { k: "info", v: ["Клиент: " + (obj.client || "—") + (obj.phone ? " · тел. " + obj.phone : "")] },
-      { k: "info", v: ["Мастер: " + (obj.master || "—")] },
-      { k: "blank" },
-    ];
-    batches.forEach((b) => {
-      rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
-      const g = {};
-      b.items.forEach((i) => {
-        const k = i.from_warehouse ? "СКЛАД THERMO" : supName(i.supplier_id);
-        (g[k] = g[k] || []).push(i);
-      });
-      Object.entries(g).forEach(([s, items]) => {
-        rows.push({ k: "section", v: ["Поставщик: " + s] });
-        rows.push({ k: "head", v: ["№", "Наименование", "Кол-во", "Ед.", "Получено ✓"] });
-        items.forEach((i, k) => rows.push({ k: "row", v: [k + 1, i.name, i.qty, i.unit, ""] }));
-        rows.push({ k: "blank" });
-      });
-    });
-    const r = downloadStyledXLSX("Доставка_" + safe(obj.name) + ".xlsx", "Доставка", rows, [6, 66, 10, 8, 15], ["c", "t", "n", "c", "c"]);
+    const r = downloadDeliverySheet(obj, suppliers);
     toast(r === "xlsx" ? "Лист доставки скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
   const batches = useMemo(() => {
@@ -4747,7 +4759,102 @@ function WhInForm({ products, suppliers, warehouse, onClose, onSave }) {
     </Modal>
   );
 }
-function WarehouseTab({ data, reload, toast, openObject }) {
+/* ============ ДОСТАВКА (роль «Доставщик») ============
+   Объекты для доставки: адрес, клиент, мастер, список товаров без цен, «Отгрузить / Доставлено», «Лист доставки». */
+function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
+  const { objects, suppliers, masters } = data;
+  const [q, setQ] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const [ship, setShip] = useState(false);
+  const supName = (id) => (suppliers.find((x) => x.id === id) || {}).name || "—";
+  const pending = (o) => (o.items || []).filter((i) => !i.from_warehouse && !isShipped(i)).length;
+  const list = objects.filter((o) => !["cancelled", "closed"].includes(o.status) && (o.items || []).length)
+    .filter((o) => showAll || pending(o) > 0)
+    .filter((o) => { const t = q.trim().toLowerCase(); return !t || [o.name, o.client, o.phone, o.address, o.master].filter(Boolean).join(" ").toLowerCase().includes(t); })
+    .sort((a, b) => (pending(b) > 0) - (pending(a) > 0) || String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  const obj = objects.find((o) => o.id === openId);
+  const masterOf = (o) => masters.find((m) => m.id === o.master_id);
+  if (obj) {
+    const m = masterOf(obj);
+    const batches = objBatches(obj);
+    const doShip = async (ids, date, on = true) => {
+      const set = new Set(ids);
+      const r = await updateObjectItems(obj.id, (cur) => cur.map((i) => (set.has(i.id) ? (on ? { ...i, shipped: true, shipped_date: date || today() } : { ...i, shipped: false, shipped_date: null }) : i)));
+      if (r.error) return false;
+      await logAction(on ? "Товар отгружен (доставщик)" : "Отгрузка отменена", "object:" + obj.name, "позиций: " + ids.length + (on ? ", дата: " + dt(date || today()) : ""));
+      await reload(); toast(on ? "Отмечено как доставлено: " + ids.length + " поз." : "Отгрузка отменена");
+      return true;
+    };
+    return (
+      <div>
+        <div className="row sect">
+          <button className="btn" onClick={() => setOpenId(null)}>← Доставка</button>
+          <h2 style={{ marginRight: "auto" }}>{obj.name}</h2>
+          <button className="btn" onClick={() => { const r = downloadDeliverySheet(obj, suppliers); toast(r === "xlsx" ? "Лист доставки скачан" : "Скачивание заблокировано браузером"); }}>📄 Лист доставки</button>
+          {(obj.items || []).some((i) => !i.from_warehouse) && <button className="btn pri" onClick={() => setShip(true)}>🚚 Отгрузить / Доставлено{pending(obj) ? " (" + pending(obj) + ")" : " ✓"}</button>}
+        </div>
+        <div className="card sect">
+          <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+            <div><div className="xs mut">Адрес</div><div style={{ fontWeight: 700 }}>{obj.address || "—"}</div></div>
+            <div><div className="xs mut">Клиент</div><div style={{ fontWeight: 700 }}>{obj.client || "—"}{obj.phone && <> · <a style={{ color: "inherit" }} href={"tel:" + String(obj.phone).replace(/[^\d+]/g, "")}>{obj.phone}</a></>}</div></div>
+            <div><div className="xs mut">Мастер</div><div style={{ fontWeight: 700 }}>{(m && m.name) || obj.master || "—"}{m && m.phone && <> · <a style={{ color: "inherit" }} href={"tel:" + String(m.phone).replace(/[^\d+]/g, "")}>{m.phone}</a></>}</div></div>
+            <div><div className="xs mut">Статус</div><Badge c={stById(obj.status).c}>{stById(obj.status).label}</Badge></div>
+          </div>
+        </div>
+        {batches.map((b) => {
+          const g = {};
+          b.items.forEach((i) => { const k = i.from_warehouse ? "🏬 Склад Thermo" : supName(i.supplier_id); (g[k] = g[k] || []).push(i); });
+          return (
+            <div key={b.no} className="card sect" style={{ padding: 0, overflow: "auto" }}>
+              <div style={{ padding: "10px 12px", fontWeight: 800, background: "var(--acc-tint)" }}>🚚 ПОСТАВКА №{b.no} · {dt(b.date)}</div>
+              <table className="t">
+                <thead><tr><th>Товар</th><th style={{ textAlign: "right" }}>Кол-во</th><th>Ед.</th><th>Откуда</th><th>Статус</th></tr></thead>
+                <tbody>{Object.entries(g).map(([src, items]) => items.map((i) => (
+                  <tr key={i.id}>
+                    <td style={{ fontWeight: 600 }}>{i.name}</td>
+                    <td className="num" style={{ fontWeight: 700 }}>{fmt(i.qty)}</td>
+                    <td className="sm">{i.unit}</td>
+                    <td className="sm">{src}</td>
+                    <td className="sm">{i.from_warehouse || isShipped(i) ? <span style={{ color: "var(--ok)", fontWeight: 600 }}>✓ отгружено{i.shipped_date ? " " + dt(i.shipped_date) : ""}</span> : <span style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</span>}</td>
+                  </tr>
+                )))}</tbody>
+              </table>
+            </div>
+          );
+        })}
+        {ship && <ShipModal obj={obj} batches={batches} fin={false} supName={supName} onClose={() => setShip(false)}
+          onShip={async (ids, date) => { if (await doShip(ids, date, true)) setShip(false); }} onUnship={async () => {}} />}
+      </div>
+    );
+  }
+  return (
+    <div>
+      <div className="row sect">
+        <h2 style={{ marginRight: "auto" }}>Доставка <span className="mut sm">({list.length})</span></h2>
+        <input className="inp" style={{ maxWidth: 260 }} placeholder="Поиск: объект, клиент, адрес…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <label className="row sm" style={{ gap: 6, cursor: "pointer" }}><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> показать и доставленные</label>
+      </div>
+      <div className="card" style={{ padding: 0, overflow: "auto" }}>
+        <table className="t">
+          <thead><tr><th>Объект</th><th>Адрес</th><th>Клиент</th><th>Мастер</th><th>Доставка</th></tr></thead>
+          <tbody>
+            {list.map((o) => { const m = masterOf(o), p = pending(o); return (
+              <tr key={o.id} className="clk" onClick={() => setOpenId(o.id)}>
+                <td style={{ fontWeight: 700 }}>{o.name}</td>
+                <td className="sm">{o.address || "—"}</td>
+                <td className="sm">{o.client}<div className="xs mut">{o.phone}</div></td>
+                <td className="sm">{(m && m.name) || o.master || "—"}<div className="xs mut">{m && m.phone}</div></td>
+                <td>{p ? <Badge c="var(--t-warn)">не отгружено: {p}</Badge> : <Badge c="var(--t-ok)">✓ доставлено</Badge>}</td>
+              </tr>
+            ); })}
+            {!list.length && <tr><td colSpan={5} className="mut" style={{ textAlign: "center", padding: 24 }}>{showAll ? "Объектов нет" : "Всё доставлено 🎉"}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
   const { warehouse, wh_moves, objects, suppliers } = data;
   const [issue, setIssue] = useState(false);
   const [editRow, setEditRow] = useState(null);
@@ -4818,24 +4925,25 @@ function WarehouseTab({ data, reload, toast, openObject }) {
     <div>
       <div className="row sect">
         <h2 style={{ marginRight: "auto" }}>Склад Thermo <span className="mut sm">(возвраты с объектов и приход вручную)</span></h2>
-        <button className="btn" onClick={() => setInForm(true)}>+ Приход вручную</button>
-        <button className="btn pri" disabled={!stock.length} onClick={() => setIssue(true)}>→ Отправить на объект</button>
+        {!readOnly && <button className="btn" onClick={() => setInForm(true)}>+ Приход вручную</button>}
+        {!readOnly && <button className="btn pri" disabled={!stock.length} onClick={() => setIssue(true)}>→ Отправить на объект</button>}
       </div>
       <div className="kpis sect">
         <KPI l="Позиций на складе" v={stock.length} />
         <KPI l="Единиц всего" v={stock.reduce((a, w) => a + w.qty, 0)} />
-        <KPI l="Склад по закупу" v={totalCost} />
-        <KPI l="Склад по продаже" v={totalSale} c="var(--txt)" />
+        {!readOnly && <KPI l="Склад по закупу" v={totalCost} />}
+        {!readOnly && <KPI l="Склад по продаже" v={totalSale} c="var(--txt)" />}
       </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
-          <thead><tr><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"right"}}>Закуп</th><th style={{textAlign:"right"}}>Продажа</th><th style={{textAlign:"right"}}>Сумма (закуп)</th><th></th></tr></thead>
+          <thead><tr><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th>{!readOnly && <><th style={{textAlign:"right"}}>Закуп</th><th style={{textAlign:"right"}}>Продажа</th><th style={{textAlign:"right"}}>Сумма (закуп)</th><th></th></>}</tr></thead>
           <tbody>
             {stock.map((w) => (
               <tr key={w.id}>
                 <td style={{ fontWeight: 600 }}>{w.name}</td>
                 <td className="num" style={{ fontWeight: 700, color: "var(--acc2)" }}>{w.qty}</td>
                 <td className="sm">{w.unit}</td>
+                {!readOnly && <>
                 <td className="num">{fmt(w.cost)}</td>
                 <td className="num">{fmt(w.price)}</td>
                 <td className="num">{fmt(w.qty * (w.cost || 0))}</td>
@@ -4844,6 +4952,7 @@ function WarehouseTab({ data, reload, toast, openObject }) {
                   <button className="btn xs" onClick={() => setRetForm(w)}>↩ поставщику</button>
                   <button className="btn xs dng" onClick={() => setDelRow(w)}>✕</button>
                 </div></td>
+                </>}
               </tr>
             ))}
             {!stock.length && <tr><td colSpan={8} className="mut" style={{ textAlign: "center", padding: 26 }}>Склад пуст — товары появляются автоматически при возвратах с объектов</td></tr>}
@@ -5960,7 +6069,7 @@ function LogTab({ data, reload }) {
               <tr key={l.id}>
                 <td className="xs mono mut">{fmtTs(l.ts)}</td>
                 <td className="sm" style={{ fontWeight: 600 }}>{l.user_name}</td>
-                <td><Badge c={l.role === "boss" ? "#ff707b" : "#fff"}>{l.role === "boss" ? "Рук." : l.role === "manager" ? "Менедж." : "—"}</Badge></td>
+                <td><Badge c={l.role === "boss" ? "#ff707b" : "#fff"}>{l.role === "boss" ? "Рук." : l.role === "manager" ? "Менедж." : l.role === "driver" ? "Доставщ." : "—"}</Badge></td>
                 <td className="sm">{l.action}</td>
                 <td className="xs mut">{l.entity}</td>
                 <td className="xs mut">{l.detail}</td>
@@ -5997,7 +6106,7 @@ function AdminTab({ data, reload, toast, currentUser }) {
               <tr key={u.id} style={{ opacity: u.status === "active" ? 1 : 0.45 }}>
                 <td className="mono" style={{ fontWeight: 700 }}>{u.username}{u.id === currentUser.id && <span className="xs mut"> (вы)</span>}</td>
                 <td className="sm">{u.name}</td>
-                <td><Badge c={u.role === "boss" ? "#ff707b" : "#fff"}>{u.role === "boss" ? "Руководитель" : "Менеджер"}</Badge></td>
+                <td><Badge c={u.role === "boss" ? "#ff707b" : "#fff"}>{roleLabel(u.role)}</Badge></td>
                 <td className="sm">{u.status === "active" ? "активен" : "отключён"}</td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
                   <button className="btn xs" onClick={() => setEdit(u)}>ред.</button>
@@ -6058,7 +6167,7 @@ function UserForm({ u, users, self, onClose, onSave }) {
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         <Fld label="Логин"><input className="inp mono" value={v.username || ""} onChange={set("username")} placeholder="manager1" /></Fld>
         <Fld label="Имя сотрудника"><input className="inp" value={v.name || ""} onChange={set("name")} /></Fld>
-        <Fld label="Роль"><select className="inp" value={v.role} disabled={isSelf} title={isSelf ? "Свою роль изменить нельзя" : ""} onChange={set("role")}><option value="manager">Менеджер</option><option value="boss">Руководитель</option></select></Fld>
+        <Fld label="Роль"><select className="inp" value={v.role} disabled={isSelf} title={isSelf ? "Свою роль изменить нельзя" : ""} onChange={set("role")}><option value="manager">Менеджер</option><option value="driver">Доставщик</option><option value="boss">Руководитель</option></select></Fld>
         <Fld label="Статус"><select className="inp" value={v.status} disabled={isSelf} title={isSelf ? "Свой аккаунт отключить нельзя" : ""} onChange={set("status")}><option value="active">активен</option><option value="disabled">отключён</option></select></Fld>
         <div style={{ gridColumn: "1/-1" }}><Fld label={v.id ? "Новый пароль (оставьте пустым — без изменений)" : "Пароль"}>
           <div style={{ position: "relative" }}>
@@ -6219,6 +6328,24 @@ function AppInner() {
     }, 1500);
     return () => clearTimeout(t);
   }, [currentUser, role, data.objects, data.finance_ops, data.masters]);
+  // аккаунт доставщика «dostavka»: создаётся один раз, когда входит руководитель; пароль показывается ему один раз
+  const [driverCreated, setDriverCreated] = useState(null);
+  const driverBusy = useRef(false);
+  useEffect(() => {
+    if (!currentUser || role !== "boss" || driverBusy.current || !(data.users || []).length) return;
+    if ((data.users || []).some((u) => String(u.username || "").toLowerCase() === "dostavka")) return;
+    driverBusy.current = true;
+    (async () => {
+      const abc = "abcdefghjkmnpqrstuvwxyz23456789";
+      const rnd = new Uint32Array(8); try { crypto.getRandomValues(rnd); } catch (e) { for (let i = 0; i < 8; i++) rnd[i] = Math.floor(Math.random() * 1e9); }
+      const pw = [...rnd].map((x) => abc[x % abc.length]).join("");
+      const r = await db.from("users").insert({ username: "dostavka", name: "Доставщик", role: "driver", status: "active", pass_hash: await hashPass(pw) });
+      if (r.error) { driverBusy.current = false; return; }
+      await logAction("Создан аккаунт", "user:dostavka", "роль: driver (доставщик)");
+      await reload(["users"]);
+      setDriverCreated({ login: "dostavka", pass: pw });
+    })();
+  }, [currentUser, role, data.users]);
   const [bootErr, setBootErr] = useState("");
   const restoreRef = useRef(null);
   // список людей для полей «Менеджер» / «Ответственный»
@@ -6310,8 +6437,8 @@ function AppInner() {
   };
 
   const roleTabs = (ROLES.find((r) => r.id === role) || ROLES[0]).tabs;
-  const TAB_LABELS_RU = { request: "Новая заявка", dash: "Дашборд", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", admin: "Аккаунты" };
-  const TAB_LABELS_UZ = { request: "Yangi ariza", dash: "Boshqaruv", objects: "Ob'ektlar", products: "Tovarlar", wh: "Ombor Thermo", suppliers: "Ta'minotchilar", masters: "Ustalar", finance: "Moliya", log: "Jurnal", admin: "Hisoblar" };
+  const TAB_LABELS_RU = { delivery: "Доставка", request: "Новая заявка", dash: "Дашборд", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", admin: "Аккаунты" };
+  const TAB_LABELS_UZ = { delivery: "Yetkazish", request: "Yangi ariza", dash: "Boshqaruv", objects: "Ob'ektlar", products: "Tovarlar", wh: "Ombor Thermo", suppliers: "Ta'minotchilar", masters: "Ustalar", finance: "Moliya", log: "Jurnal", admin: "Hisoblar" };
   const TAB_LABELS = lang === "uz" ? TAB_LABELS_UZ : TAB_LABELS_RU;
   const allTabs = roleTabs.map((id) => ({ id, label: TAB_LABELS[id] }));
   useEffect(() => { if (currentUser) { setTab(roleTabs[0]); setOpenId(null); } }, [currentUser]);
@@ -6332,7 +6459,7 @@ function AppInner() {
         <div className="row" style={{ gap: 8 }}>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontWeight: 700, fontSize: 13 }}>{currentUser.name || currentUser.username}</div>
-            <div className="xs mut">{role === "boss" ? (lang === "uz" ? "Rahbar" : "Руководитель") : (lang === "uz" ? "Menejer" : "Менеджер")}</div>
+            <div className="xs mut">{role === "boss" ? (lang === "uz" ? "Rahbar" : "Руководитель") : role === "driver" ? (lang === "uz" ? "Yetkazuvchi" : "Доставщик") : (lang === "uz" ? "Menejer" : "Менеджер")}</div>
           </div>
           <button className="btn xs" onClick={toggleLang} title={lang === "ru" ? "Переключить на узбекский" : "Ruscha tilga o'tish"} style={{ fontWeight: 800 }}>{lang === "ru" ? "UZ" : "RU"}</button>
           <button className="btn xs" onClick={toggleDark} title={darkMode ? "Светлая тема" : "Тёмная тема"}>{darkMode ? "☀️" : "🌙"}</button>
@@ -6353,7 +6480,8 @@ function AppInner() {
         {tab === "products" && <ProductsTab data={data} reload={reload} toast={toast} />}
         {tab === "suppliers" && <SuppliersTab data={data} reload={reload} toast={toast} fin={role === "boss"} />}
         {tab === "masters" && <MastersTab data={data} reload={reload} toast={toast} fin={true} canDel={role === "boss"} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
-        {tab === "wh" && <WarehouseTab data={data} reload={reload} toast={toast} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
+        {tab === "wh" && <WarehouseTab data={data} reload={reload} toast={toast} readOnly={role === "driver"} openObject={(id) => { if (role === "driver") { setTab("delivery"); setOpenId(id); } else { setOpenId(id); setTab("objects"); } }} />}
+        {tab === "delivery" && <DeliveryTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} />}
         {tab === "log" && <LogTab data={data} reload={reload} />}
         {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} />}
         {tab === "finance" && <FinanceTab data={data} reload={reload} toast={toast} boss={role === "boss"} />}
@@ -6367,6 +6495,17 @@ function AppInner() {
       {wipeOpen && role === "boss" && <WipeModal data={data} reload={reload} onClose={() => setWipeOpen(false)} onDone={async () => {
         await reload("all"); setWipeOpen(false); setOpenId(null); toast("База очищена. Товары, поставщики и мастера сохранены.");
       }} />}
+      {driverCreated && (
+        <Modal title="Создан аккаунт доставщика" onClose={() => setDriverCreated(null)} w={460}>
+          <p className="sm" style={{ marginBottom: 10 }}>Для доставщика создан отдельный аккаунт. Он видит только «Доставка» и «Склад Thermo», без цен и финансов.</p>
+          <div className="card mono" style={{ padding: 12, fontSize: 15 }}>
+            <div>Логин: <b>{driverCreated.login}</b></div>
+            <div>Пароль: <b>{driverCreated.pass}</b></div>
+          </div>
+          <p className="xs" style={{ color: "var(--warn)", marginTop: 10 }}>Запишите пароль — он показывается только один раз. Сменить пароль и имя можно в «Аккаунты → ред.».</p>
+          <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}><button className="btn pri" onClick={() => setDriverCreated(null)}>Понятно</button></div>
+        </Modal>
+      )}
       <ConfirmHost />
       <SelectPopupHost />
       <NoAutofillGuard />
