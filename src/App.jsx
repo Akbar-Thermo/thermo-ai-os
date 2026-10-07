@@ -6328,24 +6328,6 @@ function AppInner() {
     }, 1500);
     return () => clearTimeout(t);
   }, [currentUser, role, data.objects, data.finance_ops, data.masters]);
-  // аккаунт доставщика «dostavka»: создаётся один раз, когда входит руководитель; пароль показывается ему один раз
-  const [driverCreated, setDriverCreated] = useState(null);
-  const driverBusy = useRef(false);
-  useEffect(() => {
-    if (!currentUser || role !== "boss" || driverBusy.current || !(data.users || []).length) return;
-    if ((data.users || []).some((u) => String(u.username || "").toLowerCase() === "dostavka")) return;
-    driverBusy.current = true;
-    (async () => {
-      const abc = "abcdefghjkmnpqrstuvwxyz23456789";
-      const rnd = new Uint32Array(8); try { crypto.getRandomValues(rnd); } catch (e) { for (let i = 0; i < 8; i++) rnd[i] = Math.floor(Math.random() * 1e9); }
-      const pw = [...rnd].map((x) => abc[x % abc.length]).join("");
-      const r = await db.from("users").insert({ username: "dostavka", name: "Доставщик", role: "driver", status: "active", pass_hash: await hashPass(pw) });
-      if (r.error) { driverBusy.current = false; return; }
-      await logAction("Создан аккаунт", "user:dostavka", "роль: driver (доставщик)");
-      await reload(["users"]);
-      setDriverCreated({ login: "dostavka", pass: pw });
-    })();
-  }, [currentUser, role, data.users]);
   const [bootErr, setBootErr] = useState("");
   const restoreRef = useRef(null);
   // список людей для полей «Менеджер» / «Ответственный»
@@ -6495,17 +6477,6 @@ function AppInner() {
       {wipeOpen && role === "boss" && <WipeModal data={data} reload={reload} onClose={() => setWipeOpen(false)} onDone={async () => {
         await reload("all"); setWipeOpen(false); setOpenId(null); toast("База очищена. Товары, поставщики и мастера сохранены.");
       }} />}
-      {driverCreated && (
-        <Modal title="Создан аккаунт доставщика" onClose={() => setDriverCreated(null)} w={460}>
-          <p className="sm" style={{ marginBottom: 10 }}>Для доставщика создан отдельный аккаунт. Он видит только «Доставка» и «Склад Thermo», без цен и финансов.</p>
-          <div className="card mono" style={{ padding: 12, fontSize: 15 }}>
-            <div>Логин: <b>{driverCreated.login}</b></div>
-            <div>Пароль: <b>{driverCreated.pass}</b></div>
-          </div>
-          <p className="xs" style={{ color: "var(--warn)", marginTop: 10 }}>Запишите пароль — он показывается только один раз. Сменить пароль и имя можно в «Аккаунты → ред.».</p>
-          <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}><button className="btn pri" onClick={() => setDriverCreated(null)}>Понятно</button></div>
-        </Modal>
-      )}
       <ConfirmHost />
       <SelectPopupHost />
       <NoAutofillGuard />
