@@ -3334,6 +3334,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   const { objects, finance_ops, suppliers } = data;
   const [delObj, setDelObj] = useState(null);
   const [delBusy, setDelBusy] = useState(false);
+  const [editO, setEditO] = useState(null);
   const [q, setQ] = useState("");
   const [stF, setStF] = useState("");
   const obj = objects.find((o) => o.id === openId);
@@ -3382,7 +3383,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
                   <td className="num">{fmt(f.saleNet)}</td>
                   <td className="num" style={{ color: f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--ok)" : "var(--mut)" }}>{f.clientDebt < 0 ? "−" + fmt(Math.abs(f.clientDebt)) : fmt(f.clientDebt)}</td>
                   <td className="xs mut mono">{dt(o.created_at)}</td>
-                  <td>{canDelete(o) ? <button className="btn xs dng" title="Удалить объект" onClick={(e) => { e.stopPropagation(); setDelObj(o); }}>✕</button> : null}</td>
+                  <td style={{ whiteSpace: "nowrap" }}><button className="btn xs" title="Изменить объект" onClick={(e) => { e.stopPropagation(); setEditO(o); }}>✎</button>{canDelete(o) ? <> <button className="btn xs dng" title="Удалить объект" onClick={(e) => { e.stopPropagation(); setDelObj(o); }}>✕</button></> : null}</td>
                 </tr>
               );
             })}
@@ -3390,6 +3391,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
           </tbody>
         </table>
       </div>
+      {editO && <ObjectEditModal obj={editO} data={data} reload={reload} toast={toast} onClose={() => setEditO(null)} />}
       {delObj && (() => { const f = calcObject(delObj, finance_ops); return (
         <Modal title="Удалить объект" onClose={() => { if (!delBusy) setDelObj(null); }} w={460}>
           <p style={{ marginBottom: 6 }}>Удалить объект <b style={{ color: "var(--bad)" }}>{delObj.name}</b> ({delObj.client})?</p>
@@ -3402,6 +3404,78 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         </Modal>
       ); })()}
     </div>
+  );
+}
+
+// «✎ Изменить объект»: название, клиент, телефон, мастер, менеджер, адрес
+function ObjectEditModal({ obj, data, reload, toast, onClose }) {
+  const masters = data.masters || [];
+  const [v, setV] = useState({ name: obj.name || "", client: obj.client || "", phone: obj.phone || "", address: obj.address || "", manager: obj.manager || "", master_id: obj.master_id || "", master: obj.master || "" });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [addM, setAddM] = useState(false);
+  const [mName, setMName] = useState("");
+  const [mPhone, setMPhone] = useState("");
+  const others = (data.objects || []).filter((o) => o.id !== obj.id);
+  const addMaster = async () => {
+    if (!mName.trim()) return;
+    setBusy(true);
+    const { data: ins, error } = await db.from("masters").insert(cleanUuids({ name: mName.trim(), phone: mPhone.trim(), status: "active", specialty: "", bonus_percent: 0, note: "" }));
+    setBusy(false);
+    const m = !error && ins && ins[0];
+    if (!m) return;
+    await logAction("Добавлен мастер", "master:" + m.name, "из карточки объекта");
+    setV((x) => ({ ...x, master_id: m.id, master: m.name }));
+    setAddM(false); setMName(""); setMPhone("");
+    await reload();
+  };
+  const save = async () => {
+    const t = (x) => String(x || "").trim();
+    if (!t(v.name)) { setErr("Укажите название объекта"); return; }
+    const patch = { name: t(v.name), client: t(v.client), phone: t(v.phone), address: t(v.address), manager: t(v.manager) || null, master_id: v.master_id || null, master: v.master_id ? v.master : (obj.master_id ? "" : t(v.master)) };
+    const labels = { name: "название", client: "клиент", phone: "телефон", address: "адрес", manager: "менеджер", master: "мастер" };
+    const changed = Object.keys(labels).filter((k) => t(patch[k]) !== t(obj[k]));
+    if (!changed.length && (patch.master_id || null) === (obj.master_id || null)) { onClose(); return; }
+    setBusy(true); setErr("");
+    const r = await db.from("objects").update(patch).eq("id", obj.id);
+    setBusy(false);
+    if (r.error) { setErr("Не сохранилось: " + r.error.message); return; }
+    await logAction("Объект изменён", "object:" + patch.name, changed.map((k) => labels[k] + ": " + (t(obj[k]) || "—") + " → " + (t(patch[k]) || "—")).join("; "));
+    await reload(); toast("Объект сохранён"); onClose();
+  };
+  return (
+    <Modal title="Изменить объект" onClose={() => { if (!busy) onClose(); }} w={640}>
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <Fld label="Название объекта"><input className="inp" value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></Fld>
+        <Fld label="Клиент"><ClientInput value={v.client} objects={others} onChange={(x) => setV((y) => ({ ...y, client: x }))} onPick={(c) => setV((y) => ({ ...y, client: c.client, phone: c.phone || y.phone }))} /></Fld>
+        <Fld label={"Теле\u2060фон клиента"}><ClientInput phoneMode value={v.phone} objects={others} onChange={(x) => setV((y) => ({ ...y, phone: x }))} onPick={(c) => setV((y) => ({ ...y, phone: c.phone }))} /></Fld>
+        <div className="fld">
+          <label>Мастер</label>
+          {!addM ? (
+            <MasterPicker masters={masters} value={v.master_id} onChange={(m) => setV((x) => ({ ...x, master_id: m ? m.id : "", master: m ? m.name : "" }))} onAdd={() => setAddM(true)} />
+          ) : (
+            <div className="card" style={{ padding: 10 }}>
+              <div className="row" style={{ gap: 6 }}>
+                <input className="inp" placeholder="Имя мастера" value={mName} onChange={(e) => setMName(e.target.value)} />
+                <input className="inp" placeholder="Номер" value={mPhone} onChange={(e) => setMPhone(e.target.value)} />
+              </div>
+              <div className="row" style={{ marginTop: 8, justifyContent: "flex-end", gap: 6 }}>
+                <button className="btn xs" onClick={() => { setAddM(false); setMName(""); setMPhone(""); }}>Отмена</button>
+                <button className="btn xs pri" disabled={!mName.trim() || busy} onClick={addMaster}>Добавить</button>
+              </div>
+            </div>
+          )}
+          {!v.master_id && obj.master && !obj.master_id && <div className="xs mut" style={{ marginTop: 4 }}>сейчас: {obj.master} (без привязки)</div>}
+        </div>
+        <Fld label="Менеджер"><PersonSelect value={v.manager} onChange={(m) => setV({ ...v, manager: m })} /></Fld>
+        <Fld label="Адрес"><input className="inp" value={v.address} onChange={(e) => setV({ ...v, address: e.target.value })} /></Fld>
+      </div>
+      {err && <p className="sm" style={{ color: "var(--bad)", marginTop: 8 }}>{err}</p>}
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
+        <button className="btn" disabled={busy} onClick={onClose}>Отмена</button>
+        <button className="btn pri" disabled={busy} onClick={save}>{busy ? "Сохраняю…" : "Сохранить"}</button>
+      </div>
+    </Modal>
   );
 }
 
@@ -3420,6 +3494,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   const [delItemId, setDelItemId] = useState(null);
   const [shipForm, setShipForm] = useState(false);
   const [pctForm, setPctForm] = useState(false);
+  const [editObj, setEditObj] = useState(false);
   const supName = (id) => (suppliers.find((s) => s.id === id) || {}).name || "—";
   const itemName = (iid) => ((obj.items || []).find((i) => i.id === iid) || {}).name || "";
 
@@ -3724,6 +3799,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
             </select>
           </div>
         </div>
+        <button className="btn" onClick={() => setEditObj(true)}>✎ Изменить</button>
         <select className="inp" style={{ maxWidth: 190 }} value={obj.status} onChange={(e) => setStatus(e.target.value)}>
           {statusOptions(obj.status).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
         </select>
@@ -3820,6 +3896,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       )}
       {editItem && <ItemEditModal item={editItem} suppliers={suppliers} fin={fin} onClose={() => setEditItem(null)} onSave={async (it) => { if (await saveItem(it)) setEditItem(null); }} />}
       {pctForm && <PercentModal obj={obj} batches={batches} onClose={() => setPctForm(false)} onApply={async (pct, no) => { if (await applyPercent(pct, no)) setPctForm(false); }} />}
+      {editObj && <ObjectEditModal obj={obj} data={data} reload={reload} toast={toast} onClose={() => setEditObj(false)} />}
       {shipForm && <ShipModal obj={obj} batches={batches} fin={fin} supName={supName} onClose={() => setShipForm(false)}
         onShip={async (ids, date) => { if (await shipItems(ids, date, true)) setShipForm(false); }}
         onUnship={async (ids) => { await shipItems(ids, null, false); }} />}
