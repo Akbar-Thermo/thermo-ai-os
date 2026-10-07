@@ -3036,7 +3036,9 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
         // новый объект создаётся сразу вместе с позициями — одной записью (раньше объект создавался пустым,
         // а позиции дописывались вторым запросом; если он не проходил, объект оставался пустым)
         items = mkItems(1);
-        const objData = cleanUuids({ ...newObj, name: String(newObj.name || "").trim(), status: saveStatus || "draft", items });
+        // менеджер — тот, кто вошёл в систему и создаёт заявку
+        const me = CURRENT_USER ? String(CURRENT_USER.name || CURRENT_USER.username || "").trim() : "";
+        const objData = cleanUuids({ ...newObj, manager: me || newObj.manager || null, name: String(newObj.name || "").trim(), status: saveStatus || "draft", items });
         const { data: ins, error: insErr } = await db.from("objects").insert(objData);
         if (insErr) throw new Error("объект не создан: " + (insErr.message || insErr));
         obj = ins && ins[0];
@@ -3172,7 +3174,6 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                     </div>
                   )}
                 </div>
-                <Fld label="Менеджер"><PersonSelect hideEmpty value={newObj.manager} onChange={(m) => setNewObj({ ...newObj, manager: m })} /></Fld>
                 <Fld label="Адрес"><input className="inp" value={newObj.address} onChange={(e) => setNewObj({ ...newObj, address: e.target.value })} /></Fld>
               </div>
             )}
