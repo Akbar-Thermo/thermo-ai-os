@@ -2630,6 +2630,13 @@ const LINE_MARKS = [
   { id: "r", dot: "#ff1f30" },
   { id: "w", dot: "#ffffff" },
 ];
+// кружок-пометка строки (нет → красный → белый → нет)
+const nextMark = (cur) => LINE_MARKS[(LINE_MARKS.findIndex((m) => m.id === (cur || "")) + 1) % LINE_MARKS.length].id;
+function MarkDot({ value, onClick }) {
+  const mark = LINE_MARKS.find((m) => m.id === (value || ""));
+  return <button type="button" className="mark-dot" title="Выделить строку цветом" onClick={onClick}
+    style={{ width: 16, height: 16, minWidth: 16, borderRadius: 8, border: "1.5px solid " + (mark && mark.dot ? (mark.id === "w" ? "#9a9a9a" : mark.dot) : "var(--line)"), background: mark && mark.dot ? mark.dot : "transparent", cursor: "pointer", verticalAlign: "middle", padding: 0, flexShrink: 0 }} />;
+}
 /* ============ «3 сегмента»: тот же список в товарах поставщиков Эконом / Стандарт / Премиум ============
    Для каждой строки в каждом сегменте: если товар строки уже от поставщика этого сегмента — он сам,
    иначе — самый похожий по названию товар поставщиков этого сегмента (слова и цифры размеров; бренды не учитываются).
@@ -3016,6 +3023,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
             supplier_id: lineSup(l),
             source_text: p ? p.name : l.name, confidence: 100,
             batch_no: batchNo, batch_date: today(), shipped: false, added_at: new Date().toISOString(),
+            ...(l.mark ? { mark: l.mark } : {}),
           };
           if (w) { Object.assign(it, whItemPatch(w)); delete it.shipped; }
           return it;
@@ -3217,7 +3225,6 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                     const curSup = lineSup(l);
                     // поставщик — только для информации (выбор в строке убран по просьбе руководителя)
                     const supSel = curSup ? <div className="xs mut" style={{ marginTop: 3 }}>{(suppliers.find((x) => x.id === curSup) || {}).name || ""}</div> : null;
-                    const mark = LINE_MARKS.find((m) => m.id === l.mark);
                     return (
                       <tr key={l.id} draggable={dragId === l.id}
                         onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", l.id); } catch (er) {} }}
@@ -3229,8 +3236,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                         <td style={{ whiteSpace: "nowrap", verticalAlign: "middle" }}>
                           <span title="Зажмите и перетащите, чтобы поменять место" onMouseDown={() => setDragId(l.id)} onMouseUp={() => { if (!overId) setDragId(null); }}
                             style={{ cursor: "grab", fontSize: 18, color: "var(--mut)", padding: "0 4px", userSelect: "none" }}>⠿</span>
-                          <button type="button" title="Выделить строку цветом" onClick={() => { const i = LINE_MARKS.findIndex((m) => m.id === (l.mark || "")); setLine(l.id, { mark: LINE_MARKS[(i + 1) % LINE_MARKS.length].id }); }}
-                            style={{ width: 16, height: 16, borderRadius: 8, border: "1.5px solid " + (mark && mark.dot ? (mark.id === "w" ? "#9a9a9a" : mark.dot) : "var(--line)"), background: mark && mark.dot ? mark.dot : "transparent", cursor: "pointer", verticalAlign: "middle", padding: 0 }} />
+                          <MarkDot value={l.mark} onClick={() => setLine(l.id, { mark: nextMark(l.mark) })} />
                         </td>
                         <td style={{ minWidth: 240 }}>
                           {l.manual ? (
@@ -3546,6 +3552,11 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     }
     return n;
   };
+  // цветная пометка позиции — без записи в журнал
+  const setItemMark = async (iid, mark) => saveItems((cur) => cur.map((i) => {
+    if (i.id !== iid) return i;
+    const n = { ...i }; if (mark) n.mark = mark; else delete n.mark; return n;
+  }));
   const setItemPrice = async (iid, price) => {
     const ok = await saveItems((cur) => cur.map((i) => (i.id === iid ? { ...i, price } : i)));
     if (ok) {
@@ -3823,13 +3834,13 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
         <table className="t" style={{ minWidth: 760 }}>
-          <thead><tr><th>Товар</th><th style={{width:90}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"center",width:120}}>Цена</th><th style={{textAlign:"right"}}>Сумма</th><th></th></tr></thead>
+          <thead><tr><th style={{ width: 28 }}></th><th>Товар</th><th style={{width:90}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"center",width:120}}>Цена</th><th style={{textAlign:"right"}}>Сумма</th><th></th></tr></thead>
           <tbody>
             {batches.map((b) => (
               <React.Fragment key={b.no}>
                 {batches.length > 1 || (obj.items || []).some((i) => i.batch_no) ? (
                   <tr className="clk" onClick={() => toggleBatch(b.no)}>
-                    <td colSpan={6} style={{ background: "var(--acc-tint)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
+                    <td colSpan={7} style={{ background: "var(--acc-tint)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
                       {closedBatches[b.no] ? "▸" : "▾"} 🚚 ПОСТАВКА №{b.no} · {dt(b.date)} · позиций: {b.items.length} · на сумму {fmt(b.items.reduce((a, i) => a + i.qty * i.price, 0))}
                       {b.items.some((i) => !isShipped(i)) ? <span style={{ color: "var(--warn)" }}> · не отгружено: {b.items.filter((i) => !isShipped(i)).length}</span> : b.items.some((i) => i.shipped) ? <span style={{ color: "var(--ok)" }}> · отгружено ✓</span> : null}
                       <span className="xs mut" style={{ fontWeight: 500 }}>  — нажмите чтобы {closedBatches[b.no] ? "раскрыть" : "свернуть"}</span>
@@ -3837,11 +3848,11 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
                   </tr>
                 ) : null}
                 {!closedBatches[b.no] && b.items.map((i) => (
-              <ObjectItemRow key={i.id} i={i} fin={fin} supName={supName} setItemQty={setItemQty} setItemPrice={setItemPrice} setEditItem={setEditItem} setDelItemId={setDelItemId} />
+              <ObjectItemRow key={i.id} i={i} fin={fin} supName={supName} setItemQty={setItemQty} setItemPrice={setItemPrice} setEditItem={setEditItem} setDelItemId={setDelItemId} setItemMark={setItemMark} />
                 ))}
               </React.Fragment>
             ))}
-            {!(obj.items || []).length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 22 }}>Материалов нет — добавьте через «Новая заявка»</td></tr>}
+            {!(obj.items || []).length && <tr><td colSpan={7} className="mut" style={{ textAlign: "center", padding: 22 }}>Материалов нет — добавьте через «Новая заявка»</td></tr>}
           </tbody>
         </table>
       </div>
@@ -4053,13 +4064,16 @@ function ShipModal({ obj, batches, fin, supName, onClose, onShip, onUnship }) {
 // Строка таблицы материалов объекта: количество/цена редактируются свободно на экране,
 // в базу уходят только по потере фокуса (onBlur) — чтобы не слать запрос на каждое нажатие клавиши
 // и не ловить промежуточные значения вроде "1" при наборе "15".
-function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem, setDelItemId }) {
+function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem, setDelItemId, setItemMark }) {
   const [qty, setQty] = useState(i.qty);
+  const [mk, setMk] = useState(i.mark || "");
+  useEffect(() => { setMk(i.mark || ""); }, [i.mark]);
   const [price, setPrice] = useState(i.price);
   useEffect(() => { setQty(i.qty); }, [i.qty]);
   useEffect(() => { setPrice(i.price); }, [i.price]);
   return (
     <tr>
+      <td style={{ width: 28, paddingRight: 0, verticalAlign: "middle" }}><MarkDot value={mk} onClick={async () => { const nx = nextMark(mk); setMk(nx); if (!(await setItemMark(i.id, nx))) setMk(i.mark || ""); }} /></td>
       <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">со склада Thermo</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}</td>
       <td><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)}
         onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (v !== Number(i.qty)) { if (!(await setItemQty(i.id, v))) setQty(i.qty); } else setQty(i.qty); }} /></td>
