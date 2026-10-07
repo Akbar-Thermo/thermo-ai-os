@@ -86,16 +86,15 @@ const SEGMENTS = ["эконом", "комфорт", "премиум"];
 const SEG_LABEL = { "эконом": "Эконом", "комфорт": "Стандарт", "премиум": "Премиум" };
 const SEG_COLOR = { "эконом": "var(--t-info)", "комфорт": "var(--t-strong)", "премиум": "var(--t-violet)" };
 const supSeg = (sup) => (sup && SEGMENTS.includes(sup.segment) ? sup.segment : "комфорт");
+// статусы объекта: только «Согласовано» влияет на систему (долги, склад, дашборд, доставка, бонусы).
+// «Черновик» и «На тендере» — объект виден, но ни на что не влияет.
 const OBJ_STATUSES = [
   { id: "draft", label: "Черновик", c: "var(--t-neutral)" },
-  { id: "review", label: "На проверке", c: "var(--t-warn)" },
+  { id: "tender", label: "На тендере", c: "var(--t-warn)" },
   { id: "approved", label: "Согласовано", c: "var(--t-strong)" },
-  { id: "waiting", label: "В ожидании", c: "var(--t-violet)" },
-  { id: "partial", label: "Частично оплачено", c: "var(--t-bad)" },
-  { id: "paid", label: "Оплачено", c: "var(--t-ok)" },
-  { id: "closed", label: "Закрыто", c: "var(--t-ok)" },
-  { id: "cancelled", label: "Отменено", c: "var(--t-bad)" },
 ];
+const IDLE_STATUSES = ["draft", "tender", "cancelled"];
+const isLive = (o) => !!o && !IDLE_STATUSES.includes(o.status || "draft");
 const OP_TYPES = [
   { id: "client_payment", label: "Оплата клиента" },
   { id: "supplier_payment", label: "Оплата поставщику" },
@@ -506,6 +505,12 @@ const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); retur
 const isShipped = (i) => !!i && i.shipped !== false;
 // убранные статусы: у старых объектов показываются как есть, в списках выбора — только если объект уже в таком статусе
 const OLD_STATUSES = [
+  { id: "review", label: "На проверке (старый статус)", c: "var(--t-neutral)" },
+  { id: "waiting", label: "В ожидании (старый статус)", c: "var(--t-neutral)" },
+  { id: "partial", label: "Частично оплачено (старый статус)", c: "var(--t-neutral)" },
+  { id: "paid", label: "Оплачено (старый статус)", c: "var(--t-neutral)" },
+  { id: "closed", label: "Закрыто (старый статус)", c: "var(--t-neutral)" },
+  { id: "cancelled", label: "Отменено (старый статус)", c: "var(--t-bad)" },
   { id: "shipped", label: "Отгружено (старый статус)", c: "var(--t-neutral)" },
   { id: "settled", label: "Рассчитано (старый статус)", c: "var(--t-neutral)" },
 ];
@@ -572,7 +577,7 @@ function supplierReturnIds(ops, whMoves) {
 function supplierStats(sup, objects, ops, whMoves) {
   let purchases = 0;
   objects.forEach((ob) => {
-    if (ob.status === "cancelled") return;
+    if (!isLive(ob)) return;
     (ob.items || []).forEach((i) => { if (i.supplier_id === sup.id && !i.from_warehouse && isShipped(i)) purchases += (i.qty || 0) * (i.cost || 0); });
   });
   const ids = supplierReturnIds(ops, whMoves);
@@ -585,7 +590,7 @@ function supplierStats(sup, objects, ops, whMoves) {
   return { purchases: round2(purchases), paid: round2(paid), returns: round2(returns), balance, debt: Math.max(0, balance) };
 }
 function masterStats(m, objects, ops) {
-  const objs = objects.filter((o) => o.status !== "cancelled" && (o.master_id === m.id || (o.master && o.master === m.name)));
+  const objs = objects.filter((o) => isLive(o) && (o.master_id === m.id || (o.master && o.master === m.name)));
   let sale = 0, gross = 0, net = 0, accrued = 0, clientDebt = 0;
   const rows = objs.map((o) => {
     const f = calcObject(o, ops);
@@ -609,7 +614,7 @@ async function whFind(productId, name, size) {
   return { row: list[0] || null };
 }
 // возвращает количество позиций, которые не удалось оприходовать (ошибка уже показана на экране)
-async function warehouseIn(returnOps, sourceObjName) {
+async function warehouseIn(returnOps, sourceObjName, note = "возврат с объекта") {
   let failed = 0;
   for (const op of returnOps) {
     const qty = Number(op.qty) || 0;
@@ -637,7 +642,7 @@ async function warehouseIn(returnOps, sourceObjName) {
     if (r.error) { failed++; continue; }
     await db.from("wh_moves").insert(cleanUuids({
       product_id: op.product_id || null, name: op.product_name, qty, dir: "in",
-      object_id: op.object_id || null, object_name: sourceObjName, op_date: op.op_date || today(), user: op.user || curUserName(), note: "возврат с объекта",
+      object_id: op.object_id || null, object_name: sourceObjName, op_date: op.op_date || today(), user: op.user || curUserName(), note,
     }));
   }
   return failed;
@@ -661,7 +666,8 @@ function splitByWarehouse(rows, warehouse, mk) {
   });
   return { items, whOut };
 }
-const whItemPatch = (w) => ({ from_warehouse: true, cost: Number(w.cost) || 0, supplier_id: w.supplier_id || null, source_text: "со склада Thermo", shipped: undefined });
+// pending: объект ещё не «Согласовано» — со склада спишем только при согласовании (wh_pending)
+const whItemPatch = (w, pending) => ({ from_warehouse: true, wh_id: w.id, cost: Number(w.cost) || 0, supplier_id: w.supplier_id || null, source_text: "со склада Thermo", shipped: undefined, ...(pending ? { wh_pending: true } : {}) });
 // поставки объекта: [{ no, date, items }]
 const objBatches = (obj) => {
   const map = {};
@@ -705,6 +711,36 @@ async function warehouseOut(lines, targetObj, user) {
     }));
   }
   return failed;
+}
+// объект стал «Согласовано»: списываем со склада позиции, отложенные в черновике (wh_pending).
+// Возвращает { ids, short, fail }: ids — позиции, с которых снять пометку; short — где на складе не хватило.
+async function whTakePending(obj) {
+  const pend = (obj.items || []).filter((i) => i.from_warehouse && i.wh_pending);
+  const lines = [], short = [];
+  for (const i of pend) {
+    let row = null;
+    if (i.wh_id) { const r = await db.from("warehouse").select().eq("id", i.wh_id); row = r.data && r.data[0] ? r.data[0] : null; }
+    if (!row && i.product_id) { const f = await whFind(i.product_id, i.name, i.size); row = f.row || null; }
+    if (!row) { short.push(i.name); continue; }
+    if ((Number(row.qty) || 0) + 1e-9 < (Number(i.qty) || 0)) short.push(i.name);
+    lines.push({ row, qty: Number(i.qty) || 0 });
+  }
+  const fail = lines.length ? await warehouseOut(lines, obj, curUserName()) : 0;
+  return { ids: pend.map((i) => i.id), short, fail };
+}
+// объект снова «Черновик» / «На тендере»: товар со склада возвращается на склад и ждёт согласования
+// (то, что клиент уже вернул по позиции, на склад уже пришло — его не считаем)
+async function whReturnLive(obj, ops) {
+  const back = {};
+  (ops || []).forEach((x) => { if (x.type === "return" && !x.voided && x.object_id === obj.id && x.item_id) back[x.item_id] = (back[x.item_id] || 0) + (Number(x.qty) || 0); });
+  const live = (obj.items || []).filter((i) => i.from_warehouse && !i.wh_pending);
+  const rows = live.map((i) => ({ i, q: round2(Math.max(0, (Number(i.qty) || 0) - (back[i.id] || 0))) })).filter((x) => x.q > 0);
+  const fail = rows.length ? await warehouseIn(rows.map(({ i, q }) => ({
+    product_id: i.product_id || null, product_name: i.name, size: i.size, unit: i.unit, qty: q,
+    cost_amount: q * (Number(i.cost) || 0), amount: q * (Number(i.price) || 0),
+    supplier_id: i.supplier_id || null, object_id: obj.id,
+  })), obj.name, "объект не согласован — товар вернулся на склад") : 0;
+  return { ids: live.map((i) => i.id), fail };
 }
 /* Позиции объекта (items) меняются по СВЕЖЕЙ версии из базы, а не по копии с экрана:
    если другой сотрудник только что добавил поставку или поменял количество, его изменения не затрутся.
@@ -1983,7 +2019,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast }) 
   // Received items (purchases) from all non-cancelled objects
   const received = [];
   objects.forEach((ob) => {
-    if (ob.status === "cancelled") return;
+    if (!isLive(ob)) return;
     (ob.items || []).forEach((it) => {
       if (it.supplier_id === s.id && !it.from_warehouse && isShipped(it)) {
         received.push({ ...it, obj_name: ob.name, obj_id: ob.id, date: it.shipped_date || it.batch_date || ob.created_at });
@@ -3025,12 +3061,14 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
             batch_no: batchNo, batch_date: today(), shipped: false, added_at: new Date().toISOString(),
             ...(l.mark ? { mark: l.mark } : {}),
           };
-          if (w) { Object.assign(it, whItemPatch(w)); delete it.shipped; }
+          if (w) { Object.assign(it, whItemPatch(w, whPend)); delete it.shipped; }
           return it;
         });
         whOut = sp.whOut;
         return sp.items;
       };
+      // пока объект не «Согласовано», склад не трогаем — спишем при согласовании
+      const whPend = !isLive({ status: saveStatus || (selObj ? selObj.status : "draft") });
       let obj = selObj, batchNo = 1, items;
       if (!obj) {
         // новый объект создаётся сразу вместе с позициями — одной записью (раньше объект создавался пустым,
@@ -3060,7 +3098,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
         if (r.error) throw new Error("позиции не сохранены: " + (r.error.message || r.error) + ". Заявка осталась на экране — попробуйте ещё раз.");
       }
       // товар со Склада Thermo — списываем со склада (после того как позиции сохранены)
-      const whFail = whOut.length ? await warehouseOut(whOut, obj, curUserName()) : 0;
+      const whFail = whOut.length && !whPend ? await warehouseOut(whOut, obj, curUserName()) : 0;
       // история заявок — не критично: при ошибке поставка всё равно сохранена
       await db.from("requests").insert(cleanUuids({
         object_id: obj.id, mode: "manual", source: "manual",
@@ -3511,9 +3549,30 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     await reload();
     return !r.error;
   };
+  // смена статуса: «Согласовано» — товар со склада списывается; назад в «Черновик»/«На тендере» — возвращается на склад
   const setStatus = async (s) => {
-    const r = await db.from("objects").update({ status: s }).eq("id", obj.id);
-    if (!r.error) await logAction("Статус объекта: " + stById(s).label, "object:" + obj.name, "было: " + stById(obj.status).label);
+    const was = isLive(obj), will = isLive({ status: s });
+    let note = "", ok = true;
+    if (!was && will) {
+      const t = await whTakePending(obj);
+      const set = new Set(t.ids);
+      const r = await updateObjectItems(obj.id, (cur) => cur.map((i) => { if (!set.has(i.id)) return i; const n = { ...i }; delete n.wh_pending; return n; }), { status: s });
+      ok = !r.error;
+      if (t.ids.length) note = "со Склада Thermo списано: " + t.ids.length + " поз." + (t.short.length ? " ⚠ не хватило на складе: " + t.short.join(", ") : "");
+    } else if (was && !will) {
+      const t = await whReturnLive(obj, finance_ops);
+      const set = new Set(t.ids);
+      const r = await updateObjectItems(obj.id, (cur) => cur.map((i) => (set.has(i.id) ? { ...i, wh_pending: true } : i)), { status: s });
+      ok = !r.error;
+      if (t.ids.length) note = "на Склад Thermo возвращено: " + t.ids.length + " поз.";
+    } else {
+      const r = await db.from("objects").update({ status: s }).eq("id", obj.id);
+      ok = !r.error;
+    }
+    if (ok) {
+      await logAction("Статус объекта: " + stById(s).label, "object:" + obj.name, "было: " + stById(obj.status).label + (note ? "; " + note : ""));
+      toast(will ? "Объект согласован — учитывается в долгах, складе и отчётах" + (note ? ". " + note : "") : "Статус «" + stById(s).label + "» — объект не влияет на долги, склад и отчёты" + (note ? ". " + note : ""));
+    }
     await reload();
   };
   const setField = async (patch, what) => {
@@ -3619,14 +3678,14 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
           qty, price: parseNum(r.price), cost: parseNum(r.cost), supplier_id: r.supplier_id || null,
           source_text: "добавлено вручную", confidence: 100, batch_no: batchNo, batch_date: batchDate, manual: true, shipped: false, added_at: new Date().toISOString(),
         };
-        if (w) { Object.assign(it, whItemPatch(w)); delete it.shipped; }
+        if (w) { Object.assign(it, whItemPatch(w, !isLive(obj))); delete it.shipped; }
         return it;
       });
       whOut = sp.whOut;
       return [...cur, ...sp.items];
     });
     let whFail = 0;
-    if (ok && whOut.length) { whFail = await warehouseOut(whOut, obj, curUserName()); await reload(); }
+    if (ok && whOut.length && isLive(obj)) { whFail = await warehouseOut(whOut, obj, curUserName()); await reload(); }
     if (ok) {
       await logAction(newBatch ? "Новая поставка" : "Добавлены позиции", "object:" + obj.name, "поставка №" + batchNo + ", позиций: " + rows.length);
       toast((newBatch ? "Новая поставка №" + batchNo + ": " : "Добавлено в поставку №" + batchNo + ": ") + rows.length + " поз." + (whOut.length ? " · со Склада Thermo: " + whOut.length + " поз." : "") + (whFail ? " · ⚠ склад не списан у " + whFail + " поз." : ""));
@@ -3820,6 +3879,11 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         <button className="btn" onClick={exportCost} title="Внутренний: себестоимость, цена и наценка по каждой позиции">📊 Excel себестоимость</button>
       </div>
 
+      {!isLive(obj) && (
+        <div className="card sect" style={{ borderColor: "var(--warn)", padding: "10px 14px" }}>
+          <span className="sm">Статус «{stById(obj.status).label}» — объект <b>не влияет</b> на долги клиента и поставщикам, Склад Thermo, дашборд, доставку и бонусы. Поставьте «Согласовано», чтобы он начал учитываться.</span>
+        </div>
+      )}
       <div className="kpis sect">
         <KPI l="Сумма товара (нетто)" v={f.saleNet} />
         <KPI l="Оплачено клиентом" v={f.paidClient} c="var(--ok)" />
@@ -3828,7 +3892,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
 
       <div className="row sect" style={{ marginBottom: 8 }}>
         <h3 style={{ marginRight: "auto" }}>Материалы объекта</h3>
-        {(obj.items || []).some((i) => !i.from_warehouse) && <button className="btn" style={unshippedCnt ? { borderColor: "var(--warn)", color: "var(--warn)", fontWeight: 700 } : undefined} onClick={() => setShipForm(true)}>🚚 Отгрузить товар{unshippedCnt ? " (" + unshippedCnt + ")" : " ✓"}</button>}
+        {isLive(obj) && (obj.items || []).some((i) => !i.from_warehouse) && <button className="btn" style={unshippedCnt ? { borderColor: "var(--warn)", color: "var(--warn)", fontWeight: 700 } : undefined} onClick={() => setShipForm(true)}>🚚 Отгрузить товар{unshippedCnt ? " (" + unshippedCnt + ")" : " ✓"}</button>}
         <button className="btn" onClick={() => setAddItems(true)}>+ Список вручную</button>
         <button className="btn pri" onClick={() => setAddItems("newbatch")}>📦 Новая поставка</button>
         <button className="btn" onClick={() => setImpItems(true)}>📊 Импорт Excel</button>
@@ -4075,7 +4139,7 @@ function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem,
   return (
     <tr>
       <td style={{ width: 28, paddingRight: 0, verticalAlign: "middle" }}><MarkDot value={mk} onClick={async () => { const nx = nextMark(mk); setMk(nx); if (!(await setItemMark(i.id, nx))) setMk(i.mark || ""); }} /></td>
-      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">со склада Thermo</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}</td>
+      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «Согласовано»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}</td>
       <td><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)}
         onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (v !== Number(i.qty)) { if (!(await setItemQty(i.id, v))) setQty(i.qty); } else setQty(i.qty); }} /></td>
       <td className="sm">{i.unit}</td>
@@ -4860,7 +4924,7 @@ function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
   const [ship, setShip] = useState(false);
   const supName = (id) => (suppliers.find((x) => x.id === id) || {}).name || "—";
   const pending = (o) => (o.items || []).filter((i) => !i.from_warehouse && !isShipped(i)).length;
-  const list = objects.filter((o) => !["cancelled", "closed"].includes(o.status) && (o.items || []).length)
+  const list = objects.filter((o) => isLive(o) && o.status !== "closed" && (o.items || []).length)
     .filter((o) => showAll || pending(o) > 0)
     .filter((o) => { const t = q.trim().toLowerCase(); return !t || [o.name, o.client, o.phone, o.address, o.master].filter(Boolean).join(" ").toLowerCase().includes(t); })
     .sort((a, b) => (pending(b) > 0) - (pending(a) > 0) || String(b.created_at || "").localeCompare(String(a.created_at || "")));
@@ -5165,7 +5229,7 @@ function SupplierReturnForm({ row, suppliers, onCancel, onSave }) {
   );
 }
 function IssueForm({ stock, objects, onClose, onSave }) {
-  const targets = objects.filter((o) => !["closed", "cancelled"].includes(o.status));
+  const targets = objects.filter((o) => isLive(o) && o.status !== "closed");
   const [objId, setObjId] = useState(targets[0] ? targets[0].id : "");
   const [user, setUser] = useState(curUserName());
   const [rows, setRows] = useState(stock.map((w) => ({ row: w, qty: 0 })));
@@ -5261,7 +5325,7 @@ function dashEvents(objects, ops, mgr) {
   const objById = {}, sales = [];
   objects.forEach((o) => {
     objById[o.id] = o;
-    if (o.status === "cancelled" || (mgr && (o.manager || "") !== mgr)) return;
+    if (!isLive(o) || (mgr && (o.manager || "") !== mgr)) return;
     (o.items || []).forEach((i) => {
       const d = String(i.batch_date || o.created_at || "").slice(0, 10);
       sales.push({ d, h: hourOf(d, i.added_at || ((i.batch_no || 1) === 1 ? o.created_at : null)), o, i,
@@ -5276,13 +5340,13 @@ function dashEvents(objects, ops, mgr) {
     // бонус мастеру без объекта — тоже расход компании (раньше в чистую прибыль не попадал)
     if (x.type === "bonus" && !x.object_id) { if (!mgr) dirBonus.push({ ...x, d }); return; }
     const o = x.object_id && objById[x.object_id];
-    if (!o || o.status === "cancelled" || (mgr && (o.manager || "") !== mgr)) return;
+    if (!o || !isLive(o) || (mgr && (o.manager || "") !== mgr)) return;
     objOps.push({ ...x, d, h: hourOf(d, x.created_at), o });
   });
   // первая покупка клиента — по всем объектам, чтобы «новый клиент» не зависел от фильтра менеджера
   const firstBuy = {};
   objects.forEach((o) => {
-    if (o.status === "cancelled") return;
+    if (!isLive(o)) return;
     (o.items || []).forEach((i) => {
       const d = String(i.batch_date || o.created_at || "").slice(0, 10), k = clientKey(o);
       if (d && (!firstBuy[k] || d < firstBuy[k])) firstBuy[k] = d;
@@ -5499,7 +5563,7 @@ function payReport(objects, ops, from, to, mgr) {
     const d = String(x.op_date || x.created_at || "").slice(0, 10);
     if (!inR(d)) return;
     const o = x.object_id ? objById[x.object_id] : null;
-    if (x.object_id && (!o || o.status === "cancelled")) return;
+    if (x.object_id && (!o || !isLive(o))) return;
     if (mgr && (!o || (o.manager || "") !== mgr)) return;
     const i = payInfo(x), r = rows[i.id || "none"], a = Number(x.amount) || 0;
     r.n++;
@@ -5664,7 +5728,7 @@ function Dashboard({ data }) {
     const fin = (m) => Object.values(m).map((r) => ({ ...r, deals: r._deals.size, gross: r.rev - r.cost, margin: r.rev > 0 ? ((r.rev - r.cost) / r.rev) * 100 : 0, avg: r._deals.size ? r.rev / r._deals.size : 0 })).sort((a, b) => b.rev - a.rev);
     // долги клиентов и поставщикам — текущие, за всё время
     const cdebt = {};
-    objects.forEach((o) => { if (o.status === "cancelled") return; const k = clientKey(o); cdebt[k] = (cdebt[k] || 0) + calcObject(o, finance_ops).clientDebt; });
+    objects.forEach((o) => { if (!isLive(o)) return; const k = clientKey(o); cdebt[k] = (cdebt[k] || 0) + calcObject(o, finance_ops).clientDebt; });
     const clients = fin(cl).map((r) => ({ ...r, debt: cdebt[r.key] || 0 }));
     const sups = fin(sp).map((r) => { const s = suppliers.find((x) => x.id === r.key); return { ...r, debt: s ? supplierStats(s, objects, finance_ops, data.wh_moves).debt : 0 }; });
     return { prod: fin(prod), cat: fin(cat), brand: fin(brand), mgr: fin(mg), master: fin(ms), client: clients, sup: sups };
@@ -5674,13 +5738,13 @@ function Dashboard({ data }) {
   const bal = useMemo(() => {
     let cdebt = 0, overpay = 0;
     objects.forEach((o) => {
-      if (o.status === "cancelled" || (mgr && (o.manager || "") !== mgr)) return;
+      if (!isLive(o) || (mgr && (o.manager || "") !== mgr)) return;
       const d = calcObject(o, finance_ops).clientDebt; if (d > 0) cdebt += d; else overpay -= d;
     });
     const sdebt = suppliers.reduce((a, s) => a + supplierStats(s, objects, finance_ops, data.wh_moves).debt, 0);
     const whCost = warehouse.reduce((a, w) => a + (w.qty || 0) * (w.cost || 0), 0);
     const whQty = warehouse.filter((w) => (w.qty || 0) > 0).length;
-    const active = objects.filter((o) => !["closed", "cancelled"].includes(o.status) && (!mgr || (o.manager || "") === mgr)).length;
+    const active = objects.filter((o) => isLive(o) && o.status !== "closed" && (!mgr || (o.manager || "") === mgr)).length;
     return { cdebt, overpay, sdebt, whCost, whQty, active };
   }, [objects, finance_ops, suppliers, warehouse, mgr, data.wh_moves]);
 
@@ -5864,7 +5928,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
   const finance_ops = useMemo(() => (boss ? data.finance_ops : data.finance_ops.filter((o) => !isSalary(o))), [data.finance_ops, boss]);
   const objName = (id) => (objects.find((o) => o.id === id) || {}).name || "—";
   const supName = (id) => (suppliers.find((s) => s.id === id) || {}).name || "";
-  const clientDebts = objects.map((o) => ({ o, f: calcObject(o, finance_ops) })).filter((x) => x.f.clientDebt > 0.004 && x.o.status !== "cancelled");
+  const clientDebts = objects.map((o) => ({ o, f: calcObject(o, finance_ops) })).filter((x) => x.f.clientDebt > 0.004 && isLive(x.o));
   // поставщики с движением (закупки, оплаты или возвраты) — пустые строки не показываем
   const supRows = useMemo(() => suppliers.map((s) => ({ s, st: supplierStats(s, objects, finance_ops, data.wh_moves) }))
     .filter(({ st }) => st.purchases || st.paid || st.returns).sort((a, b) => b.st.balance - a.st.balance), [suppliers, objects, finance_ops, data.wh_moves]);
@@ -6403,7 +6467,7 @@ function AppInner() {
     const t = setTimeout(async () => {
       let made = 0;
       for (const o of data.objects) {
-        if (!o.master_id || o.status === "cancelled" || autoBonusBusy.current.has(o.id)) continue;
+        if (!o.master_id || !isLive(o) || autoBonusBusy.current.has(o.id)) continue;
         const m = data.masters.find((x) => x.id === o.master_id);
         const pct = m ? Number(m.bonus_percent) || 0 : 0;
         if (!(pct > 0)) continue;
