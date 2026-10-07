@@ -6334,8 +6334,11 @@ function AppInner() {
   const [extraPeople, setExtraPeople] = useState(() => { try { return JSON.parse(localStorage.getItem("te:people") || "[]"); } catch { return []; } });
   const people = useMemo(() => {
     const set = new Set();
-    const add = (n) => { const t = String(n || "").trim(); if (t && !["manager", "boss", "—", "-"].includes(t.toLowerCase())) set.add(t); };
-    (data.users || []).filter((u) => u.status === "active").forEach((u) => add(u.name || u.username));
+    // доставщики не попадают в списки «Менеджер» / «Ответственный»
+    const drivers = new Set();
+    (data.users || []).filter((u) => u.role === "driver").forEach((u) => { [u.name, u.username].forEach((n) => { const t = String(n || "").trim().toLowerCase(); if (t) drivers.add(t); }); });
+    const add = (n) => { const t = String(n || "").trim(); if (t && !["manager", "boss", "—", "-"].includes(t.toLowerCase()) && !drivers.has(t.toLowerCase())) set.add(t); };
+    (data.users || []).filter((u) => u.status === "active" && u.role !== "driver").forEach((u) => add(u.name || u.username));
     (data.objects || []).forEach((o) => add(o.manager));
     (data.finance_ops || []).forEach((o) => add(o.user));
     (data.wh_moves || []).forEach((m) => add(m.user));
