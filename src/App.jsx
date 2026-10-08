@@ -22,6 +22,19 @@ function dbReport(t, e) {
   _lastDbErr = { m: msg, at: now };
   try { window.dispatchEvent(new CustomEvent("te-db-error", { detail: msg })); } catch (x) {}
 }
+// ---- индикатор «система работает»: считаем незавершённые запросы к базе/сети ----
+let BUSY_N = 0;
+const BUSY_SUBS = new Set();
+const busyEmit = () => BUSY_SUBS.forEach((f) => { try { f(BUSY_N); } catch (e) {} });
+const busyInc = () => { BUSY_N++; busyEmit(); };
+const busyDec = () => { BUSY_N = Math.max(0, BUSY_N - 1); busyEmit(); };
+async function busyWrap(p) { busyInc(); try { return await p; } finally { busyDec(); } }
+// все сетевые запросы (база, загрузки) тоже включают индикатор
+if (typeof window !== "undefined" && window.fetch && !window.__teFetchPatched) {
+  window.__teFetchPatched = true;
+  const f0 = window.fetch.bind(window);
+  window.fetch = (...a) => { busyInc(); return f0(...a).finally(busyDec); };
+}
 function dbWrap(real) {
   return {
     from(t) {
@@ -59,8 +72,8 @@ function dbWrap(real) {
       };
       const q = new Proxy({}, {
         get(_, prop) {
-          if (prop === "then") return (res, rej) => run().then(res, rej);
-          if (prop === "catch") return (rej) => run().catch(rej);
+          if (prop === "then") return (res, rej) => busyWrap(run()).then(res, rej);
+          if (prop === "catch") return (rej) => busyWrap(run()).catch(rej);
           if (typeof prop === "symbol") return undefined;
           return (...args) => {
             // копия данных записи: при повторе без колонки не портим объект вызывающего кода
@@ -330,6 +343,10 @@ table.t tr:hover td{background:var(--hover)}
 @media(max-width:820px){.split{grid-template-columns:1fr}.body{padding:14px 14px 32px}}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line2);border-top-color:var(--acc);border-radius:50%;animation:sp 0.8s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
+@keyframes busybar{0%{left:-35%;width:35%}60%{left:100%;width:35%}100%{left:100%;width:35%}}
+.busybar{position:fixed;top:0;left:0;right:0;height:3px;z-index:5000;overflow:hidden;pointer-events:none;background:rgba(255,31,48,.15)}
+.busybar>i{position:absolute;top:0;height:3px;background:var(--acc);border-radius:2px;animation:busybar 1.1s ease-in-out infinite}
+.busypill{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:5000;display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:var(--panel);border:1px solid var(--acc);box-shadow:0 10px 30px rgba(0,0,0,.25);font-size:13px;font-weight:600;color:var(--txt);pointer-events:none}
 @media(prefers-reduced-motion:reduce){.hdr,.btn,.inp{transition:none}.spin{animation-duration:2s}}
 .conf{font-variant-numeric:tabular-nums;font-weight:700;font-size:12px}
 .pick-row:hover{background-color:var(--acc-tint) !important}
@@ -1311,6 +1328,26 @@ function askConfirm(o) {
    наш список (как у подсказок клиента/мастера). Сам <select> остаётся настоящим — значение меняется через него
    и событие change, поэтому все обработчики onChange работают как раньше. На телефоне — системный список. */
 const SEL_SETTER = typeof HTMLSelectElement !== "undefined" ? Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set : null;
+// полоска сверху + плашка «Подождите…», пока идут запросы (появляется через 0,3 с, чтобы не мигать)
+function BusyIndicator() {
+  const [n, setN] = useState(BUSY_N);
+  const [show, setShow] = useState(false);
+  const [slow, setSlow] = useState(false);
+  useEffect(() => { BUSY_SUBS.add(setN); return () => BUSY_SUBS.delete(setN); }, []);
+  useEffect(() => {
+    if (!n) { setShow(false); setSlow(false); return; }
+    const t1 = setTimeout(() => setShow(true), 300);
+    const t2 = setTimeout(() => setSlow(true), 8000);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [n > 0]);
+  if (!show || !n) return null;
+  return (
+    <>
+      <div className="busybar"><i /></div>
+      <div className="busypill" role="status" aria-live="polite"><span className="spin" />{slow ? "Связь медленная — подождите, данные загружаются…" : "Подождите, система работает…"}</div>
+    </>
+  );
+}
 function SelectPopupHost() {
   const [st, setSt] = useState(null); // { sel, rect, opts, q, act }
   const stRef = useRef(null);
@@ -6646,6 +6683,7 @@ function AppInner() {
       }} />}
       <ConfirmHost />
       <SelectPopupHost />
+      <BusyIndicator />
       <NoAutofillGuard />
       {msg && <div className="toast">{msg}</div>}
       {dbErr && <div className="toast" role="alert" title="Нажмите, чтобы закрыть" onClick={() => setDbErr("")}
