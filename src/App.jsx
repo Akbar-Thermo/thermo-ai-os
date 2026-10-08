@@ -1319,6 +1319,45 @@ function PayFields({ p, setP, methods = PAY_METHODS, usdLabel = "В долг к�
   );
 }
 
+/* Выбор листа Excel: если в файле несколько непустых листов — спрашиваем, какой загрузить.
+   const name = await pickSheet(wb, fileName) → имя листа или null (отмена) */
+let _sheetSet = null;
+const sheetRows = (ws) => XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }).filter((row) => row.some((c) => String(c).trim() !== ""));
+function pickSheet(wb, fileName) {
+  const list = wb.SheetNames.map((n) => {
+    const data = sheetRows(wb.Sheets[n]);
+    const sample = (data.find((r) => r.filter((c) => String(c).trim() !== "").length >= 2) || data[0] || []).filter((c) => String(c).trim() !== "").slice(0, 4).join(" · ");
+    return { name: n, rows: data.length, sample: String(sample).slice(0, 90) };
+  });
+  const full = list.filter((x) => x.rows > 0);
+  if (full.length <= 1) return Promise.resolve((full[0] || list[0] || {}).name || null);
+  return new Promise((res) => { if (!_sheetSet) return res(full[0].name); _sheetSet({ list, fileName, res }); });
+}
+function SheetPickHost() {
+  const [c, setC] = useState(null);
+  useEffect(() => { _sheetSet = setC; return () => { _sheetSet = null; }; }, []);
+  if (!c) return null;
+  const done = (v) => { c.res(v); setC(null); };
+  return (
+    <div className="modal-bg" style={{ zIndex: 300 }} onMouseDown={(e) => { if (e.target === e.currentTarget) done(null); }}>
+      <div className="modal" style={{ maxWidth: 560, marginTop: "12vh" }}>
+        <h3 style={{ marginBottom: 6 }}>Какой лист загрузить?</h3>
+        <p className="sm mut" style={{ marginBottom: 12 }}>В файле {c.fileName ? "«" + c.fileName + "» " : ""}несколько листов. Выберите нужный:</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "50vh", overflow: "auto" }}>
+          {c.list.map((x, i) => (
+            <button key={x.name} className="card clk sheet-pick" disabled={!x.rows} autoFocus={i === c.list.findIndex((y) => y.rows > 0)}
+              style={{ textAlign: "left", padding: "10px 14px", cursor: x.rows ? "pointer" : "default", opacity: x.rows ? 1 : 0.5, border: "1px solid var(--line)", background: "var(--panel)", color: "var(--txt)" }}
+              onClick={() => x.rows && done(x.name)}>
+              <div className="row" style={{ gap: 8 }}><b style={{ fontSize: 14 }}>📄 {x.name}</b><span className="xs mut" style={{ marginLeft: "auto" }}>{x.rows ? "строк: " + x.rows : "пустой лист"}</span></div>
+              {x.sample && <div className="xs mut" style={{ marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.sample}</div>}
+            </button>
+          ))}
+        </div>
+        <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}><button className="btn" onClick={() => done(null)}>Отмена</button></div>
+      </div>
+    </div>
+  );
+}
 /* Вопрос-подтверждение из любого места: const ok = await askConfirm({ title, text, items, ok }) */
 let _confirmSet = null;
 function askConfirm(o) {
@@ -1893,14 +1932,16 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
   };
   const onFile = (e) => {
     const f = e.target.files[0];
+    e.target.value = "";
     if (!f) return;
     setErr(""); setFname(f.name);
     const r = new FileReader();
-    r.onload = () => {
+    r.onload = async () => {
       try {
         const wb = XLSX.read(new Uint8Array(r.result), { type: "array" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }).filter((row) => row.some((c) => String(c).trim() !== ""));
+        const sh = await pickSheet(wb, f.name);
+        if (!sh) { setFname(""); return; }
+        const data = sheetRows(wb.Sheets[sh]);
         if (!data.length) { setErr("Лист пустой"); return; }
         setRows(data);
         setMap(guessMap(data[0]));
@@ -2855,13 +2896,15 @@ function RequestExcelImport({ products, onClose, onAdd }) {
     return m;
   };
   const onFile = (e) => {
-    const f = e.target.files[0]; if (!f) return;
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
     setErr(""); setFname(f.name); setPick({});
     const r = new FileReader();
-    r.onload = () => {
+    r.onload = async () => {
       try {
         const wb = XLSX.read(new Uint8Array(r.result), { type: "array" });
-        const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "" }).filter((row) => row.some((c) => String(c).trim() !== ""));
+        const sh = await pickSheet(wb, f.name);
+        if (!sh) { setFname(""); return; }
+        const data = sheetRows(wb.Sheets[sh]);
         if (!data.length) { setErr("В файле нет строк с данными"); return; }
         // строка заголовков — среди первых 10 строк та, где узнаётся больше всего колонок
         // (строки-заголовки документа вроде «Заявка на материалы» из одной ячейки пропускаются)
@@ -4270,13 +4313,15 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
     return m;
   };
   const onFile = (e) => {
-    const f = e.target.files[0]; if (!f) return;
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
     setErr(""); setFname(f.name);
     const r = new FileReader();
-    r.onload = () => {
+    r.onload = async () => {
       try {
         const wb = XLSX.read(new Uint8Array(r.result), { type: "array" });
-        const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "" }).filter((row) => row.some((c) => String(c).trim() !== ""));
+        const sh = await pickSheet(wb, f.name);
+        if (!sh) { setFname(""); return; }
+        const data = sheetRows(wb.Sheets[sh]);
         if (!data.length) { setErr("Лист пустой"); return; }
         setRows(data); setMap(guessMap(data[0])); setHasHeader(true);
       } catch (e2) { setErr("Не удалось прочитать файл: " + e2.message); }
@@ -6693,6 +6738,7 @@ function AppInner() {
         await reload("all"); setWipeOpen(false); setOpenId(null); toast("База очищена. Товары, поставщики и мастера сохранены.");
       }} />}
       <ConfirmHost />
+      <SheetPickHost />
       <SelectPopupHost />
       <BusyIndicator />
       <NoAutofillGuard />
