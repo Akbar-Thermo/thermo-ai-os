@@ -525,6 +525,8 @@ const DEFAULT_MARKUP = 15;
 // прибыль (маржа) от цены продажи: цена = себестоимость ÷ (1 − %/100). 20% → ÷ 0,8; 15% → ÷ 0,85.
 // Так из цены продажи вычесть те же % — получится ровно себестоимость. % не меньше 100 не бывает.
 const marginK = (pct) => { const p = Number(pct) || 0; return p >= 99.99 ? 1 : 1 / (1 - p / 100); };
+// авто-цена позиции: себестоимость ÷ (1 − %); если себестоимости нет (0) — розничная цена товара из базы
+const autoSalePrice = (p, cost, k) => (Number(cost) > 0 ? Math.round(Number(cost) * k * 100) / 100 : p && Number(p.price) > 0 ? Number(p.price) : 0);
 const retailOf = (p) => (Number(p && p.price) > 0 ? Number(p.price) : Math.round((Number(p && p.cost) || 0) * marginK(DEFAULT_MARKUP) * 100) / 100);
 const money = (n) => ((Number(n) || 0) < 0 ? "−$" + fmt(-(Number(n) || 0)) : "$" + fmt(n));
 // дата «ГГГГ-ММ-ДД» без сдвига: строку из поля даты показываем как есть,
@@ -3195,7 +3197,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
           const cost = p ? Number(p.cost) || 0 : parseNum(l.cost);
           const it = {
             id: uuid(), product_id: p ? p.id : null, name: p ? p.name : String(l.name || "").trim(), size: p ? p.size : l.size, unit: p ? p.unit : l.unit,
-            qty, price: l.manualPrice != null && l.manualPrice !== "" ? parseNum(l.manualPrice) : Math.round(cost * saleK * 100) / 100, cost,
+            qty, price: l.manualPrice != null && l.manualPrice !== "" ? parseNum(l.manualPrice) : autoSalePrice(p, cost, saleK), cost,
             supplier_id: lineSup(l),
             source_text: p ? p.name : l.name, confidence: 100,
             batch_no: batchNo, batch_date: today(), shipped: false, added_at: new Date().toISOString(),
@@ -3284,7 +3286,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   // предпросмотр продажи: строки с ручной ценой — по ней, остальные — себестоимость ÷ (1 − прибыль %)
   const totalSalePreview = Math.round(lines.reduce((acc, l) => {
     const p = l.product_id ? prodById(l.product_id) : null, c = p ? Number(p.cost) || 0 : parseNum(l.cost);
-    const price = l.manualPrice != null && l.manualPrice !== "" ? parseNum(l.manualPrice) : Math.round(c * saleK * 100) / 100;
+    const price = l.manualPrice != null && l.manualPrice !== "" ? parseNum(l.manualPrice) : autoSalePrice(p, c, saleK);
     return acc + qn(l.qty) * price;
   }, 0) * 100) / 100;
 
@@ -3501,8 +3503,10 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                 <button className="btn" onClick={() => setMarkupModal(false)}>Отмена</button>
                 <button className="btn pri" disabled={busy} onClick={async () => {
                   const rows = lines.map((l) => { const p = l.product_id ? prodById(l.product_id) : null, c = p ? Number(p.cost) || 0 : parseNum(l.cost);
-                    return { name: p ? p.name : l.name, cost: c, price: l.manualPrice != null && l.manualPrice !== "" ? parseNum(l.manualPrice) : Math.round(c * saleK * 100) / 100 }; });
+                    return { name: p ? p.name : l.name, cost: c, price: l.manualPrice != null && l.manualPrice !== "" ? parseNum(l.manualPrice) : autoSalePrice(p, c, saleK) }; });
                   if (!(await confirmLowPrice(rows))) return;
+                  const zero = rows.filter((r) => !(Number(r.price) > 0));
+                  if (zero.length && !(await askConfirm({ title: "Цена продажи 0", text: "У " + zero.length + " поз. в базе нет ни себестоимости, ни цены — их цена продажи будет 0. Укажите цену в строке заявки (поле «авто») или себестоимость в «Товары». Сохранить всё равно?", items: zero.slice(0, 50).map((r) => [r.name || "—", "цена 0"]) }))) return;
                   doSave(saleK);
                 }}>{busy ? "Сохраняю…" : "Применить и сохранить ✓"}</button>
               </div>
