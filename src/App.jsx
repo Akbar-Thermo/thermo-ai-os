@@ -2898,7 +2898,11 @@ function RequestExcelImport({ products, onClose, onAdd }) {
   }).filter(Boolean), [rows, map, hasHeader, matcher]);
   const chosen = (it) => (pick[it.i] !== undefined ? pick[it.i] : it.auto);
   const nFound = items.filter((it) => chosen(it)).length;
-  const nCheck = items.filter((it) => { const c = chosen(it); const cd = it.cands.find((x) => x.p.id === c); return c && pick[it.i] === undefined && cd && cd.score < MATCH_OK; }).length;
+  // состояние строки: found — найдено/выбрано, check — проверьте, manual — ручная
+  const stOf = (it) => { const c = chosen(it); if (!c) return "manual"; const cd = it.cands.find((x) => x.p.id === c); return pick[it.i] !== undefined || (cd && cd.score >= MATCH_OK) ? "found" : "check"; };
+  const nCheck = items.filter((it) => stOf(it) === "check").length;
+  const [flt, setFlt] = useState("");
+  const shownItems = flt ? items.map((it, k) => ({ it, k })).filter(({ it }) => stOf(it) === flt) : items.map((it, k) => ({ it, k }));
   const run = () => {
     const out = items.map((it) => {
       const id = chosen(it);
@@ -2928,7 +2932,13 @@ function RequestExcelImport({ products, onClose, onAdd }) {
         <div>
           <div className="row" style={{ marginBottom: 12 }}>
             <Badge c="var(--t-strong)">{fname}</Badge>
-            <span className="sm">строк: <b>{items.length}</b> · найдено в базе: <b style={{ color: "var(--ok)" }}>{nFound}</b>{nCheck > 0 && <> · проверьте: <b style={{ color: "var(--warn)" }}>{nCheck}</b></>} · ручных: <b>{items.length - nFound}</b></span>
+            <div className="row" style={{ gap: 6 }}>
+              {[["", "Все", items.length, "var(--txt)"], ["found", "Найдено", nFound - nCheck, "var(--ok)"], ["check", "Проверьте", nCheck, "var(--warn)"], ["manual", "Ручные", items.length - nFound, "var(--mut)"]].map(([id, l, n, col]) => (
+                <button key={id || "all"} className={"btn xs" + (flt === id ? " pri" : "")} title={id ? "Показать только эти строки" : "Показать все строки"} onClick={() => setFlt(id)}>
+                  {l}: <b style={{ color: flt === id ? undefined : col, marginLeft: 3 }}>{n}</b>
+                </button>
+              ))}
+            </div>
             <label className="sm clk" style={{ marginLeft: "auto" }}><input type="checkbox" checked={hasHeader} onChange={(e) => setHasHeader(e.target.checked)} /> первая строка — заголовки</label>
             <button className="btn xs" onClick={() => { setRows(null); setMap({}); setPick({}); }}>↺ другой файл</button>
           </div>
@@ -2946,7 +2956,7 @@ function RequestExcelImport({ products, onClose, onAdd }) {
             <table className="t">
               <thead><tr><th style={{ width: 34 }}>№</th><th>Из файла</th><th style={{ width: 70, textAlign: "right" }}>Кол-во</th><th style={{ minWidth: 330 }}>Товар в базе</th><th style={{ width: 116 }}>Совпадение</th></tr></thead>
               <tbody>
-                {items.map((it, k) => {
+                {shownItems.map(({ it, k }) => {
                   const c = chosen(it), cd = it.cands.find((x) => x.p.id === c);
                   const tone = !c ? "var(--t-neutral)" : pick[it.i] !== undefined || (cd && cd.score >= MATCH_OK) ? "var(--t-ok)" : "var(--t-warn)";
                   return (
@@ -2965,6 +2975,7 @@ function RequestExcelImport({ products, onClose, onAdd }) {
                   );
                 })}
                 {!items.length && <tr><td colSpan={5} className="mut" style={{ textAlign: "center", padding: 20 }}>Нет строк с наименованием — укажите колонку «Наименование»</td></tr>}
+                {items.length > 0 && !shownItems.length && <tr><td colSpan={5} className="mut" style={{ textAlign: "center", padding: 20 }}>В этом фильтре строк нет</td></tr>}
               </tbody>
             </table>
           </div>
