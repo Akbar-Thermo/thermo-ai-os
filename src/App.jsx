@@ -334,7 +334,8 @@ table.t tr:hover td{background:var(--hover)}
 .step{padding:6px 12px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid var(--line);color:var(--mut)}
 .step.on{border-color:var(--acc);color:#fff;background:var(--acc)}
 .step.done{color:var(--ok);border-color:var(--ok)}
-.toast{position:fixed;bottom:20px;right:20px;background:var(--panel);color:var(--txt);border:1px solid var(--line2);border-left:3px solid var(--ok);border-radius:10px;padding:12px 18px;font-weight:600;z-index:200;box-shadow:0 12px 32px rgba(18,24,27,.18)}
+@keyframes toastin{from{opacity:0;transform:translate(-50%,14px)}to{opacity:1;transform:translate(-50%,0)}}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);animation:toastin .22s ease-out;max-width:calc(100vw - 32px);text-align:center;background:var(--panel);color:var(--txt);border:1px solid var(--line2);border-left:3px solid var(--ok);border-radius:10px;padding:12px 18px;font-weight:600;z-index:200;box-shadow:0 12px 32px rgba(18,24,27,.18)}
 .toast[role=alert]{border-left-color:var(--bad)}
 .clk{cursor:pointer}
 .sect{margin-bottom:18px}
@@ -347,6 +348,24 @@ table.t tr:hover td{background:var(--hover)}
 @keyframes busybar{0%{left:-35%;width:35%}60%{left:100%;width:35%}100%{left:100%;width:35%}}
 .busybar{position:fixed;top:0;left:0;right:0;height:3px;z-index:5000;overflow:hidden;pointer-events:none;background:rgba(255,31,48,.15)}
 .busybar>i{position:absolute;top:0;height:3px;background:var(--acc);border-radius:2px;animation:busybar 1.1s ease-in-out infinite}
+.busywrap{position:fixed;inset:0;z-index:5000;display:flex;align-items:center;justify-content:center;pointer-events:none;background:rgba(10,12,14,.28);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);animation:busyfade .25s ease-out}
+@keyframes busyfade{from{opacity:0}to{opacity:1}}
+@keyframes busypop{from{opacity:0;transform:scale(.92) translateY(8px)}to{opacity:1;transform:none}}
+@keyframes busyspin{to{transform:rotate(360deg)}}
+@keyframes busyspinr{to{transform:rotate(-360deg)}}
+@keyframes busypulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(.9);opacity:.75}}
+@keyframes busydot{0%,80%,100%{opacity:.2;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
+.busycard{display:flex;flex-direction:column;align-items:center;gap:16px;padding:28px 38px 24px;border-radius:22px;background:var(--panel);border:1px solid var(--line);box-shadow:0 28px 80px rgba(0,0,0,.4),0 0 0 1px rgba(255,31,48,.08);animation:busypop .28s cubic-bezier(.2,.9,.3,1.2)}
+.busyring{position:relative;width:84px;height:84px}
+.busyring .r1{position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,transparent 0deg,rgba(255,31,48,.15) 90deg,var(--acc) 330deg,transparent 360deg);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px));mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px));animation:busyspin .9s linear infinite}
+.busyring .r2{position:absolute;inset:11px;border-radius:50%;border:2px dashed var(--line2);animation:busyspinr 3s linear infinite}
+.busyring .logo{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:900;font-size:20px;letter-spacing:1px;color:var(--txt);animation:busypulse 1.6s ease-in-out infinite}
+.busyring .logo i{display:block;width:26px;height:3px;border-radius:2px;background:var(--acc);margin-top:3px}
+.busytxt{font-size:14px;font-weight:700;color:var(--txt);text-align:center}
+.busytxt small{display:block;font-size:12px;font-weight:500;color:var(--mut);margin-top:4px;max-width:240px}
+.busydots span{display:inline-block;width:5px;height:5px;margin:0 2px;border-radius:50%;background:var(--acc);animation:busydot 1.2s infinite}
+.busydots span:nth-child(2){animation-delay:.15s}.busydots span:nth-child(3){animation-delay:.3s}
+@media(prefers-reduced-motion:reduce){.busyring .r1,.busyring .r2,.busyring .logo,.busydots span{animation-duration:3s}}
 .busypill{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:5000;display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:var(--panel);border:1px solid var(--acc);box-shadow:0 10px 30px rgba(0,0,0,.25);font-size:13px;font-weight:600;color:var(--txt);pointer-events:none}
 @media(prefers-reduced-motion:reduce){.hdr,.btn,.inp{transition:none}.spin{animation-duration:2s}}
 .conf{font-variant-numeric:tabular-nums;font-weight:700;font-size:12px}
@@ -1384,7 +1403,15 @@ function BusyIndicator() {
   return (
     <>
       <div className="busybar"><i /></div>
-      <div className="busypill" role="status" aria-live="polite"><span className="spin" />{slow ? "Связь медленная — подождите, данные загружаются…" : "Подождите, система работает…"}</div>
+      <div className="busywrap" role="status" aria-live="polite">
+        <div className="busycard">
+          <div className="busyring"><div className="r1" /><div className="r2" /><div className="logo">TE<i /></div></div>
+          <div className="busytxt">
+            Подождите, система работает <span className="busydots"><span /><span /><span /></span>
+            <small>{slow ? "Связь медленная — данные ещё загружаются" : "Сохраняем и обновляем данные"}</small>
+          </div>
+        </div>
+      </div>
     </>
   );
 }
