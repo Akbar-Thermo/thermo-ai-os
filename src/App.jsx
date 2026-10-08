@@ -1391,7 +1391,15 @@ function SelectPopupHost() {
   const list = shown(st);
   const r = st.rect, vh = window.innerHeight, vw = window.innerWidth;
   const maxH = 320, below = vh - r.bottom - 8, up = below < 200 && r.top > below;
-  const width = Math.max(r.width, 200);
+  // ширина — по самому длинному пункту (список раздвигается вбок), но не шире экрана; если не влезает — текст переносится
+  const textW = (() => {
+    try {
+      const c = (SelectPopupHost._c = SelectPopupHost._c || document.createElement("canvas")).getContext("2d");
+      c.font = "700 13px " + getComputedStyle(document.body).fontFamily;
+      return st.opts.reduce((m, o) => Math.max(m, c.measureText(o.label || "—").width), 0);
+    } catch (e) { return 0; }
+  })();
+  const width = Math.min(vw - 16, Math.max(r.width, 200, Math.ceil(textW * 1.1) + 60));
   const left = Math.min(Math.max(8, r.left), vw - width - 8);
   const style = { position: "fixed", left, width, zIndex: 3000, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8,
     boxShadow: "0 16px 44px rgba(0,0,0,.25)", overflow: "hidden", display: "flex", flexDirection: "column",
@@ -1412,7 +1420,7 @@ function SelectPopupHost() {
                 style={{ padding: "8px 11px", borderBottom: "1px solid var(--line)", fontSize: 13, fontWeight: isCur ? 700 : 500,
                   color: o.disabled ? "var(--mut)" : o.value === "__add__" ? "var(--acc)" : "var(--txt)",
                   backgroundColor: i === st.act ? "var(--acc-tint)" : "var(--panel)", display: "flex", gap: 8, alignItems: "center" }}>
-                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label || "—"}</span>
+                <span style={{ flex: 1, minWidth: 0, whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.35 }}>{o.label || "—"}</span>
                 {isCur && <span style={{ color: "var(--acc)" }}>✓</span>}
               </div>
             </React.Fragment>
