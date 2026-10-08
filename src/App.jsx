@@ -26,14 +26,15 @@ function dbReport(t, e) {
 let BUSY_N = 0;
 const BUSY_SUBS = new Set();
 const busyEmit = () => BUSY_SUBS.forEach((f) => { try { f(BUSY_N); } catch (e) {} });
-const busyInc = () => { BUSY_N++; busyEmit(); };
+let BUSY_SILENT = 0; // фоновое автообновление — без индикатора
+const busyInc = () => { if (BUSY_SILENT) return; BUSY_N++; busyEmit(); };
 const busyDec = () => { BUSY_N = Math.max(0, BUSY_N - 1); busyEmit(); };
-async function busyWrap(p) { busyInc(); try { return await p; } finally { busyDec(); } }
+async function busyWrap(p) { if (BUSY_SILENT) return p; busyInc(); try { return await p; } finally { busyDec(); } }
 // все сетевые запросы (база, загрузки) тоже включают индикатор
 if (typeof window !== "undefined" && window.fetch && !window.__teFetchPatched) {
   window.__teFetchPatched = true;
   const f0 = window.fetch.bind(window);
-  window.fetch = (...a) => { busyInc(); return f0(...a).finally(busyDec); };
+  window.fetch = (...a) => { if (BUSY_SILENT) return f0(...a); busyInc(); return f0(...a).finally(busyDec); };
 }
 function dbWrap(real) {
   return {
@@ -6629,6 +6630,40 @@ function AppInner() {
     document.addEventListener("visibilitychange", h);
     return () => document.removeEventListener("visibilitychange", h);
   }, []);
+  // данные других сотрудников подтягиваются сами: раз в минуту, пока вкладка открыта (тихо, без индикатора)
+  useEffect(() => {
+    const t = setInterval(async () => {
+      if (document.visibilityState !== "visible" || !CURRENT_USER || BUSY_N > 0) return;
+      BUSY_SILENT++;
+      try { await reload(); } catch (e) {} finally { BUSY_SILENT = Math.max(0, BUSY_SILENT - 1); }
+    }, 60000);
+    return () => clearInterval(t);
+  }, []);
+  // новая версия программы: проверяем раз в 2 минуты и при возврате на вкладку;
+  // перезагружаем страницу сами, когда это безопасно (нет открытого окна и никто не печатает)
+  const [newVer, setNewVer] = useState(false);
+  useEffect(() => {
+    const cur = (document.querySelector('script[type="module"][src*="/assets/"]') || {}).src;
+    if (!cur) return; // локальная сборка без хэша — нечего сравнивать
+    const curName = cur.split("/").pop();
+    let found = false;
+    const check = async () => {
+      if (found) return;
+      try {
+        BUSY_SILENT++;
+        const r = await fetch("/?v=" + Date.now(), { cache: "no-store" }).finally(() => { BUSY_SILENT = Math.max(0, BUSY_SILENT - 1); });
+        const html = await r.text();
+        const m = html.match(/\/assets\/(index-[^"']+\.js)/);
+        if (m && m[1] !== curName) { found = true; setNewVer(true); }
+      } catch (e) {}
+    };
+    const safe = () => !document.querySelector(".modal") && !(document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) && BUSY_N === 0;
+    const t1 = setInterval(check, 120000);
+    const t2 = setInterval(() => { if (found && safe()) window.location.reload(); }, 3000);
+    const onVis = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(t1); clearInterval(t2); document.removeEventListener("visibilitychange", onVis); };
+  }, []);
   const doLogin = async (u) => {
     setCurrentUser(u); CURRENT_USER = u;
     try { localStorage.setItem("te:session", u.id); } catch (e) {}
@@ -6741,6 +6776,12 @@ function AppInner() {
       <SheetPickHost />
       <SelectPopupHost />
       <BusyIndicator />
+      {newVer && (
+        <div className="busypill" style={{ bottom: 64, pointerEvents: "auto" }}>
+          ✨ Вышла новая версия — обновится автоматически, как только закроете окно
+          <button className="btn xs pri" onClick={() => window.location.reload()}>Обновить сейчас</button>
+        </div>
+      )}
       <NoAutofillGuard />
       {msg && <div className="toast">{msg}</div>}
       {dbErr && <div className="toast" role="alert" title="Нажмите, чтобы закрыть" onClick={() => setDbErr("")}
