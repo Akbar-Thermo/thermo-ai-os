@@ -522,7 +522,10 @@ const fmt2 = (n) => (Number(n) || 0).toLocaleString("ru-RU", { minimumFractionDi
 // валюта учёта — доллар США (себестоимость и цены в базе в $)
 // розничная цена: если в базе не задана (0), берём себестоимость + стандартная наценка (как в «Новая заявка»)
 const DEFAULT_MARKUP = 15;
-const retailOf = (p) => (Number(p && p.price) > 0 ? Number(p.price) : Math.round((Number(p && p.cost) || 0) * (1 + DEFAULT_MARKUP / 100) * 100) / 100);
+// прибыль (маржа) от цены продажи: цена = себестоимость ÷ (1 − %/100). 20% → ÷ 0,8; 15% → ÷ 0,85.
+// Так из цены продажи вычесть те же % — получится ровно себестоимость. % не меньше 100 не бывает.
+const marginK = (pct) => { const p = Number(pct) || 0; return p >= 99.99 ? 1 : 1 / (1 - p / 100); };
+const retailOf = (p) => (Number(p && p.price) > 0 ? Number(p.price) : Math.round((Number(p && p.cost) || 0) * marginK(DEFAULT_MARKUP) * 100) / 100);
 const money = (n) => ((Number(n) || 0) < 0 ? "−$" + fmt(-(Number(n) || 0)) : "$" + fmt(n));
 // дата «ГГГГ-ММ-ДД» без сдвига: строку из поля даты показываем как есть,
 // а new Date("2026-10-01") — это полночь по UTC, и западнее Гринвича дата съезжала бы на день назад
@@ -2790,11 +2793,11 @@ function MarkDot({ value, onClick }) {
 /* ============ «3 сегмента»: тот же список в товарах поставщиков Эконом / Стандарт / Премиум ============
    Для каждой строки в каждом сегменте: если товар строки уже от поставщика этого сегмента — он сам,
    иначе — самый похожий по названию товар поставщиков этого сегмента (слова и цифры размеров; бренды не учитываются).
-   Неподходящее совпадение можно заменить вручную. Цена = себестоимость + наценка. */
+   Неподходящее совпадение можно заменить вручную. Цена = себестоимость ÷ (1 − прибыль %). */
 function SegmentCalc({ lines, products, suppliers, markup, picks, setPicks, onClose }) {
   const [mk, setMk] = useState(String(markup || 0));
   const [edit, setEdit] = useState(null); // { lineId, seg } — открыт поиск в ячейке
-  const k = 1 + (parseNum(mk) || 0) / 100;
+  const k = marginK(parseNum(mk));
   const supById = useMemo(() => { const m = {}; suppliers.forEach((x) => { m[x.id] = x; }); return m; }, [suppliers]);
   const prodById = useMemo(() => { const m = {}; products.forEach((p) => { m[p.id] = p; }); return m; }, [products]);
   const segOfProd = (p) => (p && p.supplier_id && supById[p.supplier_id] ? supSeg(supById[p.supplier_id]) : null);
@@ -2845,7 +2848,7 @@ function SegmentCalc({ lines, products, suppliers, markup, picks, setPicks, onCl
     <Modal title="Расчёт в трёх сегментах" onClose={onClose} w={1180}>
       <div className="row" style={{ gap: 10, marginBottom: 10 }}>
         <p className="sm mut" style={{ marginRight: "auto", flex: "1 1 420px" }}>Для каждой позиции подобран похожий товар у поставщиков каждого сегмента. Сегмент поставщика задаётся в «Поставщики → ред.». Неподходящий товар замените в ячейке.</p>
-        <Fld label="Наценка, %"><input type="number" className="inp" style={{ width: 110, fontWeight: 700 }} value={mk} onChange={(e) => setMk(e.target.value)} /></Fld>
+        <Fld label="Прибыль, %"><input type="number" className="inp" style={{ width: 110, fontWeight: 700 }} value={mk} onChange={(e) => setMk(e.target.value)} /></Fld>
       </div>
       <div className="grid" style={{ gridTemplateColumns: "repeat(3, 1fr)", marginBottom: 12 }}>
         {tot.map((t) => (
@@ -3275,8 +3278,8 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   };
 
   const effectiveMarkup = markupCustom !== "" ? Number(markupCustom) : markup;
-  const saleK = 1 + (Number(effectiveMarkup) || 0) / 100;
-  // предпросмотр продажи: строки с ручной ценой — по ней, остальные — себестоимость + наценка
+  const saleK = marginK(effectiveMarkup);
+  // предпросмотр продажи: строки с ручной ценой — по ней, остальные — себестоимость ÷ (1 − прибыль %)
   const totalSalePreview = Math.round(lines.reduce((acc, l) => {
     const p = l.product_id ? prodById(l.product_id) : null, c = p ? Number(p.cost) || 0 : parseNum(l.cost);
     const price = l.manualPrice != null && l.manualPrice !== "" ? parseNum(l.manualPrice) : Math.round(c * saleK * 100) / 100;
@@ -3433,7 +3436,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                             ? <input className="inp" style={{ width: 64 }} value={l.unit} onChange={(e) => setLine(l.id, { unit: e.target.value })} />
                             : <span className="mut">{l.unit}</span>}
                         </td>
-                        <td><input type="number" className="inp" style={{ width: 100, textAlign: "right", fontWeight: 700, ...(l.manualPrice != null && l.manualPrice !== "" && parseNum(l.manualPrice) < (p ? Number(p.cost) || 0 : parseNum(l.cost)) ? { color: "var(--bad)", borderColor: "var(--bad)" } : { color: "var(--ok)" }) }} placeholder={l.manual ? "цена" : "авто"} value={l.manualPrice != null ? l.manualPrice : ""} onChange={(e) => setLine(l.id, { manualPrice: e.target.value === "" ? null : e.target.value })} title="Цена продажи (оставьте пустым — рассчитается по наценке)" /></td>
+                        <td><input type="number" className="inp" style={{ width: 100, textAlign: "right", fontWeight: 700, ...(l.manualPrice != null && l.manualPrice !== "" && parseNum(l.manualPrice) < (p ? Number(p.cost) || 0 : parseNum(l.cost)) ? { color: "var(--bad)", borderColor: "var(--bad)" } : { color: "var(--ok)" }) }} placeholder={l.manual ? "цена" : "авто"} value={l.manualPrice != null ? l.manualPrice : ""} onChange={(e) => setLine(l.id, { manualPrice: e.target.value === "" ? null : e.target.value })} title="Цена продажи (оставьте пустым — рассчитается по прибыли %)" /></td>
                         <td className="sm">{p && whQty[p.id] ? (
                           <label className="row" style={{ gap: 5, flexWrap: "nowrap", cursor: "pointer", color: l.fromWh !== false ? "var(--ok)" : "var(--mut)", fontWeight: 700 }} title="Отдать со Склада Thermo (снимите галочку — закупить у поставщика)">
                             <input type="checkbox" checked={l.fromWh !== false} onChange={(e) => setLine(l.id, { fromWh: e.target.checked })} />
@@ -3475,10 +3478,10 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
 
           {markupModal && (
             <Modal title="Сохранение в объект" onClose={() => setMarkupModal(false)} w={460}>
-              <h3 style={{ margin: "0 0 6px" }}>Наценка на розничную цену</h3>
-              <p className="sm mut" style={{ marginBottom: 12 }}>Розничная цена каждой позиции = себестоимость + наценка. Применяется ко всему списку. После сохранения цены можно поправить вручную на странице объекта.</p>
+              <h3 style={{ margin: "0 0 6px" }}>Прибыль в цене продажи</h3>
+              <p className="sm mut" style={{ marginBottom: 12 }}>Розничная цена каждой позиции = себестоимость ÷ (1 − %): 20% → ÷ 0,8; 15% → ÷ 0,85. Применяется ко всему списку. После сохранения цены можно поправить вручную на странице объекта.</p>
               <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                <Fld label="Наценка, %">
+                <Fld label="Прибыль, %">
                   <input type="number" className="inp" style={{ fontSize: 18, fontWeight: 700 }}
                     value={markupCustom !== "" ? markupCustom : markup}
                     onChange={(e) => { setMarkupCustom(e.target.value); }} />
@@ -3773,7 +3776,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   // «Наценка от себестоимости»: цена каждой позиции = себестоимость × (1 + %/100) (всего объекта или одной поставки);
   // позиции без себестоимости не меняются; возвраты по изменённым позициям пересчитываются по новой цене
   const applyPercent = async (pct, batchNo) => {
-    const k = 1 + pct / 100;
+    const k = marginK(pct);
     const inScope = (i) => (batchNo == null || (i.batch_no || 1) === batchNo) && Number(i.cost) > 0;
     const before = (obj.items || []).filter(inScope).reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0);
     const newPrice = (i) => round2((Number(i.cost) || 0) * k);
@@ -3781,10 +3784,10 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     const ok = await saveItems((cur) => cur.map((i) => (inScope(i) ? { ...i, price: newPrice(i) } : i)));
     if (!ok) return false;
     const after = (obj.items || []).filter(inScope).reduce((a, i) => a + (Number(i.qty) || 0) * newPrice(i), 0);
-    await logAction("Наценка от себестоимости: " + fmt(pct) + "%", "object:" + obj.name, (batchNo == null ? "все поставки" : "поставка №" + batchNo) + ": было " + fmt2(before) + " → стало " + fmt2(after));
+    await logAction("Прибыль от себестоимости: " + fmt(pct) + "%", "object:" + obj.name, (batchNo == null ? "все поставки" : "поставка №" + batchNo) + ": было " + fmt2(before) + " → стало " + fmt2(after));
     const n = await syncReturns((obj.items || []).map((i) => (inScope(i) ? { ...i, price: newPrice(i) } : i)));
     if (n) await reload();
-    toast("Наценка " + fmt(pct) + "% от себестоимости: " + fmt2(before) + " → " + fmt2(after) + (n ? " · возвраты пересчитаны" : ""));
+    toast("Прибыль " + fmt(pct) + "% (себестоимость ÷ " + String(round2(1 - pct / 100)).replace(".", ",") + "): " + fmt2(before) + " → " + fmt2(after) + (n ? " · возвраты пересчитаны" : ""));
     return true;
   };
   // «Отгрузить товар»: отмеченные позиции становятся отгруженными → появляется долг поставщикам
@@ -3932,14 +3935,15 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   // внутренний Excel: себестоимость, цена и наценка по каждой позиции (клиенту не отправлять)
   const exportCost = () => {
     const rows = [
-      { k: "title", v: ["СЕБЕСТОИМОСТЬ И НАЦЕНКА: " + (obj.name || "")] },
+      { k: "title", v: ["СЕБЕСТОИМОСТЬ И ПРИБЫЛЬ: " + (obj.name || "")] },
       { k: "section", v: ["Клиент: " + (obj.client || "—") + (obj.phone ? " · тел. " + obj.phone : "")] },
       { k: "section", v: ["Дата: " + new Date().toLocaleDateString("ru-RU") + " · статус: " + stById(obj.status).label] },
       { k: "section", v: ["Внутренний документ — клиенту не отправлять"], red: true },
       { k: "blank" },
     ];
-    const HEAD = ["№", "Наименование", "Кол-во", "Ед.", "Себест. за ед.", "Цена за ед.", "Наценка за ед.", "Наценка, %", "Сумма себест.", "Сумма продажи", "Прибыль"];
-    const pct = (c, p) => (c > 0 ? round2(((p - c) / c) * 100) : "");
+    const HEAD = ["№", "Наименование", "Кол-во", "Ед.", "Себест. за ед.", "Цена за ед.", "Прибыль за ед.", "Прибыль, %", "Сумма себест.", "Сумма продажи", "Прибыль"];
+    // прибыль, % — от цены продажи (так же, как считается цена: себестоимость ÷ (1 − %))
+    const pct = (c, p) => (c > 0 && p > 0 ? round2(((p - c) / p) * 100) : "");
     let n = 1, tc = 0, ts = 0, noCost = 0;
     batches.forEach((b) => {
       rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
@@ -3956,7 +3960,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       rows.push({ k: "sum", v: ["", "Итого по поставке №" + b.no, "", "", "", "", "", pct(bc, bs), round2(bc), round2(bs), round2(bs - bc)], merge: [[1, 6]] });
       rows.push({ k: "blank" });
     });
-    rows.push({ k: "head", v: ["", "ИТОГО ПО ОБЪЕКТУ", "", "", "", "", "", "Наценка, %", "Себест.", "Продажа", "Прибыль"], merge: [[1, 6]] });
+    rows.push({ k: "head", v: ["", "ИТОГО ПО ОБЪЕКТУ", "", "", "", "", "", "Прибыль, %", "Себест.", "Продажа", "Прибыль"], merge: [[1, 6]] });
     rows.push({ k: "sum", v: ["", "Товар выдан", "", "", "", "", "", pct(tc, ts), round2(tc), round2(ts), round2(ts - tc)], merge: [[1, 6]] });
     if (f.retSale) rows.push({ k: "sum", v: ["", "Возвраты", "", "", "", "", "", "", -round2(f.retCost), -round2(f.retSale), -round2(f.retSale - f.retCost)], merge: [[1, 6]], red: true });
     if (f.discount) rows.push({ k: "sum", v: ["", "Скидка клиенту", "", "", "", "", "", "", "", -round2(f.discount), -round2(f.discount)], merge: [[1, 6]] });
@@ -3967,8 +3971,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       rows.push({ k: "sum", v: ["", "Чистая прибыль (маржа " + fmt(round2(f.margin)) + "% от продажи)", "", "", "", "", "", "", "", "", round2(f.net)], merge: [[1, 6]] });
     }
     rows.push({ k: "blank" });
-    rows.push({ k: "info", v: ["Наценка, % считается от себестоимости по фактическим ценам. Цена продажи округляется до центов, поэтому у дешёвых позиций (несколько центов) процент заметно отличается от заданного."] });
-    if (noCost) rows.push({ k: "section", v: ["⚠ У " + noCost + " поз. не указана себестоимость — прибыль и наценка по ним завышены. Укажите себестоимость в объекте (кнопка «ред.»)."], red: true });
+    rows.push({ k: "info", v: ["Прибыль, % — доля прибыли в цене продажи: цена = себестоимость ÷ (1 − %). Например, 20% → себестоимость ÷ 0,8. Цена продажи округляется до центов, поэтому у дешёвых позиций процент может немного отличаться."] });
+    if (noCost) rows.push({ k: "section", v: ["⚠ У " + noCost + " поз. не указана себестоимость — прибыль по ним завышена. Укажите себестоимость в объекте (кнопка «ред.»)."], red: true });
     const r = downloadStyledXLSX("Себестоимость_" + safe(obj.name) + ".xlsx", "Себестоимость", rows, [5, 46, 8, 6, 12, 12, 12, 11, 13, 13, 12], ["c", "t", "n", "c", "p", "m", "p", "m", "m", "m", "m"], { green: [10] });
     toast(r === "xlsx" ? "Excel с себестоимостью скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
@@ -4011,7 +4015,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         </select>
         <button className="btn" onClick={exportClient}>⬇ Excel клиенту</button>
         <button className="btn" onClick={exportDelivery}>🚚 Лист доставки</button>
-        <button className="btn" onClick={exportCost} title="Внутренний: себестоимость, цена и наценка по каждой позиции">📊 Excel себестоимость</button>
+        <button className="btn" onClick={exportCost} title="Внутренний: себестоимость, цена и прибыль по каждой позиции">📊 Excel себестоимость</button>
       </div>
 
       {!isLive(obj) && (
@@ -4067,7 +4071,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         <h3 style={{ marginRight: "auto" }}>Финансовые операции</h3>
         {OP_TYPES.filter((t) => (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes(t.id)).map((t) => <React.Fragment key={t.id}>
           <button className="btn xs" onClick={() => setOpForm({ type: t.id })}>+ {t.label}</button>
-          {t.id === "discount" && (obj.items || []).length > 0 && <button className="btn xs" onClick={() => setPctForm(true)} title="Цена продажи = себестоимость + наценка %">+ Наценка от себестоимости</button>}
+          {t.id === "discount" && (obj.items || []).length > 0 && <button className="btn xs" onClick={() => setPctForm(true)} title="Цена продажи = себестоимость ÷ (1 − %)">+ Прибыль от себестоимости</button>}
         </React.Fragment>)}
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
@@ -4153,13 +4157,13 @@ function PercentModal({ obj, batches, onClose, onApply }) {
   const noCost = inBatch.length - list.length;
   const before = list.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0);
   const cost = list.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.cost) || 0), 0);
-  const after = list.reduce((a, i) => a + (Number(i.qty) || 0) * round2((Number(i.cost) || 0) * (1 + p / 100)), 0);
-  const valid = pct !== "" && p > -100;
+  const after = list.reduce((a, i) => a + (Number(i.qty) || 0) * round2((Number(i.cost) || 0) * marginK(p)), 0);
+  const valid = pct !== "" && p >= 0 && p < 100;
   return (
-    <Modal title="Наценка от себестоимости" onClose={onClose} w={500}>
-      <p className="sm mut" style={{ marginBottom: 10 }}>Новая цена продажи каждой позиции = <b>себестоимость + наценка %</b>. Текущие цены продажи заменяются.</p>
+    <Modal title="Прибыль от себестоимости" onClose={onClose} w={500}>
+      <p className="sm mut" style={{ marginBottom: 10 }}>Новая цена продажи = <b>себестоимость ÷ (1 − %)</b>: 20% → себестоимость ÷ 0,8; 15% → ÷ 0,85. Прибыль — это % от цены продажи (вычтите те же % из цены — получится себестоимость). Текущие цены продажи заменяются.</p>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        <Fld label="Наценка, %"><input type="number" className="inp" autoFocus style={{ fontSize: 18, fontWeight: 700 }} value={pct} onChange={(e) => setPct(e.target.value)} placeholder="например 20" /></Fld>
+        <Fld label="Прибыль, %"><input type="number" className="inp" autoFocus style={{ fontSize: 18, fontWeight: 700 }} value={pct} onChange={(e) => setPct(e.target.value)} placeholder="например 20" /></Fld>
         <Fld label="К каким товарам">
           <select className="inp" value={scope} onChange={(e) => setScope(e.target.value)}>
             <option value="all">Все поставки объекта</option>
@@ -4174,11 +4178,11 @@ function PercentModal({ obj, batches, onClose, onApply }) {
         <div className="sm">Позиций: <b>{list.length}</b>{noCost > 0 && <span style={{ color: "var(--warn)" }}> · без себестоимости: {noCost} (их цена не изменится)</span>}</div>
         <div className="sm">Себестоимость: <b className="mono">{fmt2(cost)}</b></div>
         <div className="sm">Сумма продажи сейчас: <b className="mono">{fmt2(before)}</b></div>
-        <div className="sm">После наценки: <b className="mono" style={{ color: valid ? "var(--ok)" : "var(--mut)" }}>{fmt2(valid ? after : before)}</b>{valid && <span className="xs mut"> ({after - before >= 0 ? "+" : "−"}{fmt2(Math.abs(after - before))} к текущей · прибыль {fmt2(after - cost)})</span>}</div>
+        <div className="sm">После расчёта: <b className="mono" style={{ color: valid ? "var(--ok)" : "var(--mut)" }}>{fmt2(valid ? after : before)}</b>{valid && <span className="xs mut"> ({after - before >= 0 ? "+" : "−"}{fmt2(Math.abs(after - before))} к текущей · прибыль {fmt2(after - cost)})</span>}</div>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
-        <button className="btn pri" disabled={!valid || !list.length || busy} onClick={async () => { setBusy(true); await onApply(p, scope === "all" ? null : Number(scope)); setBusy(false); }}>{busy ? "Применяю…" : "Применить наценку " + (valid ? fmt(p) + "%" : "")}</button>
+        <button className="btn pri" disabled={!valid || !list.length || busy} onClick={async () => { setBusy(true); await onApply(p, scope === "all" ? null : Number(scope)); setBusy(false); }}>{busy ? "Применяю…" : "Применить прибыль " + (valid ? fmt(p) + "%" : "")}</button>
       </div>
     </Modal>
   );
