@@ -2914,6 +2914,7 @@ function RequestExcelImport({ products, onClose, onAdd }) {
   const [fname, setFname] = useState("");
   const [err, setErr] = useState("");
   const [pick, setPick] = useState({}); // номер строки → id товара | "" (ручная позиция)
+  const [removed, setRemoved] = useState({}); // номер строки → true: строка убрана из импорта
   const [askCancel, setAskCancel] = useState(false);
   const fRef = useRef(null);
   const matcher = useMemo(() => buildMatcher(products), [products]);
@@ -2958,7 +2959,7 @@ function RequestExcelImport({ products, onClose, onAdd }) {
   const dataRows = rows ? (hasHeader ? rows.slice(1) : rows) : [];
   const header = rows ? (hasHeader ? rows[0] : (rows[0] || []).map((_, i) => "Колонка " + (i + 1))) : [];
   const cell = (row, fid) => (map[fid] == null ? "" : row[map[fid]]);
-  const items = useMemo(() => dataRows.map((row, i) => {
+  const items0 = useMemo(() => dataRows.map((row, i) => {
     const name = String(cell(row, "name") || "").trim();
     if (!name || map.name == null) return null;
     const size = String(cell(row, "size") || "").trim();
@@ -2967,13 +2968,17 @@ function RequestExcelImport({ products, onClose, onAdd }) {
     const auto = best && best.score >= MATCH_MIN ? best.p.id : "";
     return { i, name, size, unit: String(cell(row, "unit") || "").trim(), qty: map.qty != null ? num(cell(row, "qty")) || 1 : 1, cands, auto };
   }).filter(Boolean), [rows, map, hasHeader, matcher]);
+  const allItems = items0;
+  const items = useMemo(() => allItems.filter((it) => !removed[it.i]), [allItems, removed]);
+  const nRemoved = allItems.length - items.length;
   const chosen = (it) => (pick[it.i] !== undefined ? pick[it.i] : it.auto);
   const nFound = items.filter((it) => chosen(it)).length;
   // состояние строки: found — найдено/выбрано, check — проверьте, manual — ручная
   const stOf = (it) => { const c = chosen(it); if (!c) return "manual"; const cd = it.cands.find((x) => x.p.id === c); return pick[it.i] !== undefined || (cd && cd.score >= MATCH_OK) ? "found" : "check"; };
   const nCheck = items.filter((it) => stOf(it) === "check").length;
   const [flt, setFlt] = useState("");
-  const shownItems = flt ? items.map((it, k) => ({ it, k })).filter(({ it }) => stOf(it) === flt) : items.map((it, k) => ({ it, k }));
+  const numOf = useMemo(() => { const m = {}; allItems.forEach((it, k) => { m[it.i] = k; }); return m; }, [allItems]);
+  const shownItems = items.map((it) => ({ it, k: numOf[it.i] })).filter(({ it }) => !flt || stOf(it) === flt);
   const run = () => {
     const out = items.map((it) => {
       const id = chosen(it);
@@ -3010,8 +3015,10 @@ function RequestExcelImport({ products, onClose, onAdd }) {
                 </button>
               ))}
             </div>
+            {flt && shownItems.length > 0 && <button className="btn xs dng" title="Убрать из импорта все строки этого фильтра" onClick={() => { const r = { ...removed }; shownItems.forEach(({ it }) => { r[it.i] = true; }); setRemoved(r); }}>✕ убрать показанные ({shownItems.length})</button>}
+            {nRemoved > 0 && <button className="btn xs" title="Вернуть убранные строки" onClick={() => setRemoved({})}>↺ вернуть убранные ({nRemoved})</button>}
             <label className="sm clk" style={{ marginLeft: "auto" }}><input type="checkbox" checked={hasHeader} onChange={(e) => setHasHeader(e.target.checked)} /> первая строка — заголовки</label>
-            <button className="btn xs" onClick={() => { setRows(null); setMap({}); setPick({}); }}>↺ другой файл</button>
+            <button className="btn xs" onClick={() => { setRows(null); setMap({}); setPick({}); setRemoved({}); }}>↺ другой файл</button>
           </div>
           <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(170px,1fr))", marginBottom: 12 }}>
             {FIELDS.filter((f) => f.id !== "size").map((f) => (
@@ -3025,7 +3032,7 @@ function RequestExcelImport({ products, onClose, onAdd }) {
           </div>
           <div style={{ overflow: "auto", maxHeight: 440, border: "1px solid var(--line)", borderRadius: 10 }}>
             <table className="t">
-              <thead><tr><th style={{ width: 34 }}>№</th><th>Из файла</th><th style={{ width: 70, textAlign: "right" }}>Кол-во</th><th style={{ minWidth: 330 }}>Товар в базе</th><th style={{ width: 116 }}>Совпадение</th></tr></thead>
+              <thead><tr><th style={{ width: 34 }}>№</th><th>Из файла</th><th style={{ width: 70, textAlign: "right" }}>Кол-во</th><th style={{ minWidth: 330 }}>Товар в базе</th><th style={{ width: 116 }}>Совпадение</th><th style={{ width: 40 }}></th></tr></thead>
               <tbody>
                 {shownItems.map(({ it, k }) => {
                   const c = chosen(it), cd = it.cands.find((x) => x.p.id === c);
@@ -3042,11 +3049,12 @@ function RequestExcelImport({ products, onClose, onAdd }) {
                         </select>
                       </td>
                       <td><Badge c={tone}>{!c ? "ручная" : pick[it.i] !== undefined ? "выбрано" : cd && cd.score >= MATCH_OK ? "найдено" : "проверьте"}</Badge></td>
+                      <td><button className="btn xs dng" title="Убрать строку из импорта" onClick={() => setRemoved({ ...removed, [it.i]: true })}>✕</button></td>
                     </tr>
                   );
                 })}
-                {!items.length && <tr><td colSpan={5} className="mut" style={{ textAlign: "center", padding: 20 }}>Нет строк с наименованием — укажите колонку «Наименование»</td></tr>}
-                {items.length > 0 && !shownItems.length && <tr><td colSpan={5} className="mut" style={{ textAlign: "center", padding: 20 }}>В этом фильтре строк нет</td></tr>}
+                {!allItems.length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 20 }}>Нет строк с наименованием — укажите колонку «Наименование»</td></tr>}
+                {allItems.length > 0 && !shownItems.length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 20 }}>{items.length ? "В этом фильтре строк нет" : "Все строки убраны — нажмите «вернуть убранные»"}</td></tr>}
               </tbody>
             </table>
           </div>
