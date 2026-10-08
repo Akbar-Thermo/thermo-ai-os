@@ -106,9 +106,13 @@ const OBJ_STATUSES = [
   { id: "draft", label: "Черновик", c: "var(--t-neutral)" },
   { id: "tender", label: "На тендере", c: "var(--t-warn)" },
   { id: "approved", label: "Согласовано", c: "var(--t-strong)" },
+  { id: "payment", label: "Оплата", c: "var(--t-ok)" },
 ];
 const IDLE_STATUSES = ["draft", "tender", "cancelled"];
 const isLive = (o) => !!o && !IDLE_STATUSES.includes(o.status || "draft");
+// оплаты клиента учитываются только со статуса «Оплата» (и у старых статусов «Оплачено/Закрыто/…»);
+// в «Согласовано» объект влияет на склад и долг поставщикам, но не на оплаты и долг клиента
+const payLive = (o) => isLive(o) && o.status !== "approved";
 const OP_TYPES = [
   { id: "client_payment", label: "Оплата клиента" },
   { id: "supplier_payment", label: "Оплата поставщику" },
@@ -577,13 +581,14 @@ function calcObject(obj, ops) {
   const sum = (t, f = "amount") => o.filter((x) => x.type === t).reduce((a, x) => a + (x[f] || 0), 0);
   const retSale = sum("return"), retCost = sum("return", "cost_amount");
   const discount = sum("discount"), expense = sum("expense"), bonus = sum("bonus");
-  const paidClient = sum("client_payment"), paidSup = sum("supplier_payment");
+  const paidAll = sum("client_payment"), paidSup = sum("supplier_payment");
+  const paidClient = payLive(obj) ? paidAll : 0; // до статуса «Оплата» оплаты не учитываются
   const saleNet = sale - retSale - discount;
   const costNet = cost - retCost;
   const gross = saleNet - costNet;
   const net = gross - expense - bonus;
   return {
-    sale, cost, retSale, retCost, discount, expense, bonus, paidClient, paidSup,
+    sale, cost, retSale, retCost, discount, expense, bonus, paidClient, paidSup, paidIgnored: round2(paidAll - paidClient),
     saleNet, costNet, gross, net,
     margin: saleNet > 0 ? (gross / saleNet) * 100 : 0,
     clientDebt: round2(saleNet - paidClient), // округление: без «долга» 0,0000001 от сложения дробных сумм
@@ -3911,7 +3916,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       rows.push({ k: "blank" });
     });
     // оплаты клиента — блоками по дате: способ, сумма в валюте оплаты, курс, сумма в $
-    byDay(ops.filter((o) => o.type === "client_payment" && !o.voided)).forEach(({ day, ops: list }) => {
+    byDay(ops.filter((o) => o.type === "client_payment" && !o.voided && payLive(obj))).forEach(({ day, ops: list }) => {
       rows.push({ k: "section", v: ["Дата: " + dt(day)] });
       rows.push({ k: "blank" });
       rows.push({ k: "section", v: ["ОПЛАТЫ"] });
@@ -4029,6 +4034,12 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
           <span className="sm">Статус «{stById(obj.status).label}» — объект <b>не влияет</b> на долги клиента и поставщикам, Склад Thermo, дашборд, доставку и бонусы. Поставьте «Согласовано», чтобы он начал учитываться.</span>
         </div>
       )}
+      {obj.status === "approved" && (
+        <div className="card sect" style={{ borderColor: "var(--line2)", padding: "10px 14px" }}>
+          <span className="sm">Статус «Согласовано» — объект учитывается на складе и в долге поставщикам, но <b>оплаты клиента и долг клиента пока не учитываются</b>. Чтобы принимать оплаты, поставьте статус «Оплата».</span>
+          {f.paidIgnored > 0 && <div className="sm" style={{ color: "var(--warn)", marginTop: 4 }}>⚠ По объекту уже записано оплат на {fmt2(f.paidIgnored)} — они начнут учитываться после статуса «Оплата».</div>}
+        </div>
+      )}
       <div className="kpis sect">
         <KPI l="Сумма товара (нетто)" v={f.saleNet} />
         <KPI l="Оплачено клиентом" v={f.paidClient} c="var(--ok)" />
@@ -4075,7 +4086,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       )}
       <div className="row sect">
         <h3 style={{ marginRight: "auto" }}>Финансовые операции</h3>
-        {OP_TYPES.filter((t) => (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes(t.id)).map((t) => <React.Fragment key={t.id}>
+        {OP_TYPES.filter((t) => (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes(t.id) && (t.id !== "client_payment" || payLive(obj))).map((t) => <React.Fragment key={t.id}>
           <button className="btn xs" onClick={() => setOpForm({ type: t.id })}>+ {t.label}</button>
           {t.id === "discount" && (obj.items || []).length > 0 && <button className="btn xs" onClick={() => setPctForm(true)} title="Цена продажи = себестоимость ÷ (1 − %)">+ Прибыль от себестоимости</button>}
         </React.Fragment>)}
@@ -5488,6 +5499,7 @@ function dashEvents(objects, ops, mgr) {
     if (x.type === "bonus" && !x.object_id) { if (!mgr) dirBonus.push({ ...x, d }); return; }
     const o = x.object_id && objById[x.object_id];
     if (!o || !isLive(o) || (mgr && (o.manager || "") !== mgr)) return;
+    if (x.type === "client_payment" && !payLive(o)) return;
     objOps.push({ ...x, d, h: hourOf(d, x.created_at), o });
   });
   // первая покупка клиента — по всем объектам, чтобы «новый клиент» не зависел от фильтра менеджера
@@ -5710,7 +5722,7 @@ function payReport(objects, ops, from, to, mgr) {
     const d = String(x.op_date || x.created_at || "").slice(0, 10);
     if (!inR(d)) return;
     const o = x.object_id ? objById[x.object_id] : null;
-    if (x.object_id && (!o || !isLive(o))) return;
+    if (x.object_id && (!o || !isLive(o) || (x.type === "client_payment" && !payLive(o)))) return;
     if (mgr && (!o || (o.manager || "") !== mgr)) return;
     const i = payInfo(x), r = rows[i.id || "none"], a = Number(x.amount) || 0;
     r.n++;
@@ -5875,7 +5887,7 @@ function Dashboard({ data }) {
     const fin = (m) => Object.values(m).map((r) => ({ ...r, deals: r._deals.size, gross: r.rev - r.cost, margin: r.rev > 0 ? ((r.rev - r.cost) / r.rev) * 100 : 0, avg: r._deals.size ? r.rev / r._deals.size : 0 })).sort((a, b) => b.rev - a.rev);
     // долги клиентов и поставщикам — текущие, за всё время
     const cdebt = {};
-    objects.forEach((o) => { if (!isLive(o)) return; const k = clientKey(o); cdebt[k] = (cdebt[k] || 0) + calcObject(o, finance_ops).clientDebt; });
+    objects.forEach((o) => { if (!payLive(o)) return; const k = clientKey(o); cdebt[k] = (cdebt[k] || 0) + calcObject(o, finance_ops).clientDebt; });
     const clients = fin(cl).map((r) => ({ ...r, debt: cdebt[r.key] || 0 }));
     const sups = fin(sp).map((r) => { const s = suppliers.find((x) => x.id === r.key); return { ...r, debt: s ? supplierStats(s, objects, finance_ops, data.wh_moves).debt : 0 }; });
     return { prod: fin(prod), cat: fin(cat), brand: fin(brand), mgr: fin(mg), master: fin(ms), client: clients, sup: sups };
@@ -5885,7 +5897,7 @@ function Dashboard({ data }) {
   const bal = useMemo(() => {
     let cdebt = 0, overpay = 0;
     objects.forEach((o) => {
-      if (!isLive(o) || (mgr && (o.manager || "") !== mgr)) return;
+      if (!payLive(o) || (mgr && (o.manager || "") !== mgr)) return;
       const d = calcObject(o, finance_ops).clientDebt; if (d > 0) cdebt += d; else overpay -= d;
     });
     const sdebt = suppliers.reduce((a, s) => a + supplierStats(s, objects, finance_ops, data.wh_moves).debt, 0);
@@ -6075,7 +6087,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
   const finance_ops = useMemo(() => (boss ? data.finance_ops : data.finance_ops.filter((o) => !isSalary(o))), [data.finance_ops, boss]);
   const objName = (id) => (objects.find((o) => o.id === id) || {}).name || "—";
   const supName = (id) => (suppliers.find((s) => s.id === id) || {}).name || "";
-  const clientDebts = objects.map((o) => ({ o, f: calcObject(o, finance_ops) })).filter((x) => x.f.clientDebt > 0.004 && isLive(x.o));
+  const clientDebts = objects.map((o) => ({ o, f: calcObject(o, finance_ops) })).filter((x) => x.f.clientDebt > 0.004 && payLive(x.o));
   // поставщики с движением (закупки, оплаты или возвраты) — пустые строки не показываем
   const supRows = useMemo(() => suppliers.map((s) => ({ s, st: supplierStats(s, objects, finance_ops, data.wh_moves) }))
     .filter(({ st }) => st.purchases || st.paid || st.returns).sort((a, b) => b.st.balance - a.st.balance), [suppliers, objects, finance_ops, data.wh_moves]);
@@ -6614,7 +6626,7 @@ function AppInner() {
     const t = setTimeout(async () => {
       let made = 0;
       for (const o of data.objects) {
-        if (!o.master_id || !isLive(o) || autoBonusBusy.current.has(o.id)) continue;
+        if (!o.master_id || !payLive(o) || autoBonusBusy.current.has(o.id)) continue;
         const m = data.masters.find((x) => x.id === o.master_id);
         const pct = m ? Number(m.bonus_percent) || 0 : 0;
         if (!(pct > 0)) continue;
