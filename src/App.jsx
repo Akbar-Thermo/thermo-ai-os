@@ -1605,6 +1605,8 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
   const listRef = useRef(null);
   const supName = useMemo(() => { const m = {}; suppliers.forEach((s) => { m[s.id] = s.name; }); return m; }, [suppliers]);
   const idx = useMemo(() => products.map((p) => prodSearchText(p, supName[p.supplier_id])), [products, supName]);
+  // порядок результатов — как в базе/в файле Excel, из которого товары загружены (по коду 1, 2, 3…)
+  const order = useMemo(() => products.map((_, i) => i).sort((a, b) => productOrder(products[a], products[b])), [products]);
   // фильтр по поставщику: выбран поставщик — показываются только его товары (без ввода текста — все его товары)
   const [sf, setSf] = useState("");
   const [open, setOpen] = useState(false);
@@ -1620,7 +1622,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
     const words = searchWords(q);
     if (!active) return [];
     const out = [];
-    for (let i = 0; i < products.length; i++) {
+    for (const i of order) {
       const p = products[i];
       if (p.status === "archive") continue;
       if (sf && p.supplier_id !== sf) continue;
@@ -1628,7 +1630,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
       if (words.every((w) => s.includes(w))) out.push(p);
     }
     return out;
-  }, [q, products, idx, sf, active]);
+  }, [q, products, idx, sf, active, order]);
   useEffect(() => { setTop(0); if (listRef.current) listRef.current.scrollTop = 0; }, [q, sf]);
   // при навигации стрелками держим активную строку в видимой области
   useEffect(() => {
