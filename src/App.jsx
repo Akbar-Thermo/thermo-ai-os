@@ -100,18 +100,18 @@ const SEGMENTS = ["эконом", "комфорт", "премиум"];
 const SEG_LABEL = { "эконом": "Эконом", "комфорт": "Стандарт", "премиум": "Премиум" };
 const SEG_COLOR = { "эконом": "var(--t-info)", "комфорт": "var(--t-strong)", "премиум": "var(--t-violet)" };
 const supSeg = (sup) => (sup && SEGMENTS.includes(sup.segment) ? sup.segment : "комфорт");
-// статусы объекта: только «Согласовано» влияет на систему (долги, склад, дашборд, доставка, бонусы).
+// статусы объекта: «Получено от поставщика» (id approved) — склад, долг поставщикам, доставка; «Оплачено» (id payment) — ещё продажи, оплаты, долг клиента, дашборд, бонусы.
 // «Черновик» и «На тендере» — объект виден, но ни на что не влияет.
 const OBJ_STATUSES = [
   { id: "draft", label: "Черновик", c: "var(--t-neutral)" },
   { id: "tender", label: "На тендере", c: "var(--t-warn)" },
-  { id: "approved", label: "Согласовано", c: "var(--t-strong)" },
-  { id: "payment", label: "Оплата", c: "var(--t-ok)" },
+  { id: "approved", label: "Получено от поставщика", c: "var(--t-strong)" },
+  { id: "payment", label: "Оплачено", c: "var(--t-ok)" },
 ];
 const IDLE_STATUSES = ["draft", "tender", "cancelled"];
 const isLive = (o) => !!o && !IDLE_STATUSES.includes(o.status || "draft");
-// оплаты клиента учитываются только со статуса «Оплата» (и у старых статусов «Оплачено/Закрыто/…»);
-// в «Согласовано» объект влияет на склад и долг поставщикам, но не на оплаты и долг клиента
+// продажи, оплаты, долг клиента и дашборд — только со статуса «Оплачено» (и у старых статусов «Оплачено/Закрыто/…»);
+// в «Получено от поставщика» объект влияет только на склад, долг поставщикам и доставку
 const payLive = (o) => isLive(o) && o.status !== "approved";
 const OP_TYPES = [
   { id: "client_payment", label: "Оплата клиента" },
@@ -582,7 +582,7 @@ function calcObject(obj, ops) {
   const retSale = sum("return"), retCost = sum("return", "cost_amount");
   const discount = sum("discount"), expense = sum("expense"), bonus = sum("bonus");
   const paidAll = sum("client_payment"), paidSup = sum("supplier_payment");
-  const paidClient = payLive(obj) ? paidAll : 0; // до статуса «Оплата» оплаты не учитываются
+  const paidClient = payLive(obj) ? paidAll : 0; // до статуса «Оплачено» оплаты не учитываются
   const saleNet = sale - retSale - discount;
   const costNet = cost - retCost;
   const gross = saleNet - costNet;
@@ -3720,7 +3720,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     }
     if (ok) {
       await logAction("Статус объекта: " + stById(s).label, "object:" + obj.name, "было: " + stById(obj.status).label + (note ? "; " + note : ""));
-      toast(will ? "Объект согласован — учитывается в долгах, складе и отчётах" + (note ? ". " + note : "") : "Статус «" + stById(s).label + "» — объект не влияет на долги, склад и отчёты" + (note ? ". " + note : ""));
+      toast(will ? (s === "approved" ? "Товар получен от поставщика — учитывается на складе и в долге поставщикам" : "Статус «" + stById(s).label + "» — учитываются продажа, оплаты и долг клиента") + (note ? ". " + note : "") : "Статус «" + stById(s).label + "» — объект не влияет на долги, склад и отчёты" + (note ? ". " + note : ""));
     }
     await reload();
   };
@@ -4021,7 +4021,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
           </div>
         </div>
         <button className="btn" onClick={() => setEditObj(true)}>✎ Изменить</button>
-        <select className="inp" style={{ maxWidth: 190 }} value={obj.status} onChange={(e) => setStatus(e.target.value)}>
+        <select className="inp" style={{ maxWidth: 240 }} value={obj.status} onChange={(e) => setStatus(e.target.value)}>
           {statusOptions(obj.status).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
         </select>
         <button className="btn" onClick={exportClient}>⬇ Excel клиенту</button>
@@ -4031,13 +4031,13 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
 
       {!isLive(obj) && (
         <div className="card sect" style={{ borderColor: "var(--warn)", padding: "10px 14px" }}>
-          <span className="sm">Статус «{stById(obj.status).label}» — объект <b>не влияет</b> на долги клиента и поставщикам, Склад Thermo, дашборд, доставку и бонусы. Поставьте «Согласовано», чтобы он начал учитываться.</span>
+          <span className="sm">Статус «{stById(obj.status).label}» — объект <b>не влияет</b> на долги клиента и поставщикам, Склад Thermo, дашборд, доставку и бонусы. Поставьте «Получено от поставщика», когда товар взят у поставщика.</span>
         </div>
       )}
       {obj.status === "approved" && (
         <div className="card sect" style={{ borderColor: "var(--line2)", padding: "10px 14px" }}>
-          <span className="sm">Статус «Согласовано» — объект учитывается на складе и в долге поставщикам, но <b>оплаты клиента и долг клиента пока не учитываются</b>. Чтобы принимать оплаты, поставьте статус «Оплата».</span>
-          {f.paidIgnored > 0 && <div className="sm" style={{ color: "var(--warn)", marginTop: 4 }}>⚠ По объекту уже записано оплат на {fmt2(f.paidIgnored)} — они начнут учитываться после статуса «Оплата».</div>}
+          <span className="sm">Статус «Получено от поставщика» — товар взят у поставщика: учитывается на складе и в долге поставщикам. <b>Продажа, оплаты, долг клиента и дашборд пока не учитываются</b> — поставьте статус «Оплачено».</span>
+          {f.paidIgnored > 0 && <div className="sm" style={{ color: "var(--warn)", marginTop: 4 }}>⚠ По объекту уже записано оплат на {fmt2(f.paidIgnored)} — они начнут учитываться после статуса «Оплачено».</div>}
         </div>
       )}
       <div className="kpis sect">
@@ -4295,7 +4295,7 @@ function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem,
   return (
     <tr>
       <td style={{ width: 28, paddingRight: 0, verticalAlign: "middle" }}><MarkDot value={mk} onClick={async () => { const nx = nextMark(mk); setMk(nx); if (!(await setItemMark(i.id, nx))) setMk(i.mark || ""); }} /></td>
-      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «Согласовано»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}</td>
+      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «Получено от поставщика»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}</td>
       <td><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)}
         onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (v !== Number(i.qty)) { if (!(await setItemQty(i.id, v))) setQty(i.qty); } else setQty(i.qty); }} /></td>
       <td className="sm">{i.unit}</td>
@@ -5483,7 +5483,7 @@ function dashEvents(objects, ops, mgr) {
   const objById = {}, sales = [];
   objects.forEach((o) => {
     objById[o.id] = o;
-    if (!isLive(o) || (mgr && (o.manager || "") !== mgr)) return;
+    if (!payLive(o) || (mgr && (o.manager || "") !== mgr)) return; // дашборд — только «Оплачено»
     (o.items || []).forEach((i) => {
       const d = String(i.batch_date || o.created_at || "").slice(0, 10);
       sales.push({ d, h: hourOf(d, i.added_at || ((i.batch_no || 1) === 1 ? o.created_at : null)), o, i,
@@ -5498,14 +5498,13 @@ function dashEvents(objects, ops, mgr) {
     // бонус мастеру без объекта — тоже расход компании (раньше в чистую прибыль не попадал)
     if (x.type === "bonus" && !x.object_id) { if (!mgr) dirBonus.push({ ...x, d }); return; }
     const o = x.object_id && objById[x.object_id];
-    if (!o || !isLive(o) || (mgr && (o.manager || "") !== mgr)) return;
-    if (x.type === "client_payment" && !payLive(o)) return;
+    if (!o || !payLive(o) || (mgr && (o.manager || "") !== mgr)) return;
     objOps.push({ ...x, d, h: hourOf(d, x.created_at), o });
   });
   // первая покупка клиента — по всем объектам, чтобы «новый клиент» не зависел от фильтра менеджера
   const firstBuy = {};
   objects.forEach((o) => {
-    if (!isLive(o)) return;
+    if (!payLive(o)) return;
     (o.items || []).forEach((i) => {
       const d = String(i.batch_date || o.created_at || "").slice(0, 10), k = clientKey(o);
       if (d && (!firstBuy[k] || d < firstBuy[k])) firstBuy[k] = d;
