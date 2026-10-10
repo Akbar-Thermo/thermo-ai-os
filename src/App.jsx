@@ -5892,19 +5892,58 @@ function Dashboard({ data }) {
     return { prod: fin(prod), cat: fin(cat), brand: fin(brand), mgr: fin(mg), master: fin(ms), client: clients, sup: sups };
   }, [ev, from, to, prodMap, supName, objects, finance_ops, suppliers, data.wh_moves]);
 
-  // остатки на сегодня (не зависят от периода)
+  // долги — за выбранный период: начислено за период (продажи / закупки) минус оплаты за период; «Весь период» — текущий остаток
   const bal = useMemo(() => {
-    let cdebt = 0, overpay = 0;
-    objects.forEach((o) => {
-      if (!payLive(o) || (mgr && (o.manager || "") !== mgr)) return;
-      const d = calcObject(o, finance_ops).clientDebt; if (d > 0) cdebt += d; else overpay -= d;
-    });
-    const sdebt = suppliers.reduce((a, s) => a + supplierStats(s, objects, finance_ops, data.wh_moves).debt, 0);
+    const all = !from && !to;
+    const inR = (d) => { const x = String(d || "").slice(0, 10); return x && (!from || x >= from) && (!to || x <= to); };
+    const opD = (x) => x.op_date || x.created_at;
+    let cdebt = 0, overpay = 0, sdebt = 0, payMore = 0, supPayMore = 0;
+    const objOk = (o) => payLive(o) && (!mgr || (o.manager || "") === mgr);
+    if (all) {
+      objects.forEach((o) => { if (!objOk(o)) return; const d = calcObject(o, finance_ops).clientDebt; if (d > 0) cdebt += d; else overpay -= d; });
+      sdebt = suppliers.reduce((a, s) => a + supplierStats(s, objects, finance_ops, data.wh_moves).debt, 0);
+    } else {
+      // клиенты: продажи за период − возвраты − скидки − оплаты за период (по каждому клиенту)
+      const objById = {}; objects.forEach((o) => { objById[o.id] = o; });
+      const byClient = {};
+      objects.forEach((o) => {
+        if (!objOk(o)) return;
+        const k = clientKey(o);
+        (o.items || []).forEach((i) => { if (inR(i.batch_date || o.created_at)) byClient[k] = (byClient[k] || 0) + (Number(i.qty) || 0) * (Number(i.price) || 0); });
+      });
+      finance_ops.forEach((x) => {
+        if (x.voided || !x.object_id || !inR(opD(x))) return;
+        const o = objById[x.object_id]; if (!o || !objOk(o)) return;
+        const k = clientKey(o), a = Number(x.amount) || 0;
+        if (x.type === "return" || x.type === "discount" || x.type === "client_payment") byClient[k] = (byClient[k] || 0) - a;
+      });
+      // итог за период: оплаты могут гасить и старые долги, поэтому считаем общую сумму, а не по клиентам
+      const cNet = round2(Object.values(byClient).reduce((a, v) => a + v, 0));
+      if (cNet > 0) cdebt = cNet; else payMore = -cNet;
+      // поставщики: закупки за период (отгруженный товар + приход на склад) − возвраты поставщику − оплаты за период
+      const retIds = supplierReturnIds(finance_ops, data.wh_moves);
+      const bySup = {};
+      objects.forEach((o) => {
+        if (!isLive(o)) return;
+        (o.items || []).forEach((i) => {
+          if (!i.supplier_id || i.from_warehouse || !isShipped(i) || !inR(i.shipped_date || i.batch_date || o.created_at)) return;
+          bySup[i.supplier_id] = (bySup[i.supplier_id] || 0) + (Number(i.qty) || 0) * (Number(i.cost) || 0);
+        });
+      });
+      finance_ops.forEach((x) => {
+        if (x.voided || !x.supplier_id || !inR(opD(x))) return;
+        if (x.type === "wh_purchase") bySup[x.supplier_id] = (bySup[x.supplier_id] || 0) + (Number(x.cost_amount) || 0);
+        else if (x.type === "supplier_payment") bySup[x.supplier_id] = (bySup[x.supplier_id] || 0) - (Number(x.amount) || 0);
+        else if (x.type === "return" && retIds.has(x.id)) bySup[x.supplier_id] = (bySup[x.supplier_id] || 0) - (Number(x.cost_amount) || 0);
+      });
+      const sNet = round2(Object.values(bySup).reduce((a, v) => a + v, 0));
+      if (sNet > 0) sdebt = sNet; else supPayMore = -sNet;
+    }
     const whCost = warehouse.reduce((a, w) => a + (w.qty || 0) * (w.cost || 0), 0);
     const whQty = warehouse.filter((w) => (w.qty || 0) > 0).length;
     const active = objects.filter((o) => isLive(o) && o.status !== "closed" && (!mgr || (o.manager || "") === mgr)).length;
-    return { cdebt, overpay, sdebt, whCost, whQty, active };
-  }, [objects, finance_ops, suppliers, warehouse, mgr, data.wh_moves]);
+    return { cdebt, overpay, sdebt, whCost, whQty, active, all, payMore, supPayMore };
+  }, [objects, finance_ops, suppliers, warehouse, mgr, data.wh_moves, from, to]);
 
   const lowMargin = ranks.prod.filter((r) => r.rev > 0 && r.margin < 10).sort((a, b) => a.margin - b.margin).slice(0, 8);
 
@@ -5918,7 +5957,7 @@ function Dashboard({ data }) {
       const K = [["Показатель", "Период: " + periodTitle].concat(compare ? ["Пред. период: " + prevTitle, "Изменение, %"] : [])];
       const kp = [["Выручка (нетто)", "netRev"], ["Валовая прибыль", "gross"], ["Чистая прибыль", "net"], ["Маржа, %", "margin"], ["Поставок (продаж)", "deals"], ["Средний чек", "avg"], ["Клиентов", "clients"], ["Новых клиентов", "newC"], ["Поступило оплат", "paid"], ["Возвраты", "ret"], ["Скидки", "disc"], ["Расходы компании", "cexp"]];
       kp.forEach(([l, k]) => { const a = Math.round(cur[k] * 100) / 100; const row = [l, a]; if (compare) { const b = Math.round(prev[k] * 100) / 100; row.push(b, b ? Math.round(((a - b) / Math.abs(b)) * 1000) / 10 : ""); } K.push(row); });
-      K.push([], ["На сегодня"], ["Долги клиентов", bal.cdebt], ["Переплаты клиентов", bal.overpay], ["Долги поставщикам", bal.sdebt], ["Склад (по себестоимости)", bal.whCost], ["Объектов в работе", bal.active]);
+      K.push([], [bal.all ? "Долги — за весь период; склад и объекты — на сегодня" : "Долги — за период (начислено − оплачено); склад и объекты — на сегодня"], ["Долги клиентов", bal.cdebt], ["Переплаты клиентов", bal.overpay], ["Долги поставщикам", bal.sdebt], ["Склад (по себестоимости)", bal.whCost], ["Объектов в работе", bal.active]);
       add("Показатели", K);
       const pr = payReport(objects, finance_ops, from, to, mgr);
       add("Способы оплаты", [["Способ оплаты", "Поступило от клиентов, $", "в т.ч. сум", "Поставщикам, $", "Расходы, $", "Бонусы мастерам, $", "Всего выплачено, $", "в т.ч. сум", "Разница, $", "Операций"]]
@@ -6014,8 +6053,8 @@ function Dashboard({ data }) {
       <PayMethodsCard objects={objects} ops={finance_ops} from={from} to={to} mgr={mgr} />
 
       <div className="kpis sect">
-        <DashTile label="Долги клиентов" value={bal.cdebt} note={bal.overpay > 0 ? "переплаты: " + fmt(bal.overpay) + " · на сегодня" : "на сегодня"} />
-        <DashTile label="Долги поставщикам" value={bal.sdebt} note="на сегодня" />
+        <DashTile label="Долги клиентов" value={bal.cdebt} note={bal.all ? (bal.overpay > 0 ? "переплаты: " + fmt(bal.overpay) + " · " : "") + "за весь период" : bal.payMore > 0 ? "за период оплат больше продаж на " + fmt(bal.payMore) : "за период: продажи − оплаты"} />
+        <DashTile label="Долги поставщикам" value={bal.sdebt} note={bal.all ? "за весь период" : bal.supPayMore > 0 ? "за период оплат больше закупок на " + fmt(bal.supPayMore) : "за период: закупки − оплаты"} />
         <DashTile label="Склад Thermo" value={bal.whCost} note={"по себестоимости · позиций " + bal.whQty} />
         <DashTile label="Объектов в работе" value={bal.active} note="кроме закрытых и отменённых" />
       </div>
