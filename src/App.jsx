@@ -4036,7 +4036,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       )}
       {obj.status === "approved" && (
         <div className="card sect" style={{ borderColor: "var(--line2)", padding: "10px 14px" }}>
-          <span className="sm">Статус «Тов. пол. от пост.» (товар получен от поставщика): учитывается на складе и в долге поставщикам. <b>Продажа, оплаты, долг клиента и дашборд пока не учитываются</b> — поставьте статус «Оплачено».</span>
+          <span className="sm">Статус «Тов. пол. от пост.» (товар получен от поставщика): учитывается на складе и в долге поставщикам. Долг клиента уже учитывается, но <b>продажа, прибыль и оплаты пока не учитываются</b> — поставьте статус «Оплачено».</span>
           {f.paidIgnored > 0 && <div className="sm" style={{ color: "var(--warn)", marginTop: 4 }}>⚠ По объекту уже записано оплат на {fmt2(f.paidIgnored)} — они начнут учитываться после статуса «Оплачено».</div>}
         </div>
       )}
@@ -5886,7 +5886,7 @@ function Dashboard({ data }) {
     const fin = (m) => Object.values(m).map((r) => ({ ...r, deals: r._deals.size, gross: r.rev - r.cost, margin: r.rev > 0 ? ((r.rev - r.cost) / r.rev) * 100 : 0, avg: r._deals.size ? r.rev / r._deals.size : 0 })).sort((a, b) => b.rev - a.rev);
     // долги клиентов и поставщикам — текущие, за всё время
     const cdebt = {};
-    objects.forEach((o) => { if (!payLive(o)) return; const k = clientKey(o); cdebt[k] = (cdebt[k] || 0) + calcObject(o, finance_ops).clientDebt; });
+    objects.forEach((o) => { if (!isLive(o)) return; const k = clientKey(o); cdebt[k] = (cdebt[k] || 0) + calcObject(o, finance_ops).clientDebt; });
     const clients = fin(cl).map((r) => ({ ...r, debt: cdebt[r.key] || 0 }));
     const sups = fin(sp).map((r) => { const s = suppliers.find((x) => x.id === r.key); return { ...r, debt: s ? supplierStats(s, objects, finance_ops, data.wh_moves).debt : 0 }; });
     return { prod: fin(prod), cat: fin(cat), brand: fin(brand), mgr: fin(mg), master: fin(ms), client: clients, sup: sups };
@@ -5898,7 +5898,8 @@ function Dashboard({ data }) {
     const inR = (d) => { const x = String(d || "").slice(0, 10); return x && (!from || x >= from) && (!to || x <= to); };
     const opD = (x) => x.op_date || x.created_at;
     let cdebt = 0, overpay = 0, sdebt = 0, payMore = 0, supPayMore = 0;
-    const objOk = (o) => payLive(o) && (!mgr || (o.manager || "") === mgr);
+    // долг клиента — уже со статуса «Тов. пол. от пост.» (товар получен — клиент должен); продажи/прибыль дашборда — только «Оплачено»
+    const objOk = (o) => isLive(o) && (!mgr || (o.manager || "") === mgr);
     if (all) {
       objects.forEach((o) => { if (!objOk(o)) return; const d = calcObject(o, finance_ops).clientDebt; if (d > 0) cdebt += d; else overpay -= d; });
       sdebt = suppliers.reduce((a, s) => a + supplierStats(s, objects, finance_ops, data.wh_moves).debt, 0);
@@ -6125,7 +6126,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
   const finance_ops = useMemo(() => (boss ? data.finance_ops : data.finance_ops.filter((o) => !isSalary(o))), [data.finance_ops, boss]);
   const objName = (id) => (objects.find((o) => o.id === id) || {}).name || "—";
   const supName = (id) => (suppliers.find((s) => s.id === id) || {}).name || "";
-  const clientDebts = objects.map((o) => ({ o, f: calcObject(o, finance_ops) })).filter((x) => x.f.clientDebt > 0.004 && payLive(x.o));
+  const clientDebts = objects.map((o) => ({ o, f: calcObject(o, finance_ops) })).filter((x) => x.f.clientDebt > 0.004 && isLive(x.o));
   // поставщики с движением (закупки, оплаты или возвраты) — пустые строки не показываем
   const supRows = useMemo(() => suppliers.map((s) => ({ s, st: supplierStats(s, objects, finance_ops, data.wh_moves) }))
     .filter(({ st }) => st.purchases || st.paid || st.returns).sort((a, b) => b.st.balance - a.st.balance), [suppliers, objects, finance_ops, data.wh_moves]);
