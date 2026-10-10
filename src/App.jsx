@@ -105,7 +105,7 @@ const supSeg = (sup) => (sup && SEGMENTS.includes(sup.segment) ? sup.segment : "
 const OBJ_STATUSES = [
   { id: "draft", label: "Черновик", c: "var(--t-neutral)" },
   { id: "tender", label: "На тендере", c: "var(--t-warn)" },
-  { id: "approved", label: "Получено от поставщика", c: "var(--t-strong)" },
+  { id: "approved", label: "Тов. пол. от пост.", c: "var(--t-strong)" },
   { id: "payment", label: "Оплачено", c: "var(--t-ok)" },
 ];
 const IDLE_STATUSES = ["draft", "tender", "cancelled"];
@@ -4031,12 +4031,12 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
 
       {!isLive(obj) && (
         <div className="card sect" style={{ borderColor: "var(--warn)", padding: "10px 14px" }}>
-          <span className="sm">Статус «{stById(obj.status).label}» — объект <b>не влияет</b> на долги клиента и поставщикам, Склад Thermo, дашборд, доставку и бонусы. Поставьте «Получено от поставщика», когда товар взят у поставщика.</span>
+          <span className="sm">Статус «{stById(obj.status).label}» — объект <b>не влияет</b> на долги клиента и поставщикам, Склад Thermo, дашборд, доставку и бонусы. Поставьте «Тов. пол. от пост.», когда товар получен от поставщика.</span>
         </div>
       )}
       {obj.status === "approved" && (
         <div className="card sect" style={{ borderColor: "var(--line2)", padding: "10px 14px" }}>
-          <span className="sm">Статус «Получено от поставщика» — товар взят у поставщика: учитывается на складе и в долге поставщикам. <b>Продажа, оплаты, долг клиента и дашборд пока не учитываются</b> — поставьте статус «Оплачено».</span>
+          <span className="sm">Статус «Тов. пол. от пост.» (товар получен от поставщика): учитывается на складе и в долге поставщикам. <b>Продажа, оплаты, долг клиента и дашборд пока не учитываются</b> — поставьте статус «Оплачено».</span>
           {f.paidIgnored > 0 && <div className="sm" style={{ color: "var(--warn)", marginTop: 4 }}>⚠ По объекту уже записано оплат на {fmt2(f.paidIgnored)} — они начнут учитываться после статуса «Оплачено».</div>}
         </div>
       )}
@@ -4295,7 +4295,7 @@ function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem,
   return (
     <tr>
       <td style={{ width: 28, paddingRight: 0, verticalAlign: "middle" }}><MarkDot value={mk} onClick={async () => { const nx = nextMark(mk); setMk(nx); if (!(await setItemMark(i.id, nx))) setMk(i.mark || ""); }} /></td>
-      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «Получено от поставщика»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}</td>
+      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «Тов. пол. от пост.»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}</td>
       <td><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)}
         onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (v !== Number(i.qty)) { if (!(await setItemQty(i.id, v))) setQty(i.qty); } else setQty(i.qty); }} /></td>
       <td className="sm">{i.unit}</td>
