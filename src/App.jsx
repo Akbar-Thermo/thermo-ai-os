@@ -3583,21 +3583,14 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   const canDelete = (o) => fin || !opsCount[o.id];
   const removeObject = async (o) => {
     setDelBusy(true);
-    const ops0 = finance_ops;
     // по шагам: при любой ошибке останавливаемся (ошибка уже показана на экране)
     let r = await db.from("finance_ops").delete().eq("object_id", o.id);
     if (!r.error) r = await db.from("requests").delete().eq("object_id", o.id);
     if (!r.error) r = await db.from("objects").delete().eq("id", o.id);
-    if (r.error) { setDelBusy(false); await reload(); return false; }
-    // товар, уже списанный со Склада Thermo на этот объект, возвращается на склад (объекта больше нет)
-    let whNote = "";
-    if (isLive(o) && (o.items || []).some((i) => i.from_warehouse && !i.wh_pending)) {
-      const t = await whReturnLive(o, ops0, "объект удалён — товар вернулся на склад");
-      if (t.ids.length) whNote = ", на Склад Thermo возвращено: " + t.ids.length + " поз." + (t.fail ? " (⚠ не записано: " + t.fail + ")" : "");
-    }
     setDelBusy(false);
-    await logAction("Удалён объект", "object:" + o.name, "клиент: " + (o.client || "") + ", позиций: " + (o.items || []).length + ", операций: " + (opsCount[o.id] || 0) + whNote);
-    await reload(); toast("Объект удалён" + (whNote ? " · товар со склада возвращён на склад" : ""));
+    if (r.error) { await reload(); return false; }
+    await logAction("Удалён объект", "object:" + o.name, "клиент: " + (o.client || "") + ", позиций: " + (o.items || []).length + ", операций: " + (opsCount[o.id] || 0));
+    await reload(); toast("Объект удалён");
     return true;
   };
   if (obj) return <ObjectDetail obj={obj} data={data} reload={reload} toast={toast} fin={fin} back={() => setOpenId(null)} />;
@@ -3641,11 +3634,10 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         </table>
       </div>
       {editO && <ObjectEditModal obj={editO} data={data} reload={reload} toast={toast} onClose={() => setEditO(null)} />}
-      {delObj && (() => { const f = calcObject(delObj, finance_ops); const whBack = isLive(delObj) ? (delObj.items || []).filter((i) => i.from_warehouse && !i.wh_pending).length : 0; return (
+      {delObj && (() => { const f = calcObject(delObj, finance_ops); return (
         <Modal title="Удалить объект" onClose={() => { if (!delBusy) setDelObj(null); }} w={460}>
           <p style={{ marginBottom: 6 }}>Удалить объект <b style={{ color: "var(--bad)" }}>{delObj.name}</b> ({delObj.client})?</p>
           {isLive(delObj) && (f.clientDebt > 0 || f.supplierDebt > 0) && <p className="sm" style={{ color: "var(--warn)", marginBottom: 6 }}>⚠ По объекту есть долги — клиента: {fmt(Math.max(0, f.clientDebt))}, поставщикам: {fmt(f.supplierDebt)}.</p>}
-          {whBack > 0 && <p className="sm" style={{ marginBottom: 6 }}>Товар со Склада Thermo ({whBack} поз.) вернётся на склад.</p>}
           <p className="sm mut" style={{ marginBottom: 14 }}>Будут удалены все материалы, финансовые операции ({opsCount[delObj.id] || 0}) и заявки этого объекта. Действие необратимо. Если объект завершён — не удаляйте его, история пригодится. Если сделка не состоялась — поставьте статус «Черновик»: такой объект ни на что не влияет.</p>
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <button className="btn" disabled={delBusy} onClick={() => setDelObj(null)}>Отмена</button>
@@ -3785,60 +3777,15 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     if (!r.error) await logAction("Объект: " + what, "object:" + obj.name, Object.values(patch).filter((x) => x != null && typeof x !== "object").join(" · "));
     await reload();
   };
-  /* Позиция со Склада Thermo, уже списанная со склада (объект не «Черновик»/«На тендере»):
-     уменьшили количество или удалили позицию — разница возвращается на склад; увеличили — берём со склада, если хватает.
-     Раньше склад не менялся: удалённая позиция «пропадала» вместе с товаром. Возвраты клиента по позиции уже на складе — их не считаем. */
-  const whTaken = (it) => !!it && it.from_warehouse && !it.wh_pending && isLive(obj);
-  const whNet = (it, q) => {
-    const back = ops.filter((o) => o.type === "return" && !o.voided && o.item_id === it.id).reduce((a, o) => a + (Number(o.qty) || 0), 0);
-    return Math.max(0, round2((Number(q) || 0) - back));
-  };
-  // проверка перед увеличением: { ok, row, have, need }
-  const whCheckMore = async (it, newQty) => {
-    const need = round2(whNet(it, newQty) - whNet(it, it.qty));
-    if (!whTaken(it) || need <= 0) return { ok: true, need: 0 };
-    let row = null;
-    if (it.wh_id) { const r = await db.from("warehouse").select().eq("id", it.wh_id); row = r.data && r.data[0] ? r.data[0] : null; }
-    if (!row && it.product_id) { const f = await whFind(it.product_id, it.name, it.size); row = f.row || null; }
-    const have = row ? Number(row.qty) || 0 : 0;
-    return { ok: have + 1e-9 >= need, row, have, need };
-  };
-  // после сохранения: двигаем склад на разницу; возвращает текст для сообщения
-  const whApply = async (it, newQty, more) => {
-    if (!whTaken(it)) return "";
-    if (more && more.need > 0) {
-      const fail = await warehouseOut([{ row: more.row, qty: more.need }], obj, curUserName());
-      return fail ? " · ⚠ склад не списан" : " · со Склада Thermo списано ещё " + fmt(more.need);
-    }
-    const give = round2(whNet(it, it.qty) - whNet(it, newQty));
-    if (give <= 0) return "";
-    const fail = await warehouseIn([{ product_id: it.product_id || null, product_name: it.name, size: it.size, unit: it.unit, qty: give,
-      cost_amount: give * (Number(it.cost) || 0), amount: give * (Number(it.price) || 0), supplier_id: it.supplier_id || null, object_id: obj.id }],
-      obj.name, newQty > 0 ? "количество в объекте уменьшено" : "позиция удалена из объекта");
-    return fail ? " · ⚠ на склад не записано" : " · на Склад Thermo возвращено " + fmt(give);
-  };
-  const whShortMsg = (it, more) => "На Складе Thermo осталось " + fmt(more.have) + " " + (it.unit || "шт") + " — нужно ещё " + fmt(more.need) + ". Остальное добавьте новой позицией от поставщика.";
   const delItem = async (iid) => {
     const it = (obj.items || []).find((i) => i.id === iid) || {};
     const ok = await saveItems((cur) => cur.filter((i) => i.id !== iid));
-    if (ok) {
-      const wn = await whApply(it, 0);
-      if (wn) await reload();
-      await logAction("Удалена позиция", "object:" + obj.name, (it.name || "") + " × " + fmt(it.qty) + " по " + fmt2(it.price) + wn);
-      toast("Позиция удалена" + wn);
-    }
+    if (ok) { await logAction("Удалена позиция", "object:" + obj.name, (it.name || "") + " × " + fmt(it.qty) + " по " + fmt2(it.price)); toast("Позиция удалена"); }
     return ok;
   };
   const setItemQty = async (iid, qty) => {
-    const it = (obj.items || []).find((i) => i.id === iid);
-    const more = it ? await whCheckMore(it, qty) : { ok: true };
-    if (!more.ok) { toast(whShortMsg(it, more)); return false; }
     const ok = await saveItems((cur) => cur.map((i) => (i.id === iid ? { ...i, qty } : i)));
-    if (ok) {
-      const wn = it ? await whApply(it, qty, more) : "";
-      if (wn) { await reload(); toast("Количество изменено" + wn); }
-      await logAction("Изменено количество", "object:" + obj.name, itemName(iid) + ": " + fmt(qty) + wn);
-    }
+    if (ok) await logAction("Изменено количество", "object:" + obj.name, itemName(iid) + ": " + fmt(qty));
     return ok;
   };
   // возврат считается по цене продажи позиции: при изменении цены/себестоимости пересчитываем её возвраты,
@@ -3876,16 +3823,12 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     return ok;
   };
   const saveItem = async (item) => {
-    const it0 = (obj.items || []).find((i) => i.id === item.id);
-    const more = it0 ? await whCheckMore(it0, item.qty) : { ok: true };
-    if (!more.ok) { toast(whShortMsg(it0, more)); return false; }
     const ok = await saveItems((cur) => cur.map((i) => (i.id === item.id ? { ...i, ...item } : i)));
     if (ok) {
-      const wn = it0 && Number(item.qty) !== Number(it0.qty) ? await whApply(it0, item.qty, more) : "";
-      await logAction("Изменена позиция", "object:" + obj.name, (item.name || "") + " × " + fmt(item.qty) + " по " + fmt2(item.price) + wn);
+      await logAction("Изменена позиция", "object:" + obj.name, (item.name || "") + " × " + fmt(item.qty) + " по " + fmt2(item.price));
       const n = await syncReturns((obj.items || []).map((i) => (i.id === item.id ? { ...i, ...item } : i)));
-      if (n || wn) await reload();
-      toast((n ? "Позиция обновлена, возвраты пересчитаны по новой цене" : "Позиция обновлена") + wn);
+      if (n) await reload();
+      toast(n ? "Позиция обновлена, возвраты пересчитаны по новой цене" : "Позиция обновлена");
     }
     return ok;
   };
