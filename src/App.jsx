@@ -101,16 +101,18 @@ const SEG_LABEL = { "эконом": "Эконом", "комфорт": "Стан�
 const SEG_COLOR = { "эконом": "var(--t-info)", "комфорт": "var(--t-strong)", "премиум": "var(--t-violet)" };
 const supSeg = (sup) => (sup && SEGMENTS.includes(sup.segment) ? sup.segment : "комфорт");
 // статусы объекта: «Тов. пол. от пост.» (id approved) — склад, долг поставщикам, доставка и долг клиента;
-// «Оплачено» (id payment) — ещё продажи, прибыль, оплаты клиента, дашборд, бонусы. «Черновик» и «На тендере» — объект виден, но ни на что не влияет.
+// «Оплата» (id payment) и «Оплачено» (id paid, ставится сам при оплате 100%) — ещё продажи, прибыль, оплаты клиента, дашборд, бонусы. «Черновик» и «На тендере» — объект виден, но ни на что не влияет.
 const OBJ_STATUSES = [
   { id: "draft", label: "Черновик", c: "var(--t-neutral)" },
   { id: "tender", label: "На тендере", c: "var(--t-warn)" },
   { id: "approved", label: "Тов. пол. от пост.", c: "var(--t-strong)" },
-  { id: "payment", label: "Оплачено", c: "var(--t-ok)" },
+  { id: "payment", label: "Оплата", c: "var(--t-info)" },
+  // «Оплачено» ставится сам, когда клиент оплатил 100% (можно выбрать и вручную)
+  { id: "paid", label: "Оплачено", c: "var(--t-ok)" },
 ];
 const IDLE_STATUSES = ["draft", "tender", "cancelled"];
 const isLive = (o) => !!o && !IDLE_STATUSES.includes(o.status || "draft");
-// продажи, прибыль, оплаты клиента и дашборд — только со статуса «Оплачено» (и у старых статусов «Оплачено/Закрыто/…»);
+// продажи, прибыль, оплаты клиента и дашборд — только со статуса «Оплата» / «Оплачено» (и у старых статусов «Закрыто/…»);
 // в «Тов. пол. от пост.» объект влияет на склад, долг поставщикам, доставку и долг клиента (оплаты пока не учитываются)
 const payLive = (o) => isLive(o) && o.status !== "approved";
 const OP_TYPES = [
@@ -554,7 +556,6 @@ const OLD_STATUSES = [
   { id: "review", label: "На проверке (старый статус)", c: "var(--t-neutral)" },
   { id: "waiting", label: "В ожидании (старый статус)", c: "var(--t-neutral)" },
   { id: "partial", label: "Частично оплачено (старый статус)", c: "var(--t-neutral)" },
-  { id: "paid", label: "Оплачено (старый статус)", c: "var(--t-neutral)" },
   { id: "closed", label: "Закрыто (старый статус)", c: "var(--t-neutral)" },
   { id: "cancelled", label: "Отменено (старый статус)", c: "var(--t-bad)" },
   { id: "shipped", label: "Отгружено (старый статус)", c: "var(--t-neutral)" },
@@ -586,7 +587,7 @@ function calcObject(obj, ops) {
   const retSale = sum("return"), retCost = sum("return", "cost_amount");
   const discount = sum("discount"), expense = sum("expense"), bonus = sum("bonus");
   const paidAll = sum("client_payment"), paidSup = sum("supplier_payment");
-  const paidClient = payLive(obj) ? paidAll : 0; // до статуса «Оплачено» оплаты не учитываются
+  const paidClient = payLive(obj) ? paidAll : 0; // до статуса «Оплата» оплаты не учитываются
   const saleNet = sale - retSale - discount;
   const costNet = cost - retCost;
   const gross = saleNet - costNet;
@@ -3746,7 +3747,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     await reload();
     return !r.error;
   };
-  // смена статуса: «Тов. пол. от пост.» / «Оплачено» — товар со склада списывается; назад в «Черновик»/«На тендере» — возвращается на склад
+  // смена статуса: «Тов. пол. от пост.» / «Оплата» / «Оплачено» — товар со склада списывается; назад в «Черновик»/«На тендере» — возвращается на склад
   const setStatus = async (s) => {
     const was = isLive(obj), will = isLive({ status: s });
     let note = "", ok = true;
@@ -4084,8 +4085,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       )}
       {obj.status === "approved" && (
         <div className="card sect" style={{ borderColor: "var(--line2)", padding: "10px 14px" }}>
-          <span className="sm">Статус «Тов. пол. от пост.» (товар получен от поставщика): учитывается на складе и в долге поставщикам. Долг клиента уже учитывается, но <b>продажа, прибыль и оплаты пока не учитываются</b> — поставьте статус «Оплачено».</span>
-          {f.paidIgnored > 0 && <div className="sm" style={{ color: "var(--warn)", marginTop: 4 }}>⚠ По объекту уже записано оплат на {fmt2(f.paidIgnored)} — они начнут учитываться после статуса «Оплачено».</div>}
+          <span className="sm">Статус «Тов. пол. от пост.» (товар получен от поставщика): учитывается на складе и в долге поставщикам. Долг клиента уже учитывается, но <b>продажа, прибыль и оплаты пока не учитываются</b> — поставьте статус «Оплата».</span>
+          {f.paidIgnored > 0 && <div className="sm" style={{ color: "var(--warn)", marginTop: 4 }}>⚠ По объекту уже записано оплат на {fmt2(f.paidIgnored)} — они начнут учитываться после статуса «Оплата».</div>}
         </div>
       )}
       <div className="kpis sect">
@@ -5534,7 +5535,7 @@ function dashEvents(objects, ops, mgr) {
   const objById = {}, sales = [];
   objects.forEach((o) => {
     objById[o.id] = o;
-    if (!payLive(o) || (mgr && (o.manager || "") !== mgr)) return; // дашборд — только «Оплачено»
+    if (!payLive(o) || (mgr && (o.manager || "") !== mgr)) return; // дашборд — только «Оплата» / «Оплачено»
     (o.items || []).forEach((i) => {
       const d = String(i.batch_date || o.created_at || "").slice(0, 10);
       sales.push({ d, h: hourOf(d, i.added_at || ((i.batch_no || 1) === 1 ? o.created_at : null)), o, i,
@@ -5952,7 +5953,7 @@ function Dashboard({ data }) {
     let cdebt = 0, overpay = 0, sdebt = 0;
     const objOk = (o) => isLive(o) && (!mgr || (o.manager || "") === mgr); // долг клиента — со статуса «Тов. пол. от пост.»
     const objById = {}; objects.forEach((o) => { objById[o.id] = o; });
-    // клиенты: по каждому объекту (оплаты учитываются только со статуса «Оплачено»), долг/переплата — по клиенту
+    // клиенты: по каждому объекту (оплаты учитываются только со статуса «Оплата»), долг/переплата — по клиенту
     const byClient = {};
     objects.forEach((o) => {
       if (!objOk(o)) return;
@@ -5999,7 +6000,7 @@ function Dashboard({ data }) {
       const book = [];
       const add = (name, rows) => book.push(xlFromTable(name, rows));
       const K = [["Показатель", "Период: " + periodTitle].concat(compare ? ["Пред. период: " + prevTitle, "Изменение, %"] : [])];
-      const kp = [["Выручка (нетто)", "netRev"], ["Валовая прибыль", "gross"], ["Чистая прибыль", "net"], ["Маржа, %", "margin"], ["Поставок (продаж)", "deals"], ["Средний чек", "avg"], ["Клиентов", "clients"], ["Новых клиентов", "newC"], ["Оплачено клиентами", "paid"], ["Возвраты", "ret"], ["Скидки", "disc"], ["Расходы компании", "cexp"]];
+      const kp = [["Выручка (нетто)", "netRev"], ["Валовая прибыль", "gross"], ["Остаток", "net"], ["Маржа, %", "margin"], ["Поставок (продаж)", "deals"], ["Средний чек", "avg"], ["Клиентов", "clients"], ["Новых клиентов", "newC"], ["Оплачено клиентами", "paid"], ["Возвраты", "ret"], ["Скидки", "disc"], ["Расходы компании", "cexp"]];
       kp.forEach(([l, k]) => { const a = Math.round(cur[k] * 100) / 100; const row = [l, a]; if (compare) { const b = Math.round(prev[k] * 100) / 100; row.push(b, b ? Math.round(((a - b) / Math.abs(b)) * 1000) / 10 : ""); } K.push(row); });
       K.push([], [bal.cut ? "Долги — на " + dt(bal.cut) + "; склад и объекты — на сегодня" : "Остатки на сегодня"], ["Долги клиентов", bal.cdebt], ["Переплаты клиентов", bal.overpay], ["Долги поставщикам", bal.sdebt], ["Склад (по себестоимости)", bal.whCost], ["Объектов в работе", bal.active]);
       add("Показатели", K);
@@ -6060,7 +6061,7 @@ function Dashboard({ data }) {
         <DashTile hero label="Выручка" value={cur.netRev} prev={prev && prev.netRev} compare={compare} note={cur.ret || cur.disc ? "продажи " + fmt(cur.rev) + " − возвраты " + fmt(cur.ret) + " − скидки " + fmt(cur.disc) : null} />
         <DashTile hero label="Оплачено клиентами" value={cur.paid} prev={prev && prev.paid} compare={compare} note={"за период" + (cur.netRev - cur.paid > 0.004 ? " · не оплачено из выручки: " + fmt(round2(cur.netRev - cur.paid)) : "")} />
         <DashTile label="Валовая прибыль" value={cur.gross} prev={prev && prev.gross} compare={compare} />
-        <DashTile label="Чистая прибыль" value={cur.net} prev={prev && prev.net} compare={compare} note="после доп. расходов, бонусов мастерам и расходов компании" />
+        <DashTile label="Остаток" value={cur.net} prev={prev && prev.net} compare={compare} note="после доп. расходов, бонусов мастерам и расходов компании" />
         <DashTile label="Маржа" value={Math.round(cur.margin * 10) / 10} prev={prev && Math.round(prev.margin * 10) / 10} suffix="%" compare={compare} pp />
         <DashTile label="Поставок (продаж)" value={cur.deals} prev={prev && prev.deals} compare={compare} />
         <DashTile label="Средний чек" value={Math.round(cur.avg)} prev={prev && Math.round(prev.avg)} compare={compare} />
@@ -6702,6 +6703,30 @@ function AppInner() {
     }
     return { ok: !failed.length, allFailed: failed.length === tables.length, failed };
   };
+  // «Оплата» → «Оплачено»: клиент оплатил 100% (долг 0 или переплата) — статус меняется сам
+  const autoPaidBusy = useRef(new Set());
+  useEffect(() => {
+    if (!currentUser || !["boss", "manager"].includes(role) || !data.objects.length) return;
+    const t = setTimeout(async () => {
+      const done = [];
+      for (const o of data.objects) {
+        if (o.status !== "payment" || autoPaidBusy.current.has(o.id)) continue;
+        const f = calcObject(o, data.finance_ops);
+        if (!(f.saleNet > 0) || f.clientDebt > 0.004) continue;
+        autoPaidBusy.current.add(o.id);
+        BUSY_SILENT++;
+        let r;
+        try {
+          const fresh = await db.from("objects").select().eq("id", o.id);
+          if (fresh.error || !fresh.data || !fresh.data[0] || fresh.data[0].status !== "payment") continue;
+          r = await db.from("objects").update({ status: "paid" }).eq("id", o.id);
+        } finally { BUSY_SILENT = Math.max(0, BUSY_SILENT - 1); }
+        if (r && !r.error) { done.push(o.name); await logAction("Статус объекта: Оплачено (авто)", "object:" + o.name, "клиент оплатил 100%: " + fmt2(f.paidClient) + " из " + fmt2(f.saleNet)); }
+      }
+      if (done.length) { await reload(); toast("Оплачено 100% — статус «Оплачено»: " + done.join(", ")); }
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [currentUser, role, data.objects, data.finance_ops]);
   // авто-бонус мастеру: когда объект оплачен (статус «Оплачено»/«Закрыто» или клиент оплатил всё),
   // а бонус по объекту ещё не начислен — начисляем % мастера от валовой прибыли (одна запись «бонус», её можно изменить)
   const autoBonusBusy = useRef(new Set());
