@@ -5948,7 +5948,7 @@ function Dashboard({ data }) {
       const book = [];
       const add = (name, rows) => book.push(xlFromTable(name, rows));
       const K = [["Показатель", "Период: " + periodTitle].concat(compare ? ["Пред. период: " + prevTitle, "Изменение, %"] : [])];
-      const kp = [["Выручка (нетто)", "netRev"], ["Валовая прибыль", "gross"], ["Чистая прибыль", "net"], ["Маржа, %", "margin"], ["Поставок (продаж)", "deals"], ["Средний чек", "avg"], ["Клиентов", "clients"], ["Новых клиентов", "newC"], ["Поступило оплат", "paid"], ["Возвраты", "ret"], ["Скидки", "disc"], ["Расходы компании", "cexp"]];
+      const kp = [["Выручка (нетто)", "netRev"], ["Валовая прибыль", "gross"], ["Чистая прибыль", "net"], ["Маржа, %", "margin"], ["Поставок (продаж)", "deals"], ["Средний чек", "avg"], ["Клиентов", "clients"], ["Новых клиентов", "newC"], ["Оплачено клиентами", "paid"], ["Возвраты", "ret"], ["Скидки", "disc"], ["Расходы компании", "cexp"]];
       kp.forEach(([l, k]) => { const a = Math.round(cur[k] * 100) / 100; const row = [l, a]; if (compare) { const b = Math.round(prev[k] * 100) / 100; row.push(b, b ? Math.round(((a - b) / Math.abs(b)) * 1000) / 10 : ""); } K.push(row); });
       K.push([], [bal.cut ? "Долги — на " + dt(bal.cut) + "; склад и объекты — на сегодня" : "Остатки на сегодня"], ["Долги клиентов", bal.cdebt], ["Переплаты клиентов", bal.overpay], ["Долги поставщикам", bal.sdebt], ["Склад (по себестоимости)", bal.whCost], ["Объектов в работе", bal.active]);
       add("Показатели", K);
@@ -6007,13 +6007,13 @@ function Dashboard({ data }) {
 
       <div className="kpis sect">
         <DashTile hero label="Выручка" value={cur.netRev} prev={prev && prev.netRev} compare={compare} note={cur.ret || cur.disc ? "продажи " + fmt(cur.rev) + " − возвраты " + fmt(cur.ret) + " − скидки " + fmt(cur.disc) : null} />
+        <DashTile hero label="Оплачено клиентами" value={cur.paid} prev={prev && prev.paid} compare={compare} note={"за период" + (cur.netRev - cur.paid > 0.004 ? " · не оплачено из выручки: " + fmt(round2(cur.netRev - cur.paid)) : "")} />
         <DashTile label="Валовая прибыль" value={cur.gross} prev={prev && prev.gross} compare={compare} />
         <DashTile label="Чистая прибыль" value={cur.net} prev={prev && prev.net} compare={compare} note="после доп. расходов, бонусов мастерам и расходов компании" />
         <DashTile label="Маржа" value={Math.round(cur.margin * 10) / 10} prev={prev && Math.round(prev.margin * 10) / 10} suffix="%" compare={compare} pp />
         <DashTile label="Поставок (продаж)" value={cur.deals} prev={prev && prev.deals} compare={compare} />
         <DashTile label="Средний чек" value={Math.round(cur.avg)} prev={prev && Math.round(prev.avg)} compare={compare} />
         <DashTile label="Клиентов" value={cur.clients} prev={prev && prev.clients} compare={compare} note={"новых " + cur.newC + " · повторных " + cur.repeatC} />
-        <DashTile label="Поступило оплат" value={cur.paid} prev={prev && prev.paid} compare={compare} />
         <DashTile label="Возвраты" value={cur.ret} prev={prev && prev.ret} good="down" compare={compare} note={cur.retN ? "операций: " + cur.retN : null} />
       </div>
 
