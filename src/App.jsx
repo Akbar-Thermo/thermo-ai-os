@@ -100,8 +100,8 @@ const SEGMENTS = ["эконом", "комфорт", "премиум"];
 const SEG_LABEL = { "эконом": "Эконом", "комфорт": "Стандарт", "премиум": "Премиум" };
 const SEG_COLOR = { "эконом": "var(--t-info)", "комфорт": "var(--t-strong)", "премиум": "var(--t-violet)" };
 const supSeg = (sup) => (sup && SEGMENTS.includes(sup.segment) ? sup.segment : "комфорт");
-// статусы объекта: «Получено от поставщика» (id approved) — склад, долг поставщикам, доставка; «Оплачено» (id payment) — ещё продажи, оплаты, долг клиента, дашборд, бонусы.
-// «Черновик» и «На тендере» — объект виден, но ни на что не влияет.
+// статусы объекта: «Тов. пол. от пост.» (id approved) — склад, долг поставщикам, доставка и долг клиента;
+// «Оплачено» (id payment) — ещё продажи, прибыль, оплаты клиента, дашборд, бонусы. «Черновик» и «На тендере» — объект виден, но ни на что не влияет.
 const OBJ_STATUSES = [
   { id: "draft", label: "Черновик", c: "var(--t-neutral)" },
   { id: "tender", label: "На тендере", c: "var(--t-warn)" },
@@ -110,8 +110,8 @@ const OBJ_STATUSES = [
 ];
 const IDLE_STATUSES = ["draft", "tender", "cancelled"];
 const isLive = (o) => !!o && !IDLE_STATUSES.includes(o.status || "draft");
-// продажи, оплаты, долг клиента и дашборд — только со статуса «Оплачено» (и у старых статусов «Оплачено/Закрыто/…»);
-// в «Получено от поставщика» объект влияет только на склад, долг поставщикам и доставку
+// продажи, прибыль, оплаты клиента и дашборд — только со статуса «Оплачено» (и у старых статусов «Оплачено/Закрыто/…»);
+// в «Тов. пол. от пост.» объект влияет на склад, долг поставщикам, доставку и долг клиента (оплаты пока не учитываются)
 const payLive = (o) => isLive(o) && o.status !== "approved";
 const OP_TYPES = [
   { id: "client_payment", label: "Оплата клиента" },
@@ -563,6 +563,10 @@ const OLD_STATUSES = [
 const stById = (id) => OBJ_STATUSES.find((s) => s.id === id) || OLD_STATUSES.find((s) => s.id === id) || OBJ_STATUSES[0];
 const statusOptions = (cur) => { const old = OLD_STATUSES.find((s) => s.id === cur); return old ? [...OBJ_STATUSES, old] : OBJ_STATUSES; };
 const opLabel = (id) => (OP_TYPES.find((o) => o.id === id) || {}).label || id;
+// списки операций: новые сверху — по дате операции, при одинаковой дате — по времени записи
+// (раньше — в порядке записи в базу: операция «задним числом» оказывалась наверху)
+const opsNewestFirst = (list) => list.map((o, i) => ({ o, i, d: String(o.op_date || o.created_at || "").slice(0, 10), c: String(o.created_at || "") }))
+  .sort((a, b) => b.d.localeCompare(a.d) || b.c.localeCompare(a.c) || b.i - a.i).map((x) => x.o);
 
 // операции по объектам — индекс строится один раз на каждый загруженный список операций
 // (раньше для каждого объекта перебирался весь список: при сотнях объектов и тысячах операций это заметно тормозило)
@@ -777,7 +781,7 @@ async function whTakePending(obj) {
 }
 // объект снова «Черновик» / «На тендере»: товар со склада возвращается на склад и ждёт согласования
 // (то, что клиент уже вернул по позиции, на склад уже пришло — его не считаем)
-async function whReturnLive(obj, ops) {
+async function whReturnLive(obj, ops, note = "объект снова «Черновик» / «На тендере» — товар вернулся на склад") {
   const back = {};
   (ops || []).forEach((x) => { if (x.type === "return" && !x.voided && x.object_id === obj.id && x.item_id) back[x.item_id] = (back[x.item_id] || 0) + (Number(x.qty) || 0); });
   const live = (obj.items || []).filter((i) => i.from_warehouse && !i.wh_pending);
@@ -786,7 +790,7 @@ async function whReturnLive(obj, ops) {
     product_id: i.product_id || null, product_name: i.name, size: i.size, unit: i.unit, qty: q,
     cost_amount: q * (Number(i.cost) || 0), amount: q * (Number(i.price) || 0),
     supplier_id: i.supplier_id || null, object_id: obj.id,
-  })), obj.name, "объект не согласован — товар вернулся на склад") : 0;
+  })), obj.name, note) : 0;
   return { ids: live.map((i) => i.id), fail };
 }
 /* Позиции объекта (items) меняются по СВЕЖЕЙ версии из базы, а не по копии с экрана:
@@ -1307,6 +1311,29 @@ function rateRepair(op) {
   if (!rate) return null;
   const uzs = i.uzs < 10000 ? Math.round(i.uzs * 1000) : i.uzs;
   return { p: { method: i.id, cur: "uzs", uzs, rate, usd: "" }, uzs, rate, usd: round2(uzs / rate) };
+}
+// строка «должно быть: … = X $» + кнопка «исправить» у операции с курсом «11,9» (в любом списке операций)
+function RateRepairLine({ op, onDone, where = "" }) {
+  const f = rateRepair(op);
+  const [busy, setBusy] = useState(false);
+  if (!f) return null;
+  const fix = async () => {
+    setBusy(true);
+    const patch = payPatch(f.p, op.type, false);
+    const log = [...(op.edit_log || []), { at: new Date().toISOString(), before: { amount: op.amount, op_date: op.op_date, note: op.note, reason: op.reason } }];
+    const r = await db.from("finance_ops").update({ ...patch, edited: true, edit_log: log }).eq("id", op.id);
+    if (!r.error) {
+      await logAction("Исправлен курс: " + opLabel(op.type), where, fmt(op.amount) + " → " + fmt(f.usd) + " · " + payText(op) + " → " + patch.reason);
+      if (onDone) await onDone(f.usd);
+    }
+    setBusy(false);
+  };
+  return (
+    <div className="row" style={{ gap: 6, marginTop: 4, flexWrap: "wrap", textDecoration: "none" }}>
+      <span className="xs" style={{ color: "var(--warn)" }}>должно быть: {fmt(f.uzs)} сум × {fmt(f.rate)} = <b>{fmt(f.usd)} $</b></span>
+      <button className="btn xs pri" disabled={busy} onClick={(e) => { e.stopPropagation(); fix(); }}>{busy ? "…" : "исправить"}</button>
+    </div>
+  );
 }
 // подставить сумму в $ (кнопки «весь долг» и т.п.): при оплате в сумах пересчитывает по курсу
 const paySetUsd = (p, usd) => ({ ...p, usd: round2(usd), uzs: p.cur === "uzs" && rateOk(p.rate) ? Math.round(usd * Number(p.rate)) : p.uzs });
@@ -1855,7 +1882,7 @@ function ProductsTab({ data, reload, toast }) {
       </div>
       <div className="card vt-box" ref={boxRef} style={{ padding: 0 }} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
         <table className="t vt">
-          <colgroup><col style={{ width: 36 }} /><col style={{ width: 110 }} /><col style={{ width: 110 }} /><col style={{ width: 140 }} /><col /><col style={{ width: 90 }} /><col style={{ width: 70 }} /><col style={{ width: 120 }} /><col style={{ width: 110 }} /><col style={{ width: 78 }} /></colgroup>
+          <colgroup><col style={{ width: 36 }} /><col style={{ width: 110 }} /><col style={{ width: 110 }} /><col style={{ width: 140 }} /><col /><col style={{ width: 70 }} /><col style={{ width: 130 }} /><col style={{ width: 110 }} /><col style={{ width: 78 }} /></colgroup>
           <thead><tr><th><input type="checkbox" checked={allSel} onChange={toggleAll} title="Выбрать все отфильтрованные" /></th><th>Код</th><th>Бренд</th><th>Поставщик</th><th>Наименование</th><th>Ед.изм</th><th style={{textAlign:"right"}}>Себестоимость</th><th style={{textAlign:"right"}}>Розничная</th><th></th></tr></thead>
           <tbody>
             {(() => {
@@ -2019,7 +2046,7 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
     setBusy(true); setErr("");
     try {
       const supCache = {};
-      suppliers.forEach((s) => { supCache[s.name.toLowerCase().trim()] = s.id; });
+      suppliers.forEach((s) => { supCache[String(s.name || "").toLowerCase().trim()] = s.id; });
       const products = [];
       let newSups = 0, code = nextProductCode(prodList);
       for (const row of dataRows) {
@@ -2200,7 +2227,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast }) 
       if (it.date && (!g.date || it.date < g.date)) g.date = it.date;
     });
     return [...m.values()].sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || a.obj_name.localeCompare(b.obj_name) || a.no - b.no);
-  }, [objects, s.id]);
+  }, [objects, ops, s.id]);
   // группировка возвратов по тем же поставкам: возврат с объекта хранит item_id → у позиции есть номер поставки
   const retGroups = useMemo(() => {
     const itemIdx = {};
@@ -2488,6 +2515,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
       </div>
       {akt && <AktSverkaModal s={akt} objects={objects} ops={finance_ops} whMoves={wh_moves} products={products} toast={toast} onClose={() => setAkt(null)} />}
       {pay && <SupplierPayModal s={pay} objects={objects} ops={finance_ops} whMoves={wh_moves} fin={fin} onClose={() => setPay(null)}
+        onRateFixed={async (usd) => { await reload(); toast("Исправлено: " + fmt(usd) + " $"); }}
         onSave={async (op) => {
           const r = await db.from("finance_ops").insert(cleanUuids(op));
           if (r.error) return false;
@@ -2533,7 +2561,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
     </div>
   );
 }
-function SupplierPayModal({ s, objects, ops, whMoves, onClose, onSave, onEditPay, onVoidPay, fin }) {
+function SupplierPayModal({ s, objects, ops, whMoves, onClose, onSave, onEditPay, onVoidPay, onRateFixed, fin }) {
   const st = supplierStats(s, objects, ops, whMoves);
   const retIds = supplierReturnIds(ops, whMoves);
   const [pay, setPay] = useState(() => payInit(null, st.debt > 0 ? st.debt : 0));
@@ -2597,7 +2625,7 @@ function SupplierPayModal({ s, objects, ops, whMoves, onClose, onSave, onEditPay
                 <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
                 <td className="sm">{o.type === "supplier_payment" ? "Оплата" : "Возврат (−долг)"}{o.edited && <span className="xs" style={{ color: "var(--warn)" }}> изм.</span>}</td>
                 <td className="num" style={{ fontWeight: 700, color: o.type === "supplier_payment" ? "var(--ok)" : "var(--acc2)" }}>{fmt(o.type === "return" ? o.cost_amount : o.amount)}</td>
-                <td className="xs mut">{[o.type === "return" ? (o.object_id ? "с объекта " + objName(o.object_id) : "со склада Thermo") : (o.object_id ? objName(o.object_id) : ""), o.product_name ? o.product_name + (o.qty ? " × " + o.qty : "") : "", o.type === "supplier_payment" ? payText(o) : "", o.note].filter(Boolean).join(" · ")}</td>
+                <td className="xs mut">{[o.type === "return" ? (o.object_id ? "с объекта " + objName(o.object_id) : "со склада Thermo") : (o.object_id ? objName(o.object_id) : ""), o.product_name ? o.product_name + (o.qty ? " × " + o.qty : "") : "", o.type === "supplier_payment" ? payText(o) : "", o.note].filter(Boolean).join(" · ")}{o.type === "supplier_payment" && !o.voided && onRateFixed && <RateRepairLine op={o} where={"supplier:" + s.name} onDone={onRateFixed} />}</td>
                 <td>{o.type === "supplier_payment" && (
                   voidAsk === o.id ? (
                     <div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
@@ -3555,14 +3583,21 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   const canDelete = (o) => fin || !opsCount[o.id];
   const removeObject = async (o) => {
     setDelBusy(true);
+    const ops0 = finance_ops;
     // по шагам: при любой ошибке останавливаемся (ошибка уже показана на экране)
     let r = await db.from("finance_ops").delete().eq("object_id", o.id);
     if (!r.error) r = await db.from("requests").delete().eq("object_id", o.id);
     if (!r.error) r = await db.from("objects").delete().eq("id", o.id);
+    if (r.error) { setDelBusy(false); await reload(); return false; }
+    // товар, уже списанный со Склада Thermo на этот объект, возвращается на склад (объекта больше нет)
+    let whNote = "";
+    if (isLive(o) && (o.items || []).some((i) => i.from_warehouse && !i.wh_pending)) {
+      const t = await whReturnLive(o, ops0, "объект удалён — товар вернулся на склад");
+      if (t.ids.length) whNote = ", на Склад Thermo возвращено: " + t.ids.length + " поз." + (t.fail ? " (⚠ не записано: " + t.fail + ")" : "");
+    }
     setDelBusy(false);
-    if (r.error) { await reload(); return false; }
-    await logAction("Удалён объект", "object:" + o.name, "клиент: " + (o.client || "") + ", позиций: " + (o.items || []).length + ", операций: " + (opsCount[o.id] || 0));
-    await reload(); toast("Объект удалён");
+    await logAction("Удалён объект", "object:" + o.name, "клиент: " + (o.client || "") + ", позиций: " + (o.items || []).length + ", операций: " + (opsCount[o.id] || 0) + whNote);
+    await reload(); toast("Объект удалён" + (whNote ? " · товар со склада возвращён на склад" : ""));
     return true;
   };
   if (obj) return <ObjectDetail obj={obj} data={data} reload={reload} toast={toast} fin={fin} back={() => setOpenId(null)} />;
@@ -3593,7 +3628,9 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
                   <td className="sm">{o.master}</td>
                   <td><Badge c={st.c}>{st.label}</Badge></td>
                   <td className="num">{fmt(f.saleNet)}</td>
-                  <td className="num" style={{ color: f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--ok)" : "var(--mut)" }}>{f.clientDebt < 0 ? "−" + fmt(Math.abs(f.clientDebt)) : fmt(f.clientDebt)}</td>
+                  {isLive(o)
+                    ? <td className="num" style={{ color: f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--ok)" : "var(--mut)" }}>{f.clientDebt < 0 ? "−" + fmt(Math.abs(f.clientDebt)) : fmt(f.clientDebt)}</td>
+                    : <td className="num mut" title="«Черновик» / «На тендере» — долг клиента не учитывается">—</td>}
                   <td className="xs mut mono">{dt(o.created_at)}</td>
                   <td style={{ whiteSpace: "nowrap" }}><button className="btn xs" title="Изменить объект" onClick={(e) => { e.stopPropagation(); setEditO(o); }}>✎</button>{canDelete(o) ? <> <button className="btn xs dng" title="Удалить объект" onClick={(e) => { e.stopPropagation(); setDelObj(o); }}>✕</button></> : null}</td>
                 </tr>
@@ -3604,11 +3641,12 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         </table>
       </div>
       {editO && <ObjectEditModal obj={editO} data={data} reload={reload} toast={toast} onClose={() => setEditO(null)} />}
-      {delObj && (() => { const f = calcObject(delObj, finance_ops); return (
+      {delObj && (() => { const f = calcObject(delObj, finance_ops); const whBack = isLive(delObj) ? (delObj.items || []).filter((i) => i.from_warehouse && !i.wh_pending).length : 0; return (
         <Modal title="Удалить объект" onClose={() => { if (!delBusy) setDelObj(null); }} w={460}>
           <p style={{ marginBottom: 6 }}>Удалить объект <b style={{ color: "var(--bad)" }}>{delObj.name}</b> ({delObj.client})?</p>
-          {(f.clientDebt > 0 || f.supplierDebt > 0) && <p className="sm" style={{ color: "var(--warn)", marginBottom: 6 }}>⚠ По объекту есть долги — клиента: {fmt(Math.max(0, f.clientDebt))}, поставщикам: {fmt(f.supplierDebt)}.</p>}
-          <p className="sm mut" style={{ marginBottom: 14 }}>Будут удалены все материалы, финансовые операции ({opsCount[delObj.id] || 0}) и заявки этого объекта. Действие необратимо. Если объект просто завершён — лучше поставьте статус «Закрыто».</p>
+          {isLive(delObj) && (f.clientDebt > 0 || f.supplierDebt > 0) && <p className="sm" style={{ color: "var(--warn)", marginBottom: 6 }}>⚠ По объекту есть долги — клиента: {fmt(Math.max(0, f.clientDebt))}, поставщикам: {fmt(f.supplierDebt)}.</p>}
+          {whBack > 0 && <p className="sm" style={{ marginBottom: 6 }}>Товар со Склада Thermo ({whBack} поз.) вернётся на склад.</p>}
+          <p className="sm mut" style={{ marginBottom: 14 }}>Будут удалены все материалы, финансовые операции ({opsCount[delObj.id] || 0}) и заявки этого объекта. Действие необратимо. Если объект завершён — не удаляйте его, история пригодится. Если сделка не состоялась — поставьте статус «Черновик»: такой объект ни на что не влияет.</p>
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <button className="btn" disabled={delBusy} onClick={() => setDelObj(null)}>Отмена</button>
             <button className="btn" disabled={delBusy} style={{ background: "var(--bad)", borderColor: "var(--bad)", color: "#fff" }} onClick={async () => { if (await removeObject(delObj)) setDelObj(null); }}>{delBusy ? "Удаляю…" : "Удалить"}</button>
@@ -3716,7 +3754,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     await reload();
     return !r.error;
   };
-  // смена статуса: «Согласовано» — товар со склада списывается; назад в «Черновик»/«На тендере» — возвращается на склад
+  // смена статуса: «Тов. пол. от пост.» / «Оплачено» — товар со склада списывается; назад в «Черновик»/«На тендере» — возвращается на склад
   const setStatus = async (s) => {
     const was = isLive(obj), will = isLive({ status: s });
     let note = "", ok = true;
@@ -3738,7 +3776,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     }
     if (ok) {
       await logAction("Статус объекта: " + stById(s).label, "object:" + obj.name, "было: " + stById(obj.status).label + (note ? "; " + note : ""));
-      toast(will ? (s === "approved" ? "Товар получен от поставщика — учитывается на складе и в долге поставщикам" : "Статус «" + stById(s).label + "» — учитываются продажа, оплаты и долг клиента") + (note ? ". " + note : "") : "Статус «" + stById(s).label + "» — объект не влияет на долги, склад и отчёты" + (note ? ". " + note : ""));
+      toast(will ? (s === "approved" ? "Товар получен от поставщика — учитывается на складе, в долге поставщикам и в долге клиента" : "Статус «" + stById(s).label + "» — учитываются продажа, прибыль, оплаты и долг клиента") + (note ? ". " + note : "") : "Статус «" + stById(s).label + "» — объект не влияет на долги, склад и отчёты" + (note ? ". " + note : ""));
     }
     await reload();
   };
@@ -3747,15 +3785,60 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     if (!r.error) await logAction("Объект: " + what, "object:" + obj.name, Object.values(patch).filter((x) => x != null && typeof x !== "object").join(" · "));
     await reload();
   };
+  /* Позиция со Склада Thermo, уже списанная со склада (объект не «Черновик»/«На тендере»):
+     уменьшили количество или удалили позицию — разница возвращается на склад; увеличили — берём со склада, если хватает.
+     Раньше склад не менялся: удалённая позиция «пропадала» вместе с товаром. Возвраты клиента по позиции уже на складе — их не считаем. */
+  const whTaken = (it) => !!it && it.from_warehouse && !it.wh_pending && isLive(obj);
+  const whNet = (it, q) => {
+    const back = ops.filter((o) => o.type === "return" && !o.voided && o.item_id === it.id).reduce((a, o) => a + (Number(o.qty) || 0), 0);
+    return Math.max(0, round2((Number(q) || 0) - back));
+  };
+  // проверка перед увеличением: { ok, row, have, need }
+  const whCheckMore = async (it, newQty) => {
+    const need = round2(whNet(it, newQty) - whNet(it, it.qty));
+    if (!whTaken(it) || need <= 0) return { ok: true, need: 0 };
+    let row = null;
+    if (it.wh_id) { const r = await db.from("warehouse").select().eq("id", it.wh_id); row = r.data && r.data[0] ? r.data[0] : null; }
+    if (!row && it.product_id) { const f = await whFind(it.product_id, it.name, it.size); row = f.row || null; }
+    const have = row ? Number(row.qty) || 0 : 0;
+    return { ok: have + 1e-9 >= need, row, have, need };
+  };
+  // после сохранения: двигаем склад на разницу; возвращает текст для сообщения
+  const whApply = async (it, newQty, more) => {
+    if (!whTaken(it)) return "";
+    if (more && more.need > 0) {
+      const fail = await warehouseOut([{ row: more.row, qty: more.need }], obj, curUserName());
+      return fail ? " · ⚠ склад не списан" : " · со Склада Thermo списано ещё " + fmt(more.need);
+    }
+    const give = round2(whNet(it, it.qty) - whNet(it, newQty));
+    if (give <= 0) return "";
+    const fail = await warehouseIn([{ product_id: it.product_id || null, product_name: it.name, size: it.size, unit: it.unit, qty: give,
+      cost_amount: give * (Number(it.cost) || 0), amount: give * (Number(it.price) || 0), supplier_id: it.supplier_id || null, object_id: obj.id }],
+      obj.name, newQty > 0 ? "количество в объекте уменьшено" : "позиция удалена из объекта");
+    return fail ? " · ⚠ на склад не записано" : " · на Склад Thermo возвращено " + fmt(give);
+  };
+  const whShortMsg = (it, more) => "На Складе Thermo осталось " + fmt(more.have) + " " + (it.unit || "шт") + " — нужно ещё " + fmt(more.need) + ". Остальное добавьте новой позицией от поставщика.";
   const delItem = async (iid) => {
     const it = (obj.items || []).find((i) => i.id === iid) || {};
     const ok = await saveItems((cur) => cur.filter((i) => i.id !== iid));
-    if (ok) { await logAction("Удалена позиция", "object:" + obj.name, (it.name || "") + " × " + fmt(it.qty) + " по " + fmt2(it.price)); toast("Позиция удалена"); }
+    if (ok) {
+      const wn = await whApply(it, 0);
+      if (wn) await reload();
+      await logAction("Удалена позиция", "object:" + obj.name, (it.name || "") + " × " + fmt(it.qty) + " по " + fmt2(it.price) + wn);
+      toast("Позиция удалена" + wn);
+    }
     return ok;
   };
   const setItemQty = async (iid, qty) => {
+    const it = (obj.items || []).find((i) => i.id === iid);
+    const more = it ? await whCheckMore(it, qty) : { ok: true };
+    if (!more.ok) { toast(whShortMsg(it, more)); return false; }
     const ok = await saveItems((cur) => cur.map((i) => (i.id === iid ? { ...i, qty } : i)));
-    if (ok) await logAction("Изменено количество", "object:" + obj.name, itemName(iid) + ": " + fmt(qty));
+    if (ok) {
+      const wn = it ? await whApply(it, qty, more) : "";
+      if (wn) { await reload(); toast("Количество изменено" + wn); }
+      await logAction("Изменено количество", "object:" + obj.name, itemName(iid) + ": " + fmt(qty) + wn);
+    }
     return ok;
   };
   // возврат считается по цене продажи позиции: при изменении цены/себестоимости пересчитываем её возвраты,
@@ -3793,12 +3876,16 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     return ok;
   };
   const saveItem = async (item) => {
+    const it0 = (obj.items || []).find((i) => i.id === item.id);
+    const more = it0 ? await whCheckMore(it0, item.qty) : { ok: true };
+    if (!more.ok) { toast(whShortMsg(it0, more)); return false; }
     const ok = await saveItems((cur) => cur.map((i) => (i.id === item.id ? { ...i, ...item } : i)));
     if (ok) {
-      await logAction("Изменена позиция", "object:" + obj.name, (item.name || "") + " × " + fmt(item.qty) + " по " + fmt2(item.price));
+      const wn = it0 && Number(item.qty) !== Number(it0.qty) ? await whApply(it0, item.qty, more) : "";
+      await logAction("Изменена позиция", "object:" + obj.name, (item.name || "") + " × " + fmt(item.qty) + " по " + fmt2(item.price) + wn);
       const n = await syncReturns((obj.items || []).map((i) => (i.id === item.id ? { ...i, ...item } : i)));
-      if (n) await reload();
-      toast(n ? "Позиция обновлена, возвраты пересчитаны по новой цене" : "Позиция обновлена");
+      if (n || wn) await reload();
+      toast((n ? "Позиция обновлена, возвраты пересчитаны по новой цене" : "Позиция обновлена") + wn);
     }
     return ok;
   };
@@ -4020,7 +4107,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
 
   const unshippedCnt = (obj.items || []).filter((i) => !isShipped(i)).length;
   const KPI = ({ l, v, c }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}</div></div>;
-  const shownOps = ops.filter((o) => !MASTER_ONLY_OPS.includes(o.type) && (fin || MANAGER_OP_TYPES.includes(o.type))).slice().reverse();
+  const shownOps = opsNewestFirst(ops.filter((o) => !MASTER_ONLY_OPS.includes(o.type) && (fin || MANAGER_OP_TYPES.includes(o.type))));
   return (
     <div>
       <div className="row sect">
@@ -4061,7 +4148,9 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       <div className="kpis sect">
         <KPI l="Сумма товара (нетто)" v={f.saleNet} />
         <KPI l="Оплачено клиентом" v={f.paidClient} c="var(--ok)" />
-        <KPI l={f.clientDebt < 0 ? "Переплата клиента" : "Долг клиента"} v={Math.abs(f.clientDebt)} c={f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--txt)" : "var(--mut)"} />
+        {isLive(obj)
+          ? <KPI l={f.clientDebt < 0 ? "Переплата клиента" : "Долг клиента"} v={Math.abs(f.clientDebt)} c={f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--txt)" : "var(--mut)"} />
+          : <KPI l="Долг клиента — не учитывается" v={Math.max(0, f.clientDebt)} c="var(--mut)" />}
       </div>
 
       <div className="row sect" style={{ marginBottom: 8 }}>
@@ -4104,7 +4193,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       )}
       <div className="row sect">
         <h3 style={{ marginRight: "auto" }}>Финансовые операции</h3>
-        {OP_TYPES.filter((t) => (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes(t.id) && (t.id !== "client_payment" || payLive(obj))).map((t) => <React.Fragment key={t.id}>
+        {OP_TYPES.filter((t) => (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes(t.id) && (t.id !== "client_payment" || payLive(obj)) && (t.id !== "return" || isLive(obj))).map((t) => <React.Fragment key={t.id}>
           <button className="btn xs" onClick={() => setOpForm({ type: t.id })}>+ {t.label}</button>
           {t.id === "discount" && (obj.items || []).length > 0 && <button className="btn xs" onClick={() => setPctForm(true)} title="Цена продажи = себестоимость ÷ (1 − %)">+ Прибыль от себестоимости</button>}
         </React.Fragment>)}
@@ -4118,7 +4207,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
                 <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
                 <td>{opLabel(o.type)}{o.type === "return" && o.product_name ? <div className="xs mut">{o.product_name} × {o.qty}</div> : null}{o.edited && <div className="xs" style={{ color: "var(--warn)" }}>изменено</div>}</td>
                 <td className="num" style={{ fontWeight: 700, color: o.type === "client_payment" ? "var(--ok)" : "inherit" }}>{fmt(o.amount)}</td>
-                <td className="xs mut">{opDetails(o, [o.supplier_id ? supName(o.supplier_id) : ""])}</td>
+                <td className="xs mut">{opDetails(o, [o.supplier_id ? supName(o.supplier_id) : ""])}{!o.voided && (fin || MANAGER_OP_TYPES.includes(o.type)) && <RateRepairLine op={o} where={"object:" + obj.name} onDone={async (usd) => { await reload(); toast("Исправлено: " + fmt(usd) + " $"); }} />}</td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
                   {!o.voided && (fin || MANAGER_OP_TYPES.includes(o.type)) && <button className="btn xs" onClick={() => setEditOp(o)}>✎</button>}
                   {fin && (delAsk === o.id ? (
@@ -4625,8 +4714,9 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
   });
   const [rows, setRows] = useState(items.map((i) => {
     const done = returned[i.id] || returned[i.product_id] || 0;
-    // неотгруженный товар клиенту не выдан — вернуть его нельзя
-    return { item: i, done, avail: isShipped(i) ? Math.max(0, i.qty - done) : 0, ret: 0, notShipped: !isShipped(i) };
+    // неотгруженный товар клиенту не выдан — вернуть его нельзя (товар со склада, ещё не списанный, — тоже)
+    const given = isShipped(i) && !i.wh_pending;
+    return { item: i, done, avail: given ? Math.max(0, i.qty - done) : 0, ret: 0, notShipped: !given };
   }));
   const [reason, setReason] = useState("");
   const [opDate, setOpDate] = useState(today());
@@ -4867,13 +4957,13 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
         <table className="t">
           <thead><tr><th>Дата</th><th>Тип</th><th>Объект</th><th style={{textAlign:"right"}}>Сумма</th><th>Комментарий</th><th></th></tr></thead>
           <tbody>
-            {payOps.slice().reverse().map((o) => (
+            {opsNewestFirst(payOps).map((o) => (
               <tr key={o.id} style={{ opacity: o.voided ? 0.4 : 1, textDecoration: o.voided ? "line-through" : "none" }}>
                 <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
                 <td>{opLabel(o.type)}</td>
                 <td className="sm">{(objects.find((x) => x.id === o.object_id) || {}).name || "—"}</td>
                 <td className="num" style={{ fontWeight: 700, color: o.type === "bonus_payment" ? "var(--ok)" : "inherit" }}>{fmt(o.amount)}</td>
-                <td className="xs mut">{[o.item_name, o.type === "bonus_payment" || o.type === "bonus" ? payText(o) : "", o.note, o.user].filter(Boolean).join(" · ")}</td>
+                <td className="xs mut">{[o.item_name, o.type === "bonus_payment" || o.type === "bonus" ? payText(o) : "", o.note, o.user].filter(Boolean).join(" · ")}{!o.voided && <RateRepairLine op={o} where={"master:" + m.name} onDone={async (usd) => { await reload(); toast("Исправлено: " + fmt(usd) + " $"); }} />}</td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap", justifyContent: "flex-end" }}>
                   {delOp !== o.id && !o.voided && <button className="btn xs" onClick={() => setEditOp(o)}>изм.</button>}
                   {canDel && (delOp === o.id ? (<>
@@ -5321,7 +5411,7 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
           return [...cur, ...lines.map((l) => ({
             id: uuid(), product_id: l.row.product_id || null, name: l.row.name, size: l.row.size, unit: l.row.unit,
             qty: l.qty, price: l.row.price || 0, cost: l.row.cost || 0,
-            supplier_id: l.row.supplier_id || null, from_warehouse: true,
+            supplier_id: l.row.supplier_id || null, from_warehouse: true, wh_id: l.row.id,
             source_text: "со склада Thermo", confidence: 100,
             batch_no: batchNo, batch_date: today(), added_at: new Date().toISOString(),
           }))];
@@ -6136,7 +6226,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
   const finance_ops = useMemo(() => (boss ? data.finance_ops : data.finance_ops.filter((o) => !isSalary(o))), [data.finance_ops, boss]);
   const objName = (id) => (objects.find((o) => o.id === id) || {}).name || "—";
   const supName = (id) => (suppliers.find((s) => s.id === id) || {}).name || "";
-  const clientDebts = objects.map((o) => ({ o, f: calcObject(o, finance_ops) })).filter((x) => x.f.clientDebt > 0.004 && isLive(x.o));
+  const clientDebts = objects.map((o) => ({ o, f: calcObject(o, finance_ops) })).filter((x) => x.f.clientDebt > 0.004 && isLive(x.o)).sort((a, b) => b.f.clientDebt - a.f.clientDebt);
   // поставщики с движением (закупки, оплаты или возвраты) — пустые строки не показываем
   const supRows = useMemo(() => suppliers.map((s) => ({ s, st: supplierStats(s, objects, finance_ops, data.wh_moves) }))
     .filter(({ st }) => st.purchases || st.paid || st.returns).sort((a, b) => b.st.balance - a.st.balance), [suppliers, objects, finance_ops, data.wh_moves]);
@@ -6218,23 +6308,12 @@ function FinanceTab({ data, reload, toast, boss = false }) {
         <table className="t">
           <thead><tr><th>Дата</th><th>Категория</th><th style={{textAlign:"right"}}>Сумма, $</th><th>Способ оплаты</th><th>Комментарий</th><th>Кто</th><th></th></tr></thead>
           <tbody>
-            {genExpenses.slice().reverse().map((o) => (
+            {opsNewestFirst(genExpenses).map((o) => (
               <tr key={o.id}>
                 <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
                 <td className="sm" style={{ fontWeight: 600 }}>{o.category || "Прочее"}{salaryInfo(o) && salaryInfo(o).kind !== "Зарплата" ? <span className="mut" style={{ fontWeight: 500 }}> · {salaryInfo(o).kind}</span> : null}</td>
                 <td className="num" style={{ fontWeight: 700, color: "var(--bad)" }}>{fmt(o.amount)}</td>
-                <td className="xs">{payText(o) || <span className="mut">—</span>}{rateRepair(o) && (() => { const f = rateRepair(o); return (
-                  <div className="row" style={{ gap: 6, marginTop: 4, flexWrap: "wrap" }}>
-                    <span className="xs" style={{ color: "var(--warn)" }}>должно быть: {fmt(f.uzs)} сум × {fmt(f.rate)} = <b>{fmt(f.usd)} $</b></span>
-                    <button className="btn xs pri" onClick={async () => {
-                      const patch = payPatch(f.p, "company_expense", false);
-                      const log = [...(o.edit_log || []), { at: new Date().toISOString(), before: { amount: o.amount, op_date: o.op_date, note: o.note, reason: o.reason } }];
-                      const r = await db.from("finance_ops").update({ ...patch, edited: true, edit_log: log }).eq("id", o.id);
-                      if (r.error) return;
-                      await logAction("Исправлен курс расхода", "company:" + (o.category || ""), fmt(o.amount) + " → " + fmt(f.usd) + " · " + payText(o) + " → " + patch.reason);
-                      await reload(); toast("Исправлено: " + fmt(f.usd) + " $");
-                    }}>исправить</button>
-                  </div>); })()}</td>
+                <td className="xs">{payText(o) || <span className="mut">—</span>}<RateRepairLine op={o} where={"company:" + (o.category || "")} onDone={async (usd) => { await reload(); toast("Исправлено: " + fmt(usd) + " $"); }} /></td>
                 <td className="xs mut">{salaryInfo(o) ? <>{salaryInfo(o).emp && <b style={{ color: "var(--txt)" }}>{salaryInfo(o).emp}</b>}{salaryInfo(o).emp && salaryInfo(o).note ? " · " : ""}{salaryInfo(o).note}</> : o.note}</td>
                 <td className="xs mut">{o.user}</td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>{delExp === o.id ? (<>
@@ -6318,7 +6397,8 @@ function FinanceTab({ data, reload, toast, boss = false }) {
           <h3 style={{ marginBottom: 8 }}>Долги клиентов</h3>
           <table className="t"><thead><tr><th>Объект</th><th>Клиент</th><th style={{textAlign:"right"}}>Продажа</th><th style={{textAlign:"right"}}>Оплачено</th><th style={{textAlign:"right"}}>Долг</th></tr></thead>
             <tbody>{clientDebts.map(({ o, f }) => <tr key={o.id}><td className="sm">{o.name}</td><td className="sm">{o.client}<div className="xs mut mono">{o.phone}</div></td><td className="num">{fmt(f.saleNet)}</td><td className="num">{fmt(f.paidClient)}</td><td className="num" style={{color:"var(--bad)",fontWeight:700}}>{fmt(f.clientDebt)}</td></tr>)}
-            {!clientDebts.length && <tr><td colSpan={5} className="mut sm" style={{padding:14}}>Долгов нет 🎉</td></tr>}</tbody></table>
+            {!clientDebts.length && <tr><td colSpan={5} className="mut sm" style={{padding:14}}>Долгов нет 🎉</td></tr>}
+            {clientDebts.length > 1 && <tr style={{ background: "var(--panel2)" }}><td colSpan={4} style={{ fontWeight: 800 }}>Итого долг</td><td className="num" style={{ fontWeight: 800, color: "var(--bad)" }}>{fmt(round2(clientDebts.reduce((a, x) => a + x.f.clientDebt, 0)))}</td></tr>}</tbody></table>
         </div>
         <div className="card">
           <h3 style={{ marginBottom: 8 }}>Долги поставщикам</h3>
@@ -6344,7 +6424,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
                 <td className="sm">{objName(o.object_id)}</td>
                 <td>{opLabel(o.type)}</td>
                 <td className="num" style={{ fontWeight: 700 }}>{fmt(o.amount)}</td>
-                <td className="xs mut">{opDetails(o, [supName(o.supplier_id), o.product_name])}</td>
+                <td className="xs mut">{opDetails(o, [supName(o.supplier_id), o.product_name])}{!o.voided && <RateRepairLine op={o} where={o.object_id ? "object:" + objName(o.object_id) : "finance"} onDone={async (usd) => { await reload(); toast("Исправлено: " + fmt(usd) + " $"); }} />}</td>
                 <td className="xs mut">{o.user}</td>
               </tr>
             ))}
@@ -6633,6 +6713,7 @@ function AppInner() {
   const [ready, setReady] = useState(false);
   const [data, setData] = useState({ products: [], suppliers: [], objects: [], finance_ops: [], requests: [], masters: [], warehouse: [], wh_moves: [], users: [], audit_log: [] });
   const [tab, setTab] = useState("dash");
+  const [tabNonce, setTabNonce] = useState(0);
   const [currentUser, setCurrentUser] = useState(null);
   const role = currentUser ? currentUser.role : "boss";
   const [openId, setOpenId] = useState(null);
@@ -6695,6 +6776,12 @@ function AppInner() {
         const paid = ["paid", "closed"].includes(o.status) || (f.saleNet > 0 && f.clientDebt <= 0);
         if (!paid || !(f.gross > 0)) continue;
         autoBonusBusy.current.add(o.id);
+        // программа может быть открыта у руководителя на двух устройствах: перед записью проверяем базу,
+        // чтобы бонус по объекту не начислился дважды
+        BUSY_SILENT++;
+        let fresh;
+        try { fresh = await db.from("finance_ops").select().eq("object_id", o.id).eq("type", "bonus"); } finally { BUSY_SILENT = Math.max(0, BUSY_SILENT - 1); }
+        if (fresh.error || (fresh.data || []).some((x) => !x.voided)) continue;
         const amount = round2(f.gross * pct / 100);
         const r = await db.from("finance_ops").insert(cleanUuids({ type: "bonus", master_id: m.id, object_id: o.id, amount, note: "авто: " + fmt(pct) + "% от валовой прибыли " + fmt2(f.gross), op_date: today(), user: "авто" }));
         if (!r.error) { made++; await logAction("Авто-бонус мастеру", "master:" + m.name, "объект «" + o.name + "»: " + fmt(pct) + "% × " + fmt2(f.gross) + " = " + fmt2(amount)); }
@@ -6781,6 +6868,18 @@ function AppInner() {
     document.addEventListener("visibilitychange", onVis);
     return () => { clearInterval(t1); clearInterval(t2); document.removeEventListener("visibilitychange", onVis); };
   }, []);
+  // аккаунт отключили / удалили / сменили роль, пока сотрудник работает: список аккаунтов обновляется раз в минуту —
+  // отключённый выходит из системы, новая роль и имя применяются сразу (раньше — только после повторного входа)
+  useEffect(() => {
+    if (!currentUser || !data.users || !data.users.length) return;
+    const u = data.users.find((x) => x.id === currentUser.id);
+    if (!u || u.status !== "active" || isStaff(u)) {
+      setCurrentUser(null); CURRENT_USER = null;
+      try { localStorage.removeItem("te:session"); } catch (e) {}
+      return;
+    }
+    if (u.role !== currentUser.role || u.name !== currentUser.name || u.username !== currentUser.username) { setCurrentUser(u); CURRENT_USER = u; }
+  }, [data.users]);
   const doLogin = async (u) => {
     setCurrentUser(u); CURRENT_USER = u;
     try { localStorage.setItem("te:session", u.id); } catch (e) {}
@@ -6835,7 +6934,7 @@ function AppInner() {
   const TAB_LABELS_UZ = { delivery: "Yetkazish", request: "Yangi ariza", dash: "Boshqaruv", objects: "Ob'ektlar", products: "Tovarlar", wh: "Ombor Thermo", suppliers: "Ta'minotchilar", masters: "Ustalar", finance: "Moliya", log: "Jurnal", admin: "Hisoblar" };
   const TAB_LABELS = lang === "uz" ? TAB_LABELS_UZ : TAB_LABELS_RU;
   const allTabs = roleTabs.map((id) => ({ id, label: TAB_LABELS[id] }));
-  useEffect(() => { if (currentUser) { setTab(roleTabs[0]); setOpenId(null); } }, [currentUser]);
+  useEffect(() => { if (currentUser) { setTab(roleTabs[0]); setOpenId(null); } }, [currentUser ? currentUser.id + ":" + currentUser.role : ""]);
 
   if (!ready) return (
     <div className="te" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
@@ -6860,13 +6959,17 @@ function AppInner() {
           <button className="btn xs" onClick={doLogout} title={lang === "uz" ? "Chiqish" : "Выйти"}>{lang === "uz" ? "Chiqish" : "Выйти"}</button>
         </div>
         <div className={"tabs" + (mobileMenuOpen ? " open" : "")}>
-          {allTabs.map((t) => <button key={t.id} className={"tab " + (tab === t.id ? "on" : "")} onClick={() => { setTab(t.id); if (t.id !== "objects") setOpenId(null); setMobileMenuOpen(false); }}>{t.label}</button>)}
+          {allTabs.map((t) => <button key={t.id} className={"tab " + (tab === t.id ? "on" : "")} onClick={() => {
+            // повторное нажатие на открытую вкладку — назад к списку (из карточки объекта, мастера и т.п.)
+            if (tab === t.id) { setOpenId(null); setTabNonce((n) => n + 1); }
+            setTab(t.id); if (t.id !== "objects") setOpenId(null); setMobileMenuOpen(false);
+          }}>{t.label}</button>)}
         </div>
         <button className="burger" onClick={() => setMobileMenuOpen((v) => !v)} title="Меню">{mobileMenuOpen ? "✕" : "☰"}</button>
         {role === "boss" && <button className="btn xs" title="Бэкап и восстановление базы" onClick={() => setBackupOpen(true)}>💾 Бэкап</button>}
         <input ref={restoreRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={onRestore} />
       </div>
-      <div className="body">
+      <div className="body" key={"tab" + tabNonce}>
         {bootErr && <div className="card sect" style={{ borderColor: "var(--warn)", color: "var(--warn)" }}>Ошибка подключения к Supabase: {bootErr}</div>}
         {tab === "dash" && <Dashboard data={data} />}
         {tab === "objects" && <ObjectsTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} goRequest={() => setTab("request")} fin={role === "boss"} />}
