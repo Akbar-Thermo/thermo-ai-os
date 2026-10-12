@@ -1258,7 +1258,12 @@ const payMethodsFor = (type) => (PAY_IN_TYPES.includes(type) ? PAY_METHODS : OUT
 const PAY_USD_LABEL = { client_payment: "В долг клиента, $", supplier_payment: "В счёт долга поставщику, $", bonus_payment: "Выплата мастеру, $" };
 const payUsdLabel = (type) => PAY_USD_LABEL[type] || "Расход, $";
 const RATE_KEY = "te:usd_rate";
-const lastRate = () => { try { return Number(localStorage.getItem(RATE_KEY)) || ""; } catch (e) { return ""; } };
+// курс — сум за $1 (≈ 12 000). Меньше 1 000 — это ошибка ввода (например «11,9» вместо «11 900»)
+const RATE_MIN = 1000;
+const rateOk = (r) => Number(r) >= RATE_MIN;
+// «11,9» / «12,6» → 11 900 / 12 600 (курс ввели в тысячах)
+const rateFix = (r) => { const n = Number(r); return n > 0 && n < 100 ? Math.round(n * 1000) : r; };
+const lastRate = () => { try { const n = Number(localStorage.getItem(RATE_KEY)); return rateOk(n) ? n : ""; } catch (e) { return ""; } };
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const parseNum = (x) => Number(String(x || "").replace(/[\s\u00a0\u202f]/g, "").replace(",", ".")) || 0;
 const payMethod = (id) => PAY_METHODS.find((m) => m.id === id) || PAY_METHODS[0];
@@ -1281,7 +1286,7 @@ function payInfo(op) {
 function payText(op) {
   const i = payInfo(op);
   if (!i.id) return "";
-  return i.cur === "uzs" ? i.label + ": " + fmt(i.uzs) + " сум" + (i.rate ? " × курс " + fmt(i.rate) : "") : i.label + (payMethod(i.id).cur === null ? " ($)" : "");
+  return i.cur === "uzs" ? i.label + ": " + fmt(i.uzs) + " сум" + (i.rate ? " × курс " + fmt(i.rate) + (rateOk(i.rate) ? "" : " ⚠ курс неверный") : "") : i.label + (payMethod(i.id).cur === null ? " ($)" : "");
 }
 // детали операции без повтора способа оплаты (он уже записан в reason)
 const opDetails = (o, extra = []) => [...extra, o.item_name, payInfo(o).id ? payText(o) : o.reason, o.note].filter(Boolean).join(" · ");
@@ -1291,14 +1296,25 @@ function payInit(op, defUsd) {
   const cur = i.id ? i.cur : payMethod(method).cur || "usd";
   return { method, cur, usd: op ? op.amount || "" : defUsd || "", uzs: i.uzs || "", rate: i.rate || lastRate() };
 }
-const payUsd = (p) => (p.cur === "uzs" ? (Number(p.rate) > 0 ? round2(Number(p.uzs) / Number(p.rate)) : 0) : round2(p.usd));
+// сумма в сумах меньше 1 000 — почти наверняка введена в тысячах («29» вместо «29 000»)
+const uzsOk = (u) => Number(u) >= 1000;
+const payUsd = (p) => (p.cur === "uzs" ? (rateOk(p.rate) && uzsOk(p.uzs) ? round2(Number(p.uzs) / Number(p.rate)) : 0) : round2(p.usd));
+// старая операция с курсом «11,9»: курс ×1000, сумма меньше 10 000 сум — тоже была в тысячах (×1000)
+function rateRepair(op) {
+  const i = payInfo(op);
+  if (i.cur !== "uzs" || !(i.rate > 0) || rateOk(i.rate)) return null;
+  const rate = i.rate < 100 ? Math.round(i.rate * 1000) : null;
+  if (!rate) return null;
+  const uzs = i.uzs < 10000 ? Math.round(i.uzs * 1000) : i.uzs;
+  return { p: { method: i.id, cur: "uzs", uzs, rate, usd: "" }, uzs, rate, usd: round2(uzs / rate) };
+}
 // подставить сумму в $ (кнопки «весь долг» и т.п.): при оплате в сумах пересчитывает по курсу
-const paySetUsd = (p, usd) => ({ ...p, usd: round2(usd), uzs: p.cur === "uzs" && Number(p.rate) > 0 ? Math.round(usd * Number(p.rate)) : p.uzs });
+const paySetUsd = (p, usd) => ({ ...p, usd: round2(usd), uzs: p.cur === "uzs" && rateOk(p.rate) ? Math.round(usd * Number(p.rate)) : p.uzs });
 // remember=false при исправлении старой операции: её курс не становится курсом по умолчанию для новых оплат
 function payPatch(p, type = "client_payment", remember = true) {
   const m = payMethod(p.method), usd = payUsd(p);
   const reason = p.cur === "uzs" ? m.label + ": " + fmt(p.uzs) + " сум × курс " + fmt(p.rate) : m.label + (m.cur === null ? " ($)" : "");
-  if (remember && p.cur === "uzs" && Number(p.rate) > 0) { try { localStorage.setItem(RATE_KEY, String(p.rate)); } catch (e) {} }
+  if (remember && p.cur === "uzs" && rateOk(p.rate)) { try { localStorage.setItem(RATE_KEY, String(p.rate)); } catch (e) {} }
   const out = { amount: usd, reason, pay_method: m.id, pay_currency: p.cur.toUpperCase(),
     pay_amount: p.cur === "uzs" ? Number(p.uzs) || 0 : usd, pay_rate: p.cur === "uzs" ? Number(p.rate) || null : null };
   if (type === "client_payment") out.category = m.label; // у расходов компании category — это статья расхода
@@ -1336,9 +1352,11 @@ function PayFields({ p, setP, methods = PAY_METHODS, usdLabel = "В долг к�
       </Fld>
       {p.cur === "uzs" ? (
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1fr", marginTop: 8 }}>
-          <Fld label="Сумма, сум"><input type="number" className="inp" value={p.uzs} onChange={(e) => setP({ ...p, uzs: e.target.value })} placeholder="1 250 000" autoFocus /></Fld>
-          <Fld label="Курс, сум за $1"><input type="number" className="inp" value={p.rate} onChange={(e) => setP({ ...p, rate: e.target.value })} placeholder="12 600" style={{ borderColor: Number(p.rate) > 0 ? undefined : "var(--bad)" }} /></Fld>
-          <div className="fld"><label>{usdLabel}</label><div className="inp mono" style={{ background: "var(--panel2)", fontWeight: 800, color: usd > 0 ? "var(--ok)" : "var(--mut)" }}>{Number(p.rate) > 0 ? money(usd) : "введите курс"}</div></div>
+          <Fld label="Сумма, сум"><input type="number" className="inp" value={p.uzs} onChange={(e) => setP({ ...p, uzs: e.target.value })} placeholder="1 250 000" autoFocus style={{ borderColor: p.uzs !== "" && !uzsOk(p.uzs) ? "var(--bad)" : undefined }} /></Fld>
+          <Fld label="Курс, сум за $1"><input type="number" className="inp" value={p.rate} onChange={(e) => setP({ ...p, rate: e.target.value })} onBlur={() => { const f = rateFix(p.rate); if (f !== p.rate) setP({ ...p, rate: f }); }} placeholder="12 600" style={{ borderColor: rateOk(p.rate) ? undefined : "var(--bad)" }} /></Fld>
+          <div className="fld"><label>{usdLabel}</label><div className="inp mono" style={{ background: "var(--panel2)", fontWeight: 800, color: usd > 0 ? "var(--ok)" : "var(--mut)" }}>{usd > 0 ? money(usd) : !rateOk(p.rate) ? "введите курс" : "введите сумму"}</div></div>
+          {Number(p.rate) > 0 && !rateOk(p.rate) && <div className="xs" style={{ gridColumn: "1/-1", color: "var(--bad)" }}>Курс — сколько сум за $1, полностью: например 12 600, а не 12,6</div>}
+          {p.uzs !== "" && Number(p.uzs) > 0 && !uzsOk(p.uzs) && <div className="xs" style={{ gridColumn: "1/-1", color: "var(--bad)" }}>Сумму в сумах пишите полностью: например 29 000, а не 29</div>}
         </div>
       ) : (
         <div className="grid" style={{ gridTemplateColumns: "1fr 2fr", marginTop: 8 }}>
@@ -6205,7 +6223,18 @@ function FinanceTab({ data, reload, toast, boss = false }) {
                 <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
                 <td className="sm" style={{ fontWeight: 600 }}>{o.category || "Прочее"}{salaryInfo(o) && salaryInfo(o).kind !== "Зарплата" ? <span className="mut" style={{ fontWeight: 500 }}> · {salaryInfo(o).kind}</span> : null}</td>
                 <td className="num" style={{ fontWeight: 700, color: "var(--bad)" }}>{fmt(o.amount)}</td>
-                <td className="xs">{payText(o) || <span className="mut">—</span>}</td>
+                <td className="xs">{payText(o) || <span className="mut">—</span>}{rateRepair(o) && (() => { const f = rateRepair(o); return (
+                  <div className="row" style={{ gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+                    <span className="xs" style={{ color: "var(--warn)" }}>должно быть: {fmt(f.uzs)} сум × {fmt(f.rate)} = <b>{fmt(f.usd)} $</b></span>
+                    <button className="btn xs pri" onClick={async () => {
+                      const patch = payPatch(f.p, "company_expense", false);
+                      const log = [...(o.edit_log || []), { at: new Date().toISOString(), before: { amount: o.amount, op_date: o.op_date, note: o.note, reason: o.reason } }];
+                      const r = await db.from("finance_ops").update({ ...patch, edited: true, edit_log: log }).eq("id", o.id);
+                      if (r.error) return;
+                      await logAction("Исправлен курс расхода", "company:" + (o.category || ""), fmt(o.amount) + " → " + fmt(f.usd) + " · " + payText(o) + " → " + patch.reason);
+                      await reload(); toast("Исправлено: " + fmt(f.usd) + " $");
+                    }}>исправить</button>
+                  </div>); })()}</td>
                 <td className="xs mut">{salaryInfo(o) ? <>{salaryInfo(o).emp && <b style={{ color: "var(--txt)" }}>{salaryInfo(o).emp}</b>}{salaryInfo(o).emp && salaryInfo(o).note ? " · " : ""}{salaryInfo(o).note}</> : o.note}</td>
                 <td className="xs mut">{o.user}</td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>{delExp === o.id ? (<>
