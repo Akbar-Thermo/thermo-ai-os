@@ -3855,12 +3855,28 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     return ok;
   };
   const saveItem = async (item) => {
+    const it0 = (obj.items || []).find((i) => i.id === item.id) || {};
+    const costChanged = Math.abs((Number(item.cost) || 0) - (Number(it0.cost) || 0)) > 0.00001;
     const ok = await saveItems((cur) => cur.map((i) => (i.id === item.id ? { ...i, ...item } : i)));
     if (ok) {
-      await logAction("Изменена позиция", "object:" + obj.name, (item.name || "") + " × " + fmt(item.qty) + " по " + fmt2(item.price));
+      await logAction("Изменена позиция", "object:" + obj.name, (item.name || "") + " × " + fmt(item.qty) + " по " + fmt2(item.price) + (costChanged ? " · себест. " + fmt2(it0.cost) + " → " + fmt2(item.cost) : ""));
       const n = await syncReturns((obj.items || []).map((i) => (i.id === item.id ? { ...i, ...item } : i)));
+      // новая себестоимость товара из базы — записываем и в «Товары»: следующие заявки берут её
+      // (у товара со Склада Thermo своя себестоимость склада — базу не трогаем)
+      let prodNote = "";
+      if (costChanged && item.product_id && !item.from_warehouse && Number(item.cost) > 0) {
+        const p = (products || []).find((x) => x.id === item.product_id);
+        if (p && Math.abs((Number(p.cost) || 0) - Number(item.cost)) > 0.00001) {
+          const r = await db.from("products").update({ cost: Number(item.cost), price_updated: new Date().toISOString() }).eq("id", p.id);
+          if (!r.error) {
+            prodNote = " · в «Товары» тоже: " + fmt2(p.cost) + " → " + fmt2(item.cost);
+            await logAction("Изменён товар", "product:" + (p.name || ""), "себест. " + fmt2(p.cost) + " → " + fmt2(item.cost) + " (из объекта «" + obj.name + "»)");
+            await reload(["products"]);
+          }
+        }
+      }
       if (n) await reload();
-      toast(n ? "Позиция обновлена, возвраты пересчитаны по новой цене" : "Позиция обновлена");
+      toast((n ? "Позиция обновлена, возвраты пересчитаны по новой цене" : costChanged ? "Себестоимость обновлена — долг поставщику и прибыль пересчитаны" : "Позиция обновлена") + prodNote);
     }
     return ok;
   };
