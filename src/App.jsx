@@ -6823,26 +6823,28 @@ function Calculator({ onClose }) {
 
 
 /* ============ ЗАСТАВКА ПРИ ЗАГРУЗКЕ ============
-   Чёрный экран, белые буквы «TE» проявляются из размытия, под ними прорисовывается красная линия;
-   когда база загрузилась — заставка уезжает вверх, как занавес. Без текста. */
+   Чёрный занавес опускается сверху, белые буквы «TE» проявляются из размытия, под ними прорисовывается красная линия;
+   когда база загрузилась — занавес уезжает вверх (то же движение в обратную сторону). Без текста. */
 const INTRO_CSS = `
 .intro{position:fixed;inset:0;z-index:10000;background:#000;display:flex;align-items:center;justify-content:center;flex-direction:column;
-  transition:transform .85s cubic-bezier(.76,0,.24,1)}
-.intro.out{transform:translateY(-100%)}
-.intro-mark{width:170px;height:170px;animation:introMark 1.1s cubic-bezier(.16,1,.3,1) both}
-.intro-mark .t{animation:introT .9s cubic-bezier(.16,1,.3,1) .1s both}
-.intro-mark .e{animation:introE .9s cubic-bezier(.16,1,.3,1) .28s both}
-.intro-line{width:120px;height:3px;margin-top:22px;background:#ff1f30;transform-origin:center;animation:introLine .7s cubic-bezier(.65,0,.35,1) .65s both}
+  animation:introDrop .8s cubic-bezier(.76,0,.24,1) both}
+.intro.out{animation:introLift .85s cubic-bezier(.76,0,.24,1) both}
+.intro-mark{width:170px;height:170px;animation:introMark 1.1s cubic-bezier(.16,1,.3,1) .8s both}
+.intro-mark .t{animation:introT .9s cubic-bezier(.16,1,.3,1) .9s both}
+.intro-mark .e{animation:introE .9s cubic-bezier(.16,1,.3,1) 1.08s both}
+.intro-line{width:120px;height:3px;margin-top:22px;background:#ff1f30;transform-origin:center;animation:introLine .7s cubic-bezier(.65,0,.35,1) 1.45s both}
 .intro.out .intro-mark,.intro.out .intro-line{opacity:0;transition:opacity .35s ease}
+@keyframes introDrop{from{transform:translateY(-100%)}to{transform:none}}
+@keyframes introLift{from{transform:none}to{transform:translateY(-100%)}}
 @keyframes introMark{from{opacity:0;transform:scale(1.12);filter:blur(10px)}to{opacity:1;transform:none;filter:none}}
 @keyframes introT{from{transform:translateY(-26px);opacity:0}to{transform:none;opacity:1}}
 @keyframes introE{from{transform:translateX(30px);opacity:0}to{transform:none;opacity:1}}
 @keyframes introLine{from{transform:scaleX(0)}to{transform:scaleX(1)}}
-@media(prefers-reduced-motion:reduce){.intro-mark,.intro-mark .t,.intro-mark .e,.intro-line{animation-duration:.01s;animation-delay:0s}.intro{transition-duration:.2s}}
+@media(prefers-reduced-motion:reduce){.intro,.intro.out,.intro-mark,.intro-mark .t,.intro-mark .e,.intro-line{animation-duration:.01s;animation-delay:0s}}
 `;
 function Intro({ out = false, onDone }) {
   return (
-    <div className={"intro" + (out ? " out" : "")} aria-hidden="true" onTransitionEnd={(e) => { if (out && e.target === e.currentTarget && onDone) onDone(); }}>
+    <div className={"intro" + (out ? " out" : "")} aria-hidden="true" onAnimationEnd={(e) => { if (out && e.target === e.currentTarget && e.animationName === "introLift" && onDone) onDone(); }}>
       <style>{INTRO_CSS}</style>
       <svg className="intro-mark" viewBox="0 0 300 300">
         <g transform="translate(150 150) scale(0.96) translate(-143 -126.5)">
@@ -6874,13 +6876,13 @@ class ErrBoundary extends React.Component {
 }
 function AppInner() {
   const [ready, setReady] = useState(false);
-  // заставка: показывается не меньше 1,6 с (успевает проиграть анимацию), потом уезжает вверх
+  // заставка: занавес опускается, показывается не меньше 2,5 с (успевает проиграть анимацию), потом уезжает вверх
   const introStart = useRef(Date.now());
   const [introOut, setIntroOut] = useState(false);
   const [introGone, setIntroGone] = useState(false);
   useEffect(() => {
     if (!ready || introOut) return;
-    const t = setTimeout(() => setIntroOut(true), Math.max(0, 1600 - (Date.now() - introStart.current)));
+    const t = setTimeout(() => setIntroOut(true), Math.max(0, 2500 - (Date.now() - introStart.current)));
     return () => clearTimeout(t);
   }, [ready]);
   useEffect(() => { if (introOut && !introGone) { const t = setTimeout(() => setIntroGone(true), 1200); return () => clearTimeout(t); } }, [introOut]);
