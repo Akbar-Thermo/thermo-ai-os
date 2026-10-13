@@ -1694,8 +1694,20 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
   const idx = useMemo(() => products.map((p) => prodSearchText(p, supName[p.supplier_id])), [products, supName]);
   // порядок результатов — как в базе/в файле Excel, из которого товары загружены (по коду 1, 2, 3…)
   const order = useMemo(() => products.map((_, i) => i).sort((a, b) => productOrder(products[a], products[b])), [products]);
-  // фильтр по поставщику: выбран поставщик — показываются только его товары (без ввода текста — все его товары)
-  const [sf, setSf] = useState("");
+  // фильтр по поставщикам: можно отметить несколько — показываются только их товары (без ввода текста — все их товары)
+  const [sfs, setSfs] = useState([]);
+  const sf = sfs.length > 0;
+  const sfSet = useMemo(() => new Set(sfs), [sfs]);
+  const [supOpen, setSupOpen] = useState(false);
+  const [supQ, setSupQ] = useState("");
+  const supRef = useRef(null);
+  useEffect(() => {
+    if (!supOpen) return;
+    const h = (e) => { if (supRef.current && !supRef.current.contains(e.target)) setSupOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [supOpen]);
+  const toggleSup = (id) => { setSfs((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])); setOpen(true); setActiveIdx(-1); };
   const [open, setOpen] = useState(false);
   const boxRef = useRef(null);
   useEffect(() => {
@@ -1704,7 +1716,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [open]);
-  const active = q.trim().length >= 2 || (!!sf && open);
+  const active = q.trim().length >= 2 || (sf && open);
   const hits = useMemo(() => {
     const words = searchWords(q);
     if (!active) return [];
@@ -1712,13 +1724,13 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
     for (const i of order) {
       const p = products[i];
       if (p.status === "archive") continue;
-      if (sf && p.supplier_id !== sf) continue;
+      if (sf && !sfSet.has(p.supplier_id)) continue;
       const s = idx[i];
       if (words.every((w) => s.includes(w))) out.push(p);
     }
     return out;
-  }, [q, products, idx, sf, active, order]);
-  useEffect(() => { setTop(0); if (listRef.current) listRef.current.scrollTop = 0; }, [q, sf]);
+  }, [q, products, idx, sfSet, active, order]);
+  useEffect(() => { setTop(0); if (listRef.current) listRef.current.scrollTop = 0; }, [q, sfSet]);
   // при навигации стрелками держим активную строку в видимой области
   useEffect(() => {
     const el = listRef.current;
@@ -1755,13 +1767,34 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
     <div ref={boxRef} style={{ position: "relative", minWidth: 220, flex: 1, zIndex: hits.length || noHits ? 999 : "auto" }}>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         {suppliers.length > 0 && (
-          <select className="inp" style={{ width: 190, flex: "0 0 auto" }} value={sf} title="Только товары этого поставщика"
-            onChange={(e) => { setSf(e.target.value); setOpen(!!e.target.value); setActiveIdx(-1); }}>
-            <option value="">Все поставщики</option>
-            {suppliers.filter((x) => x.status !== "inactive" && supCount[x.id]).map((x) => <option key={x.id} value={x.id}>{x.name} ({supCount[x.id]})</option>)}
-          </select>
+          <div ref={supRef} style={{ position: "relative", flex: "0 0 auto" }}>
+            <button type="button" className="inp sup-filter" title="Только товары выбранных поставщиков (можно несколько)" onClick={() => setSupOpen(!supOpen)}
+              style={{ width: 210, textAlign: "left", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6, borderColor: sf ? "var(--acc)" : undefined }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{!sf ? "Все поставщики" : sfs.length === 1 ? (supName[sfs[0]] || "1 поставщик") : "Поставщиков: " + sfs.length}</span>
+              <span className="mut">▾</span>
+            </button>
+            {supOpen && (
+              <div className="sup-pop" style={{ position: "absolute", top: "105%", left: 0, width: 290, zIndex: 1002, background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 10, boxShadow: "0 16px 44px rgba(0,0,0,.2)", padding: 8 }}>
+                <input className="inp" autoFocus placeholder="Найти поставщика…" value={supQ} onChange={(e) => setSupQ(e.target.value)} style={{ marginBottom: 6 }} />
+                <div style={{ maxHeight: 300, overflow: "auto" }}>
+                  {suppliers.filter((x) => x.status !== "inactive" && supCount[x.id] && (!supQ.trim() || String(x.name || "").toLowerCase().includes(supQ.trim().toLowerCase())))
+                    .map((x) => (
+                      <label key={x.id} className="row clk pick-sup" style={{ gap: 8, flexWrap: "nowrap", padding: "6px 6px", borderRadius: 6, background: sfSet.has(x.id) ? "var(--acc-tint)" : "none" }}>
+                        <input type="checkbox" checked={sfSet.has(x.id)} onChange={() => toggleSup(x.id)} />
+                        <span className="sm" style={{ flex: 1, fontWeight: sfSet.has(x.id) ? 700 : 500 }}>{x.name}</span>
+                        <span className="xs mut">{supCount[x.id]}</span>
+                      </label>
+                    ))}
+                </div>
+                <div className="row" style={{ justifyContent: "space-between", marginTop: 6, gap: 6 }}>
+                  <button type="button" className="btn xs" disabled={!sf} onClick={() => { setSfs([]); setActiveIdx(-1); }}>Сбросить</button>
+                  <button type="button" className="btn xs pri" onClick={() => { setSupOpen(false); setOpen(true); setTimeout(() => { if (searchRef.current) searchRef.current.focus(); }, 0); }}>Готово</button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
-        <input ref={searchRef} className="inp" style={{ flex: "1 1 180px", width: "auto", minWidth: 0 }} placeholder={sf ? "Поиск среди товаров поставщика…" : placeholder || "Поиск товара для добавления…"} value={q}
+        <input ref={searchRef} className="inp" style={{ flex: "1 1 180px", width: "auto", minWidth: 0 }} placeholder={sf ? (sfs.length === 1 ? "Поиск среди товаров поставщика…" : "Поиск среди товаров выбранных поставщиков…") : placeholder || "Поиск товара для добавления…"} value={q}
           onChange={(e) => { setQ(e.target.value); setActiveIdx(-1); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown} />
@@ -4632,7 +4665,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
     <>
     <Modal title={newBatch ? "Новая поставка" : "Добавить позиции вручную"} onClose={tryClose} w={860}>
       <div className="row" style={{ marginBottom: 10 }}>
-        <ProductPicker products={products} suppliers={suppliers} whQty={whQty} placeholder="найти товар в базе и добавить строку…" onPick={(p) => addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, cost: p.cost, price: retailOf(p), supplier_id: p.supplier_id })} />
+        <ProductPicker askQty products={products} suppliers={suppliers} whQty={whQty} placeholder="найти товар в базе и добавить строку…" onPick={(p, n) => addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: n || 1, cost: p.cost, price: retailOf(p), supplier_id: p.supplier_id })} />
         <button className="btn" onClick={blank}>+ Пустая строка (товара нет в базе)</button>
       </div>
       <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, maxHeight: 360 }}>
@@ -5175,8 +5208,8 @@ function WhInForm({ products, suppliers, warehouse, onClose, onSave }) {
   return (
     <Modal title="Приход на склад вручную" onClose={onClose} w={620}>
       <Fld label="Найти товар в базе (или впишите название ниже)">
-        <ProductPicker closeOnPick products={products} suppliers={suppliers} placeholder="поиск: название, код, поставщик…"
-          onPick={(p) => { const w = warehouse.find((x) => x.product_id === p.id); setV({ ...v, product_id: p.id, name: p.name, unit: p.unit || "шт", cost: String(w ? w.cost : Number(p.cost) || ""), price: String(w ? w.price : retailOf(p) || ""), supplier_id: p.supplier_id || "" }); }} />
+        <ProductPicker askQty closeOnPick products={products} suppliers={suppliers} placeholder="поиск: название, код, поставщик…"
+          onPick={(p, n) => { const w = warehouse.find((x) => x.product_id === p.id); setV({ ...v, product_id: p.id, name: p.name, qty: n || v.qty, unit: p.unit || "шт", cost: String(w ? w.cost : Number(p.cost) || ""), price: String(w ? w.price : retailOf(p) || ""), supplier_id: p.supplier_id || "" }); }} />
       </Fld>
       <div className="grid" style={{ gridTemplateColumns: "2fr 1fr 1fr", marginTop: 8 }}>
         <Fld label="Название*"><input className="inp" value={v.name} onChange={(e) => setV({ ...v, name: e.target.value, product_id: null })} placeholder="товар не из базы — впишите название" /></Fld>
