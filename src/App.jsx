@@ -6775,6 +6775,40 @@ function Calculator({ onClose }) {
   );
 }
 
+
+/* ============ ЗАСТАВКА ПРИ ЗАГРУЗКЕ ============
+   Чёрный экран, белые буквы «TE» проявляются из размытия, под ними прорисовывается красная линия;
+   когда база загрузилась — заставка уезжает вверх, как занавес. Без текста. */
+const INTRO_CSS = `
+.intro{position:fixed;inset:0;z-index:10000;background:#000;display:flex;align-items:center;justify-content:center;flex-direction:column;
+  transition:transform .85s cubic-bezier(.76,0,.24,1)}
+.intro.out{transform:translateY(-100%)}
+.intro-mark{width:170px;height:170px;animation:introMark 1.1s cubic-bezier(.16,1,.3,1) both}
+.intro-mark .t{animation:introT .9s cubic-bezier(.16,1,.3,1) .1s both}
+.intro-mark .e{animation:introE .9s cubic-bezier(.16,1,.3,1) .28s both}
+.intro-line{width:120px;height:3px;margin-top:22px;background:#ff1f30;transform-origin:center;animation:introLine .7s cubic-bezier(.65,0,.35,1) .65s both}
+.intro.out .intro-mark,.intro.out .intro-line{opacity:0;transition:opacity .35s ease}
+@keyframes introMark{from{opacity:0;transform:scale(1.12);filter:blur(10px)}to{opacity:1;transform:none;filter:none}}
+@keyframes introT{from{transform:translateY(-26px);opacity:0}to{transform:none;opacity:1}}
+@keyframes introE{from{transform:translateX(30px);opacity:0}to{transform:none;opacity:1}}
+@keyframes introLine{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@media(prefers-reduced-motion:reduce){.intro-mark,.intro-mark .t,.intro-mark .e,.intro-line{animation-duration:.01s;animation-delay:0s}.intro{transition-duration:.2s}}
+`;
+function Intro({ out = false, onDone }) {
+  return (
+    <div className={"intro" + (out ? " out" : "")} aria-hidden="true" onTransitionEnd={(e) => { if (out && e.target === e.currentTarget && onDone) onDone(); }}>
+      <style>{INTRO_CSS}</style>
+      <svg className="intro-mark" viewBox="0 0 300 300">
+        <g transform="translate(150 150) scale(0.96) translate(-143 -126.5)">
+          <path className="t" d="M39 26H240A28 28 0 0 1 268 54V56H124V193L95 227V56H18Z" fill="#fff" />
+          <path className="e" d="M145 85H263L244 115H175V154H262L244 181H145Z" fill="#fff" />
+        </g>
+      </svg>
+      <div className="intro-line" />
+    </div>
+  );
+}
+
 /* ============ APP ============ */
 class ErrBoundary extends React.Component {
   constructor(p) { super(p); this.state = { err: null }; }
@@ -6794,6 +6828,16 @@ class ErrBoundary extends React.Component {
 }
 function AppInner() {
   const [ready, setReady] = useState(false);
+  // заставка: показывается не меньше 1,6 с (успевает проиграть анимацию), потом уезжает вверх
+  const introStart = useRef(Date.now());
+  const [introOut, setIntroOut] = useState(false);
+  const [introGone, setIntroGone] = useState(false);
+  useEffect(() => {
+    if (!ready || introOut) return;
+    const t = setTimeout(() => setIntroOut(true), Math.max(0, 1600 - (Date.now() - introStart.current)));
+    return () => clearTimeout(t);
+  }, [ready]);
+  useEffect(() => { if (introOut && !introGone) { const t = setTimeout(() => setIntroGone(true), 1200); return () => clearTimeout(t); } }, [introOut]);
   const [data, setData] = useState({ products: [], suppliers: [], objects: [], finance_ops: [], requests: [], masters: [], warehouse: [], wh_moves: [], users: [], audit_log: [] });
   const [tab, setTab] = useState("dash");
   const [tabNonce, setTabNonce] = useState(0);
@@ -7055,14 +7099,11 @@ function AppInner() {
   const allTabs = roleTabs.map((id) => ({ id, label: TAB_LABELS[id] }));
   useEffect(() => { if (currentUser) { setTab(roleTabs[0]); setOpenId(null); } }, [currentUser ? currentUser.id + ":" + currentUser.role : ""]);
 
-  if (!ready) return (
-    <div className="te" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
-      <style>{CSS}</style>
-      <div className="mut"><span className="spin" /> Загрузка базы…</div>
-    </div>
-  );
-  if (!currentUser) return <LoginScreen users={data.users || []} onLogin={doLogin} bootErr={bootErr} onRetry={() => { setReady(false); boot(); }} />;
-  return (
+  // заставка всегда второй элемент верхнего уровня — один и тот же экземпляр, анимация не начинается заново
+  const intro = !ready ? <Intro /> : introGone ? null : <Intro out={introOut} onDone={() => setIntroGone(true)} />;
+  if (!ready) return <>{null}{intro}</>;
+  if (!currentUser) return <>{<LoginScreen users={data.users || []} onLogin={doLogin} bootErr={bootErr} onRetry={() => { setReady(false); boot(); }} />}{intro}</>;
+  return (<>
     <PeopleCtx.Provider value={peopleCtx}>
     <div className={"te" + (darkMode ? " dark" : "")}>
       <style>{CSS}</style>
@@ -7128,7 +7169,8 @@ function AppInner() {
         style={{ bottom: msg ? 84 : 20, borderColor: "var(--bad)", color: "var(--bad)", maxWidth: 460, cursor: "pointer" }}>⚠ {dbErr}</div>}
     </div>
     </PeopleCtx.Provider>
-  );
+    {intro}
+  </>);
 }
 /* ============ ОЧИСТКА БАЗЫ ============
    Удаляет рабочие данные (объекты, финансовые операции, заявки) → все долги клиентов и поставщикам = 0.
