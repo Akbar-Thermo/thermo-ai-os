@@ -6244,7 +6244,8 @@ function FinanceTab({ data, reload, toast, boss = false }) {
       </div>
       <div className="kpis sect">
         <div className="kpi"><div className="l">Всего расходов{(from || to) ? " за период" : ""}</div><div className="v" style={{ color: "var(--bad)" }}>{fmt(totalExp)}</div></div>
-        {[...EXPENSE_CATEGORIES, ...Object.keys(byCat).filter((c) => !EXPENSE_CATEGORIES.includes(c))].filter((c) => byCat[c]).slice(0, 6).map((c) => (
+        {/* статьи расходов — от самой большой к самой маленькой */}
+        {Object.keys(byCat).filter((c) => byCat[c]).sort((x, y) => byCat[y] - byCat[x]).slice(0, 6).map((c) => (
           <div key={c} className="kpi"><div className="l">{c}</div><div className="v">{fmt(byCat[c])}</div></div>
         ))}
       </div>
