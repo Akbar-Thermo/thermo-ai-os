@@ -389,12 +389,12 @@ table.t tr:hover td{background:var(--hover)}
 .pick-row:hover{background-color:var(--acc-tint) !important}
 table.t td{position:static}
 
-/* ============ ТЕЛЕФОН: плавное появление страниц и карточек ============
+/* ============ Плавное появление страниц и карточек (телефон и компьютер) ============
    Анимация без «заливки» после окончания (backwards): по завершении не остаётся слоёв,
    которые могли бы закрыть окна (modal) шапкой. */
 @keyframes fxRise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 @keyframes fxFade{from{opacity:0}to{opacity:1}}
-@media(max-width:820px){
+@media all{
   .body{animation:fxFade .45s ease backwards}
   .card{animation:fxRise .5s cubic-bezier(.2,.7,.2,1) backwards}
   .kpi{animation:fxRise .5s cubic-bezier(.2,.7,.2,1) backwards}
@@ -402,7 +402,7 @@ table.t td{position:static}
   .kpis .kpi:nth-child(5){animation-delay:.2s}.kpis .kpi:nth-child(6){animation-delay:.25s}.kpis .kpi:nth-child(n+7){animation-delay:.3s}
   .modal{animation:fxRise .4s cubic-bezier(.2,.7,.2,1) backwards}
 }
-@media(max-width:820px) and (prefers-reduced-motion:reduce){
+@media(prefers-reduced-motion:reduce){
   .body,.card,.kpi,.modal{animation:none!important}
 }
 `;
