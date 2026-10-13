@@ -359,7 +359,7 @@ table.t tr:hover td{background:var(--hover)}
 @keyframes busypop{from{opacity:0;transform:scale(.92) translateY(8px)}to{opacity:1;transform:none}}
 @keyframes busyspin{to{transform:rotate(360deg)}}
 @keyframes busyspinr{to{transform:rotate(-360deg)}}
-@keyframes busypulse{0%,100%{transform:scale(1)}50%{transform:scale(.9)}}
+@keyframes busypulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(.9);opacity:.75}}
 @keyframes busydot{0%,80%,100%{opacity:.2;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
 .busycard{display:flex;flex-direction:column;align-items:center;gap:16px;padding:28px 38px 24px;border-radius:22px;background:var(--panel);border:1px solid var(--line);box-shadow:0 28px 80px rgba(0,0,0,.4),0 0 0 1px rgba(255,31,48,.08);animation:busypop .28s cubic-bezier(.2,.9,.3,1.2)}
 .busyring{position:relative;width:84px;height:84px}
@@ -372,11 +372,6 @@ table.t tr:hover td{background:var(--hover)}
 .busydots span{display:inline-block;width:5px;height:5px;margin:0 2px;border-radius:50%;background:var(--acc);animation:busydot 1.2s infinite}
 .busydots span:nth-child(2){animation-delay:.15s}.busydots span:nth-child(3){animation-delay:.3s}
 @media(prefers-reduced-motion:reduce){.busyring .r1,.busyring .r2,.busyring .logo,.busydots span{animation-duration:3s}}
-@keyframes tePulse{0%,100%{transform:scale(1)}50%{transform:scale(.94)}}
-@keyframes teEnter{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:none}}
-.te-pulse{animation:tePulse 1.6s ease-in-out infinite}
-.te-enter{animation:teEnter .6s cubic-bezier(.2,.7,.2,1) backwards}
-.te-logo{border-radius:22%}
 .calc{position:fixed;right:18px;top:120px;z-index:900;width:280px;padding:12px;border-radius:16px;background:var(--panel);border:1px solid var(--line2);box-shadow:0 24px 60px rgba(0,0,0,.35)}
 .calc-scr{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;text-align:right;min-height:64px}
 .calc-sub{min-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -1479,18 +1474,6 @@ function askConfirm(o) {
    и событие change, поэтому все обработчики onChange работают как раньше. На телефоне — системный список. */
 const SEL_SETTER = typeof HTMLSelectElement !== "undefined" ? Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set : null;
 // полоска сверху + плашка «Подождите…», пока идут запросы (появляется через 0,3 с, чтобы не мигать)
-// логотип TE: «T» белая, «E» красная, фон чёрный (тот же знак — на иконке приложения)
-function TELogo({ size = 40, round = 0.22, scale = 0.86, className = "" }) {
-  return (
-    <svg className={"te-logo " + className} width={size} height={size} viewBox="0 0 300 300" role="img" aria-label="Thermo Engineering" style={{ display: "block", flexShrink: 0 }}>
-      <rect width="300" height="300" rx={300 * round} fill="#000" />
-      <g transform={"translate(150 150) scale(" + scale + ") translate(-143 -126.5)"}>
-        <path d="M39 26H240A28 28 0 0 1 268 54V56H124V193L95 227V56H18Z" fill="#fff" />
-        <path d="M145 85H263L244 115H175V154H262L244 181H145Z" fill="#ff1f30" />
-      </g>
-    </svg>
-  );
-}
 function BusyIndicator() {
   const [n, setN] = useState(BUSY_N);
   const [show, setShow] = useState(false);
@@ -1508,7 +1491,7 @@ function BusyIndicator() {
       <div className="busybar"><i /></div>
       <div className="busywrap" role="status" aria-live="polite">
         <div className="busycard">
-          <div className="busyring"><div className="r1" /><div className="r2" /><div className="logo"><TELogo size={42} round={0.5} /></div></div>
+          <div className="busyring"><div className="r1" /><div className="r2" /><div className="logo">TE<i /></div></div>
           <div className="busytxt">
             Подождите, система работает <span className="busydots"><span /><span /><span /></span>
             <small>{slow ? "Связь медленная — данные ещё загружаются" : "Сохраняем и обновляем данные"}</small>
@@ -6662,7 +6645,6 @@ function LoginScreen({ users, onLogin, bootErr, onRetry }) {
     <div className="te" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
       <style>{CSS}</style>
       <div className="card" style={{ width: 360, boxShadow: "0 24px 60px rgba(18,24,27,.16)" }}>
-        <div className="te-enter" style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}><TELogo size={96} /></div>
         <div className="logo" style={{ textAlign: "center", marginBottom: 4, color: "var(--txt)" }}>THERMO<span>•</span>ENGINEERING<small style={{ color: "var(--mut)" }}>procurement & finance OS</small></div>
         <h3 style={{ textAlign: "center", margin: "16px 0 14px" }}>Вход в систему</h3>
         {bootErr && (
@@ -7076,10 +7058,7 @@ function AppInner() {
   if (!ready) return (
     <div className="te" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
       <style>{CSS}</style>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 18 }}>
-        <div className="te-pulse"><TELogo size={110} /></div>
-        <div className="mut"><span className="spin" /> Загрузка базы…</div>
-      </div>
+      <div className="mut"><span className="spin" /> Загрузка базы…</div>
     </div>
   );
   if (!currentUser) return <LoginScreen users={data.users || []} onLogin={doLogin} bootErr={bootErr} onRetry={() => { setReady(false); boot(); }} />;
@@ -7088,7 +7067,7 @@ function AppInner() {
     <div className={"te" + (darkMode ? " dark" : "")}>
       <style>{CSS}</style>
       <div className={"hdr" + (hdrHidden ? " hide-on-scroll" : "")}>
-        <div className="row" style={{ gap: 10, flexWrap: "nowrap" }}><TELogo size={40} /><div className="logo">THERMO<span>•</span>ENGINEERING<small>procurement & finance OS</small></div></div>
+        <div className="logo">THERMO<span>•</span>ENGINEERING<small>procurement & finance OS</small></div>
         <div className="row" style={{ gap: 8 }}>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontWeight: 700, fontSize: 13 }}>{currentUser.name || currentUser.username}</div>
