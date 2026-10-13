@@ -107,7 +107,7 @@ const OBJ_STATUSES = [
   { id: "tender", label: "На тендере", c: "var(--t-warn)" },
   { id: "approved", label: "Тов. пол. от пост.", c: "var(--t-strong)" },
   { id: "payment", label: "Оплата", c: "var(--t-info)" },
-  // «Оплачено» ставится сам, когда клиент оплатил 100% (можно выбрать и вручную)
+  // «Оплачено» ставится сам, когда клиент оплатил 100%; вручную — только при оплате 100%
   { id: "paid", label: "Оплачено", c: "var(--t-ok)" },
 ];
 const IDLE_STATUSES = ["draft", "tender", "cancelled"];
@@ -372,6 +372,17 @@ table.t tr:hover td{background:var(--hover)}
 .busydots span{display:inline-block;width:5px;height:5px;margin:0 2px;border-radius:50%;background:var(--acc);animation:busydot 1.2s infinite}
 .busydots span:nth-child(2){animation-delay:.15s}.busydots span:nth-child(3){animation-delay:.3s}
 @media(prefers-reduced-motion:reduce){.busyring .r1,.busyring .r2,.busyring .logo,.busydots span{animation-duration:3s}}
+.calc{position:fixed;right:18px;top:120px;z-index:900;width:280px;padding:12px;border-radius:16px;background:var(--panel);border:1px solid var(--line2);box-shadow:0 24px 60px rgba(0,0,0,.35)}
+.calc-scr{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;text-align:right;min-height:64px}
+.calc-sub{min-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.calc-main{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;word-break:break-all;line-height:1.2}
+.calc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.calc-k{height:44px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);font:600 18px var(--sans);cursor:pointer}
+.calc-k:hover{border-color:var(--line2);background:var(--hover)}
+.calc-k.op{color:var(--acc)}
+.calc-k.fn{color:var(--mut);font-size:15px}
+.calc-k.eq{grid-row:span 2;height:auto;background:var(--acc);border-color:var(--acc);color:#fff}
+@media(max-width:820px){.calc{right:8px;left:8px;width:auto;top:auto;bottom:12px}}
 .busypill{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:5000;display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:var(--panel);border:1px solid var(--acc);box-shadow:0 10px 30px rgba(0,0,0,.25);font-size:13px;font-weight:600;color:var(--txt);pointer-events:none}
 @media(prefers-reduced-motion:reduce){.hdr,.btn,.inp{transition:none}.spin{animation-duration:2s}}
 .conf{font-variant-numeric:tabular-nums;font-weight:700;font-size:12px}
@@ -600,6 +611,8 @@ function calcObject(obj, ops) {
     supplierDebt: Math.max(0, round2(costNet - paidSup)),
   };
 }
+// клиент оплатил 100% (все оплаты по объекту, в каком бы статусе они ни были записаны) — только тогда статус «Оплачено»
+const fullyPaid = (obj, ops) => { const f = calcObject(obj, ops); return f.saleNet > 0.004 && round2(f.saleNet - f.paidClient - f.paidIgnored) <= 0.004; };
 /* Какие возвраты уменьшают долг поставщику.
    · Возврат со склада поставщику (Склад → «↩ поставщику», операция без object_id) — уменьшает.
    · Возврат с объекта «сразу поставщику» (в операции есть supplier_id, на склад не приходовался) — уменьшает.
@@ -3749,6 +3762,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   };
   // смена статуса: «Тов. пол. от пост.» / «Оплата» / «Оплачено» — товар со склада списывается; назад в «Черновик»/«На тендере» — возвращается на склад
   const setStatus = async (s) => {
+    if (s === "paid" && !fullyPaid(obj, finance_ops)) { toast("«Оплачено» — только когда клиент оплатил 100%. Осталось оплатить: " + fmt2(Math.max(0, f.saleNet - f.paidClient - f.paidIgnored))); return; }
     const was = isLive(obj), will = isLive({ status: s });
     let note = "", ok = true;
     if (!was && will) {
@@ -4071,7 +4085,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         </div>
         <button className="btn" onClick={() => setEditObj(true)}>✎ Изменить</button>
         <select className="inp" style={{ maxWidth: 240 }} value={obj.status} onChange={(e) => setStatus(e.target.value)}>
-          {statusOptions(obj.status).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          {statusOptions(obj.status).map((s) => { const off = s.id === "paid" && obj.status !== "paid" && !fullyPaid(obj, finance_ops); return <option key={s.id} value={s.id} disabled={off}>{s.label}{off ? " — после оплаты 100%" : ""}</option>; })}
         </select>
         <button className="btn" onClick={exportClient}>⬇ Excel клиенту</button>
         <button className="btn" onClick={exportDelivery}>🚚 Лист доставки</button>
@@ -6245,7 +6259,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
       <div className="kpis sect">
         <div className="kpi"><div className="l">Всего расходов{(from || to) ? " за период" : ""}</div><div className="v" style={{ color: "var(--bad)" }}>{fmt(totalExp)}</div></div>
         {/* статьи расходов — от самой большой к самой маленькой */}
-        {Object.keys(byCat).filter((c) => byCat[c]).sort((x, y) => byCat[y] - byCat[x]).slice(0, 6).map((c) => (
+        {Object.keys(byCat).filter((c) => byCat[c]).sort((x, y) => byCat[y] - byCat[x]).map((c) => (
           <div key={c} className="kpi"><div className="l">{c}</div><div className="v">{fmt(byCat[c])}</div></div>
         ))}
       </div>
@@ -6431,7 +6445,7 @@ function VozvratSection({ objects, finance_ops, suppliers, whMoves }) {
 }
 
 /* ============ ЖУРНАЛ ДЕЙСТВИЙ ============ */
-function LogTab({ data, reload }) {
+function LogTab({ data, reload, onBackup }) {
   const { audit_log } = data;
   useEffect(() => { if (reload) reload(["audit_log"]); }, []); // журнал подгружается при открытии вкладки
   const [q, setQ] = useState("");
@@ -6450,6 +6464,7 @@ function LogTab({ data, reload }) {
     <div>
       <div className="row sect">
         <h2 style={{ marginRight: "auto" }}>Журнал действий <span className="mut sm">({audit_log.length})</span></h2>
+        {onBackup && <button className="btn" title="Бэкап и восстановление базы" onClick={onBackup}>💾 Бэкап</button>}
         <input className="inp" style={{ maxWidth: 220 }} placeholder="Поиск по журналу…" value={q} onChange={(e) => setQ(e.target.value)} />
         <select className="inp" style={{ maxWidth: 180 }} value={usr} onChange={(e) => setUsr(e.target.value)}>
           <option value="">Все сотрудники</option>{users.map((u) => <option key={u}>{u}</option>)}
@@ -6637,6 +6652,112 @@ function LoginScreen({ users, onLogin, bootErr, onRetry }) {
   );
 }
 
+
+/* ============ КАЛЬКУЛЯТОР ============
+   Кнопка «🧮 Калькулятор» в шапке. Пока окно открыто, им управляют цифровой клавиатурой справа (Num Lock):
+   0–9, «,» / «.», + − * /, Enter — посчитать, Backspace — стереть, Delete — очистить, Esc — очистить / закрыть.
+   Если курсор стоит в поле ввода программы, клавиши идут в поле, а не в калькулятор. */
+const CALC_OPS = { "+": 1, "-": 1, "*": 2, "/": 2 };
+function calcEval(expr) {
+  const toks = String(expr).replace(/,/g, ".").match(/\d+\.?\d*|\.\d+|[-+*/()]/g) || [];
+  const out = [], st = [];
+  let prev = null;
+  for (const t of toks) {
+    if (/[\d.]/.test(t[0])) out.push(Number(t));
+    else if (t === "(") st.push(t);
+    else if (t === ")") { while (st.length && st[st.length - 1] !== "(") out.push(st.pop()); st.pop(); }
+    else {
+      if (t === "-" && (prev === null || (prev in CALC_OPS) || prev === "(")) { out.push(0); }
+      while (st.length && st[st.length - 1] in CALC_OPS && CALC_OPS[st[st.length - 1]] >= CALC_OPS[t]) out.push(st.pop());
+      st.push(t);
+    }
+    prev = t;
+  }
+  while (st.length) out.push(st.pop());
+  const v = [];
+  for (const x of out) {
+    if (typeof x === "number") { v.push(x); continue; }
+    if (x === "(") continue;
+    const b = v.pop(), a = v.pop();
+    if (a == null || b == null) return null;
+    v.push(x === "+" ? a + b : x === "-" ? a - b : x === "*" ? a * b : b === 0 ? NaN : a / b);
+  }
+  return v.length === 1 && isFinite(v[0]) ? Math.round(v[0] * 1e10) / 1e10 : null;
+}
+const calcShow = (e) => String(e).replace(/\*/g, " × ").replace(/\//g, " ÷ ").replace(/(\d)\+/g, "$1 + ").replace(/(\d)-/g, "$1 − ").replace(/\./g, ",");
+const calcNum = (n) => (n == null ? "" : n.toLocaleString("ru-RU", { maximumFractionDigits: 10 }));
+function Calculator({ onClose }) {
+  const [expr, setExpr] = useState("");
+  const [last, setLast] = useState(null); // { expr, res } — после «=»
+  const live = useMemo(() => (expr && /[-+*/]/.test(expr.replace(/^-/, "")) ? calcEval(expr) : null), [expr]);
+  const press = (k) => {
+    if (k === "C") { setExpr(""); setLast(null); return; }
+    if (k === "⌫") { setExpr((e) => e.slice(0, -1)); return; }
+    if (k === "=") { const r = calcEval(expr); if (r != null && expr) { setLast({ expr, res: r }); setExpr(String(r)); } return; }
+    setExpr((e) => {
+      if (last && e === String(last.res) && /[\d.]/.test(k)) { setLast(null); return k === "." ? "0." : k; } // новое число после «=»
+      if (k in CALC_OPS) {
+        if (!e) return k === "-" ? "-" : e;
+        if (/[-+*/]$/.test(e)) return e.slice(0, -1) + k; // заменить знак
+        return e + k;
+      }
+      if (k === ".") { const seg = e.split(/[-+*/]/).pop(); if (seg.includes(".")) return e; return e + (seg ? "." : "0."); }
+      return e + k;
+    });
+  };
+  const pressRef = useRef(press); pressRef.current = press;
+  useEffect(() => {
+    const h = (e) => {
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      let k = null;
+      // цифровая клавиатура — по коду клавиши: работает и при выключенном Num Lock
+      const NP = { NumpadAdd: "+", NumpadSubtract: "-", NumpadMultiply: "*", NumpadDivide: "/", NumpadDecimal: ".", NumpadComma: ".", NumpadEnter: "=", NumpadEqual: "=" };
+      if (/^Numpad[0-9]$/.test(e.code)) k = e.code.slice(6);
+      else if (NP[e.code]) k = NP[e.code];
+      else if (/^[0-9]$/.test(e.key)) k = e.key;
+      else if (e.key === "." || e.key === "," || e.code === "NumpadDecimal") k = ".";
+      else if (e.key === "+" || e.key === "-" || e.key === "*" || e.key === "/") k = e.key;
+      else if (e.key === "Enter" || e.key === "=") k = "=";
+      else if (e.key === "Backspace") k = "⌫";
+      else if (e.key === "Delete") k = "C";
+      else if (e.key === "Escape") { if (expr || last) k = "C"; else { e.preventDefault(); onClose(); return; } }
+      if (k == null) return;
+      e.preventDefault(); e.stopPropagation();
+      pressRef.current(k);
+    };
+    window.addEventListener("keydown", h, true);
+    return () => window.removeEventListener("keydown", h, true);
+  }, [expr, last, onClose]);
+  const copy = async () => { const v = last && expr === String(last.res) ? last.res : live != null ? live : calcEval(expr); if (v == null) return; try { await navigator.clipboard.writeText(String(v).replace(".", ",")); } catch (e) {} };
+  const K = ({ k, label, cls = "", span }) => <button type="button" className={"calc-k " + cls} style={span ? { gridColumn: "span " + span } : null} onMouseDown={(e) => e.preventDefault()} onClick={() => press(k)}>{label || k}</button>;
+  const main = last && expr === String(last.res) ? calcNum(last.res) : expr ? calcShow(expr) : "0";
+  return (
+    <div className="calc" role="dialog" aria-label="Калькулятор">
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+        <b style={{ fontSize: 13 }}>🧮 Калькулятор</b>
+        <span className="row" style={{ gap: 4 }}>
+          <button type="button" className="btn xs" title="Скопировать результат" onClick={copy}>копировать</button>
+          <button type="button" className="btn xs" title="Закрыть (Esc)" onClick={onClose}>✕</button>
+        </span>
+      </div>
+      <div className="calc-scr">
+        <div className="xs mut calc-sub">{last && expr === String(last.res) ? calcShow(last.expr) + " =" : live != null ? "= " + calcNum(live) : " "}</div>
+        <div className="calc-main">{main}</div>
+      </div>
+      <div className="calc-grid">
+        <K k="C" cls="fn" /><K k="⌫" cls="fn" /><K k="/" label="÷" cls="op" /><K k="*" label="×" cls="op" />
+        <K k="7" /><K k="8" /><K k="9" /><K k="-" label="−" cls="op" />
+        <K k="4" /><K k="5" /><K k="6" /><K k="+" cls="op" />
+        <K k="1" /><K k="2" /><K k="3" /><K k="=" cls="eq" />
+        <K k="0" span={2} /><K k="." label="," /><span />
+      </div>
+      <div className="xs mut" style={{ marginTop: 8, lineHeight: 1.4 }}>Цифровая клавиатура: цифры, + − * /, Enter = , Backspace, Delete — очистить, Esc — закрыть</div>
+    </div>
+  );
+}
+
 /* ============ APP ============ */
 class ErrBoundary extends React.Component {
   constructor(p) { super(p); this.state = { err: null }; }
@@ -6704,27 +6825,32 @@ function AppInner() {
     }
     return { ok: !failed.length, allFailed: failed.length === tables.length, failed };
   };
-  // «Оплата» → «Оплачено»: клиент оплатил 100% (долг 0 или переплата) — статус меняется сам
+  // «Оплата» ⇄ «Оплачено»: клиент оплатил 100% (долг 0 или переплата) — «Оплачено»; появился долг — снова «Оплата»
   const autoPaidBusy = useRef(new Set());
   useEffect(() => {
     if (!currentUser || !["boss", "manager"].includes(role) || !data.objects.length) return;
     const t = setTimeout(async () => {
       const done = [];
       for (const o of data.objects) {
-        if (o.status !== "payment" || autoPaidBusy.current.has(o.id)) continue;
-        const f = calcObject(o, data.finance_ops);
-        if (!(f.saleNet > 0) || f.clientDebt > 0.004) continue;
-        autoPaidBusy.current.add(o.id);
+        if (!["payment", "paid"].includes(o.status)) continue;
+        const f = calcObject(o, data.finance_ops), full = fullyPaid(o, data.finance_ops);
+        const to = o.status === "payment" && full ? "paid" : o.status === "paid" && !full ? "payment" : null;
+        const key = o.id + ":" + to;
+        if (!to || autoPaidBusy.current.has(key)) continue;
+        autoPaidBusy.current.add(key);
         BUSY_SILENT++;
         let r;
         try {
           const fresh = await db.from("objects").select().eq("id", o.id);
-          if (fresh.error || !fresh.data || !fresh.data[0] || fresh.data[0].status !== "payment") continue;
-          r = await db.from("objects").update({ status: "paid" }).eq("id", o.id);
+          if (fresh.error || !fresh.data || !fresh.data[0] || fresh.data[0].status !== o.status) continue;
+          r = await db.from("objects").update({ status: to }).eq("id", o.id);
         } finally { BUSY_SILENT = Math.max(0, BUSY_SILENT - 1); }
-        if (r && !r.error) { done.push(o.name); await logAction("Статус объекта: Оплачено (авто)", "object:" + o.name, "клиент оплатил 100%: " + fmt2(f.paidClient) + " из " + fmt2(f.saleNet)); }
+        if (r && !r.error) {
+          done.push((to === "paid" ? "«Оплачено»: " : "снова «Оплата» (есть долг): ") + o.name);
+          await logAction("Статус объекта: " + stById(to).label + " (авто)", "object:" + o.name, to === "paid" ? "клиент оплатил 100%: " + fmt2(f.paidClient) + " из " + fmt2(f.saleNet) : "оплачено не всё — долг " + fmt2(f.clientDebt));
+        }
       }
-      if (done.length) { await reload(); toast("Оплачено 100% — статус «Оплачено»: " + done.join(", ")); }
+      if (done.length) { await reload(); toast("Статус обновлён — " + done.join("; ")); }
     }, 1200);
     return () => clearTimeout(t);
   }, [currentUser, role, data.objects, data.finance_ops]);
@@ -6830,7 +6956,7 @@ function AppInner() {
         if (m && m[1] !== curName) { found = true; setNewVer(true); }
       } catch (e) {}
     };
-    const safe = () => !document.querySelector(".modal") && !(document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) && BUSY_N === 0;
+    const safe = () => !document.querySelector(".modal, .calc") && !(document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) && BUSY_N === 0;
     const t1 = setInterval(check, 120000);
     const t2 = setInterval(() => { if (found && safe()) window.location.reload(); }, 3000);
     const onVis = () => { if (document.visibilityState === "visible") check(); };
@@ -6865,6 +6991,7 @@ function AppInner() {
   const toggleLang = () => { setLang((v) => { const n = v === "ru" ? "uz" : "ru"; try { localStorage.setItem("te:lang", n); } catch {} return n; }); };
   const L = (ru, uz) => lang === "uz" ? uz : ru;
   const [backupOpen, setBackupOpen] = useState(false);
+  const [calcOpen, setCalcOpen] = useState(false);
   const [wipeOpen, setWipeOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hdrHidden, setHdrHidden] = useState(false);
@@ -6935,7 +7062,7 @@ function AppInner() {
           }}>{t.label}</button>)}
         </div>
         <button className="burger" onClick={() => setMobileMenuOpen((v) => !v)} title="Меню">{mobileMenuOpen ? "✕" : "☰"}</button>
-        {role === "boss" && <button className="btn xs" title="Бэкап и восстановление базы" onClick={() => setBackupOpen(true)}>💾 Бэкап</button>}
+        {role !== "driver" && <button className={"btn xs" + (calcOpen ? " pri" : "")} title="Калькулятор (управление цифровой клавиатурой)" onClick={() => setCalcOpen((v) => !v)}>🧮 Калькулятор</button>}
         <input ref={restoreRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={onRestore} />
       </div>
       <div className="body" key={"tab" + tabNonce}>
@@ -6948,7 +7075,7 @@ function AppInner() {
         {tab === "masters" && <MastersTab data={data} reload={reload} toast={toast} fin={true} canDel={role === "boss"} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "wh" && <WarehouseTab data={data} reload={reload} toast={toast} readOnly={role === "driver"} openObject={(id) => { if (role === "driver") { setTab("delivery"); setOpenId(id); } else { setOpenId(id); setTab("objects"); } }} />}
         {tab === "delivery" && <DeliveryTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} />}
-        {tab === "log" && <LogTab data={data} reload={reload} />}
+        {tab === "log" && <LogTab data={data} reload={reload} onBackup={role === "boss" ? () => setBackupOpen(true) : null} />}
         {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} />}
         {tab === "finance" && <FinanceTab data={data} reload={reload} toast={toast} boss={role === "boss"} />}
       </div>
@@ -6961,6 +7088,7 @@ function AppInner() {
       {wipeOpen && role === "boss" && <WipeModal data={data} reload={reload} onClose={() => setWipeOpen(false)} onDone={async () => {
         await reload("all"); setWipeOpen(false); setOpenId(null); toast("База очищена. Товары, поставщики и мастера сохранены.");
       }} />}
+      {calcOpen && <Calculator onClose={() => setCalcOpen(false)} />}
       <ConfirmHost />
       <SheetPickHost />
       <SelectPopupHost />
