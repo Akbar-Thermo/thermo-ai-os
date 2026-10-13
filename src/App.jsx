@@ -1678,7 +1678,11 @@ const prodSearchText = (p, supName) => {
 const searchWords = (q) => q.toLowerCase().replace(/ё/g, "е").trim().split(/\s+/).filter(Boolean);
 // остаток на Складе Thermo по товару (product_id → кол-во)
 const whQtyMap = (warehouse) => { const m = {}; (warehouse || []).forEach((w) => { if (w.product_id && Number(w.qty) > 0) m[w.product_id] = (m[w.product_id] || 0) + Number(w.qty); }); return m; };
-function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnPick = false, whQty = null }) {
+function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnPick = false, whQty = null, askQty = false }) {
+  // askQty: после выбора товара сразу спрашиваем количество (Enter — добавить и вернуться к поиску)
+  const [pend, setPend] = useState(null);
+  const [pq, setPq] = useState("1");
+  const searchRef = useRef(null);
   // показываем ВСЕ найденные товары (без лимита). Список прокручивается, рисуются только видимые строки.
   // Поиск по словам: «труба 25» найдёт «ХВС ТРУБА PN16 - 25» (все слова, в любом порядке).
   const ROW = 50, BOX_H = 380;
@@ -1696,7 +1700,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
   const boxRef = useRef(null);
   useEffect(() => {
     if (!open) return;
-    const h = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+    const h = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) { setOpen(false); setPend(null); } };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [open]);
@@ -1723,7 +1727,17 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
     if (y < el.scrollTop) el.scrollTop = y;
     else if (y + ROW > el.scrollTop + el.clientHeight) el.scrollTop = y + ROW - el.clientHeight;
   }, [activeIdx]);
-  const pick = (p) => { onPick(p); setQ(""); setActiveIdx(-1); if (closeOnPick) setOpen(false); };
+  const pick = (p) => {
+    if (askQty) { setPend(p); setPq("1"); return; }
+    onPick(p); setQ(""); setActiveIdx(-1); if (closeOnPick) setOpen(false);
+  };
+  const confirmQty = () => {
+    const n = parseNum(pq);
+    if (!(n > 0) || !pend) return;
+    onPick(pend, n); setPend(null); setQ(""); setActiveIdx(-1);
+    setTimeout(() => { if (searchRef.current) searchRef.current.focus(); }, 0);
+  };
+  const cancelQty = () => { setPend(null); setTimeout(() => { if (searchRef.current) searchRef.current.focus(); }, 0); };
   const supCount = useMemo(() => { const m = {}; products.forEach((p) => { if (p.supplier_id && p.status !== "archive") m[p.supplier_id] = (m[p.supplier_id] || 0) + 1; }); return m; }, [products]);
   const onKeyDown = (e) => {
     if (!hits.length) return;
@@ -1747,12 +1761,27 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
             {suppliers.filter((x) => x.status !== "inactive" && supCount[x.id]).map((x) => <option key={x.id} value={x.id}>{x.name} ({supCount[x.id]})</option>)}
           </select>
         )}
-        <input className="inp" style={{ flex: "1 1 180px", width: "auto", minWidth: 0 }} placeholder={sf ? "Поиск среди товаров поставщика…" : placeholder || "Поиск товара для добавления…"} value={q}
+        <input ref={searchRef} className="inp" style={{ flex: "1 1 180px", width: "auto", minWidth: 0 }} placeholder={sf ? "Поиск среди товаров поставщика…" : placeholder || "Поиск товара для добавления…"} value={q}
           onChange={(e) => { setQ(e.target.value); setActiveIdx(-1); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown} />
       </div>
-      {(hits.length > 0 || noHits) && (
+      {pend && (
+        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1001, boxShadow: "0 16px 44px rgba(0,0,0,.18)", padding: "12px 14px" }}>
+          <div className="sm" style={{ fontWeight: 700, marginBottom: 8 }}>{pend.name}</div>
+          <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
+            <span className="sm mut" style={{ whiteSpace: "nowrap" }}>Количество:</span>
+            <input type="number" className="inp" autoFocus min={0} step="any" style={{ width: 120, fontWeight: 700, fontSize: 15 }} value={pq}
+              onFocus={(e) => e.target.select()} onChange={(e) => setPq(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); confirmQty(); } else if (e.key === "Escape") { e.preventDefault(); cancelQty(); } }} />
+            <span className="sm mut">{pend.unit || "шт"}</span>
+            <button type="button" className="btn pri" disabled={!(parseNum(pq) > 0)} onClick={confirmQty}>Добавить</button>
+            <button type="button" className="btn" onClick={cancelQty}>Отмена</button>
+          </div>
+          <div className="xs mut" style={{ marginTop: 6 }}>Enter — добавить и искать дальше · Esc — назад к списку</div>
+        </div>
+      )}
+      {!pend && (hits.length > 0 || noHits) && (
         <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, boxShadow: "0 16px 44px rgba(0,0,0,.18), 0 0 0 1px rgba(255,31,48,.15)", isolation: "isolate", overflow: "hidden" }}>
           <div className="xs mut" style={{ padding: "6px 11px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between" }}>
             <span>{noHits ? "Ничего не найдено" : "Найдено: " + hits.length}</span>
@@ -3193,13 +3222,14 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   const prodById = (id) => prodMap.get(id);
   const qn = (x) => parseNum(x); // количество в строке хранится так, как его ввели (можно очистить поле)
 
-  const addFromBase = (p) => {
+  const addFromBase = (p, n = 1) => {
+    const add = Number(n) > 0 ? Number(n) : 1;
     if (whQty[p.id]) toast("🏬 «" + p.name + "» есть на Складе Thermo: " + fmt(whQty[p.id]) + " " + (p.unit || "шт") + " — будет отдано со склада");
     setLines((prev) => {
       const ex = prev.find((l) => l.product_id === p.id);
-      if (ex) return prev.map((l) => (l.product_id === p.id ? { ...l, qty: qn(l.qty) + 1 } : l));
+      if (ex) return prev.map((l) => (l.product_id === p.id ? { ...l, qty: round2(qn(l.qty) + add) } : l));
       // новый товар — в начало списка (сверху)
-      return [{ id: uuid(), product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: 1, cost: p.cost, supplier_id: null, manual: false }, ...prev];
+      return [{ id: uuid(), product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: add, cost: p.cost, supplier_id: null, manual: false }, ...prev];
     });
   };
   // строки из Excel: найденные товары складываются с уже выбранными, остальные — ручные позиции
@@ -3457,7 +3487,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
           {xlImport && <RequestExcelImport products={filteredProducts} onClose={() => setXlImport(false)} onAdd={addImported} />}
 
           <div className="row" style={{ marginBottom: 12, gap: 10 }}>
-            <ProductPicker products={filteredProducts} suppliers={suppliers} whQty={whQty} placeholder="Поиск товара по названию / коду — начните вводить…" onPick={addFromBase} />
+            <ProductPicker askQty products={filteredProducts} suppliers={suppliers} whQty={whQty} placeholder="Поиск товара по названию / коду — начните вводить…" onPick={addFromBase} />
           </div>
 
           {lines.length === 0 && (
