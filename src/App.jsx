@@ -1857,6 +1857,12 @@ const productOrder = (a, b) => {
   const da = String(a.created_at || ""), db_ = String(b.created_at || "");
   return (da < db_ ? -1 : da > db_ ? 1 : 0) || RU_COLLATOR.compare(String(a.name || ""), String(b.name || ""));
 };
+// позиции объекта в порядке «Товары» (по коду 1, 2, 3…) внутри каждой поставки; позиции не из базы — в конце поставки, как были
+function itemsInCatalogOrder(items, products) {
+  const pmap = new Map((products || []).map((p) => [p.id, p]));
+  return (items || []).map((i, k) => ({ i, k, b: Number(i.batch_no) || 1, p: i.product_id ? pmap.get(i.product_id) : null }))
+    .sort((a, b) => a.b - b.b || (a.p && b.p ? productOrder(a.p, b.p) || a.k - b.k : a.p ? -1 : b.p ? 1 : a.k - b.k)).map((x) => x.i);
+}
 // нужна ли перенумерация: коды не идут ровно 1…N
 const codesNeedRenumber = (products) => { const s = [...products].sort(productOrder); return s.some((p, i) => String(p.code || "").trim() !== String(i + 1)); };
 // строка таблицы товаров — memo: при отметке одной галочки не перерисовываются остальные тысячи строк
@@ -3841,6 +3847,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     return !r.error;
   };
   // смена статуса: «Тов. пол. от пост.» / «Оплата» / «Оплачено» — товар со склада списывается; назад в «Черновик»/«На тендере» — возвращается на склад
+  // статус не «Черновик» — позиции объекта выстраиваются в порядке «Товары»
+  const orderItems = (s, cur) => (s !== "draft" ? itemsInCatalogOrder(cur, products) : cur);
   const setStatus = async (s) => {
     if (s === "paid" && !fullyPaid(obj, finance_ops)) { toast("«Оплачено» — только когда клиент оплатил 100%. Осталось оплатить: " + fmt2(Math.max(0, f.saleNet - f.paidClient - f.paidIgnored))); return; }
     const was = isLive(obj), will = isLive({ status: s });
@@ -3848,17 +3856,17 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     if (!was && will) {
       const t = await whTakePending(obj);
       const set = new Set(t.ids);
-      const r = await updateObjectItems(obj.id, (cur) => cur.map((i) => { if (!set.has(i.id)) return i; const n = { ...i }; delete n.wh_pending; return n; }), { status: s });
+      const r = await updateObjectItems(obj.id, (cur) => orderItems(s, cur.map((i) => { if (!set.has(i.id)) return i; const n = { ...i }; delete n.wh_pending; return n; })), { status: s });
       ok = !r.error;
       if (t.ids.length) note = "со Склада Thermo списано: " + t.ids.length + " поз." + (t.short.length ? " ⚠ не хватило на складе: " + t.short.join(", ") : "");
     } else if (was && !will) {
       const t = await whReturnLive(obj, finance_ops);
       const set = new Set(t.ids);
-      const r = await updateObjectItems(obj.id, (cur) => cur.map((i) => (set.has(i.id) ? { ...i, wh_pending: true } : i)), { status: s });
+      const r = await updateObjectItems(obj.id, (cur) => orderItems(s, cur.map((i) => (set.has(i.id) ? { ...i, wh_pending: true } : i))), { status: s });
       ok = !r.error;
       if (t.ids.length) note = "на Склад Thermo возвращено: " + t.ids.length + " поз.";
     } else {
-      const r = await db.from("objects").update({ status: s }).eq("id", obj.id);
+      const r = await updateObjectItems(obj.id, (cur) => orderItems(s, cur), { status: s });
       ok = !r.error;
     }
     if (ok) {
@@ -4050,9 +4058,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     };
     let n = 1;
     // внутри поставки — в том же порядке, что в «Товары» (по коду 1, 2, 3…); позиции не из базы — в конце, как были
-    const pmap = new Map((products || []).map((p) => [p.id, p]));
-    const inProdOrder = (list) => list.map((i, k) => ({ i, k, p: i.product_id ? pmap.get(i.product_id) : null }))
-      .sort((a, b) => (a.p && b.p ? productOrder(a.p, b.p) || a.k - b.k : a.p ? -1 : b.p ? 1 : a.k - b.k)).map((x) => x.i);
+    const inProdOrder = (list) => itemsInCatalogOrder(list, products);
     batches.forEach((b) => {
       rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
       rows.push({ k: "head", v: HEAD });
@@ -6989,7 +6995,8 @@ function AppInner() {
         try {
           const fresh = await db.from("objects").select().eq("id", o.id);
           if (fresh.error || !fresh.data || !fresh.data[0] || fresh.data[0].status !== o.status) continue;
-          r = await db.from("objects").update({ status: to }).eq("id", o.id);
+          // статус меняется не на «Черновик» — позиции в порядке «Товары», как при ручной смене статуса
+          r = await db.from("objects").update({ status: to, items: itemsInCatalogOrder(fresh.data[0].items || [], data.products) }).eq("id", o.id);
         } finally { BUSY_SILENT = Math.max(0, BUSY_SILENT - 1); }
         if (r && !r.error) {
           done.push((to === "paid" ? "«Оплачено»: " : "снова «Оплата» (есть долг): ") + o.name);
