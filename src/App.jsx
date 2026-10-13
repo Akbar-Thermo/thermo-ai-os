@@ -4049,11 +4049,15 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       return g;
     };
     let n = 1;
+    // внутри поставки — в том же порядке, что в «Товары» (по коду 1, 2, 3…); позиции не из базы — в конце, как были
+    const pmap = new Map((products || []).map((p) => [p.id, p]));
+    const inProdOrder = (list) => list.map((i, k) => ({ i, k, p: i.product_id ? pmap.get(i.product_id) : null }))
+      .sort((a, b) => (a.p && b.p ? productOrder(a.p, b.p) || a.k - b.k : a.p ? -1 : b.p ? 1 : a.k - b.k)).map((x) => x.i);
     batches.forEach((b) => {
       rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
       rows.push({ k: "head", v: HEAD });
       let sub = 0;
-      b.items.forEach((i) => {
+      inProdOrder(b.items).forEach((i) => {
         const s = Math.round(i.qty * i.price * 100) / 100; sub += s;
         rows.push({ k: "row", v: [n++, i.name, i.qty, i.unit, i.price, s] });
       });
