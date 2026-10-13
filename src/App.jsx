@@ -249,7 +249,7 @@ function EmployeeSelect({ value, onChange, employees, onAdded, data }) {
 }
 
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 /* Премиум-тема: спокойные графитовые нейтральные тона без чистого белого и чёрного + фирменный красный Thermo #ff1f30
    (активная вкладка, главные кнопки, акценты). Цифры — табличные, без моноширинного шрифта. */
 :root{
@@ -388,6 +388,72 @@ table.t tr:hover td{background:var(--hover)}
 .conf{font-variant-numeric:tabular-nums;font-weight:700;font-size:12px}
 .pick-row:hover{background-color:var(--acc-tint) !important}
 table.t td{position:static}
+
+/* ============ ТЕЛЕФОН: стиль в духе спортивного автобренда ============
+   Чистый белый / чёрный, крупные узкие заглавные заголовки с разрядкой, тонкие линии вместо теней,
+   прямые углы, меню на весь экран с плавным появлением пунктов, мягкие анимации появления. Красный — фирменный Thermo. */
+@keyframes fxRise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes fxFade{from{opacity:0}to{opacity:1}}
+@keyframes fxMenu{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+@keyframes fxItem{from{opacity:0;transform:translateX(-18px)}to{opacity:1;transform:none}}
+@keyframes fxLine{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@media(max-width:820px){
+  .te{--bg:#ffffff;--panel:#ffffff;--panel2:#f6f6f6;--line:#e8e8e8;--line2:#d4d4d4;--txt:#111111;--mut:#6b6b6b;--shadow:none;--hover:rgba(0,0,0,.03);
+      --hdr-bg:#000000;--hdr-txt:#ffffff;--hdr-mut:#9a9a9a;--hdr-line:#262626;--hdr-panel2:#111111;
+      --disp:'Barlow Condensed','Onest',system-ui,sans-serif}
+  .te.dark{--bg:#000000;--panel:#0b0b0b;--panel2:#141414;--line:#232323;--line2:#333333;--txt:#f2f2f2;--mut:#8f8f8f;--hover:rgba(255,255,255,.04)}
+  .te{font-size:14px;letter-spacing:.01em}
+  /* шапка */
+  .hdr{padding:14px 16px;border-bottom:1px solid #1f1f1f;gap:10px}
+  .hdr::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--acc);transform-origin:left;animation:fxLine .7s cubic-bezier(.2,.7,.2,1) both}
+  .logo{font-family:var(--disp);font-weight:700;font-size:20px;letter-spacing:.14em;text-transform:uppercase}
+  .logo small{font-family:var(--sans);font-size:8.5px;letter-spacing:.32em;margin-top:2px}
+  .hdr .btn{border-radius:0;background:transparent;border-color:#333;text-transform:uppercase;letter-spacing:.12em;font-size:10px;padding:6px 10px}
+  .burger{border-radius:0;background:transparent;border:1px solid #333;width:42px;height:42px;font-size:20px;transition:border-color .3s,color .3s}
+  .burger:active{border-color:var(--acc);color:var(--acc)}
+  /* меню на весь экран */
+  .tabs{position:fixed;top:var(--hdr-h,72px);left:0;right:0;bottom:0;padding:18px 22px 40px;background:#000;border:0;box-shadow:none;overflow:auto;animation:fxMenu .35s cubic-bezier(.2,.7,.2,1)}
+  .tab{font-family:var(--disp);font-size:26px;font-weight:600;text-transform:uppercase;letter-spacing:.12em;color:#f2f2f2;padding:16px 4px;border-radius:0;border-bottom:1px solid #1d1d1d;display:flex;justify-content:space-between;align-items:center;animation:fxItem .45s cubic-bezier(.2,.7,.2,1) backwards}
+  .tab::after{content:"›";font-size:26px;color:#555;transition:transform .3s,color .3s}
+  .tab:hover{background:none;color:#fff}
+  .tab.on{background:none;box-shadow:none;color:var(--acc)}
+  .tab.on::after{color:var(--acc);transform:translateX(4px)}
+  .tabs .tab:nth-child(1){animation-delay:.03s}.tabs .tab:nth-child(2){animation-delay:.06s}.tabs .tab:nth-child(3){animation-delay:.09s}
+  .tabs .tab:nth-child(4){animation-delay:.12s}.tabs .tab:nth-child(5){animation-delay:.15s}.tabs .tab:nth-child(6){animation-delay:.18s}
+  .tabs .tab:nth-child(7){animation-delay:.21s}.tabs .tab:nth-child(8){animation-delay:.24s}.tabs .tab:nth-child(9){animation-delay:.27s}.tabs .tab:nth-child(10){animation-delay:.3s}
+  /* страница */
+  .body{padding:18px 16px 40px;animation:fxFade .45s ease backwards}
+  h2{font-family:var(--disp);font-size:30px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;line-height:1.05;margin-bottom:6px}
+  h3{font-family:var(--disp);font-size:17px;font-weight:600;text-transform:uppercase;letter-spacing:.1em}
+  .card{border-radius:0;box-shadow:none;border-color:var(--line);animation:fxRise .5s cubic-bezier(.2,.7,.2,1) backwards}
+  .kpis{gap:0;border-top:1px solid var(--line);border-left:1px solid var(--line)}
+  .kpi{border-radius:0;box-shadow:none;border-width:0 1px 1px 0;padding:16px 14px;animation:fxRise .5s cubic-bezier(.2,.7,.2,1) backwards}
+  .kpis .kpi:nth-child(2){animation-delay:.05s}.kpis .kpi:nth-child(3){animation-delay:.1s}.kpis .kpi:nth-child(4){animation-delay:.15s}
+  .kpis .kpi:nth-child(5){animation-delay:.2s}.kpis .kpi:nth-child(6){animation-delay:.25s}.kpis .kpi:nth-child(n+7){animation-delay:.3s}
+  .kpi .l{font-size:10px;text-transform:uppercase;letter-spacing:.16em;font-weight:600}
+  .kpi .v{font-family:var(--disp);font-size:clamp(20px,6.4vw,28px);font-weight:600;letter-spacing:.02em;margin-top:6px;white-space:nowrap;line-height:1.1}
+  /* кнопки и поля */
+  .btn{border-radius:0;text-transform:uppercase;letter-spacing:.1em;font-size:11px;font-weight:600;padding:10px 14px;transition:background .25s,border-color .25s,color .25s,transform .15s}
+  .btn:active{transform:scale(.97)}
+  .btn.xs{border-radius:0;font-size:10px;padding:6px 9px}
+  .btn.pri{box-shadow:none}
+  .inp,select.inp,textarea.inp{border-radius:0;border-width:0 0 1px 0;background:transparent;padding:10px 2px;font-size:15px}
+  .inp:focus{box-shadow:none;border-color:var(--acc)}
+  .fld label{text-transform:uppercase;letter-spacing:.14em;font-size:10px}
+  /* таблицы, бейджи, окна */
+  table.t th{background:transparent;text-transform:uppercase;letter-spacing:.12em;font-size:10px;border-bottom:1px solid var(--txt)}
+  table.t td{padding:12px 10px}
+  .bdg{border-radius:0;text-transform:uppercase;letter-spacing:.06em;font-size:10px;white-space:nowrap}
+  .modal-bg{background:rgba(0,0,0,.6);backdrop-filter:none;padding:24px 0 0;z-index:200}
+  .modal{border-radius:0;border-width:0;min-height:calc(100vh - 24px);animation:fxRise .4s cubic-bezier(.2,.7,.2,1) backwards}
+  .modal > .row:first-child h3{font-size:20px}
+  .toast{border-radius:0;background:#000;color:#fff;border-color:#000;text-transform:none}
+  .steps .step{border-radius:0;text-transform:uppercase;letter-spacing:.1em;font-size:10px}
+  .calc{border-radius:0}.calc-k,.calc-scr{border-radius:0}.calc-main{font-family:var(--disp);font-size:34px}
+}
+@media(max-width:820px) and (prefers-reduced-motion:reduce){
+  .hdr::after,.tabs,.tab,.body,.card,.kpi,.modal{animation:none!important;opacity:1!important}
+}
 `;
 
 /* ============ DATA LAYER = Supabase (db из ./db.js) ============ */
@@ -7010,6 +7076,12 @@ function AppInner() {
   }, []);
   // при открытии мобильного меню шапка всегда видна, чтобы не закрывать список вкладок
   useEffect(() => { if (mobileMenuOpen) setHdrHidden(false); }, [mobileMenuOpen]);
+  // меню на весь экран (телефон) начинается сразу под шапкой
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const h = document.querySelector(".hdr");
+    if (h) document.documentElement.style.setProperty("--hdr-h", Math.round(h.getBoundingClientRect().bottom) + "px");
+  }, [mobileMenuOpen]);
   // перед восстановлением: подтверждение + автоматически скачиваем бэкап текущей базы
   const confirmRestore = async () => {
     if (!window.confirm("Восстановить базу из бэкапа?\n\nТекущие данные будут заменены содержимым бэкапа. Перед этим автоматически скачается бэкап текущей базы.")) return false;
@@ -7065,7 +7137,7 @@ function AppInner() {
         {role !== "driver" && <button className={"btn xs" + (calcOpen ? " pri" : "")} title="Калькулятор (управление цифровой клавиатурой)" onClick={() => setCalcOpen((v) => !v)}>🧮 Калькулятор</button>}
         <input ref={restoreRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={onRestore} />
       </div>
-      <div className="body" key={"tab" + tabNonce}>
+      <div className="body" key={tab + ":" + tabNonce}>
         {bootErr && <div className="card sect" style={{ borderColor: "var(--warn)", color: "var(--warn)" }}>Ошибка подключения к Supabase: {bootErr}</div>}
         {tab === "dash" && <Dashboard data={data} />}
         {tab === "objects" && <ObjectsTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} goRequest={() => setTab("request")} fin={role === "boss"} />}
