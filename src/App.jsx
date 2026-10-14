@@ -6776,53 +6776,77 @@ function LoginScreen({ users, onLogin, bootErr, onRetry }) {
 /* ============ КАЛЬКУЛЯТОР ============
    Кнопка «🧮 Калькулятор» в шапке. Пока окно открыто, им управляют цифровой клавиатурой справа (Num Lock):
    0–9, «,» / «.», + − * /, Enter — посчитать, Backspace — стереть, Delete — очистить, Esc — очистить / закрыть.
+   Корень и процент: кнопки «√» и «%» (клавиши R и %), скобки ( ).
+   «%» — как на обычном калькуляторе: 200 + 10% = 220, 200 − 10% = 180, 200 × 10% = 20, 50% = 0,5.
+   «√» ставится перед числом: 16 → √16 = 4; √(9+16) = 5.
    Если курсор стоит в поле ввода программы, клавиши идут в поле, а не в калькулятор. */
 const CALC_OPS = { "+": 1, "-": 1, "*": 2, "/": 2 };
 function calcEval(expr) {
-  const toks = String(expr).replace(/,/g, ".").match(/\d+\.?\d*|\.\d+|[-+*/()]/g) || [];
+  const toks = String(expr).replace(/,/g, ".").match(/\d+\.?\d*|\.\d+|[-+*/()√%]/g) || [];
   const out = [], st = [];
   let prev = null;
   for (const t of toks) {
     if (/[\d.]/.test(t[0])) out.push(Number(t));
-    else if (t === "(") st.push(t);
-    else if (t === ")") { while (st.length && st[st.length - 1] !== "(") out.push(st.pop()); st.pop(); }
+    else if (t === "%") out.push("%"); // постфиксный — сразу в выход
+    else if (t === "√" || t === "(") st.push(t); // префиксный корень ждёт своё число
+    else if (t === ")") { while (st.length && st[st.length - 1] !== "(") out.push(st.pop()); st.pop(); while (st.length && st[st.length - 1] === "√") out.push(st.pop()); }
     else {
-      if (t === "-" && (prev === null || (prev in CALC_OPS) || prev === "(")) { out.push(0); }
-      while (st.length && st[st.length - 1] in CALC_OPS && CALC_OPS[st[st.length - 1]] >= CALC_OPS[t]) out.push(st.pop());
+      if (t === "-" && (prev === null || (prev in CALC_OPS) || prev === "(" || prev === "√")) { out.push(0); }
+      while (st.length && (st[st.length - 1] === "√" || (st[st.length - 1] in CALC_OPS && CALC_OPS[st[st.length - 1]] >= CALC_OPS[t]))) out.push(st.pop());
       st.push(t);
     }
     prev = t;
   }
   while (st.length) out.push(st.pop());
+  // процент хранится как { p: число }: при + и − — это доля от левого числа, иначе — число / 100
+  const val = (x) => (x && typeof x === "object" ? x.p / 100 : x);
   const v = [];
   for (const x of out) {
     if (typeof x === "number") { v.push(x); continue; }
     if (x === "(") continue;
-    const b = v.pop(), a = v.pop();
-    if (a == null || b == null) return null;
-    v.push(x === "+" ? a + b : x === "-" ? a - b : x === "*" ? a * b : b === 0 ? NaN : a / b);
+    if (x === "%") { const a = v.pop(); if (a == null) return null; v.push({ p: val(a) }); continue; }
+    if (x === "√") { const a = v.pop(); if (a == null) return null; const n = val(a); v.push(n < 0 ? NaN : Math.sqrt(n)); continue; }
+    const b = v.pop(), a0 = v.pop();
+    if (a0 == null || b == null) return null;
+    const a = val(a0);
+    const bv = (x === "+" || x === "-") && typeof b === "object" ? a * b.p / 100 : val(b);
+    v.push(x === "+" ? a + bv : x === "-" ? a - bv : x === "*" ? a * bv : bv === 0 ? NaN : a / bv);
   }
-  return v.length === 1 && isFinite(v[0]) ? Math.round(v[0] * 1e10) / 1e10 : null;
+  const r = v.length === 1 ? val(v[0]) : null;
+  return r != null && isFinite(r) ? Math.round(r * 1e10) / 1e10 : null;
 }
-const calcShow = (e) => String(e).replace(/\*/g, " × ").replace(/\//g, " ÷ ").replace(/(\d)\+/g, "$1 + ").replace(/(\d)-/g, "$1 − ").replace(/\./g, ",");
+const calcShow = (e) => String(e).replace(/\*/g, " × ").replace(/\//g, " ÷ ").replace(/([\d%)])\+/g, "$1 + ").replace(/([\d%)])-/g, "$1 − ").replace(/\./g, ",");
 const calcNum = (n) => (n == null ? "" : n.toLocaleString("ru-RU", { maximumFractionDigits: 10 }));
 function Calculator({ onClose }) {
   const [expr, setExpr] = useState("");
   const [last, setLast] = useState(null); // { expr, res } — после «=»
-  const live = useMemo(() => (expr && /[-+*/]/.test(expr.replace(/^-/, "")) ? calcEval(expr) : null), [expr]);
+  const live = useMemo(() => (expr && /[-+*/√%]/.test(expr.replace(/^-/, "")) ? calcEval(expr) : null), [expr]);
   const press = (k) => {
     if (k === "C") { setExpr(""); setLast(null); return; }
     if (k === "⌫") { setExpr((e) => e.slice(0, -1)); return; }
     if (k === "=") { const r = calcEval(expr); if (r != null && expr) { setLast({ expr, res: r }); setExpr(String(r)); } return; }
     setExpr((e) => {
-      if (last && e === String(last.res) && /[\d.]/.test(k)) { setLast(null); return k === "." ? "0." : k; } // новое число после «=»
+      const afterEq = last && e === String(last.res);
+      if (afterEq && /[\d.(]/.test(k)) { setLast(null); return k === "." ? "0." : k; } // новое число после «=»
+      const endNum = /[\d.]$/.test(e), endClose = /[%)]$/.test(e);
       if (k in CALC_OPS) {
         if (!e) return k === "-" ? "-" : e;
+        if (/[√(]$/.test(e)) return k === "-" && /\($/.test(e) ? e + k : e; // после «√» и «(» — только минус в скобке
         if (/[-+*/]$/.test(e)) return e.slice(0, -1) + k; // заменить знак
         return e + k;
       }
-      if (k === ".") { const seg = e.split(/[-+*/]/).pop(); if (seg.includes(".")) return e; return e + (seg ? "." : "0."); }
-      return e + k;
+      if (k === "%") return endNum || /\)$/.test(e) ? e + "%" : e;
+      if (k === "√") {
+        if (endNum) return e.replace(/(\d+\.?\d*|\.\d+)$/, "√$1"); // корень из уже набранного числа
+        return e + (endClose ? "*√" : "√");
+      }
+      if (k === "(") return e + (endNum || endClose ? "*(" : "(");
+      if (k === ")") {
+        const open = (e.match(/\(/g) || []).length - (e.match(/\)/g) || []).length;
+        return open > 0 && (endNum || endClose) ? e + ")" : e;
+      }
+      if (k === ".") { const seg = e.split(/[-+*/√%()]/).pop(); if (seg.includes(".")) return e; return e + (endClose ? "*" : "") + (seg ? "." : "0."); }
+      return e + (endClose ? "*" : "") + k;
     });
   };
   const pressRef = useRef(press); pressRef.current = press;
@@ -6838,7 +6862,8 @@ function Calculator({ onClose }) {
       else if (NP[e.code]) k = NP[e.code];
       else if (/^[0-9]$/.test(e.key)) k = e.key;
       else if (e.key === "." || e.key === "," || e.code === "NumpadDecimal") k = ".";
-      else if (e.key === "+" || e.key === "-" || e.key === "*" || e.key === "/") k = e.key;
+      else if (e.key === "+" || e.key === "-" || e.key === "*" || e.key === "/" || e.key === "%" || e.key === "(" || e.key === ")") k = e.key;
+      else if (e.code === "KeyR" && !e.shiftKey) k = "√";
       else if (e.key === "Enter" || e.key === "=") k = "=";
       else if (e.key === "Backspace") k = "⌫";
       else if (e.key === "Delete") k = "C";
@@ -6867,13 +6892,14 @@ function Calculator({ onClose }) {
         <div className="calc-main">{main}</div>
       </div>
       <div className="calc-grid">
+        <K k="√" cls="op" /><K k="%" cls="op" /><K k="(" cls="fn" /><K k=")" cls="fn" />
         <K k="C" cls="fn" /><K k="⌫" cls="fn" /><K k="/" label="÷" cls="op" /><K k="*" label="×" cls="op" />
         <K k="7" /><K k="8" /><K k="9" /><K k="-" label="−" cls="op" />
         <K k="4" /><K k="5" /><K k="6" /><K k="+" cls="op" />
         <K k="1" /><K k="2" /><K k="3" /><K k="=" cls="eq" />
-        <K k="0" span={2} /><K k="." label="," /><span />
+        <K k="0" span={2} /><K k="." label="," />
       </div>
-      <div className="xs mut" style={{ marginTop: 8, lineHeight: 1.4 }}>Alt+X — открыть / закрыть. Цифровая клавиатура: цифры, + − * /, Enter = , Backspace, Delete — очистить, Esc — закрыть</div>
+      <div className="xs mut" style={{ marginTop: 8, lineHeight: 1.4 }}>Alt+X — открыть / закрыть. Цифровая клавиатура: цифры, + − * /, Enter = , Backspace, Delete — очистить, Esc — закрыть. √ — клавиша R, % — Shift+5: 200 + 10% = 220</div>
     </div>
   );
 }
