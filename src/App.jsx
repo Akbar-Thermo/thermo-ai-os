@@ -6886,6 +6886,13 @@ const INTRO_CSS = `
 @media(prefers-reduced-motion:reduce){.intro,.intro.out,.intro-mark,.intro-mark .t,.intro-mark .e,.intro-line{animation-duration:.01s;animation-delay:0s}}
 `;
 function Intro({ out = false, onDone }) {
+  // пока идёт заставка, у страницы нет полосы прокрутки (иначе справа видна полоса от страницы под занавесом)
+  useEffect(() => {
+    const h = document.documentElement, b = document.body;
+    const prev = [h.style.overflow, b.style.overflow];
+    h.style.overflow = "hidden"; b.style.overflow = "hidden";
+    return () => { h.style.overflow = prev[0]; b.style.overflow = prev[1]; };
+  }, []);
   return (
     <div className={"intro" + (out ? " out" : "")} aria-hidden="true" onAnimationEnd={(e) => { if (out && e.target === e.currentTarget && e.animationName === "introLift" && onDone) onDone(); }}>
       <style>{INTRO_CSS}</style>
