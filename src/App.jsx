@@ -100,12 +100,11 @@ const SEGMENTS = ["эконом", "комфорт", "премиум"];
 const SEG_LABEL = { "эконом": "Эконом", "комфорт": "Стандарт", "премиум": "Премиум" };
 const SEG_COLOR = { "эконом": "var(--t-info)", "комфорт": "var(--t-strong)", "премиум": "var(--t-violet)" };
 const supSeg = (sup) => (sup && SEGMENTS.includes(sup.segment) ? sup.segment : "комфорт");
-// статусы объекта: «Тов. пол. от пост.» (id approved) — склад, долг поставщикам, доставка и долг клиента;
-// «Оплата» (id payment) и «Оплачено» (id paid, ставится сам при оплате 100%) — ещё продажи, прибыль, оплаты клиента, дашборд, бонусы. «Черновик» и «На тендере» — объект виден, но ни на что не влияет.
+// статусы объекта: «Согласовано» (id approved) — склад, долг поставщикам, доставка и долг клиента;
+// «Оплата» (id payment) и «Оплачено» (id paid, ставится сам при оплате 100%) — ещё продажи, прибыль, оплаты клиента, дашборд, бонусы. «Черновик» (и старый «На тендере») — объект виден, но ни на что не влияет.
 const OBJ_STATUSES = [
   { id: "draft", label: "Черновик", c: "var(--t-neutral)" },
-  { id: "tender", label: "На тендере", c: "var(--t-warn)" },
-  { id: "approved", label: "Тов. пол. от пост.", c: "var(--t-strong)" },
+  { id: "approved", label: "Согласовано", c: "var(--t-strong)" },
   { id: "payment", label: "Оплата", c: "var(--t-info)" },
   // «Оплачено» ставится сам, когда клиент оплатил 100%; вручную — только при оплате 100%
   { id: "paid", label: "Оплачено", c: "var(--t-ok)" },
@@ -113,7 +112,7 @@ const OBJ_STATUSES = [
 const IDLE_STATUSES = ["draft", "tender", "cancelled"];
 const isLive = (o) => !!o && !IDLE_STATUSES.includes(o.status || "draft");
 // продажи, прибыль, оплаты клиента и дашборд — только со статуса «Оплата» / «Оплачено» (и у старых статусов «Закрыто/…»);
-// в «Тов. пол. от пост.» объект влияет на склад, долг поставщикам, доставку и долг клиента (оплаты пока не учитываются)
+// в «Согласовано» объект влияет на склад, долг поставщикам, доставку и долг клиента (оплаты пока не учитываются)
 const payLive = (o) => isLive(o) && o.status !== "approved";
 const OP_TYPES = [
   { id: "client_payment", label: "Оплата клиента" },
@@ -581,6 +580,7 @@ const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); retur
 const isShipped = (i) => !!i && i.shipped !== false;
 // убранные статусы: у старых объектов показываются как есть, в списках выбора — только если объект уже в таком статусе
 const OLD_STATUSES = [
+  { id: "tender", label: "На тендере (старый статус)", c: "var(--t-warn)" },
   { id: "review", label: "На проверке (старый статус)", c: "var(--t-neutral)" },
   { id: "waiting", label: "В ожидании (старый статус)", c: "var(--t-neutral)" },
   { id: "partial", label: "Частично оплачено (старый статус)", c: "var(--t-neutral)" },
@@ -810,9 +810,9 @@ async function whTakePending(obj) {
   const fail = lines.length ? await warehouseOut(lines, obj, curUserName()) : 0;
   return { ids: pend.map((i) => i.id), short, fail };
 }
-// объект снова «Черновик» / «На тендере»: товар со склада возвращается на склад и ждёт согласования
+// объект снова «Черновик»: товар со склада возвращается на склад и ждёт согласования
 // (то, что клиент уже вернул по позиции, на склад уже пришло — его не считаем)
-async function whReturnLive(obj, ops, note = "объект снова «Черновик» / «На тендере» — товар вернулся на склад") {
+async function whReturnLive(obj, ops, note = "объект снова «Черновик» — товар вернулся на склад") {
   const back = {};
   (ops || []).forEach((x) => { if (x.type === "return" && !x.voided && x.object_id === obj.id && x.item_id) back[x.item_id] = (back[x.item_id] || 0) + (Number(x.qty) || 0); });
   const live = (obj.items || []).filter((i) => i.from_warehouse && !i.wh_pending);
@@ -3723,7 +3723,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
                   <td className="num">{fmt(f.saleNet)}</td>
                   {isLive(o)
                     ? <td className="num" style={{ color: f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--ok)" : "var(--mut)" }}>{f.clientDebt < 0 ? "−" + fmt(Math.abs(f.clientDebt)) : fmt(f.clientDebt)}</td>
-                    : <td className="num mut" title="«Черновик» / «На тендере» — долг клиента не учитывается">—</td>}
+                    : <td className="num mut" title="«Черновик» — долг клиента не учитывается">—</td>}
                   <td className="xs mut mono">{dt(o.created_at)}</td>
                   <td style={{ whiteSpace: "nowrap" }}><button className="btn xs" title="Изменить объект" onClick={(e) => { e.stopPropagation(); setEditO(o); }}>✎</button>{canDelete(o) ? <> <button className="btn xs dng" title="Удалить объект" onClick={(e) => { e.stopPropagation(); setDelObj(o); }}>✕</button></> : null}</td>
                 </tr>
@@ -3846,7 +3846,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     await reload();
     return !r.error;
   };
-  // смена статуса: «Тов. пол. от пост.» / «Оплата» / «Оплачено» — товар со склада списывается; назад в «Черновик»/«На тендере» — возвращается на склад
+  // смена статуса: «Согласовано» / «Оплата» / «Оплачено» — товар со склада списывается; назад в «Черновик» — возвращается на склад
   // статус не «Черновик» — позиции объекта выстраиваются в порядке «Товары»
   const orderItems = (s, cur) => (s !== "draft" ? itemsInCatalogOrder(cur, products) : cur);
   const setStatus = async (s) => {
@@ -3871,7 +3871,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     }
     if (ok) {
       await logAction("Статус объекта: " + stById(s).label, "object:" + obj.name, "было: " + stById(obj.status).label + (note ? "; " + note : ""));
-      toast(will ? (s === "approved" ? "Товар получен от поставщика — учитывается на складе, в долге поставщикам и в долге клиента" : "Статус «" + stById(s).label + "» — учитываются продажа, прибыль, оплаты и долг клиента") + (note ? ". " + note : "") : "Статус «" + stById(s).label + "» — объект не влияет на долги, склад и отчёты" + (note ? ". " + note : ""));
+      toast(will ? (s === "approved" ? "Статус «Согласовано» — учитывается на складе, в долге поставщикам и в долге клиента" : "Статус «" + stById(s).label + "» — учитываются продажа, прибыль, оплаты и долг клиента") + (note ? ". " + note : "") : "Статус «" + stById(s).label + "» — объект не влияет на долги, склад и отчёты" + (note ? ". " + note : ""));
     }
     await reload();
   };
@@ -4200,12 +4200,12 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
 
       {!isLive(obj) && (
         <div className="card sect" style={{ borderColor: "var(--warn)", padding: "10px 14px" }}>
-          <span className="sm">Статус «{stById(obj.status).label}» — объект <b>не влияет</b> на долги клиента и поставщикам, Склад Thermo, дашборд, доставку и бонусы. Поставьте «Тов. пол. от пост.», когда товар получен от поставщика.</span>
+          <span className="sm">Статус «{stById(obj.status).label}» — объект <b>не влияет</b> на долги клиента и поставщикам, Склад Thermo, дашборд, доставку и бонусы. Поставьте «Согласовано», когда сделка согласована.</span>
         </div>
       )}
       {obj.status === "approved" && (
         <div className="card sect" style={{ borderColor: "var(--line2)", padding: "10px 14px" }}>
-          <span className="sm">Статус «Тов. пол. от пост.» (товар получен от поставщика): учитывается на складе и в долге поставщикам. Долг клиента уже учитывается, но <b>продажа, прибыль и оплаты пока не учитываются</b> — поставьте статус «Оплата».</span>
+          <span className="sm">Статус «Согласовано»: учитывается на складе и в долге поставщикам. Долг клиента уже учитывается, но <b>продажа, прибыль и оплаты пока не учитываются</b> — поставьте статус «Оплата».</span>
           {f.paidIgnored > 0 && <div className="sm" style={{ color: "var(--warn)", marginTop: 4 }}>⚠ По объекту уже записано оплат на {fmt2(f.paidIgnored)} — они начнут учитываться после статуса «Оплата».</div>}
         </div>
       )}
@@ -4466,7 +4466,7 @@ function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem,
   return (
     <tr>
       <td style={{ width: 28, paddingRight: 0, verticalAlign: "middle" }}><MarkDot value={mk} onClick={async () => { const nx = nextMark(mk); setMk(nx); if (!(await setItemMark(i.id, nx))) setMk(i.mark || ""); }} /></td>
-      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «Тов. пол. от пост.»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}</td>
+      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «Согласовано»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}</td>
       <td><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)}
         onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (v !== Number(i.qty)) { if (!(await setItemQty(i.id, v))) setQty(i.qty); } else setQty(i.qty); }} /></td>
       <td className="sm">{i.unit}</td>
@@ -6071,7 +6071,7 @@ function Dashboard({ data }) {
     const upTo = (d) => !cut || String(d || "").slice(0, 10) <= cut;
     const opD = (x) => x.op_date || x.created_at;
     let cdebt = 0, overpay = 0, sdebt = 0;
-    const objOk = (o) => isLive(o) && (!mgr || (o.manager || "") === mgr); // долг клиента — со статуса «Тов. пол. от пост.»
+    const objOk = (o) => isLive(o) && (!mgr || (o.manager || "") === mgr); // долг клиента — со статуса «Согласовано»
     const objById = {}; objects.forEach((o) => { objById[o.id] = o; });
     // клиенты: по каждому объекту (оплаты учитываются только со статуса «Оплата»), долг/переплата — по клиенту
     const byClient = {};
