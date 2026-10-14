@@ -381,6 +381,11 @@ table.t tr:hover td{background:var(--hover)}
 .busydots span{display:inline-block;width:5px;height:5px;margin:0 2px;border-radius:50%;background:var(--acc);animation:busydot 1.2s infinite}
 .busydots span:nth-child(2){animation-delay:.15s}.busydots span:nth-child(3){animation-delay:.3s}
 @media(prefers-reduced-motion:reduce){.busyring .r1,.busyring .r2,.busyring .logo,.busydots span{animation-duration:3s}}
+.ioshint{position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));z-index:950;display:flex;align-items:flex-start;gap:10px;max-width:520px;margin:0 auto;padding:12px;border-radius:16px;background:var(--panel);border:1px solid var(--line2);box-shadow:0 18px 50px rgba(0,0,0,.35);font-family:var(--sans);color:var(--txt);font-size:13px;line-height:1.45;-webkit-font-smoothing:antialiased;animation:fxRise .35s cubic-bezier(.16,1,.3,1) backwards}
+.ioshint img{border-radius:10px;flex:none}
+.ioshint-t{flex:1;min-width:0}
+.ioshint-t div{margin-top:4px;color:var(--mut)}
+.ioshint-t div b{color:var(--txt)}
 .calc{position:fixed;right:18px;top:120px;z-index:900;width:280px;padding:12px;border-radius:16px;background:var(--panel);border:1px solid var(--line2);box-shadow:0 24px 60px rgba(0,0,0,.35)}
 .calc-scr{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;text-align:right;min-height:64px}
 .calc-sub{min-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -6947,6 +6952,47 @@ function Intro({ out = false, onDone }) {
   );
 }
 
+/* ============ УСТАНОВКА НА IPHONE ============
+   На iPhone нет кнопки «Установить»: ярлык делается вручную — Safari → «Поделиться» → «На экран „Домой“».
+   Подсказка показывается только на iPhone/iPad, если сайт открыт в браузере (не с ярлыка). ✕ — больше не показывать. */
+const IOS_HINT_KEY = "te_ios_hint_off";
+function iosHintState() {
+  try {
+    const ua = navigator.userAgent || "";
+    const ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    if (!ios) return null;
+    const standalone = navigator.standalone === true || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+    if (standalone) return null;
+    let off = false; try { off = localStorage.getItem(IOS_HINT_KEY) === "1"; } catch (e) {}
+    if (off) return null;
+    if (/CriOS|EdgiOS/.test(ua)) return "chrome";
+    if (/FxiOS|OPiOS|YaBrowser|GSA\/|Telegram|Instagram|FBAN|FBAV/.test(ua)) return "other";
+    return "safari";
+  } catch (e) { return null; }
+}
+const ShareIco = () => (
+  <svg width="15" height="17" viewBox="0 0 15 19" style={{ verticalAlign: "-3px", margin: "0 2px" }} aria-label="Поделиться" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M7.5 1.5v10M4 5l3.5-3.5L11 5" /><path d="M5 8H2.5v9h10V8H10" />
+  </svg>
+);
+function IosInstallHint() {
+  const [mode, setMode] = useState(() => iosHintState());
+  if (!mode) return null;
+  const close = () => { try { localStorage.setItem(IOS_HINT_KEY, "1"); } catch (e) {} setMode(null); };
+  return (
+    <div className="ioshint" role="note">
+      <img src="/apple-touch-icon.png" alt="" width="42" height="42" />
+      <div className="ioshint-t">
+        <b>Установите Thermo на iPhone</b> — значок TE на экране, вход в одно касание, без ссылки.
+        {mode === "safari" && <div>Нажмите <ShareIco /> «Поделиться» внизу экрана → <b>«На экран „Домой“»</b> → «Добавить».</div>}
+        {mode === "chrome" && <div>Нажмите <ShareIco /> «Поделиться» справа в адресной строке → <b>«На экран „Домой“»</b> → «Добавить». Если такого пункта нет — откройте ссылку в Safari.</div>}
+        {mode === "other" && <div>Откройте эту страницу в <b>Safari</b> (меню «…» → «Открыть в Safari»), затем <ShareIco /> «Поделиться» → <b>«На экран „Домой“»</b>.</div>}
+      </div>
+      <button type="button" className="btn xs" onClick={close} title="Больше не показывать">✕</button>
+    </div>
+  );
+}
+
 /* ============ APP ============ */
 class ErrBoundary extends React.Component {
   constructor(p) { super(p); this.state = { err: null }; }
@@ -7241,7 +7287,7 @@ function AppInner() {
   // заставка всегда второй элемент верхнего уровня — один и тот же экземпляр, анимация не начинается заново
   const intro = !ready ? <Intro /> : introGone ? null : <Intro out={introOut} onDone={() => setIntroGone(true)} />;
   if (!ready) return <>{null}{intro}</>;
-  if (!currentUser) return <>{<LoginScreen users={data.users || []} onLogin={doLogin} bootErr={bootErr} onRetry={() => { setReady(false); boot(); }} />}{intro}</>;
+  if (!currentUser) return <>{<LoginScreen users={data.users || []} onLogin={doLogin} bootErr={bootErr} onRetry={() => { setReady(false); boot(); }} />}{intro}<IosInstallHint /></>;
   return (<>
     <PeopleCtx.Provider value={peopleCtx}>
     <div className={"te" + (darkMode ? " dark" : "")}>
@@ -7306,6 +7352,7 @@ function AppInner() {
       {msg && <div className="toast">{msg}</div>}
       {dbErr && <div className="toast" role="alert" title="Нажмите, чтобы закрыть" onClick={() => setDbErr("")}
         style={{ bottom: msg ? 84 : 20, borderColor: "var(--bad)", color: "var(--bad)", maxWidth: 460, cursor: "pointer" }}>⚠ {dbErr}</div>}
+      <IosInstallHint />
     </div>
     </PeopleCtx.Provider>
     {intro}
