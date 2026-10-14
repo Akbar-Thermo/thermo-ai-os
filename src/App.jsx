@@ -362,13 +362,14 @@ table.t tr:hover td{background:var(--hover)}
 @keyframes busydot{0%,80%,100%{opacity:.2;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
 .busyte{display:flex;flex-direction:column;align-items:center;animation:busyIn .35s cubic-bezier(.16,1,.3,1) both}
 .busyte svg{overflow:visible;filter:drop-shadow(0 6px 24px rgba(0,0,0,.45))}
-.busyte path{fill:#f3f0ea;fill-opacity:0;stroke:#f3f0ea;stroke-width:4;stroke-linejoin:miter;stroke-dasharray:100;stroke-dashoffset:100;animation:busyDraw 2.2s cubic-bezier(.65,0,.35,1) infinite}
+.busyte path{fill:#fff;fill-opacity:0;stroke:#fff;stroke-width:3;stroke-linejoin:round;stroke-dasharray:100;stroke-dashoffset:100;animation:busyDraw 2.2s cubic-bezier(.65,0,.35,1) infinite}
 .busyte path.be{animation-delay:.18s}
-.busyte .br{fill:#ff1f30;transform-box:fill-box;transform-origin:left center;transform:scaleX(0);animation:busyBar 2.2s cubic-bezier(.65,0,.35,1) infinite}
+.busyline{position:relative;width:110px;height:3px;margin-top:6px;overflow:hidden;border-radius:2px;background:rgba(255,255,255,.12)}
+.busyline i{position:absolute;top:0;left:0;height:100%;width:45%;background:#ff1f30;border-radius:2px;animation:busySweep 1.1s cubic-bezier(.65,0,.35,1) infinite alternate}
 @keyframes busyIn{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
 @keyframes busyDraw{0%{stroke-dashoffset:100;fill-opacity:0}40%{stroke-dashoffset:0;fill-opacity:0}55%{fill-opacity:1}80%{stroke-dashoffset:0;fill-opacity:1}100%{stroke-dashoffset:-100;fill-opacity:0}}
-@keyframes busyBar{0%{transform:scaleX(0);transform-origin:left center}45%{transform:scaleX(1);transform-origin:left center}80%{transform:scaleX(1);transform-origin:right center}100%{transform:scaleX(0);transform-origin:right center}}
-@media(prefers-reduced-motion:reduce){.busyte path{animation:none;stroke-dashoffset:0;fill-opacity:1}.busyte .br{animation:none;transform:none}}
+@keyframes busySweep{from{transform:translateX(-10%)}to{transform:translateX(132%)}}
+@media(prefers-reduced-motion:reduce){.busyte path{animation:none;stroke-dashoffset:0;fill-opacity:1}.busyline i{animation-duration:3s}}
 .busycard{display:flex;flex-direction:column;align-items:center;gap:16px;padding:28px 38px 24px;border-radius:22px;background:var(--panel);border:1px solid var(--line);box-shadow:0 28px 80px rgba(0,0,0,.4),0 0 0 1px rgba(255,31,48,.08);animation:busypop .28s cubic-bezier(.2,.9,.3,1.2)}
 .busyring{position:relative;width:84px;height:84px}
 .busyring .r1{position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,transparent 0deg,rgba(255,31,48,.15) 90deg,var(--acc) 330deg,transparent 360deg);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px));mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px));animation:busyspin .9s linear infinite}
@@ -1499,13 +1500,15 @@ function BusyIndicator() {
     <>
       <div className="busybar"><i /></div>
       <div className="busywrap" role="status" aria-live="polite" aria-label={slow ? "Связь медленная — данные ещё загружаются" : "Подождите, система работает"}>
-        {/* знак «TE» как на иконке приложения: буквы прорисовываются контуром и заливаются, красная черта под ними растёт и уходит — по кругу */}
+        {/* только знак «TE»: буквы прорисовываются контуром, заливаются, под ними пробегает красная линия — по кругу */}
         <div className="busyte">
-          <svg viewBox="-12 -12 251 231" width="132" height="121">
-            <path className="bt" pathLength="100" d="M0 0H116V29H76V151H40V29H0Z" />
-            <path className="be" pathLength="100" d="M135 0H227V29H171V60H220V89H171V122H227V151H135Z" />
-            <rect className="br" x="7" y="182" width="218" height="25" rx="12.5" />
+          <svg viewBox="0 0 300 260" width="150" height="130">
+            <g transform="translate(150 128) scale(0.96) translate(-143 -126.5)">
+              <path className="bt" pathLength="100" d="M39 26H240A28 28 0 0 1 268 54V56H124V193L95 227V56H18Z" />
+              <path className="be" pathLength="100" d="M145 85H263L244 115H175V154H262L244 181H145Z" />
+            </g>
           </svg>
+          <div className="busyline"><i /></div>
         </div>
       </div>
     </>
