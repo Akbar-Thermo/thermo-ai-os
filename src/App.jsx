@@ -4675,12 +4675,13 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
 }
 function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty = {} }) {
   const [rows, setRows] = useState([]);
-  const addRow = (r) => setRows([...rows, r]);
+  // новая строка — сверху списка; в объект строки сохраняются в порядке добавления
+  const addRow = (r) => setRows((prev) => [{ ...r, _k: uuid() }, ...prev]);
   const blank = () => addRow({ product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: 0, price: 0, supplier_id: "" });
   const upd = (i, k, val) => setRows(rows.map((r, j) => (j === i ? { ...r, [k]: val } : r)));
   const del = (i) => setRows(rows.filter((_, j) => j !== i));
   const total = rows.reduce((a, r) => a + parseNum(r.qty) * parseNum(r.price), 0);
-  const valid = rows.filter((r) => String(r.name || "").trim() && parseNum(r.qty) > 0);
+  const valid = rows.filter((r) => String(r.name || "").trim() && parseNum(r.qty) > 0).reverse().map(({ _k, ...r }) => r);
   const [busy, setBusy] = useState(false);
   const [askCancel, setAskCancel] = useState(false);
   const tryClose = () => setAskCancel(true);
@@ -4696,7 +4697,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
           <thead><tr><th>Наименование</th><th style={{width:70}}>Ед.</th><th style={{width:80}}>Кол-во</th><th style={{width:110}}>Цена</th><th style={{width:140}}>Поставщик</th><th></th></tr></thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={i}>
+              <tr key={r._k || i}>
                 <td><input className="inp" value={r.name} onChange={(e) => upd(i, "name", e.target.value)} />
                   {r.product_id && whQty[r.product_id] ? <label className="row xs" style={{ gap: 5, marginTop: 3, cursor: "pointer", color: r.fromWh !== false ? "var(--ok)" : "var(--mut)", fontWeight: 700 }}>
                     <input type="checkbox" checked={r.fromWh !== false} onChange={(e) => upd(i, "fromWh", e.target.checked)} />
