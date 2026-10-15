@@ -10,9 +10,31 @@
 import { createClient } from "@supabase/supabase-js";
 
 // .env: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY
+// Сессия входа (когда в базе включена защита): токен уходит с каждым запросом в заголовке x-te-session.
+// Ответ «te_session_required» (сессия истекла / аккаунт отключён) — событие te-session-lost, программа просит войти снова.
+let TE_SESSION = null;
+export const setSession = (t) => { TE_SESSION = t || null; };
+export const getSession = () => TE_SESSION;
+const teFetch = (input, init = {}) => {
+  let opts = init;
+  if (TE_SESSION) {
+    const h = new Headers(init.headers || (typeof Request !== "undefined" && input instanceof Request ? input.headers : undefined));
+    h.set("x-te-session", TE_SESSION);
+    opts = { ...init, headers: h };
+  }
+  return fetch(input, opts).then((res) => {
+    if (!res.ok && (res.status === 401 || res.status === 403)) {
+      res.clone().json().then((j) => {
+        if (j && /te_session_required/.test(String(j.message || ""))) { try { window.dispatchEvent(new Event("te-session-lost")); } catch (e) {} }
+      }).catch(() => {});
+    }
+    return res;
+  });
+};
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
+  import.meta.env.VITE_SUPABASE_ANON_KEY,
+  { global: { fetch: teFetch } }
 );
 
 class Query {

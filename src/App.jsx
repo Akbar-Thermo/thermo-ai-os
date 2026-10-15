@@ -3,6 +3,20 @@ import * as XLSX from "xlsx";
 import * as dbModule from "./db.js";
 // «сырой» клиент Supabase (db.js экспортирует его рядом с db) — нужен для постраничной загрузки (.range) и массового удаления (.in)
 const sb = dbModule.supabase || null;
+/* Защита базы (supabase/secure/01_sessions.sql): вход проверяет сервер (te_login), сайт получает токен сессии
+   и отправляет его с каждым запросом; без входа база не читается. Пока защита в базе не включена, программа
+   работает по-старому (вход проверяется в браузере). Режим определяется при запуске: есть ли функция te_status. */
+let SECURE = false;
+const setDbSession = (t) => { if (dbModule.setSession) dbModule.setSession(t); };
+async function detectSecure() {
+  if (!sb || typeof sb.rpc !== "function") return { secure: false };
+  const { data, error } = await sb.rpc("te_status");
+  if (!error && data && data.secure) return { secure: true, seed: !!data.seed };
+  // функции нет — защита ещё не включена (старый режим); другая ошибка — нет связи
+  if (error && (error.code === "PGRST202" || /could not find the function|schema cache/i.test(String(error.message || "")))) return { secure: false };
+  if (error) throw new Error(error.message || String(error));
+  return { secure: false };
+}
 /* ---- Надёжная запись в базу ----
    1) Если в таблице Supabase нет какой-то колонки (ошибка PGRST204), запись повторяется без неё.
       Раньше такая запись целиком молча не сохранялась, а на экране всё равно писалось «Сохранено».
@@ -481,6 +495,13 @@ async function freshDump(note) {
   if (note) dump._note = note;
   const res = await Promise.all(TABLES.map((t) => fetchAllRows(t)));
   TABLES.forEach((t, i) => { dump.tables[t] = res[i]; });
+  // защищённый режим: пароли хранятся отдельно — руководителю они добавляются в бэкап (восстановление вернёт их)
+  if (SECURE && sb && dump.tables.users) {
+    try {
+      const { data, error } = await sb.rpc("te_user_hashes");
+      if (!error && data) dump.tables.users = dump.tables.users.map((u) => (data[u.id] ? { ...u, ...data[u.id] } : u));
+    } catch (e) {}
+  }
   return dump;
 }
 /* Загрузка ВСЕХ строк таблицы без лимита 1000.
@@ -6735,7 +6756,7 @@ function UserForm({ u, users, self, onClose, onSave }) {
     </Modal>
   );
 }
-function LoginScreen({ users, onLogin, bootErr, onRetry }) {
+function LoginScreen({ users, onLogin, bootErr, onRetry, secure = false, seed = false, note = "" }) {
   const [username, setUsername] = useState("");
   const [pw, setPw] = useState("");
   const [show, setShow] = useState(false);
@@ -6743,6 +6764,16 @@ function LoginScreen({ users, onLogin, bootErr, onRetry }) {
   const [busy, setBusy] = useState(false);
   const submit = async () => {
     setBusy(true); setErr("");
+    if (secure) {
+      // вход проверяет сервер: пароль (хэш) не сравнивается в браузере, список аккаунтов сюда не загружается
+      try {
+        const { data, error } = await sb.rpc("te_login", { p_username: username.trim(), p_hash: await hashPass(pw) });
+        if (error) setErr("Нет связи с базой данных: " + (error.message || error));
+        else if (!data || data.error) setErr(data && data.error === "locked" ? "Слишком много неверных попыток — вход для этого логина закрыт на 15 минут" : data && data.error === "disabled" ? "Аккаунт отключён" : "Неверный логин или пароль");
+        else { await onLogin(data.user, data.token); return; }
+      } catch (e) { setErr("Нет связи с базой данных: " + (e.message || e)); }
+      setBusy(false); return;
+    }
     const u = users.find((x) => !isStaff(x) && String(x.username || "").trim().toLowerCase() === username.trim().toLowerCase());
     if (!u) { setErr("Неверный логин или пароль"); setBusy(false); return; }
     if (u.status !== "active") { setErr("Аккаунт отключён"); setBusy(false); return; }
@@ -6772,6 +6803,7 @@ function LoginScreen({ users, onLogin, bootErr, onRetry }) {
             <div style={{ marginTop: 6 }}><button className="btn xs" onClick={onRetry}>↻ Повторить</button></div>
           </div>
         )}
+        {note && !err && <p className="sm" style={{ color: "var(--warn)", textAlign: "center", marginBottom: 10 }}>{note}</p>}
         {err && <p className="sm" style={{ color: "var(--bad)", textAlign: "center", marginBottom: 10 }}>{err}</p>}
         <div className="grid" style={{ gridTemplateColumns: "1fr" }}>
           <Fld label="Логин"><input className="inp mono" value={username} onChange={(e) => setUsername(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} autoFocus /></Fld>
@@ -6782,7 +6814,7 @@ function LoginScreen({ users, onLogin, bootErr, onRetry }) {
           </div></Fld>
         </div>
         <button className="btn pri" style={{ width: "100%", marginTop: 14 }} disabled={busy} onClick={submit}>{busy ? "Проверка…" : "Войти"}</button>
-        {users.some((u) => u.need_seed_pass) && <p className="xs mut" style={{ textAlign: "center", marginTop: 12 }}>Первый вход: <b className="mono">admin</b> / <b className="mono">admin123</b> — затем смените пароль в «Аккаунты».</p>}
+        {(secure ? seed : users.some((u) => u.need_seed_pass)) && <p className="xs mut" style={{ textAlign: "center", marginTop: 12 }}>Первый вход: <b className="mono">admin</b> / <b className="mono">admin123</b> — затем смените пароль в «Аккаунты».</p>}
       </div>
     </div>
   );
@@ -7163,7 +7195,36 @@ function AppInner() {
     people,
     addPerson: (n) => setExtraPeople((prev) => { if (prev.includes(n)) return prev; const next = [...prev, n]; try { localStorage.setItem("te:people", JSON.stringify(next)); } catch {} return next; }),
   }), [people]);
+  const [secureMode, setSecureMode] = useState(false);
+  const [secureSeed, setSecureSeed] = useState(false);
+  const [loginNote, setLoginNote] = useState("");
+  const EMPTY_DATA = { products: [], suppliers: [], objects: [], finance_ops: [], requests: [], masters: [], warehouse: [], wh_moves: [], users: [], audit_log: [] };
   const boot = async () => {
+    // защищённый режим: без входа база не читается — сначала вход (или сохранённая сессия), потом данные
+    let sec;
+    try { sec = await detectSecure(); }
+    catch (e) { console.error(e); setBootErr(String(e && (e.message || e))); setReady(true); return; }
+    SECURE = !!sec.secure; setSecureMode(SECURE); setSecureSeed(!!sec.seed);
+    if (SECURE) {
+      setBootErr("");
+      try { localStorage.removeItem("te:session"); } catch (e) {}
+      let tok = null;
+      try { tok = localStorage.getItem("te:token"); } catch (e) {}
+      if (tok && !CURRENT_USER) {
+        setDbSession(tok);
+        try {
+          const { data: me, error } = await sb.rpc("te_me");
+          if (error && !/te_session_required/.test(String(error.message || ""))) throw new Error(error.message);
+          if (me && me.id && !isStaff(me)) {
+            setCurrentUser(me); CURRENT_USER = me;
+            const r = await reload("all");
+            if (r.allFailed) setBootErr(r.failed.join(", "));
+          } else { setDbSession(null); try { localStorage.removeItem("te:token"); } catch (e) {} }
+        } catch (e) { console.error(e); setBootErr(String(e && (e.message || e))); }
+      }
+      setReady(true);
+      return;
+    }
     try {
       const r = await reload("all");
       if (r.allFailed || (r.failed && r.failed.some((x) => x.startsWith("users")))) setBootErr(r.failed.join(", "));
@@ -7226,22 +7287,47 @@ function AppInner() {
     if (!currentUser || !data.users || !data.users.length) return;
     const u = data.users.find((x) => x.id === currentUser.id);
     if (!u || u.status !== "active" || isStaff(u)) {
-      setCurrentUser(null); CURRENT_USER = null;
-      try { localStorage.removeItem("te:session"); } catch (e) {}
+      if (SECURE && sb) sb.rpc("te_logout").then(() => {}, () => {});
+      endSession(u ? "Аккаунт отключён" : "");
       return;
     }
     if (u.role !== currentUser.role || u.name !== currentUser.name || u.username !== currentUser.username) { setCurrentUser(u); CURRENT_USER = u; }
   }, [data.users]);
-  const doLogin = async (u) => {
+  const doLogin = async (u, token) => {
+    if (token) { setDbSession(token); try { localStorage.setItem("te:token", token); } catch (e) {} }
+    setLoginNote("");
     setCurrentUser(u); CURRENT_USER = u;
-    try { localStorage.setItem("te:session", u.id); } catch (e) {}
+    if (!token) { try { localStorage.setItem("te:session", u.id); } catch (e) {} }
     await logAction("Вход в систему", "user:" + u.username, "");
     await reload("all");
   };
-  const doLogout = async () => {
+  // выход: в защищённом режиме сессия закрывается и на сервере, данные стираются из памяти страницы
+  const endSession = (note) => {
     setCurrentUser(null); CURRENT_USER = null;
-    try { localStorage.removeItem("te:session"); } catch (e) {}
+    try { localStorage.removeItem("te:session"); localStorage.removeItem("te:token"); } catch (e) {}
+    if (SECURE) { setDbSession(null); setData(EMPTY_DATA); setOpenId(null); setBackupOpen(false); }
+    setLoginNote(note || "");
   };
+  const doLogout = async () => {
+    if (SECURE && sb) { try { await sb.rpc("te_logout"); } catch (e) {} }
+    endSession("");
+  };
+  // сервер ответил «нужен вход»: сессия истекла, аккаунт отключён — или защиту только что включили (тогда перезапуск)
+  useEffect(() => {
+    let fired = false;
+    const h = () => {
+      if (fired) return;
+      if (!SECURE) {
+        fired = true;
+        try { if (sessionStorage.getItem("te:secure-reload")) return; sessionStorage.setItem("te:secure-reload", "1"); } catch (e) {}
+        window.location.reload();
+        return;
+      }
+      if (CURRENT_USER) endSession("Сессия завершена — войдите снова");
+    };
+    window.addEventListener("te-session-lost", h);
+    return () => window.removeEventListener("te-session-lost", h);
+  }, []);
   const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("te:dark") === "1"; } catch { return false; } });
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("te:lang") || "ru"; } catch { return "ru"; } });
   const toggleDark = () => { setDarkMode((v) => { const n = !v; try { localStorage.setItem("te:dark", n ? "1" : "0"); } catch {} return n; }); };
@@ -7341,7 +7427,7 @@ function AppInner() {
   // заставка всегда второй элемент верхнего уровня — один и тот же экземпляр, анимация не начинается заново
   const intro = !ready ? <Intro /> : introGone ? null : <Intro out={introOut} onDone={() => setIntroGone(true)} />;
   if (!ready) return <>{null}{intro}</>;
-  if (!currentUser) return <>{<LoginScreen users={data.users || []} onLogin={doLogin} bootErr={bootErr} onRetry={() => { setReady(false); boot(); }} />}{intro}<IosInstallHint /></>;
+  if (!currentUser) return <>{<LoginScreen users={data.users || []} onLogin={doLogin} bootErr={bootErr} onRetry={() => { setReady(false); boot(); }} secure={secureMode} seed={secureSeed} note={loginNote} />}{intro}<IosInstallHint /></>;
   return (<>
     <PeopleCtx.Provider value={peopleCtx}>
     <div className={"te" + (darkMode ? " dark" : "")}>

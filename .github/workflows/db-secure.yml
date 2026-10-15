@@ -1,0 +1,41 @@
+# Защита базы Thermo: вход через сервер, без входа база закрыта.
+# Запуск: GitHub → Actions → «База: защита входа» → Run workflow → выбрать действие.
+# Нужен секрет репозитория SUPABASE_DB_PASSWORD (пароль базы Supabase: Project Settings → Database).
+name: "База: защита входа"
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "ПРОВЕРКА — только проверить; ВКЛЮЧИТЬ — включить защиту; ОТКАТ — вернуть как было"
+        type: choice
+        options: ["ПРОВЕРКА", "ВКЛЮЧИТЬ", "ОТКАТ"]
+        default: "ПРОВЕРКА"
+permissions:
+  contents: read
+concurrency:
+  group: db-secure
+  cancel-in-progress: false
+jobs:
+  db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: psql
+        run: which psql || (sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client)
+      - name: Подключение к базе
+        run: bash supabase/secure/run.sh connect
+      - name: Проверка шлюза (заголовок входа)
+        if: inputs.action != 'ОТКАТ'
+        run: bash supabase/secure/run.sh cors
+      - name: Включить защиту
+        if: inputs.action == 'ВКЛЮЧИТЬ'
+        run: bash supabase/secure/run.sh apply
+      - name: Откат
+        if: inputs.action == 'ОТКАТ'
+        run: bash supabase/secure/run.sh rollback
+      - name: Итог
+        if: always()
+        run: bash supabase/secure/run.sh status
