@@ -389,6 +389,8 @@ table.t tr:hover td{background:var(--hover)}
 .ioshint-t div b{color:var(--txt)}
 .totop{position:fixed;right:18px;bottom:22px;z-index:45;width:42px;height:42px;border-radius:50%;border:1px solid var(--line2);background:var(--panel);color:var(--txt);font:700 18px var(--sans);cursor:pointer;box-shadow:0 10px 28px rgba(0,0,0,.22);animation:fxFade .2s ease backwards;transition:background .12s,border-color .12s,color .12s}
 .totop:hover{border-color:var(--acc);color:var(--acc)}
+.abbox{margin:0 0 18px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
+.abwarn{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-color:var(--warn)!important}
 .calc{position:fixed;right:18px;top:120px;z-index:900;width:280px;padding:12px;border-radius:16px;background:var(--panel);border:1px solid var(--line2);box-shadow:0 24px 60px rgba(0,0,0,.35)}
 .calc-scr{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;text-align:right;min-height:64px}
 .calc-sub{min-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -561,7 +563,13 @@ async function restoreFromSupabase(dump) {
   for (const t of tables) if (dump.tables[t].length) await batchInsert(t, dump.tables[t]);
 }
 async function importBackup(file) {
-  const text = await file.text();
+  // автобэкап сохраняется сжатым (.json.gz) — распаковываем
+  let text;
+  const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+  if (head[0] === 0x1f && head[1] === 0x8b) {
+    if (typeof DecompressionStream === "undefined") throw new Error("браузер не умеет открывать .gz — откройте файл в Chrome или Edge");
+    text = await new Response(file.stream().pipeThrough(new DecompressionStream("gzip"))).text();
+  } else text = await file.text();
   const dump = JSON.parse(text);
   await restoreFromSupabase(dump);
 }
@@ -7251,6 +7259,47 @@ function AppInner() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hdrHidden, setHdrHidden] = useState(false);
   const [showTop, setShowTop] = useState(false); // кнопка «наверх»: полосы прокрутки у края окна нет
+  // автобэкап (у руководителя): раз в день, пока система открыта на этом компьютере; напоминание, если бэкапа давно не было
+  const [abTick, setAbTick] = useState(0);
+  const [abNeed, setAbNeed] = useState(""); // perm — нужен клик «Разрешить», nodir — папка пропала, err — не удалось (повтор позже)
+  const [abLast, setAbLast] = useState(undefined);
+  const [abHide, setAbHide] = useState(() => { try { return localStorage.getItem("te_ab_hide") === localIso(new Date()); } catch (e) { return false; } });
+  const isBoss = !!currentUser && role === "boss";
+  const abWho = currentUser ? currentUser.name || currentUser.username : "";
+  useEffect(() => {
+    if (!isBoss) return;
+    let busy = false, stop = false, errAt = 0;
+    const tick = async () => {
+      if (busy || stop) return;
+      const cfg = abCfg();
+      if (!cfg || cfg.last === localIso(new Date())) { setAbNeed(""); return; }
+      if (Date.now() - errAt < 10 * 60 * 1000) return;
+      busy = true; BUSY_SILENT++;
+      try {
+        const r = await runAutoBackup({ who: abWho });
+        if (stop) return;
+        if (r.ok) { setAbNeed(""); lastBackupInfo().then(setAbLast); toast("💾 Автобэкап сохранён: " + r.jName + (r.folder ? " → папка «" + r.folder + "»" : "")); }
+        else setAbNeed(r.why === "perm" || r.why === "nodir" ? r.why : "");
+      } catch (e) { errAt = Date.now(); console.warn("autobackup", e); setAbNeed("err"); }
+      finally { busy = false; BUSY_SILENT = Math.max(0, BUSY_SILENT - 1); }
+    };
+    const t0 = setTimeout(tick, window.__AB_DELAY != null ? window.__AB_DELAY : 15000); // после входа, чтобы не тормозить загрузку
+    const iv = setInterval(tick, 30 * 60 * 1000); // система открыта весь день — после полуночи сохранит новый
+    window.addEventListener("focus", tick);
+    return () => { stop = true; clearTimeout(t0); clearInterval(iv); window.removeEventListener("focus", tick); };
+  }, [isBoss, abTick]);
+  useEffect(() => { if (isBoss) lastBackupInfo().then(setAbLast); }, [isBoss, abTick]);
+  const abAllow = async () => {
+    try {
+      const r = await runAutoBackup({ ask: true, who: abWho });
+      if (r.ok) { setAbNeed(""); lastBackupInfo().then(setAbLast); toast("💾 Автобэкап сохранён: " + r.jName); }
+      else if (r.why === "perm") toast("Без разрешения записать в папку автобэкап не сохранится");
+      else if (r.why === "nodir") { setAbNeed("nodir"); setBackupOpen(true); }
+    } catch (e) { toast("Автобэкап не удался: " + e.message); }
+  };
+  const abCur = abCfg();
+  const abDays = abLast ? daysSince(abLast.ts || abLast.created_at) : null;
+  const abShow = isBoss && !abHide && (abNeed !== "" || (abLast !== undefined && !abCur && (abLast === null || abDays >= 3)));
   const lastScrollY = useRef(0);
   useEffect(() => {
     const onScroll = () => {
@@ -7317,10 +7366,22 @@ function AppInner() {
         </div>
         <button className="burger" onClick={() => setMobileMenuOpen((v) => !v)} title="Меню">{mobileMenuOpen ? "✕" : "☰"}</button>
         {role !== "driver" && <button className={"btn xs" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => setCalcOpen((v) => !v)}>🧮 Калькулятор</button>}
-        <input ref={restoreRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={onRestore} />
+        <input ref={restoreRef} type="file" accept=".json,.gz,application/json,application/gzip" style={{ display: "none" }} onChange={onRestore} />
       </div>
       <div className="body" key={tab + ":" + tabNonce}>
         {bootErr && <div className="card sect" style={{ borderColor: "var(--warn)", color: "var(--warn)" }}>Ошибка подключения к Supabase: {bootErr}</div>}
+        {abShow && <div className="card sect abwarn" role="status">
+          <span className="sm">💾 {abNeed === "perm" ? "Автобэкап ждёт разрешения на запись в папку «" + ((abCur && abCur.folder) || "") + "» — браузер спрашивает один раз после перезапуска."
+            : abNeed === "nodir" ? "Автобэкап: папка не найдена — выберите её заново."
+            : abNeed === "err" ? "Автобэкап сегодня пока не сохранился (нет связи?) — система повторит сама."
+            : abLast ? <>Бэкап базы не сохранялся <b>{abDays} дн.</b> Включите автобэкап — система будет сохранять копию каждый день сама.</>
+            : <>Бэкап базы ещё ни разу не сохранялся. Включите автобэкап — система будет сохранять копию каждый день сама.</>}</span>
+          <span className="row" style={{ marginLeft: "auto", gap: 6 }}>
+            {abNeed === "perm" ? <button className="btn xs pri" onClick={abAllow}>Разрешить и сохранить</button>
+              : <button className="btn xs pri" onClick={() => setBackupOpen(true)}>{abCur ? "Открыть бэкап" : "Настроить автобэкап"}</button>}
+            <button className="btn xs" title="Скрыть до завтра" aria-label="Скрыть до завтра" onClick={() => { try { localStorage.setItem("te_ab_hide", localIso(new Date())); } catch (e) {} setAbHide(true); }}>✕</button>
+          </span>
+        </div>}
         {tab === "dash" && <Dashboard data={data} />}
         {tab === "objects" && <ObjectsTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} goRequest={() => setTab("request")} fin={role === "boss"} />}
         {tab === "request" && <RequestTabs data={data} reload={reload} toast={toast} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
@@ -7333,7 +7394,7 @@ function AppInner() {
         {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} />}
         {tab === "finance" && <FinanceTab data={data} reload={reload} toast={toast} boss={role === "boss"} />}
       </div>
-      {backupOpen && role === "boss" && <BackupModal data={data} reload={reload} onClose={() => setBackupOpen(false)} toast={toast} onFilePick={() => restoreRef.current.click()} onRestoreText={async (text) => {
+      {backupOpen && role === "boss" && <BackupModal who={currentUser.name || currentUser.username} data={data} reload={reload} onClose={() => { setBackupOpen(false); setAbTick((n) => n + 1); }} toast={toast} onFilePick={() => restoreRef.current.click()} onRestoreText={async (text) => {
         const dump = JSON.parse(text);
         if (!(await confirmRestore())) return;
         try { await restoreFromSupabase(dump); } catch (e) { await reload("all"); throw e; }
@@ -7524,7 +7585,196 @@ function RelinkSuppliers({ data, reload, toast }) {
     </div>
   );
 }
-function BackupModal({ data, reload, onClose, toast, onFilePick, onRestoreText, onWipe }) {
+/* ============ EXCEL-АРХИВ И АВТОБЭКАП ============
+   Excel-архив — вся база в одном понятном файле: открывается обычным Excel, даже если система не работает.
+   Для восстановления базы нужен JSON-бэкап (thermo_backup_….json / .json.gz) — Excel только для чтения.
+   Автобэкап — раз в день на этом компьютере (у руководителя): JSON-бэкап + Excel-архив сохраняются в выбранную папку
+   (лучше папка Google Drive / OneDrive — тогда копия сразу уходит в облако, отдельно от Supabase). Хранятся 60 дней. */
+function archiveBook(T, who) {
+  const t = (k) => T[k] || [];
+  const objects = t("objects"), ops = t("finance_ops"), sups = t("suppliers"), masters = t("masters"), prods = t("products");
+  const wh = t("warehouse"), moves = t("wh_moves"), users = t("users"), log = t("audit_log");
+  const r2 = (x) => round2(Number(x) || 0);
+  const d = (s) => (s ? dt(s) : "");
+  const dtm = (s) => { if (!s) return ""; const x = new Date(s); return isNaN(x) ? String(s) : x.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }); };
+  const supName = new Map(sups.map((s) => [s.id, s.name]));
+  const mName = new Map(masters.map((m) => [m.id, m.name]));
+  const oName = new Map(objects.map((o) => [o.id, o.name]));
+  const byNewest = (a, b) => String(b.created_at || "").localeCompare(String(a.created_at || ""));
+  const objs = [...objects].sort(byNewest);
+  const book = [];
+  const add = (name, rows) => book.push(xlFromTable(name, rows));
+
+  // объекты
+  let live = 0, tSale = 0, tPaid = 0, tDebt = 0, tOver = 0, tGross = 0;
+  const objRows = objs.map((o) => {
+    const f = calcObject(o, ops), on = isLive(o);
+    if (on) { live++; tSale += f.saleNet; tPaid += f.paidClient; tGross += f.gross; if (f.clientDebt > 0) tDebt += f.clientDebt; else tOver -= f.clientDebt; }
+    return [o.name || "", o.client || "", o.phone || "", o.address || "", o.master || mName.get(o.master_id) || "", o.manager || "", stById(o.status).label, d(o.created_at),
+      r2(f.saleNet), r2(f.paidClient), on ? r2(f.clientDebt) : "", r2(f.costNet), r2(f.gross), r2(f.net)];
+  });
+  // поставщики, мастера
+  let sDebt = 0, sAdv = 0;
+  const supRows = [...sups].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ru")).map((s) => {
+    const st = supplierStats(s, objects, ops, moves);
+    sDebt += st.debt; if (st.balance < 0) sAdv -= st.balance;
+    return [s.name || "", s.contact || "", s.phone || "", s.terms || "", s.segment || "", st.purchases, st.paid, st.returns, st.balance, s.status === "inactive" ? "неактивен" : ""];
+  });
+  let mDebt = 0;
+  const mRows = [...masters].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ru")).map((m) => {
+    const st = masterStats(m, objects, ops);
+    mDebt += st.debtToMaster;
+    return [m.name || "", m.phone || "", m.specialty || "", Number(m.bonus_percent) || 0, st.count, r2(st.accrued), r2(st.paid), r2(st.debtToMaster), r2(st.clientDebt), m.status === "inactive" ? "неактивен" : ""];
+  });
+  const whCost = wh.reduce((a, w) => a + (Number(w.qty) || 0) * (Number(w.cost) || 0), 0);
+
+  add("Сводка", [
+    ["Показатель", "Значение"],
+    ["Архив сформирован", new Date().toLocaleString("ru-RU")],
+    ["Сформировал", who || "—"],
+    ["Объектов всего / в работе", objects.length + " / " + live],
+    ["Продажи по объектам в работе (нетто), $", r2(tSale)],
+    ["Оплачено клиентами, $", r2(tPaid)],
+    ["Долги клиентов, $", r2(tDebt)],
+    ["Переплаты клиентов, $", r2(tOver)],
+    ["Валовая прибыль по объектам, $", r2(tGross)],
+    ["Долг поставщикам, $", r2(sDebt)],
+    ["Авансы поставщикам, $", r2(sAdv)],
+    ["Долг мастерам (бонусы), $", r2(mDebt)],
+    ["Склад Thermo по закупу, $", r2(whCost)],
+    ["Товаров в базе", prods.length],
+    ["Поставщиков / мастеров / аккаунтов", sups.length + " / " + masters.length + " / " + users.length],
+    [],
+    ["Это архив для просмотра. Восстановить базу можно только из файла thermo_backup_….json (Журнал → Бэкап → «Восстановить»)."],
+  ]);
+  add("Объекты", [["Объект", "Клиент", "Телефон", "Адрес", "Мастер", "Менеджер", "Статус", "Создан", "Продажа (нетто), $", "Оплачено, $", "Долг клиента, $", "Себестоимость, $", "Валовая прибыль, $", "Остаток, $"], ...objRows]);
+  const itemRows = [];
+  objs.forEach((o) => (o.items || []).forEach((i) => itemRows.push([o.name || "", o.client || "", i.batch_no || 1, d(i.batch_date), i.name || "", i.size || "", Number(i.qty) || 0, i.unit || "",
+    r2(i.price), r2((Number(i.qty) || 0) * (Number(i.price) || 0)), r2(i.cost), r2((Number(i.qty) || 0) * (Number(i.cost) || 0)),
+    i.from_warehouse ? "Склад Thermo" : supName.get(i.supplier_id) || "", isShipped(i) ? "да" : "нет"])));
+  add("Позиции объектов", [["Объект", "Клиент", "Поставка №", "Дата поставки", "Товар", "Размер", "Кол-во", "Ед.", "Цена, $", "Сумма, $", "Себест., $", "Сумма себест., $", "Поставщик", "Отгружено"], ...itemRows]);
+  add("Операции", [["Дата", "Операция", "Объект", "Поставщик", "Мастер", "Сумма, $", "Себест. (возврат), $", "Способ оплаты / причина", "Категория", "Товар / предмет", "Кол-во", "Комментарий", "Кто", "Сторно"],
+    ...opsNewestFirst(ops).map((o) => [d(o.op_date || o.created_at), opLabel(o.type), oName.get(o.object_id) || "", supName.get(o.supplier_id) || "", mName.get(o.master_id) || "",
+      r2(o.amount), o.cost_amount ? r2(o.cost_amount) : "", o.reason || "", o.category || "", o.product_name || o.item_name || "", o.qty == null ? "" : Number(o.qty) || 0, o.note || "",
+      o.user || o.user_name || "", o.voided ? "сторно" : ""])]);
+  add("Поставщики", [["Поставщик", "Контакт", "Телефон", "Условия", "Сегмент", "Закупки, $", "Оплачено, $", "Возвраты, $", "Долг (+) / аванс (−), $", "Статус"], ...supRows]);
+  add("Мастера", [["Мастер", "Телефон", "Специальность", "Бонус, %", "Объектов", "Начислено, $", "Выплачено, $", "Долг мастеру, $", "Долги клиентов по его объектам, $", "Статус"], ...mRows]);
+  add("Склад Thermo", [["Товар", "Размер", "Кол-во", "Ед.", "Себест., $", "Цена, $", "Сумма по закупу, $", "Поставщик"],
+    ...[...wh].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ru")).map((w) => [w.name || "", w.size || "", Number(w.qty) || 0, w.unit || "", r2(w.cost), r2(w.price), r2((Number(w.qty) || 0) * (Number(w.cost) || 0)), supName.get(w.supplier_id) || ""])]);
+  add("Движения склада", [["Дата", "Товар", "Кол-во", "Движение", "Объект", "Комментарий", "Кто"],
+    ...[...moves].sort((a, b) => String(b.op_date || b.created_at || "").localeCompare(String(a.op_date || a.created_at || "")) || byNewest(a, b))
+      .map((w) => [d(w.op_date || w.created_at), w.name || "", Number(w.qty) || 0, w.dir === "in" ? "приход" : "расход", w.object_name || oName.get(w.object_id) || "", w.note || "", w.user || w.user_name || ""])]);
+  const code = (p) => { const n = parseInt(p.code, 10); return isNaN(n) ? Infinity : n; };
+  add("Товары", [["Код", "Артикул", "Наименование", "Категория", "Бренд", "Поставщик", "Сегмент", "Размер", "Ед.", "Себест., $", "Цена, $", "Статус", "Цена обновлена"],
+    ...[...prods].sort((a, b) => code(a) - code(b) || String(a.name || "").localeCompare(String(b.name || ""), "ru"))
+      .map((p) => [p.code || "", p.sku || "", p.name || "", p.category || "", p.brand || "", supName.get(p.supplier_id) || "", p.segment || "", p.size || "", p.unit || "", r2(p.cost), r2(p.price), p.status === "inactive" ? "неактивен" : "", d(p.price_updated)])]);
+  // аккаунты — без паролей
+  add("Аккаунты", [["Логин", "Имя", "Роль", "Статус"], ...users.map((u) => [u.username || "", u.name || "", roleLabel(u.role), u.status === "active" || !u.status ? "активен" : u.status === "disabled" ? "отключён" : "неактивен"])]);
+  const logRows = [...log].sort((a, b) => String(b.ts || b.created_at || "").localeCompare(String(a.ts || a.created_at || ""))).slice(0, 20000);
+  add("Журнал", [["Дата и время", "Кто", "Роль", "Действие", "Объект / раздел", "Подробности"], ...logRows.map((l) => [dtm(l.ts || l.created_at), l.user_name || "", l.role ? roleLabel(l.role) : "", l.action || "", l.entity || "", l.detail || ""])]);
+  return styledXlsxBook(book);
+}
+async function downloadArchive(who) {
+  const dump = await freshDump();
+  const blob = archiveBook(dump.tables, who);
+  downloadBlob("thermo_arxiv_" + localIso(new Date()) + ".xlsx", blob);
+  return blob;
+}
+
+// --- автобэкап: настройки этого компьютера (localStorage), папка — в IndexedDB (её нельзя хранить в localStorage)
+const AB_KEY = "te_autobak";
+const AB_KEEP_DAYS = 60;
+const BAK_ACTIONS = ["Автобэкап", "Бэкап скачан"];
+const abCfg = () => { try { return JSON.parse(localStorage.getItem(AB_KEY) || "null"); } catch (e) { return null; } };
+const abSave = (c) => { try { if (c) localStorage.setItem(AB_KEY, JSON.stringify(c)); else localStorage.removeItem(AB_KEY); } catch (e) {} };
+const abFsOk = () => typeof window !== "undefined" && typeof window.showDirectoryPicker === "function";
+let AB_DIR = null;
+function abIdb(mode, fn) {
+  return new Promise((res) => {
+    try {
+      const rq = indexedDB.open("thermo-auto", 1);
+      rq.onupgradeneeded = () => rq.result.createObjectStore("kv");
+      rq.onerror = () => res(null);
+      rq.onsuccess = () => {
+        try {
+          const tx = rq.result.transaction("kv", mode);
+          const r = fn(tx.objectStore("kv"));
+          tx.oncomplete = () => { res(r ? r.result : null); rq.result.close(); };
+          tx.onerror = tx.onabort = () => { res(null); rq.result.close(); };
+        } catch (e) { res(null); }
+      };
+    } catch (e) { res(null); }
+  });
+}
+async function abGetDir() { if (AB_DIR) return AB_DIR; const h = await abIdb("readonly", (st) => st.get("dir")); if (h) AB_DIR = h; return AB_DIR; }
+async function abSetDir(h) { AB_DIR = h || null; await abIdb("readwrite", (st) => (h ? st.put(h, "dir") : st.delete("dir"))); }
+async function abPerm(h, ask) {
+  try {
+    if (!h.queryPermission) return true;
+    const o = { mode: "readwrite" };
+    if ((await h.queryPermission(o)) === "granted") return true;
+    if (!ask) return false;
+    return (await h.requestPermission(o)) === "granted";
+  } catch (e) { return false; }
+}
+async function gzipBlob(text) {
+  if (typeof CompressionStream === "undefined") return null;
+  try { return await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"))).blob(); } catch (e) { return null; }
+}
+async function abWrite(dir, name, blob) {
+  const fh = await dir.getFileHandle(name, { create: true });
+  const w = await fh.createWritable();
+  await w.write(blob); await w.close();
+}
+// старше 60 дней — удаляем (только наши файлы thermo_backup_/thermo_arxiv_ с датой в имени)
+async function abPrune(dir) {
+  const cut = localIso(new Date(Date.now() - AB_KEEP_DAYS * 864e5));
+  const old = [];
+  for await (const [name] of dir.entries()) { const m = /^thermo_(?:backup|arxiv)_(\d{4}-\d{2}-\d{2})/.exec(name); if (m && m[1] < cut) old.push(name); }
+  for (const n of old) { try { await dir.removeEntry(n); } catch (e) {} }
+  return old.length;
+}
+// сохранить бэкап сейчас: ask — можно спросить разрешение на папку (только по нажатию кнопки)
+async function runAutoBackup({ ask = false, who = "", manual = false } = {}) {
+  const cfg = abCfg();
+  if (!cfg) return { ok: false, why: "off" };
+  let dir = null;
+  if (cfg.mode === "folder") {
+    dir = await abGetDir();
+    if (!dir) return { ok: false, why: "nodir" };
+    if (!(await abPerm(dir, ask))) return { ok: false, why: "perm" };
+  }
+  const dump = await freshDump(manual ? "бэкап вручную" : "автобэкап");
+  const day = localIso(new Date());
+  const json = JSON.stringify(dump);
+  const gz = await gzipBlob(json);
+  const jName = "thermo_backup_" + day + (gz ? ".json.gz" : ".json");
+  const jBlob = gz || new Blob([json], { type: "application/json" });
+  const xName = "thermo_arxiv_" + day + ".xlsx";
+  const xBlob = archiveBook(dump.tables, who);
+  let pruned = 0;
+  if (dir) { await abWrite(dir, jName, jBlob); await abWrite(dir, xName, xBlob); pruned = await abPrune(dir).catch(() => 0); }
+  else { downloadBlob(jName, jBlob); setTimeout(() => downloadBlob(xName, xBlob), 700); }
+  abSave({ ...cfg, last: day, lastAt: new Date().toISOString(), err: "" });
+  const rows = Object.values(dump.tables).reduce((a, x) => a + (x ? x.length : 0), 0);
+  await logAction("Автобэкап", "backup", (dir ? "папка «" + (dir.name || "") + "»" : "скачан в «Загрузки»") + " · " + jName + " + " + xName + " · записей: " + rows + (manual ? " · вручную" : ""));
+  return { ok: true, jName, xName, size: jBlob.size, pruned, folder: dir ? dir.name : "" };
+}
+// последний бэкап с любого компьютера — по журналу действий
+async function lastBackupInfo() {
+  try {
+    if (sb) {
+      const { data, error } = await sb.from("audit_log").select("*").in("action", BAK_ACTIONS).order("ts", { ascending: false }).range(0, 0);
+      if (error) return null;
+      return (data && data[0]) || null;
+    }
+    const { data } = await db.from("audit_log").select().order("ts", { ascending: false });
+    return (data || []).find((l) => BAK_ACTIONS.includes(l.action)) || null;
+  } catch (e) { return null; }
+}
+const daysSince = (ts) => (ts ? Math.floor((Date.now() - new Date(ts).getTime()) / 864e5) : null);
+
+function BackupModal({ data, reload, onClose, toast, onFilePick, onRestoreText, onWipe, who = "" }) {
   // JSON бэкапа собирается только по кнопке — при большой базе (15 000+ товаров это несколько МБ)
   // вывод всего текста в поле при открытии окна подвешивал браузер. Данные берутся свежие из базы.
   const [packing, setPacking] = useState(false);
@@ -7539,7 +7789,47 @@ function BackupModal({ data, reload, onClose, toast, onFilePick, onRestoreText, 
   const [restoreTxt, setRestoreTxt] = useState("");
   const [err, setErr] = useState("");
   const taRef = useRef(null);
-  const download = async () => { const json = await buildJson(); if (!json) return; const ok = tryDownloadBackup(json); toast(ok ? "Файл бэкапа скачан" : "Скачивание заблокировано — используйте «Копировать»"); };
+  const download = async () => {
+    const json = await buildJson(); if (!json) return;
+    const ok = tryDownloadBackup(json);
+    if (ok) { await logAction("Бэкап скачан", "backup", "вручную · " + Math.round(json.length / 1024) + " КБ"); refreshAb(); }
+    toast(ok ? "Файл бэкапа скачан" : "Скачивание заблокировано — используйте «Копировать»");
+  };
+  // Excel-архив и автобэкап
+  const [xlBusy, setXlBusy] = useState(false);
+  const xlArchive = async () => {
+    setXlBusy(true); setErr("");
+    try { await downloadArchive(who); await logAction("Excel-архив скачан", "backup", ""); toast("Excel-архив скачан"); }
+    catch (e) { setErr("Не удалось собрать Excel-архив: " + e.message); }
+    finally { setXlBusy(false); }
+  };
+  const [ab, setAb] = useState(() => abCfg());
+  const [abBusy, setAbBusy] = useState(false);
+  const [last, setLast] = useState(undefined);
+  const refreshAb = () => { setAb(abCfg()); lastBackupInfo().then(setLast); };
+  useEffect(() => { lastBackupInfo().then(setLast); }, []);
+  const runNow = async (ask) => {
+    setAbBusy(true); setErr("");
+    try {
+      const r = await runAutoBackup({ ask, who, manual: true });
+      if (r.ok) toast("💾 Сохранено: " + r.jName + " и " + r.xName + (r.folder ? " → папка «" + r.folder + "»" : " → «Загрузки»"));
+      else if (r.why === "perm") setErr("Нет разрешения на запись в папку — нажмите «Сохранить сейчас» и выберите «Разрешить».");
+      else if (r.why === "nodir") setErr("Папка не найдена — выберите её заново.");
+    } catch (e) { setErr("Автобэкап не удался: " + e.message); }
+    finally { setAbBusy(false); refreshAb(); }
+  };
+  const pickFolder = async () => {
+    let h;
+    try { h = await window.showDirectoryPicker({ id: "thermo-backup", mode: "readwrite", startIn: "documents" }); }
+    catch (e) { if (!e || e.name !== "AbortError") setErr("Не удалось выбрать папку: " + (e && e.message)); return; }
+    await abSetDir(h);
+    abSave({ mode: "folder", folder: h.name || "", since: new Date().toISOString() });
+    setAb(abCfg());
+    await runNow(true);
+  };
+  const enableDownload = async () => { abSave({ mode: "download", since: new Date().toISOString() }); setAb(abCfg()); await runNow(false); };
+  const disableAb = async () => { abSave(null); await abSetDir(null); setAb(null); toast("Автобэкап на этом компьютере выключен"); };
+  const lastDays = last ? daysSince(last.ts || last.created_at) : null;
   const copy = async () => {
     const json = await buildJson(); if (!json) return;
     try { await navigator.clipboard.writeText(json); toast("Бэкап скопирован в буфер (" + Math.round(json.length / 1024) + " КБ)"); return; } catch (e) {}
@@ -7552,6 +7842,27 @@ function BackupModal({ data, reload, onClose, toast, onFilePick, onRestoreText, 
       <div className="row" style={{ marginTop: 8, marginBottom: manualJson ? 8 : 18 }}>
         <button className="btn pri" disabled={packing} onClick={download}>{packing ? <span><span className="spin" /> Собираю…</span> : "⬇ Скачать файлом"}</button>
         <button className="btn" disabled={packing} onClick={copy}>📋 Копировать бэкап</button>
+        <button className="btn" disabled={xlBusy} onClick={xlArchive} title="Вся база в одном Excel: объекты с долгами, позиции, операции, поставщики, мастера, склад, товары — открывается без системы">{xlBusy ? <span><span className="spin" /> Собираю…</span> : "📊 Excel-архив"}</button>
+      </div>
+      <div className="abbox">
+        <h3 style={{ marginBottom: 4 }}>Автобэкап каждый день</h3>
+        <p className="xs mut" style={{ marginBottom: 8 }}>Раз в день, когда вы открываете систему на этом компьютере, бэкап базы и Excel-архив сохраняются сами. Выберите папку внутри <b>Google Drive</b> или <b>OneDrive</b> на компьютере — тогда копия каждый день уходит и в облако, отдельно от Supabase. Хранятся последние {AB_KEEP_DAYS} дней, старые файлы удаляются.</p>
+        <div className="sm" style={{ marginBottom: 4 }}>
+          {last === undefined ? <span className="mut">Последний бэкап: …</span>
+            : last ? <span>Последний бэкап: <b>{new Date(last.ts || last.created_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</b> · {last.user_name || "—"} · {last.action === "Автобэкап" ? "автобэкап" : "скачан вручную"}{lastDays >= 2 && <b style={{ color: "var(--warn)" }}> · {lastDays} дн. назад</b>}</span>
+            : <b style={{ color: "var(--warn)" }}>Бэкапов ещё не было</b>}
+        </div>
+        <div className="sm" style={{ marginBottom: 10 }}>
+          На этом компьютере: {ab ? <b style={{ color: "var(--ok)" }}>включён · {ab.mode === "folder" ? "папка «" + (ab.folder || "—") + "»" : "файлы скачиваются в «Загрузки»"}</b> : <b className="mut">выключен</b>}
+          {ab && ab.last ? <span className="mut"> · последний {dt(ab.last)}</span> : null}
+        </div>
+        <div className="row" style={{ flexWrap: "wrap" }}>
+          {abFsOk() && <button className="btn pri" disabled={abBusy} onClick={pickFolder}>📁 {ab && ab.mode === "folder" ? "Сменить папку" : "Выбрать папку и включить"}</button>}
+          {!abFsOk() && !ab && <button className="btn pri" disabled={abBusy} onClick={enableDownload}>⬇ Включить: скачивать раз в день</button>}
+          {ab && <button className="btn" disabled={abBusy} onClick={() => runNow(true)}>{abBusy ? <span><span className="spin" /> Сохраняю…</span> : "💾 Сохранить сейчас"}</button>}
+          {ab && <button className="btn" disabled={abBusy} onClick={disableAb}>Выключить</button>}
+        </div>
+        {!abFsOk() && <p className="xs mut" style={{ marginTop: 6 }}>Выбор папки работает в Chrome и Edge на компьютере. В этом браузере файлы будут скачиваться в папку «Загрузки».</p>}
       </div>
       {manualJson && <textarea ref={taRef} readOnly className="inp" style={{ minHeight: 90, fontSize: 10, marginBottom: 18 }} value={manualJson} onFocus={(e) => e.target.select()} />}
       <h3 style={{ marginBottom: 6 }}>Восстановить</h3>
@@ -7561,7 +7872,7 @@ function BackupModal({ data, reload, onClose, toast, onFilePick, onRestoreText, 
         <button className="btn pri" disabled={!restoreTxt.trim()} onClick={async () => {
           try { setErr(""); await onRestoreText(restoreTxt); } catch (e) { setErr("Ошибка: " + e.message); }
         }}>⬆ Восстановить из текста</button>
-        <button className="btn" onClick={onFilePick}>…или выбрать файл .json</button>
+        <button className="btn" onClick={onFilePick}>…или выбрать файл .json / .json.gz</button>
       </div>
       <p className="xs mut" style={{ marginTop: 10 }}>Восстановление полностью заменяет текущую базу содержимым бэкапа.</p>
       <RelinkSuppliers data={data} reload={reload} toast={toast} />
