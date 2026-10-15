@@ -272,6 +272,7 @@ const CSS = `
 .te.dark{--viz-s1:#3987e5;--viz-s2:#d95926;--viz-grid:#2a3236;--viz-axis:#3a454a}
 @media(max-width:820px){.dash .kpi[style*="span 2"]{grid-column:auto!important}}
 *{box-sizing:border-box;margin:0;padding:0}
+html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::-webkit-scrollbar{width:0;height:0;display:none}
 .te{font-family:var(--sans);background:var(--bg);color:var(--txt);min-height:100vh;font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;font-feature-settings:"tnum" 1}
 .te ::selection{background:var(--acc-ring)}
 .hdr{display:flex;align-items:center;gap:14px;padding:12px 22px;border-bottom:2px solid var(--acc);flex-wrap:wrap;position:sticky;top:0;background:var(--hdr-bg);color:var(--hdr-txt);z-index:50;transition:transform .25s ease}
@@ -386,6 +387,8 @@ table.t tr:hover td{background:var(--hover)}
 .ioshint-t{flex:1;min-width:0}
 .ioshint-t div{margin-top:4px;color:var(--mut)}
 .ioshint-t div b{color:var(--txt)}
+.totop{position:fixed;right:18px;bottom:22px;z-index:45;width:42px;height:42px;border-radius:50%;border:1px solid var(--line2);background:var(--panel);color:var(--txt);font:700 18px var(--sans);cursor:pointer;box-shadow:0 10px 28px rgba(0,0,0,.22);animation:fxFade .2s ease backwards;transition:background .12s,border-color .12s,color .12s}
+.totop:hover{border-color:var(--acc);color:var(--acc)}
 .calc{position:fixed;right:18px;top:120px;z-index:900;width:280px;padding:12px;border-radius:16px;background:var(--panel);border:1px solid var(--line2);box-shadow:0 24px 60px rgba(0,0,0,.35)}
 .calc-scr{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;text-align:right;min-height:64px}
 .calc-sub{min-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -7247,6 +7250,7 @@ function AppInner() {
   const [wipeOpen, setWipeOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hdrHidden, setHdrHidden] = useState(false);
+  const [showTop, setShowTop] = useState(false); // кнопка «наверх»: полосы прокрутки у края окна нет
   const lastScrollY = useRef(0);
   useEffect(() => {
     const onScroll = () => {
@@ -7255,6 +7259,7 @@ function AppInner() {
       // прячем только при заметном скролле вниз и не у самого верха страницы
       if (goingDown && y > 80) setHdrHidden(true);
       else if (!goingDown) setHdrHidden(false);
+      setShowTop(y > 600);
       lastScrollY.current = y;
     };
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -7349,6 +7354,7 @@ function AppInner() {
         </div>
       )}
       <NoAutofillGuard />
+      {showTop && <button type="button" className="totop" title="Наверх (Home)" aria-label="Наверх" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>↑</button>}
       {msg && <div className="toast">{msg}</div>}
       {dbErr && <div className="toast" role="alert" title="Нажмите, чтобы закрыть" onClick={() => setDbErr("")}
         style={{ bottom: msg ? 84 : 20, borderColor: "var(--bad)", color: "var(--bad)", maxWidth: 460, cursor: "pointer" }}>⚠ {dbErr}</div>}
