@@ -1,0 +1,58 @@
+# Ночной бэкап Thermo в Telegram: каждый день в 00:00 по Ташкенту бэкап базы (.json.gz) и Excel-архив
+# приходят руководителю в Telegram — даже если все компьютеры выключены.
+# Секреты репозитория: SUPABASE_DB_PASSWORD, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
+# Ручной запуск: Actions → «Ночной бэкап в Telegram» → Run workflow (ПРОВЕРКА — проверить бота / узнать свой ID).
+name: "Ночной бэкап в Telegram"
+on:
+  schedule:
+    - cron: "0 19 * * *" # 19:00 UTC = 00:00 Ташкент
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "БЭКАП — отправить сейчас; ПРОВЕРКА — проверить бота (и узнать свой TELEGRAM_CHAT_ID)"
+        type: choice
+        options: ["БЭКАП", "ПРОВЕРКА"]
+        default: "ПРОВЕРКА"
+permissions:
+  contents: read
+  actions: write
+concurrency:
+  group: nightly-backup
+  cancel-in-progress: false
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Проверка бота
+        if: github.event_name == 'workflow_dispatch' && inputs.action == 'ПРОВЕРКА'
+        run: node scripts/nightly/backup.mjs check
+      - uses: actions/setup-node@v4
+        if: github.event_name == 'schedule' || inputs.action == 'БЭКАП'
+        with:
+          node-version: 20
+          cache: npm
+      - name: Сборка Excel-архива
+        if: github.event_name == 'schedule' || inputs.action == 'БЭКАП'
+        run: |
+          which psql || (sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client)
+          npm ci --no-audit --no-fund --loglevel=error
+          npx esbuild scripts/nightly/archive-entry.js --bundle --platform=node --format=esm --outfile=.nightly/archive.mjs \
+            --jsx=automatic --log-level=warning \
+            --define:import.meta.env.VITE_SUPABASE_URL='"http://localhost"' --define:import.meta.env.VITE_SUPABASE_ANON_KEY='"x"' \
+            --define:process.env.NODE_ENV='"production"'
+      - name: Бэкап → Telegram
+        if: github.event_name == 'schedule' || inputs.action == 'БЭКАП'
+        run: node scripts/nightly/backup.mjs backup
+      # открытый репозиторий: GitHub выключает расписание после 60 дней без изменений — продлеваем
+      - name: Не выключать расписание
+        if: github.event_name == 'schedule'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/nightly-backup.yml/enable" >/dev/null && echo "ok"

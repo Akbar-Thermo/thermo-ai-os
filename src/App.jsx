@@ -7768,6 +7768,8 @@ function archiveBook(T, who) {
   add("Журнал", [["Дата и время", "Кто", "Роль", "Действие", "Объект / раздел", "Подробности"], ...logRows.map((l) => [dtm(l.ts || l.created_at), l.user_name || "", l.role ? roleLabel(l.role) : "", l.action || "", l.entity || "", l.detail || ""])]);
   return styledXlsxBook(book);
 }
+// для ночного бэкапа на сервере (scripts/nightly) — тот же Excel-архив, что и в программе
+export { archiveBook };
 async function downloadArchive(who) {
   const dump = await freshDump();
   const blob = archiveBook(dump.tables, who);

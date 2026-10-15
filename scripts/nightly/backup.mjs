@@ -1,0 +1,108 @@
+// Ночной бэкап Thermo → Telegram.
+// GitHub Actions запускает каждый день в 00:00 по Ташкенту (.github/workflows/nightly-backup.yml).
+// Читает базу напрямую (psql, пароль — секрет SUPABASE_DB_PASSWORD), собирает:
+//   · thermo_backup_ДАТА.json.gz — бэкап для восстановления (Журнал → Бэкап → выбрать файл), без паролей;
+//   · thermo_arxiv_ДАТА.xlsx — Excel-архив всей базы (тот же, что кнопка «Excel-архив» в программе);
+// и отправляет оба файла руководителю в Telegram (секреты TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID).
+// Режим «check»: проверить бота; если TELEGRAM_CHAT_ID ещё не задан — бот сам пишет каждому, кто нажал Start, его ID.
+// В логах (репозиторий открытый) печатаются только количества — никаких данных.
+import { execFileSync } from "node:child_process";
+import { gzipSync } from "node:zlib";
+import { readFileSync, existsSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+const MODE = process.argv[2] || "backup";
+const TOKEN = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
+const CHAT = (process.env.TELEGRAM_CHAT_ID || "").trim();
+const TG = process.env.TE_TG_API || "https://api.telegram.org";
+const TABLES = ["products", "suppliers", "objects", "finance_ops", "requests", "masters", "warehouse", "wh_moves", "users", "audit_log"];
+const log = (s) => console.log("▶ " + s);
+const fail = (s) => { console.log("::error::" + s); process.exitCode = 1; };
+
+async function tg(method, fields, file) {
+  const fd = new FormData();
+  Object.entries(fields).forEach(([k, v]) => fd.append(k, String(v)));
+  if (file) fd.append(file.field, new Blob([file.data]), file.name);
+  const r = await fetch(TG + "/bot" + TOKEN + "/" + method, { method: "POST", body: fd });
+  const j = await r.json().catch(() => ({}));
+  if (!j.ok) throw new Error("Telegram " + method + ": " + (j.description || r.status));
+  return j.result;
+}
+
+// подключение к базе — как в supabase/secure/run.sh
+function pgEnv() {
+  const pool = existsSync("supabase/.temp/pooler-url") ? readFileSync("supabase/.temp/pooler-url", "utf8").trim() : "";
+  const m = /^postgres(?:ql)?:\/\/([^@:]+)[^@]*@([^:/]+):(\d+)\//.exec(pool) || [];
+  return { ...process.env, PGHOST: process.env.TE_PGHOST || m[2] || "", PGPORT: process.env.TE_PGPORT || m[3] || "5432", PGUSER: process.env.TE_PGUSER || m[1] || "",
+    PGDATABASE: "postgres", PGSSLMODE: process.env.TE_SSL || "require", PGCONNECT_TIMEOUT: "20" };
+}
+function psqlJson(sql) {
+  let out;
+  try { out = execFileSync("psql", ["-v", "ON_ERROR_STOP=1", "-qtA", "-c", sql], { env: pgEnv(), maxBuffer: 1024 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }).toString().trim(); }
+  catch (e) {
+    const msg = String(e.stderr || e.message || e).split("\n").map((l) => l.trim()).filter(Boolean)[0] || "ошибка psql";
+    if (/password authentication|could not connect|connection to server|timeout expired|no pg_hba|Tenant or user not found/i.test(msg)) throw new Error("нет подключения к базе — проверьте секрет SUPABASE_DB_PASSWORD (" + msg.slice(0, 120) + ")");
+    throw new Error(msg.slice(0, 200));
+  }
+  return JSON.parse(out || "null");
+}
+function readTable(t) {
+  if (!psqlJson(`select to_json(to_regclass('public.${t}') is not null)`)) return [];
+  try { return psqlJson(`select coalesce(json_agg(x), '[]'::json) from (select * from public.${t} order by created_at nulls first, id) x`); }
+  catch (e) { return psqlJson(`select coalesce(json_agg(x), '[]'::json) from (select * from public.${t} order by id) x`); }
+}
+// дата дня, который закончился (Ташкент UTC+5, без перехода на летнее время)
+const dayEnded = () => new Date(Date.now() + 5 * 3600e3 - 12 * 3600e3).toISOString().slice(0, 10);
+const ru = (iso) => iso.split("-").reverse().join(".");
+
+async function check() {
+  if (!TOKEN) { fail("Нет секрета TELEGRAM_BOT_TOKEN"); return; }
+  const me = await tg("getMe", {});
+  log("Бот: @" + me.username);
+  if (CHAT) {
+    await tg("sendMessage", { chat_id: CHAT, text: "✅ Бот бэкапов Thermo подключён. Каждый день в 00:00 сюда будут приходить бэкап базы и Excel-архив." });
+    log("Тестовое сообщение отправлено в чат руководителя");
+    return;
+  }
+  const ups = await tg("getUpdates", {});
+  const chats = new Map();
+  ups.forEach((u) => { const m = u.message || u.edited_message; if (m && m.chat && m.chat.type === "private") chats.set(m.chat.id, m.chat); });
+  if (!chats.size) { fail("Боту ещё никто не писал: откройте @" + me.username + " в Telegram, нажмите «Start» и запустите проверку снова"); return; }
+  for (const id of chats.keys()) {
+    await tg("sendMessage", { chat_id: id, text: "Ваш TELEGRAM_CHAT_ID: " + id + "\n\nВставьте это число в GitHub → Settings → Secrets and variables → Actions → секрет TELEGRAM_CHAT_ID и запустите проверку ещё раз." });
+  }
+  log("ID отправлен в Telegram (чатов: " + chats.size + "). Добавьте его в секрет TELEGRAM_CHAT_ID и запустите проверку снова.");
+}
+
+async function backup() {
+  if (!TOKEN || !CHAT) { log("Ночной бэкап в Telegram ещё не настроен (нет секретов TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID) — пропускаю"); return; }
+  if (!process.env.PGPASSWORD) throw new Error("Нет секрета SUPABASE_DB_PASSWORD");
+  const day = dayEnded();
+  const dump = { _app: "ThermoAI", _date: new Date().toISOString(), _note: "ночной бэкап (сервер), без паролей", tables: {} };
+  for (const t of TABLES) dump.tables[t] = readTable(t);
+  // пароли не отправляем: при восстановлении у существующих аккаунтов они сохраняются
+  dump.tables.users = dump.tables.users.map(({ pass_hash, need_seed_pass, ...u }) => u);
+  const counts = TABLES.map((t) => t + ": " + dump.tables[t].length).join(", ");
+  log("Прочитано из базы — " + counts);
+  if (!dump.tables.products.length && !dump.tables.objects.length) throw new Error("база вернулась пустой — бэкап не отправлен");
+  const json = gzipSync(Buffer.from(JSON.stringify(dump)), { level: 9 });
+  const bundle = process.env.TE_ARCHIVE_BUNDLE || ".nightly/archive.mjs";
+  const { archiveBook } = await import(pathToFileURL(bundle).href);
+  const xlsx = Buffer.from(await archiveBook(dump.tables, "Ночной бэкап (сервер)").arrayBuffer());
+  const jName = "thermo_backup_" + day + ".json.gz", xName = "thermo_arxiv_" + day + ".xlsx";
+  if (json.length > 49e6 || xlsx.length > 49e6) throw new Error("файл больше 50 МБ — Telegram не примет");
+  const T = dump.tables;
+  const cap = "💾 Thermo — бэкап на конец дня " + ru(day) + "\n" +
+    "Объектов: " + T.objects.length + " · операций: " + T.finance_ops.length + " · товаров: " + T.products.length + "\n" +
+    "Восстановить: Журнал → Бэкап → «выбрать файл .json / .json.gz».";
+  await tg("sendDocument", { chat_id: CHAT, caption: cap, disable_notification: "true" }, { field: "document", name: jName, data: json });
+  await tg("sendDocument", { chat_id: CHAT, caption: "📊 Excel-архив всей базы на конец дня " + ru(day), disable_notification: "true" }, { field: "document", name: xName, data: xlsx });
+  log("Отправлено в Telegram: " + jName + " (" + Math.round(json.length / 1024) + " КБ), " + xName + " (" + Math.round(xlsx.length / 1024) + " КБ)");
+}
+
+try {
+  if (MODE === "check") await check(); else await backup();
+} catch (e) {
+  fail("Ночной бэкап не удался: " + e.message);
+  if (TOKEN && CHAT && MODE !== "check") { try { await tg("sendMessage", { chat_id: CHAT, text: "⚠️ Ночной бэкап Thermo не удался: " + e.message + "\nПодробности: GitHub → Actions → «Ночной бэкап в Telegram»." }); } catch (e2) {} }
+}

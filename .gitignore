@@ -7,3 +7,5 @@ supabase-go.exe
 supabase-go
 supabase.temp/
 supabase\.temp/
+.nightly
+
