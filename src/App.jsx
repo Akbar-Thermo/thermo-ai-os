@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useDeferredValue, memo, useCallback, createContext, useContext } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useDeferredValue, memo, useCallback, createContext, useContext } from "react";
 import * as XLSX from "xlsx";
 import * as dbModule from "./db.js";
 // «сырой» клиент Supabase (db.js экспортирует его рядом с db) — нужен для постраничной загрузки (.range) и массового удаления (.in)
@@ -321,6 +321,8 @@ table.t th{font-size:11.5px;color:var(--mut);text-align:left;padding:9px 10px;bo
 table.t td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
 table.t tbody tr:last-child td{border-bottom:0}
 .vt-box{overflow:auto;max-height:calc(100vh - 210px);min-height:320px}
+.fitcard,.vt-box{scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
+.fitcard table.t thead th{position:sticky;top:0;z-index:2;background:var(--panel2)}
 table.vt{table-layout:fixed;width:100%;min-width:1040px}
 table.vt thead th{position:sticky;top:0;z-index:2;background:var(--panel2)}
 table.vt td{padding:4px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -2594,7 +2596,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
             ))}</tbody></table>
         </div>
       )}
-      <div className="card" style={{ padding: 0, overflow: "auto" }}>
+      <FitCard>
         <table className="t">
           <thead><tr><th>Поставщик</th><th>Контакт</th><th>Условия</th><th style={{textAlign:"right"}}>Закупки</th><th style={{textAlign:"right"}}>Оплачено</th><th style={{textAlign:"right"}}>Возвраты</th><th style={{textAlign:"right"}}>Долг</th><th style={{textAlign:"right"}}>Товаров</th><th></th></tr></thead>
           <tbody>
@@ -2629,7 +2631,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
             )}
           </tbody>
         </table>
-      </div>
+      </FitCard>
       {akt && <AktSverkaModal s={akt} objects={objects} ops={finance_ops} whMoves={wh_moves} products={products} toast={toast} onClose={() => setAkt(null)} />}
       {pay && <SupplierPayModal s={pay} objects={objects} ops={finance_ops} whMoves={wh_moves} fin={fin} onClose={() => setPay(null)}
         onRateFixed={async (usd) => { await reload(); toast("Исправлено: " + fmt(usd) + " $"); }}
@@ -3725,7 +3727,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         </select>
         <button className="btn pri" onClick={goRequest}>+ Новая заявка</button>
       </div>
-      <div className="card" style={{ padding: 0, overflow: "auto" }}>
+      <FitCard>
         <table className="t">
           <thead><tr><th>Объект</th><th>Клиент</th><th>Мастер</th><th>Статус</th><th style={{textAlign:"right"}}>Сумма товара</th><th style={{textAlign:"right"}}>Долг клиента</th><th>Дата</th><th></th></tr></thead>
           <tbody>
@@ -3750,7 +3752,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
             {!shown.length && <tr><td colSpan={8} className="mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? "Ничего не найдено" : "Объектов пока нет — создайте через «Новая заявка»"}</td></tr>}
           </tbody>
         </table>
-      </div>
+      </FitCard>
       {editO && <ObjectEditModal obj={editO} data={data} reload={reload} toast={toast} onClose={() => setEditO(null)} />}
       {delObj && (() => { const f = calcObject(delObj, finance_ops); return (
         <Modal title="Удалить объект" onClose={() => { if (!delBusy) setDelObj(null); }} w={460}>
@@ -4942,7 +4944,7 @@ function MastersTab({ data, reload, toast, openObject, fin = true, canDel = fals
         <h2 style={{ marginRight: "auto" }}>Мастера <span className="mut sm">({masters.length})</span></h2>
         {fin && <button className="btn pri" onClick={() => setEdit({ status: "active", bonus_percent: 10 })}>+ Мастер</button>}
       </div>
-      <div className="card" style={{ padding: 0, overflow: "auto" }}>
+      <FitCard>
         <table className="t">
           <thead><tr><th>Мастер</th><th>Специализация</th>{fin && <th>% бонуса</th>}<th style={{textAlign:"right"}}>Объектов</th><th style={{textAlign:"right"}}>Сумма товаров</th>{fin && <th style={{textAlign:"right"}}>Вал. прибыль</th>}{fin && <th style={{textAlign:"right"}}>Бонус начислен</th>}{fin && <th style={{textAlign:"right"}}>Выплачено</th>}{fin && <th style={{textAlign:"right"}}>Долг мастеру</th>}</tr></thead>
           <tbody>
@@ -4965,7 +4967,7 @@ function MastersTab({ data, reload, toast, openObject, fin = true, canDel = fals
             {!masters.length && <tr><td colSpan={fin ? 9 : 4} className="mut" style={{ textAlign: "center", padding: 24 }}>Мастеров нет</td></tr>}
           </tbody>
         </table>
-      </div>
+      </FitCard>
       {edit && <MasterForm m={edit} all={masters} onClose={() => setEdit(null)} onSave={async (v) => {
         const { id, created_at, ...rest } = v;
         const r = id ? await db.from("masters").update(rest).eq("id", id) : await db.from("masters").insert(rest);
@@ -5016,7 +5018,7 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
         {fin && <KPI l="Долг мастеру" v={st.debtToMaster} c={st.debtToMaster > 0 ? "var(--warn)" : "var(--mut)"} />}
         <KPI l="Долги клиентов (его объекты)" v={st.clientDebt} c={st.clientDebt > 0 ? "var(--bad)" : "var(--mut)"} />
       </div>
-      <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
+      <FitCard className="sect">
         <table className="t">
           <thead><tr><th>Объект</th><th>Клиент</th><th>Статус</th><th style={{textAlign:"right"}}>Сумма товара</th>{fin && <th style={{textAlign:"right"}}>Вал. прибыль</th>}{fin && <th style={{textAlign:"right"}}>Бонус начислен</th>}<th style={{textAlign:"right"}}>Долг клиента</th></tr></thead>
           <tbody>
@@ -5034,7 +5036,7 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
             {!st.rows.length && <tr><td colSpan={fin ? 7 : 5} className="mut" style={{ textAlign: "center", padding: 22 }}>Объектов не прикреплено — назначьте мастера в карточке объекта</td></tr>}
           </tbody>
         </table>
-      </div>
+      </FitCard>
       {fin && <h3 className="sect">Бонусы: начисления и выплаты</h3>}
       {fin && <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
@@ -5339,7 +5341,7 @@ function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
         <input className="inp" style={{ maxWidth: 260 }} placeholder="Поиск: объект, клиент, адрес…" value={q} onChange={(e) => setQ(e.target.value)} />
         <label className="row sm" style={{ gap: 6, cursor: "pointer" }}><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> показать и доставленные</label>
       </div>
-      <div className="card" style={{ padding: 0, overflow: "auto" }}>
+      <FitCard>
         <table className="t">
           <thead><tr><th>Объект</th><th>Адрес</th><th>Клиент</th><th>Мастер</th><th>Доставка</th></tr></thead>
           <tbody>
@@ -5355,7 +5357,7 @@ function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
             {!list.length && <tr><td colSpan={5} className="mut" style={{ textAlign: "center", padding: 24 }}>{showAll ? "Объектов нет" : "Всё доставлено 🎉"}</td></tr>}
           </tbody>
         </table>
-      </div>
+      </FitCard>
     </div>
   );
 }
@@ -5439,7 +5441,7 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
         {!readOnly && <KPI l="Склад по закупу" v={totalCost} />}
         {!readOnly && <KPI l="Склад по продаже" v={totalSale} c="var(--txt)" />}
       </div>
-      <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
+      <FitCard className="sect">
         <table className="t">
           <thead><tr><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th>{!readOnly && <><th style={{textAlign:"right"}}>Закуп</th><th style={{textAlign:"right"}}>Продажа</th><th style={{textAlign:"right"}}>Сумма (закуп)</th><th></th></>}</tr></thead>
           <tbody>
@@ -5463,9 +5465,9 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
             {!stock.length && <tr><td colSpan={8} className="mut" style={{ textAlign: "center", padding: 26 }}>Склад пуст — товары появляются автоматически при возвратах с объектов</td></tr>}
           </tbody>
         </table>
-      </div>
+      </FitCard>
       <h3 className="sect">История движений</h3>
-      <div className="card" style={{ padding: 0, overflow: "auto" }}>
+      <FitCard>
         <table className="t">
           <thead><tr><th>Дата</th><th>Направление</th><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th>Объект</th><th>Кто</th></tr></thead>
           <tbody>
@@ -5483,7 +5485,7 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
           </tbody>
         </table>
         {moves.length > 200 && <div style={{ padding: 10 }}><button className="btn xs" onClick={() => setAllMoves(!allMoves)}>{allMoves ? "Показать последние 200" : "Показать все (" + moves.length + ")"}</button></div>}
-      </div>
+      </FitCard>
       {inForm && <WhInForm products={data.products || []} suppliers={suppliers} warehouse={warehouse} onClose={() => setInForm(false)} onSave={submitIn} />}
       {issue && <IssueForm stock={stock} objects={objects} onClose={() => setIssue(false)} onSave={async (lines, targetObj, user) => {
         let batchNo = 1;
@@ -6388,7 +6390,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
           <div key={c} className="kpi"><div className="l">{c}</div><div className="v">{fmt(byCat[c])}</div></div>
         ))}
       </div>
-      <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
+      <FitCard className="sect">
         <table className="t">
           <thead><tr><th>Дата</th><th>Категория</th><th style={{textAlign:"right"}}>Сумма, $</th><th>Способ оплаты</th><th>Комментарий</th><th>Кто</th><th></th></tr></thead>
           <tbody>
@@ -6410,7 +6412,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
             {!genExpenses.length && <tr><td colSpan={7} className="mut" style={{ textAlign: "center", padding: 22 }}>Расходов нет — добавьте через «+ Добавить расход»</td></tr>}
           </tbody>
         </table>
-      </div>
+      </FitCard>
       {boss && (
         <div className="card sect">
           <div className="row" style={{ marginBottom: staffOpen ? 8 : 0 }}>
@@ -6498,7 +6500,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
         <h3 style={{ marginRight: "auto" }}>Все операции{(from || to) ? " за период" : ""} <span className="mut sm">({periodOps.length})</span></h3>
         <input className="inp" style={{ maxWidth: 240 }} placeholder="Поиск: объект, поставщик, комментарий…" value={opsQ} onChange={(e) => setOpsQ(e.target.value)} />
       </div>
-      <div className="card" style={{ padding: 0, overflow: "auto" }}>
+      <FitCard>
         <table className="t">
           <thead><tr><th>Дата</th><th>Объект</th><th>Тип</th><th style={{textAlign:"right"}}>Сумма</th><th>Детали</th><th>Кто</th></tr></thead>
           <tbody>
@@ -6516,7 +6518,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
           </tbody>
         </table>
         {periodOps.length > 200 && <div style={{ padding: 10 }}><button className="btn xs" onClick={() => setOpsAll(!opsAll)}>{opsAll ? "Показать последние 200" : "Показать все (" + periodOps.length + ")"}</button></div>}
-      </div>
+      </FitCard>
       <VozvratSection objects={objects} finance_ops={finance_ops} suppliers={suppliers} whMoves={data.wh_moves} />
     </div>
   );
@@ -6601,7 +6603,7 @@ function LogTab({ data, reload, onBackup }) {
       <div className="card sect" style={{ borderColor: "var(--line2)" }}>
         <p className="sm mut">Журнал фиксирует ключевые действия сотрудников: заявки, оплаты, возвраты, изменения и удаления, отгрузки со склада, операции с аккаунтами. Записи не редактируются.</p>
       </div>
-      <div className="card" style={{ padding: 0, overflow: "auto" }}>
+      <FitCard>
         <table className="t">
           <thead><tr><th style={{width:150}}>Дата / время</th><th>Сотрудник</th><th>Роль</th><th>Действие</th><th>Объект/сущность</th><th>Детали</th></tr></thead>
           <tbody>
@@ -6619,7 +6621,7 @@ function LogTab({ data, reload, onBackup }) {
           </tbody>
         </table>
         {rows.length > 300 && <div style={{ padding: 10 }}><button className="btn xs" onClick={() => setAll(!all)}>{all ? "Показать последние 300" : "Показать все (" + rows.length + ")"}</button></div>}
-      </div>
+      </FitCard>
     </div>
   );
 }
@@ -6638,7 +6640,7 @@ function AdminTab({ data, reload, toast, currentUser }) {
       <div className="card sect" style={{ borderColor: "var(--line2)" }}>
         <p className="sm mut">Руководитель создаёт логины и пароли вручную. Вход в систему — строго по паролю (в базе хранится не сам пароль, а его хеш). Отключённый аккаунт войти не может.</p>
       </div>
-      <div className="card" style={{ padding: 0, overflow: "auto" }}>
+      <FitCard>
         <table className="t">
           <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th>Статус</th><th></th></tr></thead>
           <tbody>
@@ -6656,7 +6658,7 @@ function AdminTab({ data, reload, toast, currentUser }) {
             ))}
           </tbody>
         </table>
-      </div>
+      </FitCard>
       {edit && <UserForm u={edit} users={users} self={currentUser} onClose={() => setEdit(null)} onSave={async (vals) => {
         const { id, created_at, ...rest } = vals;
         const r = id ? await db.from("users").update(rest).eq("id", id) : await db.from("users").insert(rest);
@@ -6991,6 +6993,34 @@ function IosInstallHint() {
       <button type="button" className="btn xs" onClick={close} title="Больше не показывать">✕</button>
     </div>
   );
+}
+
+/* Длинные списки на страницах прокручиваются внутри своей карточки (как «Товары»):
+   полоса прокрутки — у правого края таблицы, строка заголовков закреплена.
+   Высота подбирается так, чтобы карточка доходила до низа окна; на телефоне — обычная прокрутка страницы. */
+function FitCard({ children, style }) {
+  const ref = useRef(null);
+  const [mh, setMh] = useState(null);
+  useLayoutEffect(() => {
+    const el = ref.current; if (!el) return;
+    let raf = 0;
+    const calc = () => {
+      if (window.innerWidth <= 820) { setMh(null); return; }
+      const vh = window.innerHeight;
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      const fit = vh - top - 42; // 40 — нижний отступ страницы
+      const hdr = document.querySelector(".hdr");
+      const v = fit >= vh * 0.45 ? fit : vh - (hdr ? hdr.offsetHeight : 70) - 28; // много всего выше — карточка на весь экран под шапкой
+      setMh(Math.max(260, Math.floor(v)));
+    };
+    const later = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(calc); };
+    calc();
+    window.addEventListener("resize", later);
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(later) : null;
+    if (ro && el.parentElement) ro.observe(el.parentElement);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", later); if (ro) ro.disconnect(); };
+  }, []);
+  return <div ref={ref} className="card fitcard" style={{ padding: 0, overflow: "auto", ...(mh ? { maxHeight: mh } : null), ...style }}>{children}</div>;
 }
 
 /* ============ APP ============ */
