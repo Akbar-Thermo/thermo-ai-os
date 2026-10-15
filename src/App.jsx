@@ -7370,9 +7370,17 @@ function AppInner() {
       finally { busy = false; BUSY_SILENT = Math.max(0, BUSY_SILENT - 1); }
     };
     const t0 = setTimeout(tick, window.__AB_DELAY != null ? window.__AB_DELAY : 15000); // после входа, чтобы не тормозить загрузку
-    const iv = setInterval(tick, 30 * 60 * 1000); // система открыта весь день — после полуночи сохранит новый
+    const iv = setInterval(tick, 30 * 60 * 1000); // запасная проверка: компьютер «спал» в полночь — сохранит при пробуждении
+    // ровно в 00:00 — бэкап и Excel-архив сохраняются сами (если система открыта на этом компьютере)
+    let tMid = 0;
+    const armMidnight = () => {
+      const now = new Date();
+      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5);
+      tMid = setTimeout(() => { tick(); armMidnight(); }, Math.max(1000, next - now));
+    };
+    armMidnight();
     window.addEventListener("focus", tick);
-    return () => { stop = true; clearTimeout(t0); clearInterval(iv); window.removeEventListener("focus", tick); };
+    return () => { stop = true; clearTimeout(t0); clearTimeout(tMid); clearInterval(iv); window.removeEventListener("focus", tick); };
   }, [isBoss, abTick]);
   useEffect(() => { if (isBoss) lastBackupInfo().then(setAbLast); }, [isBoss, abTick]);
   const abAllow = async () => {
@@ -7932,7 +7940,7 @@ function BackupModal({ data, reload, onClose, toast, onFilePick, onRestoreText, 
       </div>
       <div className="abbox">
         <h3 style={{ marginBottom: 4 }}>Автобэкап каждый день</h3>
-        <p className="xs mut" style={{ marginBottom: 8 }}>Раз в день, когда вы открываете систему на этом компьютере, бэкап базы и Excel-архив сохраняются сами. Выберите папку внутри <b>Google Drive</b> или <b>OneDrive</b> на компьютере — тогда копия каждый день уходит и в облако, отдельно от Supabase. Хранятся последние {AB_KEEP_DAYS} дней, старые файлы удаляются.</p>
+        <p className="xs mut" style={{ marginBottom: 8 }}>Каждый день в <b>00:00</b> бэкап базы и Excel-архив сохраняются сами — если система открыта на этом компьютере (можно просто оставить окно открытым на ночь). Если компьютер в полночь был выключен — сохранятся при первом открытии системы. Выберите папку внутри <b>Google Drive</b> или <b>OneDrive</b> на компьютере — тогда копия каждый день уходит и в облако, отдельно от Supabase. Хранятся последние {AB_KEEP_DAYS} дней, старые файлы удаляются.</p>
         <div className="sm" style={{ marginBottom: 4 }}>
           {last === undefined ? <span className="mut">Последний бэкап: …</span>
             : last ? <span>Последний бэкап: <b>{new Date(last.ts || last.created_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</b> · {last.user_name || "—"} · {last.action === "Автобэкап" ? "автобэкап" : "скачан вручную"}{lastDays >= 2 && <b style={{ color: "var(--warn)" }}> · {lastDays} дн. назад</b>}</span>
