@@ -405,6 +405,7 @@ table.t tr:hover td{background:var(--hover)}
 .totop:hover{border-color:var(--acc);color:var(--acc)}
 .abbox{margin:0 0 18px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
 .abwarn{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-color:var(--warn)!important}
+.inp.batch-date{width:138px;padding:2px 6px;font-size:12px;font-weight:800;display:inline-block;vertical-align:middle;background:var(--panel);cursor:pointer}
 .calc{position:fixed;right:18px;top:120px;z-index:900;width:280px;padding:12px;border-radius:16px;background:var(--panel);border:1px solid var(--line2);box-shadow:0 24px 60px rgba(0,0,0,.35)}
 .calc-scr{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;text-align:right;min-height:64px}
 .calc-sub{min-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -811,8 +812,15 @@ const whItemPatch = (w, pending) => ({ from_warehouse: true, wh_id: w.id, cost: 
 const objBatches = (obj) => {
   const map = {};
   (obj.items || []).forEach((i) => { const no = i.batch_no || 1; (map[no] = map[no] || { no, date: i.batch_date || obj.created_at, items: [] }).items.push(i); });
-  return Object.values(map).sort((a, b) => a.no - b.no);
+  // поставки (накладные) — по дате, при одной дате — по номеру
+  return Object.values(map).sort((a, b) => String(a.date || "").slice(0, 10).localeCompare(String(b.date || "").slice(0, 10)) || a.no - b.no);
 };
+// после смены даты накладной номера идут по датам: №1 — самая ранняя
+function renumberBatches(items, createdAt) {
+  const sorted = objBatches({ items, created_at: createdAt });
+  const map = {}; sorted.forEach((b, k) => { map[b.no] = k + 1; });
+  return items.map((i) => { const no = i.batch_no || 1; return map[no] === no && i.batch_no ? i : { ...i, batch_no: map[no] }; });
+}
 // «Лист доставки» (Excel без цен): по поставкам и поставщикам / Складу Thermo
 function downloadDeliverySheet(obj, suppliers) {
   const supName = (id) => ((suppliers || []).find((x) => x.id === id) || {}).name || "—";
@@ -4111,13 +4119,13 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     return ok;
   };
   // newBatch: true → создаём новую поставку с новым номером. false → добавляем в последнюю существующую поставку (или №1, если поставок ещё нет)
-  const addManualItems = async (rows, newBatch) => {
+  const addManualItems = async (rows, newBatch, date) => {
     let batchNo = 1, whOut = [];
     const ok = await saveItems((cur) => {
       const exNos = cur.map((i) => i.batch_no || 1);
       const lastNo = exNos.length ? Math.max(...exNos) : 0;
       batchNo = newBatch ? lastNo + 1 : (lastNo || 1);
-      const batchDate = newBatch || !lastNo ? today() : (cur.find((i) => (i.batch_no || 1) === batchNo) || {}).batch_date || today();
+      const batchDate = newBatch || !lastNo ? (date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : today()) : (cur.find((i) => (i.batch_no || 1) === batchNo) || {}).batch_date || today();
       const sp = splitByWarehouse(rows.map((r) => ({ ...r, qty: parseNum(r.qty) })), data.warehouse, (r, qty, w) => {
         const it = {
           id: uuid(), product_id: r.product_id || null, name: r.name, size: r.size, unit: r.unit || "шт",
@@ -4128,7 +4136,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         return it;
       }, wh.rowsFor);
       whOut = sp.whOut;
-      return [...cur, ...sp.items];
+      // накладная задним числом — номера поставок по датам
+      return newBatch && date && date < today() ? renumberBatches([...cur, ...sp.items], obj.created_at) : [...cur, ...sp.items];
     });
     let whFail = 0;
     if (ok && whOut.length && isLive(obj)) { whFail = await warehouseOut(whOut, obj, curUserName()); await reload(); }
@@ -4290,14 +4299,15 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     const r = downloadDeliverySheet(obj, suppliers);
     toast(r === "xlsx" ? "Лист доставки скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
-  const batches = useMemo(() => {
-    const map = {};
-    (obj.items || []).forEach((i) => {
-      const no = i.batch_no || 1;
-      (map[no] = map[no] || { no, date: i.batch_date || obj.created_at, items: [] }).items.push(i);
-    });
-    return Object.values(map).sort((a, b) => a.no - b.no);
-  }, [obj]);
+  const batches = useMemo(() => objBatches(obj), [obj]);
+  // дата накладной (поставки): меняется у всех её позиций, номера поставок выстраиваются по датам
+  const setBatchDate = async (no, d) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    const b = batches.find((x) => x.no === no);
+    if (b && String(b.date || "").slice(0, 10) === d) return;
+    const ok = await saveItems((cur) => renumberBatches(cur.map((i) => ((i.batch_no || 1) === no ? { ...i, batch_no: no, batch_date: d } : i)), obj.created_at));
+    if (ok) { await logAction("Дата накладной изменена", "object:" + obj.name, "поставка №" + no + ": " + (b ? dt(b.date) : "—") + " → " + dt(d)); toast("Дата поставки: " + dt(d) + " — поставки выстроены по датам"); }
+  };
 
   const unshippedCnt = (obj.items || []).filter((i) => !isShipped(i)).length;
   const KPI = ({ l, v, c }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}</div></div>;
@@ -4363,7 +4373,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
                 {batches.length > 1 || (obj.items || []).some((i) => i.batch_no) ? (
                   <tr className="clk" onClick={() => toggleBatch(b.no)}>
                     <td colSpan={7} style={{ background: "var(--acc-tint)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
-                      {closedBatches[b.no] ? "▸" : "▾"} 🚚 ПОСТАВКА №{b.no} · {dt(b.date)} · позиций: {b.items.length} · на сумму {fmt(b.items.reduce((a, i) => a + i.qty * i.price, 0))}
+                      {closedBatches[b.no] ? "▸" : "▾"} 🚚 ПОСТАВКА №{b.no} · <input type="date" className="inp batch-date" title="Дата накладной — нажмите, чтобы изменить" value={String(b.date || "").slice(0, 10)}
+                        onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => setBatchDate(b.no, e.target.value)} /> · позиций: {b.items.length} · на сумму {fmt(b.items.reduce((a, i) => a + i.qty * i.price, 0))}
                       {b.items.some((i) => !isShipped(i)) ? <span style={{ color: "var(--warn)" }}> · не отгружено: {b.items.filter((i) => !isShipped(i)).length}</span> : b.items.some((i) => i.shipped) ? <span style={{ color: "var(--ok)" }}> · отгружено ✓</span> : null}
                       <span className="xs mut" style={{ fontWeight: 500 }}>  — нажмите чтобы {closedBatches[b.no] ? "раскрыть" : "свернуть"}</span>
                     </td>
@@ -4433,7 +4444,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       {shipForm && <ShipModal obj={obj} batches={batches} fin={fin} supName={supName} onClose={() => setShipForm(false)}
         onShip={async (ids, date) => { if (await shipItems(ids, date, true)) setShipForm(false); }}
         onUnship={async (ids) => { await shipItems(ids, null, false); }} />}
-      {addItems && <AddItemsModal products={products} suppliers={suppliers} whQty={wh.qty} whSim={wh.sim} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} onSave={async (rows) => { if (await addManualItems(rows, addItems === "newbatch")) setAddItems(false); }} />}
+      {addItems && <AddItemsModal products={products} suppliers={suppliers} whQty={wh.qty} whSim={wh.sim} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} onSave={async (rows, date) => { if (await addManualItems(rows, addItems === "newbatch", date)) setAddItems(false); }} />}
       {impItems && <ObjectExcelImport products={products} suppliers={suppliers} onClose={() => setImpItems(false)} onSave={async (rows) => { if (await addManualItems(rows, false)) setImpItems(false); }} />}
       {editOp && <EditOpModal op={editOp} suppliers={suppliers} isReturn={editOp.type === "return"} onClose={() => setEditOp(null)} onSave={async (patch) => {
         const log = [...(editOp.edit_log || []), { at: new Date().toISOString(), before: { amount: editOp.amount, op_date: editOp.op_date, note: editOp.note, reason: editOp.reason } }];
@@ -4800,6 +4811,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
   const total = rows.reduce((a, r) => a + parseNum(r.qty) * parseNum(r.price), 0);
   const valid = rows.filter((r) => String(r.name || "").trim() && parseNum(r.qty) > 0).reverse().map(({ _k, ...r }) => r);
   const [busy, setBusy] = useState(false);
+  const [bDate, setBDate] = useState(today()); // дата накладной для новой поставки
   const [askCancel, setAskCancel] = useState(false);
   const tryClose = () => setAskCancel(true);
   return (
@@ -4809,6 +4821,11 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
         <ProductPicker askQty products={products} suppliers={suppliers} whQty={whQty} whSim={whSim} placeholder="найти товар в базе и добавить строку…" onPick={(p, n) => addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: n || 1, cost: p.cost, price: retailOf(p), supplier_id: p.supplier_id })} />
         <button className="btn" onClick={blank}>+ Пустая строка (товара нет в базе)</button>
       </div>
+      {newBatch && <div className="row" style={{ marginBottom: 10, gap: 8 }}>
+        <span className="sm mut">Дата накладной:</span>
+        <input type="date" className="inp" style={{ width: 160 }} value={bDate} max={today()} onChange={(e) => setBDate(e.target.value || today())} />
+        {bDate !== today() && <span className="xs" style={{ color: "var(--warn)" }}>задним числом — поставки выстроятся по датам</span>}
+      </div>}
       <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, maxHeight: 360 }}>
         <table className="t" style={{ minWidth: 760 }}>
           <thead><tr><th>Наименование</th><th style={{width:70}}>Ед.</th><th style={{width:80}}>Кол-во</th><th style={{width:110}}>Цена</th><th style={{width:140}}>Поставщик</th><th></th></tr></thead>
@@ -4836,7 +4853,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
         <div className="mono" style={{ fontWeight: 700 }}>Позиций: {rows.length} · Сумма: <span style={{ color: "var(--acc2)" }}>{money(total)}</span></div>
         <div className="row">
           <button className="btn" onClick={tryClose}>Отмена</button>
-          <button className="btn pri" disabled={!valid.length || busy} onClick={async () => { if (!(await confirmLowPrice(valid.map((r) => ({ name: r.name, price: parseNum(r.price), cost: parseNum(r.cost) }))))) return; setBusy(true); await onSave(valid); setBusy(false); }}>{busy ? "Сохраняю…" : newBatch ? "Создать новую поставку" : "Добавить в текущую поставку"}</button>
+          <button className="btn pri" disabled={!valid.length || busy} onClick={async () => { if (!(await confirmLowPrice(valid.map((r) => ({ name: r.name, price: parseNum(r.price), cost: parseNum(r.cost) }))))) return; setBusy(true); await onSave(valid, newBatch ? bDate : null); setBusy(false); }}>{busy ? "Сохраняю…" : newBatch ? "Создать новую поставку" : "Добавить в текущую поставку"}</button>
         </div>
       </div>
     </Modal>
@@ -7824,7 +7841,7 @@ function archiveBook(T, who) {
   ]);
   add("Объекты", [["Объект", "Клиент", "Телефон", "Адрес", "Мастер", "Менеджер", "Статус", "Создан", "Продажа (нетто), $", "Оплачено, $", "Долг клиента, $", "Себестоимость, $", "Валовая прибыль, $", "Остаток, $"], ...objRows]);
   const itemRows = [];
-  objs.forEach((o) => (o.items || []).forEach((i) => itemRows.push([o.name || "", o.client || "", i.batch_no || 1, d(i.batch_date), i.name || "", i.size || "", Number(i.qty) || 0, i.unit || "",
+  objs.forEach((o) => objBatches(o).flatMap((b) => b.items).forEach((i) => itemRows.push([o.name || "", o.client || "", i.batch_no || 1, d(i.batch_date), i.name || "", i.size || "", Number(i.qty) || 0, i.unit || "",
     r2(i.price), r2((Number(i.qty) || 0) * (Number(i.price) || 0)), r2(i.cost), r2((Number(i.qty) || 0) * (Number(i.cost) || 0)),
     i.from_warehouse ? "Склад Thermo" : supName.get(i.supplier_id) || "", isShipped(i) ? "да" : "нет"])));
   add("Позиции объектов", [["Объект", "Клиент", "Поставка №", "Дата поставки", "Товар", "Размер", "Кол-во", "Ед.", "Цена, $", "Сумма, $", "Себест., $", "Сумма себест., $", "Поставщик", "Отгружено"], ...itemRows]);
