@@ -1122,7 +1122,18 @@ function downloadBlob(filename, blob) {
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 // скачать таблицу с рамками; при ошибке — CSV
+// колонка названий шире самого длинного названия: иначе Excel при открытии переносит длинное название
+// на вторую строку и строка становится выше остальных
+function fitTextCols(rows, cols, types) {
+  return cols.map((w, c) => {
+    if ((types || [])[c] !== "t") return w;
+    let m = 0;
+    rows.forEach((r) => { if (r.k === "row" && r.v && r.v[c] != null) m = Math.max(m, String(r.v[c]).length); });
+    return Math.max(w, Math.min(110, Math.ceil(m * 1.22) + 3));
+  });
+}
 function downloadStyledXLSX(filename, sheetName, rows, cols, types, opt) {
+  cols = fitTextCols(rows, cols, types);
   try {
     const blob = styledXlsxBlob(sheetName, rows, cols, types, opt);
     const a = document.createElement("a");
