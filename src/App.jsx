@@ -1766,7 +1766,8 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [open]);
-  const active = q.trim().length >= 2 || (sf && open);
+  // список виден, пока поиск «открыт» (клик мимо — закрывает, текст поиска остаётся; клик в поле — снова открывает)
+  const active = open && (q.trim().length >= 2 || sf);
   const hits = useMemo(() => {
     const words = searchWords(q);
     if (!active) return [];
@@ -1793,13 +1794,17 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
     if (askQty) { setPend(p); setPq("1"); return; }
     onPick(p); setQ(""); setActiveIdx(-1); if (closeOnPick) setOpen(false);
   };
+  // после добавления текст поиска (например «отвод 50 100») остаётся выделенным, список найденного — открытым:
+  // можно сразу взять следующий товар из того же списка (↓ / мышью) или просто начать печатать новый запрос
+  const backToSearch = () => setTimeout(() => { const el = searchRef.current; if (el) { el.focus(); el.select(); } setOpen(true); }, 0);
   const confirmQty = () => {
     const n = parseNum(pq);
     if (!(n > 0) || !pend) return;
-    onPick(pend, n); setPend(null); setQ(""); setActiveIdx(-1);
-    setTimeout(() => { if (searchRef.current) searchRef.current.focus(); }, 0);
+    onPick(pend, n); setPend(null);
+    if (closeOnPick) { setQ(""); setActiveIdx(-1); setOpen(false); }
+    backToSearch();
   };
-  const cancelQty = () => { setPend(null); setTimeout(() => { if (searchRef.current) searchRef.current.focus(); }, 0); };
+  const cancelQty = () => { setPend(null); backToSearch(); };
   const supCount = useMemo(() => { const m = {}; products.forEach((p) => { if (p.supplier_id && p.status !== "archive") m[p.supplier_id] = (m[p.supplier_id] || 0) + 1; }); return m; }, [products]);
   const onKeyDown = (e) => {
     if (!hits.length) return;
