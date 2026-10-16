@@ -267,7 +267,7 @@ const CSS = `
    (активная вкладка, главные кнопки, акценты). Цифры — табличные, без моноширинного шрифта. */
 :root{
   --bg:#eef0ee; --panel:#fbfbfa; --panel2:#f3f5f3; --line:#e0e4e1; --line2:#cfd5d1;
-  --txt:#1f2629; --mut:#66706f; --acc:#ff1f30; --acc2:#d6001a; --acc-tint:rgba(255,31,48,.06); --acc-ring:rgba(255,31,48,.22);
+  --txt:#1f2629; --mut:#66706f; --acc:#ff1f30; --acc2:#d6001a; --acc-tint:rgba(255,31,48,.06); --wh-tint:rgba(44,122,82,.07); --acc-ring:rgba(255,31,48,.22);
   --ok:#2c7a52; --warn:#99650f; --bad:#b33a3a;
   --t-neutral:#66706f; --t-ok:#2c7a52; --t-warn:#99650f; --t-bad:#b33a3a; --t-info:#2f6a9e; --t-violet:#6a55a3; --t-strong:#1f2629;
   --mono:'JetBrains Mono',ui-monospace,monospace; --sans:'Onest',system-ui,sans-serif;
@@ -276,7 +276,7 @@ const CSS = `
 }
 .te.dark{
   --bg:#15191b; --panel:#1b2023; --panel2:#21282b; --line:#2b3438; --line2:#374247;
-  --txt:#dfe4e2; --mut:#8d9896; --acc:#ff1f30; --acc2:#ff4553; --acc-tint:rgba(255,31,48,.09); --acc-ring:rgba(255,31,48,.32);
+  --txt:#dfe4e2; --mut:#8d9896; --acc:#ff1f30; --acc2:#ff4553; --acc-tint:rgba(255,31,48,.09); --wh-tint:rgba(61,220,125,.08); --acc-ring:rgba(255,31,48,.32);
   --ok:#5fb88a; --warn:#d4a24c; --bad:#e07272;
   --t-neutral:#9aa5a3; --t-ok:#5fb88a; --t-warn:#d4a24c; --t-bad:#e07272; --t-info:#6ea9de; --t-violet:#a597de; --t-strong:#dfe4e2;
   --hdr-bg:#101416; --hdr-line:#253035; --hdr-panel2:#1b2327;
@@ -1802,10 +1802,13 @@ function whAvailIndex(warehouse, products, suppliers) {
     const alt = r.filter((w) => w.product_id !== p.id);
     if (alt.length) sim[p.id] = { name: alt[0].name, qty: round2(alt.reduce((a, w) => a + (Number(w.qty) || 0), 0)), n: alt.length };
   });
-  return { qty, sim, rowsFor: (pid) => rows[pid] || [] };
+  // товары, которые лежат на складе (для поиска: показываются всегда, при любом фильтре поставщиков)
+  const stock = [];
+  exact.forEach((list, pid) => { const p = prod.get(pid); if (p) stock.push(p); });
+  return { qty, sim, stock, rowsFor: (pid) => rows[pid] || [] };
 }
 const whQtyMap = (warehouse) => { const m = {}; (warehouse || []).forEach((w) => { if (w.product_id && Number(w.qty) > 0) m[w.product_id] = (m[w.product_id] || 0) + Number(w.qty); }); return m; };
-function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnPick = false, whQty = null, whSim = null, askQty = false }) {
+function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnPick = false, whQty = null, whSim = null, whStock = null, askQty = false }) {
   // askQty: после выбора товара сразу спрашиваем количество (Enter — добавить и вернуться к поиску)
   const [pend, setPend] = useState(null);
   const [pq, setPq] = useState("1");
@@ -1845,19 +1848,22 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
   }, [open]);
   // список виден, пока поиск «открыт» (клик мимо — закрывает, текст поиска остаётся; клик в поле — снова открывает)
   const active = open && (q.trim().length >= 2 || sf);
+  // товары со Склада Thermo — первыми и при любом фильтре поставщиков (склад нужно распродавать)
+  const whSet = useMemo(() => new Set((whStock || []).map((p) => p.id)), [whStock]);
   const hits = useMemo(() => {
     const words = searchWords(q);
     if (!active) return [];
-    const out = [];
+    const wh = [], out = [];
+    (whStock || []).forEach((p) => { const s = prodSearchText(p, supName[p.supplier_id]); if (words.every((w) => s.includes(w))) wh.push(p); });
     for (const i of order) {
       const p = products[i];
-      if (p.status === "archive") continue;
+      if (p.status === "archive" || whSet.has(p.id)) continue;
       if (sf && !sfSet.has(p.supplier_id)) continue;
       const s = idx[i];
       if (words.every((w) => s.includes(w))) out.push(p);
     }
-    return out;
-  }, [q, products, idx, sfSet, active, order]);
+    return wh.length ? [...wh, ...out] : out;
+  }, [q, products, idx, sfSet, active, order, whStock, whSet, supName]);
   useEffect(() => { setTop(0); if (listRef.current) listRef.current.scrollTop = 0; }, [q, sfSet]);
   // при навигации стрелками держим активную строку в видимой области
   useEffect(() => {
@@ -1958,11 +1964,11 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
                 {hits.slice(start, end).map((p, k) => {
                   const i = start + k;
                   return (
-                    <div key={p.id} className="clk pick-row" title={p.name}
-                      style={{ position: "absolute", top: i * ROW, left: 0, right: 0, height: ROW, boxSizing: "border-box", padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === activeIdx ? "var(--acc-tint)" : "var(--panel)", overflow: "hidden" }}
+                    <div key={p.id} className={"clk pick-row" + (whSet.has(p.id) ? " pick-wh" : "")} title={p.name}
+                      style={{ position: "absolute", top: i * ROW, left: 0, right: 0, height: ROW, boxSizing: "border-box", padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === activeIdx ? "var(--acc-tint)" : whSet.has(p.id) ? "var(--wh-tint)" : "var(--panel)", boxShadow: whSet.has(p.id) ? "inset 3px 0 0 var(--ok)" : "none", overflow: "hidden" }}
                       onClick={() => pick(p)}>
                       <div style={{ fontWeight: 600, fontSize: 13, color: "var(--txt)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
-                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, supName[p.supplier_id]].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}{whQty && whQty[p.id] ? <b style={{ color: "var(--ok)" }}> · 🏬 есть на Складе Thermo: {fmt(whQty[p.id])}{whSim && whSim[p.id] ? " (такой же у другого поставщика)" : ""}</b> : null}</div>
+                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, supName[p.supplier_id]].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}{whQty && whQty[p.id] ? <b style={{ color: "var(--ok)" }}> · 🏬 {whSet.has(p.id) ? "Склад Thermo" : "есть на Складе Thermo"}: {fmt(whQty[p.id])}{whSim && whSim[p.id] ? (whSet.has(p.id) ? " (+ такой же у другого поставщика)" : " (такой же у другого поставщика)") : ""}</b> : null}</div>
                     </div>
                   );
                 })}
@@ -3662,7 +3668,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
           {xlImport && <RequestExcelImport products={filteredProducts} onClose={() => setXlImport(false)} onAdd={addImported} />}
 
           <div className="row" style={{ marginBottom: 12, gap: 10 }}>
-            <ProductPicker askQty products={filteredProducts} suppliers={suppliers} whQty={whQty} whSim={wh.sim} placeholder="Поиск товара по названию / коду — начните вводить…" onPick={addFromBase} />
+            <ProductPicker askQty products={filteredProducts} suppliers={suppliers} whQty={whQty} whSim={wh.sim} whStock={wh.stock} placeholder="Поиск товара по названию / коду — начните вводить…" onPick={addFromBase} />
           </div>
 
           {lines.length === 0 && (
@@ -4444,7 +4450,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       {shipForm && <ShipModal obj={obj} batches={batches} fin={fin} supName={supName} onClose={() => setShipForm(false)}
         onShip={async (ids, date) => { if (await shipItems(ids, date, true)) setShipForm(false); }}
         onUnship={async (ids) => { await shipItems(ids, null, false); }} />}
-      {addItems && <AddItemsModal products={products} suppliers={suppliers} whQty={wh.qty} whSim={wh.sim} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} onSave={async (rows, date) => { if (await addManualItems(rows, addItems === "newbatch", date)) setAddItems(false); }} />}
+      {addItems && <AddItemsModal products={products} suppliers={suppliers} whQty={wh.qty} whSim={wh.sim} whStock={wh.stock} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} onSave={async (rows, date) => { if (await addManualItems(rows, addItems === "newbatch", date)) setAddItems(false); }} />}
       {impItems && <ObjectExcelImport products={products} suppliers={suppliers} onClose={() => setImpItems(false)} onSave={async (rows) => { if (await addManualItems(rows, false)) setImpItems(false); }} />}
       {editOp && <EditOpModal op={editOp} suppliers={suppliers} isReturn={editOp.type === "return"} onClose={() => setEditOp(null)} onSave={async (patch) => {
         const log = [...(editOp.edit_log || []), { at: new Date().toISOString(), before: { amount: editOp.amount, op_date: editOp.op_date, note: editOp.note, reason: editOp.reason } }];
@@ -4801,7 +4807,7 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
     </>
   );
 }
-function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty = {}, whSim = {} }) {
+function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty = {}, whSim = {}, whStock = null }) {
   const [rows, setRows] = useState([]);
   // новая строка — сверху списка; в объект строки сохраняются в порядке добавления
   const addRow = (r) => setRows((prev) => [{ ...r, _k: uuid() }, ...prev]);
@@ -4818,7 +4824,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
     <>
     <Modal title={newBatch ? "Новая поставка" : "Добавить позиции вручную"} onClose={tryClose} w={860}>
       <div className="row" style={{ marginBottom: 10 }}>
-        <ProductPicker askQty products={products} suppliers={suppliers} whQty={whQty} whSim={whSim} placeholder="найти товар в базе и добавить строку…" onPick={(p, n) => addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: n || 1, cost: p.cost, price: retailOf(p), supplier_id: p.supplier_id })} />
+        <ProductPicker askQty products={products} suppliers={suppliers} whQty={whQty} whSim={whSim} whStock={whStock} placeholder="найти товар в базе и добавить строку…" onPick={(p, n) => addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: n || 1, cost: p.cost, price: retailOf(p), supplier_id: p.supplier_id })} />
         <button className="btn" onClick={blank}>+ Пустая строка (товара нет в базе)</button>
       </div>
       {newBatch && <div className="row" style={{ marginBottom: 10, gap: 8 }}>
