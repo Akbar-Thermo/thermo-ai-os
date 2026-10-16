@@ -12,20 +12,31 @@ import { readFileSync, existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 const MODE = process.argv[2] || "backup";
-const TOKEN = (process.env.TELEGRAM_BOT_TOKEN || "").trim();
+// токен из @BotFather; лишние пробелы/кавычки/«bot» в начале при копировании — убираем
+const TOKEN = (process.env.TELEGRAM_BOT_TOKEN || "").replace(/\s+/g, "").replace(/^["'`]+|["'`]+$/g, "").replace(/^bot(?=\d)/i, "");
 const CHAT = (process.env.TELEGRAM_CHAT_ID || "").trim();
 const TG = process.env.TE_TG_API || "https://api.telegram.org";
 const TABLES = ["products", "suppliers", "objects", "finance_ops", "requests", "masters", "warehouse", "wh_moves", "users", "audit_log"];
 const log = (s) => console.log("▶ " + s);
 const fail = (s) => { console.log("::error::" + s); process.exitCode = 1; };
 
+// без файла — обычный JSON (пустая multipart-форма Telegram отвергает с ошибкой 400), с файлом — multipart
 async function tg(method, fields, file) {
-  const fd = new FormData();
-  Object.entries(fields).forEach(([k, v]) => fd.append(k, String(v)));
-  if (file) fd.append(file.field, new Blob([file.data]), file.name);
-  const r = await fetch(TG + "/bot" + TOKEN + "/" + method, { method: "POST", body: fd });
-  const j = await r.json().catch(() => ({}));
-  if (!j.ok) throw new Error("Telegram " + method + ": " + (j.description || r.status));
+  let opts;
+  if (file) {
+    const fd = new FormData();
+    Object.entries(fields).forEach(([k, v]) => fd.append(k, String(v)));
+    fd.append(file.field, new Blob([file.data]), file.name);
+    opts = { method: "POST", body: fd };
+  } else opts = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(fields || {}) };
+  const r = await fetch(TG + "/bot" + TOKEN + "/" + method, opts);
+  const txt = await r.text();
+  let j = {}; try { j = JSON.parse(txt); } catch (e) {}
+  if (!j.ok) {
+    const why = j.description || (r.status + " " + txt.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 80));
+    const hint = r.status === 401 || r.status === 404 ? " — проверьте секрет TELEGRAM_BOT_TOKEN (весь токен из @BotFather, вида 123456:ABC…)" : "";
+    throw new Error("Telegram " + method + ": " + why + hint);
+  }
   return j.result;
 }
 
