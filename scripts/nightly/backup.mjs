@@ -75,10 +75,20 @@ async function check() {
     log("Тестовое сообщение отправлено в чат руководителя");
     return;
   }
-  const ups = await tg("getUpdates", {});
+  // если у бота когда-то был webhook, getUpdates ничего не отдаёт — снимаем (сообщения не теряются)
+  try { await tg("deleteWebhook", { drop_pending_updates: false }); } catch (e) {}
+  const ups = await tg("getUpdates", { limit: 100, allowed_updates: ["message", "edited_message", "my_chat_member"] });
   const chats = new Map();
-  ups.forEach((u) => { const m = u.message || u.edited_message; if (m && m.chat && m.chat.type === "private") chats.set(m.chat.id, m.chat); });
-  if (!chats.size) { fail("Боту ещё никто не писал: откройте @" + me.username + " в Telegram, нажмите «Start» и запустите проверку снова"); return; }
+  ups.forEach((u) => {
+    const m = u.message || u.edited_message || u.my_chat_member;
+    if (m && m.chat && m.chat.type === "private") chats.set(m.chat.id, m.chat);
+  });
+  log("Обновлений у бота: " + ups.length + ", личных чатов: " + chats.size);
+  if (!chats.size) {
+    fail("Бот пока не видит ваших сообщений: напишите @" + me.username + " любое сообщение (например «salom») и запустите проверку снова. " +
+      "Или узнайте свой ID у @userinfobot и вставьте его в секрет TELEGRAM_CHAT_ID");
+    return;
+  }
   for (const id of chats.keys()) {
     await tg("sendMessage", { chat_id: id, text: "Ваш TELEGRAM_CHAT_ID: " + id + "\n\nВставьте это число в GitHub → Settings → Secrets and variables → Actions → секрет TELEGRAM_CHAT_ID и запустите проверку ещё раз." });
   }
