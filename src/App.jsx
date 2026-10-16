@@ -1740,41 +1740,53 @@ const searchWords = (q) => q.toLowerCase().replace(/ё/g, "е").trim().split(/\s
 /* Склад Thermo: кроме того же товара предлагаем ТАКОЙ ЖЕ по названию у другого поставщика —
    название без бренда в кавычках и без имени поставщика/бренда, те же размеры и числа (цена и поставщик могут отличаться).
    Цель — чтобы товар со склада расходовался, а не закупался заново. */
-const WH_SYN = { ppr: "ппр", pprc: "ппр", ппрс: "ппр" };
+const WH_SYN = { ppr: "ппр", pprc: "ппр", ппрс: "ппр", пвх: "pvc" };
+// маркеры диаметра и единицы — у поставщиков пишутся по-разному, на сравнение не влияют
+const WH_DROP = new Set(["x", "х", "d", "ду", "dn", "мм", "mm", "шт", "гр"]);
 const whToks = (s) => String(s || "").toLowerCase().replace(/ё/g, "е").replace(/pp-?r(c?)/g, "ppr$1").replace(/(\d),(\d)/g, "$1.$2")
+  .replace(/(\d)([a-zа-я])/g, "$1 $2").replace(/([a-zа-я])(\d)/g, "$1 $2") // «50х45» → «50 х 45», «d50» → «d 50»
   .split(/[^a-zа-я0-9.]+/).map((t) => t.replace(/^\.+|\.+$/g, "")).filter(Boolean);
-function whNameKey(name, strip) {
+// подпись названия: слова (без бренда в кавычках, без имени поставщика/бренда) и числа-размеры строго по порядку
+function whNameSig(name, strip) {
   const drop = new Set();
   (strip || []).forEach((x) => whToks(x).forEach((t) => drop.add(WH_SYN[t] || t)));
-  const s = String(name || "").replace(/"[^"]*"|«[^»]*»|“[^”]*”/g, " ").replace(/[°º*]/g, " ");
-  const toks = whToks(s).map((t) => WH_SYN[t] || t).filter((t) => !drop.has(t) && !["мм", "mm", "шт"].includes(t));
-  if (toks.length < 2 || !toks.some((t) => /\d/.test(t))) return ""; // слишком общее название — не сравниваем
-  // слова — в любом порядке, числа (размеры) — строго по порядку: «PN 20 - 25» ≠ «PN 25 - 20»
+  const s = String(name || "").replace(/"[^"]*"|«[^»]*»|“[^”]*”/g, " ").replace(/\(\s*код[^)]*\)|\(\s*\d+\s*шт\.?\s*\)/gi, " ").replace(/[°º⁰*]/g, " ");
+  const toks = whToks(s).map((t) => WH_SYN[t] || t).filter((t) => !drop.has(t) && !WH_DROP.has(t));
   const num = (t) => /^\d+(\.\d+)?$/.test(t);
-  return toks.filter((t) => !num(t)).sort().join(" ") + " | " + toks.filter(num).join(" ");
+  const words = toks.filter((t) => !num(t)), nums = toks.filter(num);
+  if (!words.length || !nums.length) return null; // слишком общее название — не сравниваем
+  return { w: new Set(words), n: nums.join(" ") };
 }
+// «такой же»: те же размеры по порядку, а слова одного названия целиком входят в другое
+// («Отвод 50х45°» ≈ «PVC Отвод 50х45°» ≈ «Отвод 50х45° Комфорт»; «Отвод 50х45» ≠ «Полуотвод 50х45», ≠ «Отвод 50х87»)
+const whSigSame = (a, b) => {
+  if (!a || !b || a.n !== b.n) return false;
+  const [x, y] = a.w.size <= b.w.size ? [a.w, b.w] : [b.w, a.w];
+  for (const t of x) if (!y.has(t)) return false;
+  return true;
+};
 // { qty: {товар → сколько можно отдать со склада}, sim: {товар → {name, qty} такого же у другого поставщика}, rowsFor(товар) → строки склада }
 function whAvailIndex(warehouse, products, suppliers) {
   const sup = new Map((suppliers || []).map((x) => [x.id, x.name]));
   const prod = new Map((products || []).map((x) => [x.id, x]));
-  const exact = new Map(), byKey = new Map();
+  const exact = new Map(), byNum = new Map();
   const push = (m, k, v) => { const a = m.get(k); if (a) a.push(v); else m.set(k, [v]); };
   (warehouse || []).forEach((w) => {
     if (!(Number(w.qty) > 0)) return;
     if (w.product_id) push(exact, w.product_id, w);
     const p = w.product_id ? prod.get(w.product_id) : null;
-    const k = whNameKey(w.name || (p && p.name), [sup.get(w.supplier_id), p && p.brand, p && sup.get(p.supplier_id)]);
-    if (k) push(byKey, k, w);
+    const sig = whNameSig(w.name || (p && p.name), [sup.get(w.supplier_id), p && p.brand, p && sup.get(p.supplier_id)]);
+    if (sig) push(byNum, sig.n, { w, sig });
   });
   const rowsOf = (p) => {
     const ex = exact.get(p.id) || [];
-    if (!byKey.size) return ex;
-    const k = whNameKey(p.name, [sup.get(p.supplier_id), p.brand]);
-    const sim = k ? (byKey.get(k) || []).filter((w) => w.product_id !== p.id) : [];
+    if (!byNum.size) return ex;
+    const sig = whNameSig(p.name, [sup.get(p.supplier_id), p.brand]);
+    const sim = sig ? (byNum.get(sig.n) || []).filter((x) => x.w.product_id !== p.id && whSigSame(sig, x.sig)).map((x) => x.w) : [];
     return sim.length ? [...ex, ...sim] : ex;
   };
   const qty = {}, sim = {}, rows = {};
-  if (exact.size || byKey.size) (products || []).forEach((p) => {
+  if (exact.size || byNum.size) (products || []).forEach((p) => {
     const r = rowsOf(p);
     if (!r.length) return;
     rows[p.id] = r;
