@@ -5364,40 +5364,85 @@ function MasterForm({ m, all = [], onClose, onSave }) {
 }
 
 /* ============ СКЛАД THERMO ============ */
+// Приход на склад вручную — как окно добавления товаров в объект / «Подбор товаров»: несколько строк сразу,
+// поиск с количеством (текст поиска остаётся выделенным), фильтр по поставщикам, пустая строка для товара не из базы.
+// Свои поля склада сохраняются: себестоимость, цена, поставщик, «в долг поставщику», дата и комментарий (накладная).
 function WhInForm({ products, suppliers, warehouse, onClose, onSave }) {
-  const [v, setV] = useState({ product_id: null, name: "", unit: "шт", qty: 1, cost: "", price: "", supplier_id: "", toDebt: true, op_date: today(), note: "" });
+  const [rows, setRows] = useState([]);
+  const [opDate, setOpDate] = useState(today());
+  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  const set = (k) => (e) => setV({ ...v, [k]: e.target.value });
-  const cur = v.product_id ? warehouse.find((w) => w.product_id === v.product_id) : null;
-  const ok = v.name.trim() && parseNum(v.qty) > 0;
+  const [askCancel, setAskCancel] = useState(false);
+  const tryClose = () => (rows.length ? setAskCancel(true) : onClose());
+  const whOf = (pid) => (pid ? warehouse.find((w) => w.product_id === pid) : null);
+  const addProduct = (p, n) => {
+    const add = Number(n) > 0 ? Number(n) : 1;
+    setRows((prev) => {
+      const ex = prev.find((r) => r.product_id === p.id);
+      if (ex) return prev.map((r) => (r.product_id === p.id ? { ...r, qty: round2(parseNum(r.qty) + add) } : r));
+      const w = whOf(p.id);
+      return [{ _k: uuid(), product_id: p.id, name: p.name, unit: p.unit || "шт", qty: add, cost: String(w ? w.cost : Number(p.cost) || ""), price: String(w ? w.price : retailOf(p) || ""), supplier_id: p.supplier_id || "", toDebt: true }, ...prev];
+    });
+  };
+  const blank = () => setRows((prev) => [{ _k: uuid(), product_id: null, name: "", unit: "шт", qty: 1, cost: "", price: "", supplier_id: "", toDebt: true }, ...prev]);
+  const upd = (k, patch) => setRows((prev) => prev.map((r) => (r._k === k ? { ...r, ...patch } : r)));
+  const del = (k) => setRows((prev) => prev.filter((r) => r._k !== k));
+  const valid = rows.filter((r) => String(r.name || "").trim() && parseNum(r.qty) > 0);
+  const totalCost = valid.reduce((a, r) => a + parseNum(r.qty) * parseNum(r.cost), 0);
+  const debt = valid.filter((r) => r.supplier_id && r.toDebt).reduce((a, r) => a + parseNum(r.qty) * parseNum(r.cost), 0);
+  const save = async () => {
+    setBusy(true);
+    const ok = await onSave(valid.slice().reverse().map(({ _k, ...r }) => ({ ...r, name: String(r.name).trim(), op_date: opDate, note })));
+    if (!ok) setBusy(false);
+  };
   return (
-    <Modal title="Приход на склад вручную" onClose={onClose} w={620}>
-      <Fld label="Найти товар в базе (или впишите название ниже)">
-        <ProductPicker askQty closeOnPick products={products} suppliers={suppliers} placeholder="поиск: название, код, поставщик…"
-          onPick={(p, n) => { const w = warehouse.find((x) => x.product_id === p.id); setV({ ...v, product_id: p.id, name: p.name, qty: n || v.qty, unit: p.unit || "шт", cost: String(w ? w.cost : Number(p.cost) || ""), price: String(w ? w.price : retailOf(p) || ""), supplier_id: p.supplier_id || "" }); }} />
-      </Fld>
-      <div className="grid" style={{ gridTemplateColumns: "2fr 1fr 1fr", marginTop: 8 }}>
-        <Fld label="Название*"><input className="inp" value={v.name} onChange={(e) => setV({ ...v, name: e.target.value, product_id: null })} placeholder="товар не из базы — впишите название" /></Fld>
-        <Fld label="Кол-во*"><input type="number" className="inp" min={0} value={v.qty} onChange={set("qty")} style={{ borderColor: parseNum(v.qty) > 0 ? undefined : "var(--bad)" }} /></Fld>
-        <Fld label="Ед."><input className="inp" value={v.unit} onChange={set("unit")} /></Fld>
-        <Fld label="Себест. за ед., $"><input type="number" className="inp" value={v.cost} onChange={set("cost")} /></Fld>
-        <Fld label="Цена за ед., $"><input type="number" className="inp" value={v.price} onChange={set("price")} /></Fld>
-        <Fld label="Дата"><input type="date" className="inp" value={v.op_date} onChange={set("op_date")} /></Fld>
-        <Fld label="Поставщик">
-          <select className="inp" value={v.supplier_id} onChange={set("supplier_id")}><option value="">— без поставщика —</option>{activeSuppliers(suppliers, v.supplier_id).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
-        </Fld>
-        <div style={{ gridColumn: "span 2" }}><Fld label="Комментарий"><input className="inp" value={v.note} onChange={set("note")} placeholder="откуда товар, накладная…" /></Fld></div>
+    <>
+    <Modal title="Приход на склад вручную" onClose={tryClose} w={960}>
+      <div className="row" style={{ marginBottom: 10 }}>
+        <ProductPicker askQty products={products} suppliers={suppliers} placeholder="поиск: название, код, поставщик… (Enter — количество)" onPick={addProduct} />
+        <button className="btn" onClick={blank}>+ Пустая строка (товара нет в базе)</button>
       </div>
-      {v.supplier_id && <label className="row sm" style={{ gap: 6, marginTop: 6, cursor: "pointer" }}>
-        <input type="checkbox" checked={v.toDebt} onChange={(e) => setV({ ...v, toDebt: e.target.checked })} />
-        Куплено у поставщика — добавить в долг поставщику <b className="mono">{fmt2(parseNum(v.qty) * parseNum(v.cost))}</b>
-      </label>}
-      {cur && <p className="xs mut" style={{ marginTop: 6 }}>На складе уже есть {fmt(cur.qty)} {cur.unit} — количество прибавится, себестоимость и цена станут как указано выше.</p>}
-      <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
-        <button className="btn" onClick={onClose}>Отмена</button>
-        <button className="btn pri" disabled={!ok || busy} onClick={async () => { setBusy(true); const r = await onSave({ ...v, name: v.name.trim() }); if (!r) setBusy(false); }}>{busy ? "Сохраняю…" : "Оприходовать"}</button>
+      <div className="row" style={{ marginBottom: 10, gap: 8, flexWrap: "wrap" }}>
+        <span className="sm mut">Дата прихода:</span>
+        <input type="date" className="inp" style={{ width: 160 }} value={opDate} onChange={(e) => setOpDate(e.target.value || today())} />
+        <input className="inp" style={{ flex: 1, minWidth: 220 }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="комментарий: откуда товар, № накладной…" />
+      </div>
+      <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, maxHeight: 380 }}>
+        <table className="t" style={{ minWidth: 860 }}>
+          <thead><tr><th>Наименование</th><th style={{ width: 64 }}>Ед.</th><th style={{ width: 80 }}>Кол-во</th><th style={{ width: 96 }}>Себест., $</th><th style={{ width: 96 }}>Цена, $</th><th style={{ width: 150 }}>Поставщик</th><th></th></tr></thead>
+          <tbody>
+            {rows.map((r) => {
+              const w = whOf(r.product_id);
+              return (
+                <tr key={r._k}>
+                  <td><input className="inp" value={r.name} onChange={(e) => upd(r._k, { name: e.target.value, product_id: null })} placeholder="товар не из базы — впишите название" />
+                    {w && <div className="xs mut" style={{ marginTop: 3 }}>на складе уже {fmt(w.qty)} {w.unit || "шт"} — прибавится</div>}
+                    {r.supplier_id && <label className="row xs" style={{ gap: 5, marginTop: 3, cursor: "pointer", color: r.toDebt ? "var(--warn)" : "var(--mut)", fontWeight: 700 }}>
+                      <input type="checkbox" checked={!!r.toDebt} onChange={(e) => upd(r._k, { toDebt: e.target.checked })} /> в долг поставщику {fmt2(parseNum(r.qty) * parseNum(r.cost))}
+                    </label>}</td>
+                  <td><input className="inp" value={r.unit} onChange={(e) => upd(r._k, { unit: e.target.value })} /></td>
+                  <td><input type="number" className="inp" min={0} value={r.qty} onChange={(e) => upd(r._k, { qty: e.target.value })} style={{ borderColor: parseNum(r.qty) > 0 ? undefined : "var(--bad)" }} /></td>
+                  <td><input type="number" className="inp num" value={r.cost} onChange={(e) => upd(r._k, { cost: e.target.value })} /></td>
+                  <td><input type="number" className="inp num" value={r.price} onChange={(e) => upd(r._k, { price: e.target.value })} /></td>
+                  <td><select className="inp" value={r.supplier_id || ""} onChange={(e) => upd(r._k, { supplier_id: e.target.value })}><option value="">— без поставщика —</option>{activeSuppliers(suppliers, r.supplier_id).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></td>
+                  <td><button className="btn xs dng" onClick={() => del(r._k)}>✕</button></td>
+                </tr>
+              );
+            })}
+            {!rows.length && <tr><td colSpan={7} className="mut" style={{ textAlign: "center", padding: 20 }}>Добавьте товары через поиск по базе или «Пустая строка»</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <div className="row" style={{ justifyContent: "space-between", marginTop: 14 }}>
+        <div className="mono" style={{ fontWeight: 700 }}>Позиций: {valid.length} · по себест.: <span style={{ color: "var(--acc2)" }}>{money(totalCost)}</span>{debt > 0 && <span className="sm mut" style={{ fontWeight: 500 }}> · в долг поставщикам {money(debt)}</span>}</div>
+        <div className="row">
+          <button className="btn" onClick={tryClose}>Отмена</button>
+          <button className="btn pri" disabled={!valid.length || busy} onClick={save}>{busy ? "Сохраняю…" : "Оприходовать" + (valid.length > 1 ? " (" + valid.length + ")" : "")}</button>
+        </div>
       </div>
     </Modal>
+    {askCancel && <DiscardConfirm text={"Строки прихода (" + rows.length + ") не будут сохранены."} onStay={() => setAskCancel(false)} onDiscard={onClose} />}
+    </>
   );
 }
 /* ============ ДОСТАВКА (роль «Доставщик») ============
@@ -5505,14 +5550,14 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
   const [inForm, setInForm] = useState(false);
   const stock = warehouse.filter((w) => (w.qty || 0) > 0);
   // приход вручную: товар из базы или новый; если строка склада есть — добавляем количество
-  const submitIn = async (v) => {
+  const inOne = async (v) => {
     const qty = parseNum(v.qty), cost = parseNum(v.cost), price = parseNum(v.price);
     const f = await whFind(v.product_id || null, v.name, "");
-    if (f.error) return false;
+    if (f.error) return { ok: false };
     let r;
     if (f.row) r = await db.from("warehouse").update({ qty: round2((Number(f.row.qty) || 0) + qty), cost, price, ...(v.supplier_id ? { supplier_id: v.supplier_id } : {}) }).eq("id", f.row.id);
     else r = await db.from("warehouse").insert(cleanUuids({ product_id: v.product_id || null, name: v.name, qty, cost, price, unit: v.unit || "шт", size: "", supplier_id: v.supplier_id || null }));
-    if (r.error) return false;
+    if (r.error) return { ok: false };
     await db.from("wh_moves").insert(cleanUuids({ product_id: v.product_id || null, name: v.name, qty, dir: "in", object_id: null, object_name: null, op_date: v.op_date || today(), user: curUserName(), note: "приход вручную" + (v.note ? ": " + v.note : "") }));
     let debtNote = "";
     if (v.supplier_id && v.toDebt) {
@@ -5521,7 +5566,20 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
     }
     const supN = v.supplier_id ? (suppliers.find((x) => x.id === v.supplier_id) || {}).name : "";
     await logAction("Склад: приход вручную", v.name, "кол-во " + fmt(qty) + ", себест. " + fmt2(cost) + ", цена " + fmt2(price) + (supN ? ", поставщик " + supN + (v.toDebt ? " (в долг)" : "") : ""));
-    setInForm(false); await reload(); toast("Приход на склад: " + v.name + " × " + fmt(qty) + debtNote);
+    return { ok: true, debtNote, debt: v.supplier_id && v.toDebt && !debtNote.includes("⚠") ? qty * cost : 0 };
+  };
+  // несколько строк прихода: записываем по очереди; при ошибке окно остаётся открытым с непринятыми строками
+  const submitIn = async (list) => {
+    let done = 0, debt = 0, warn = "";
+    for (const v of list) {
+      const r = await inOne(v);
+      if (!r || !r.ok) { warn = " · ⚠ не записано: " + (list.length - done) + " поз."; break; }
+      done++; debt += r.debt || 0; if (r.debtNote.includes("⚠")) warn = r.debtNote;
+    }
+    await reload();
+    if (!done) return false;
+    setInForm(false);
+    toast("Приход на склад: " + (done === 1 ? list[0].name + " × " + fmt(parseNum(list[0].qty)) : done + " поз.") + (debt ? " · долг поставщикам +" + fmt2(debt) : "") + warn);
     return true;
   };
   const moves = wh_moves.slice().reverse();
