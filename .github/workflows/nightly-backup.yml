@@ -1,6 +1,6 @@
 # Ночной бэкап Thermo в Telegram: каждый день в 00:00 по Ташкенту бэкап базы (.json.gz) и Excel-архив
 # приходят руководителю в Telegram — даже если все компьютеры выключены.
-# Секреты репозитория: SUPABASE_DB_PASSWORD, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
+# Секреты репозитория: SUPABASE_DB_PASSWORD, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID (несколько получателей — через запятую).
 # Ручной запуск: Actions → «Ночной бэкап в Telegram» → Run workflow (ПРОВЕРКА — проверить бота / узнать свой ID).
 name: "Ночной бэкап в Telegram"
 on:

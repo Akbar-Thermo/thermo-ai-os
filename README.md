@@ -41,4 +41,4 @@ npm run dev
 
 ## Бэкап
 - Журнал → Бэкап: файл бэкапа (JSON), **Excel-архив** всей базы, **автобэкап** раз в день в выбранную папку (Google Drive / OneDrive), хранение 60 дней. Восстановление — из `.json` или `.json.gz`.
-- **Ночной бэкап в Telegram** (сервер, работает при выключенных компьютерах): `.github/workflows/nightly-backup.yml` + `scripts/nightly/backup.mjs` — каждый день в 00:00 по Ташкенту бэкап (`.json.gz`, без паролей) и Excel-архив приходят руководителю в Telegram. Секреты: `SUPABASE_DB_PASSWORD`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (Actions → «Ночной бэкап в Telegram» → ПРОВЕРКА — бот сам пришлёт ID). При сбое бот пишет сообщение.
+- **Ночной бэкап в Telegram** (сервер, работает при выключенных компьютерах): `.github/workflows/nightly-backup.yml` + `scripts/nightly/backup.mjs` — каждый день в 00:00 по Ташкенту бэкап (`.json.gz`, без паролей) и Excel-архив приходят руководителю в Telegram. Секреты: `SUPABASE_DB_PASSWORD`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (несколько получателей — через запятую, можно ID группы) (Actions → «Ночной бэкап в Telegram» → ПРОВЕРКА — бот сам пришлёт ID). При сбое бот пишет сообщение.
