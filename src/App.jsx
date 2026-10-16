@@ -4204,46 +4204,53 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     let n = 1;
     // внутри поставки — в том же порядке, что в «Товары» (по коду 1, 2, 3…); позиции не из базы — в конце, как были
     const inProdOrder = (list) => itemsInCatalogOrder(list, products);
-    batches.forEach((b) => {
-      rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
-      rows.push({ k: "head", v: HEAD });
-      let sub = 0;
-      inProdOrder(b.items).forEach((i) => {
-        const s = Math.round(i.qty * i.price * 100) / 100; sub += s;
-        rows.push({ k: "row", v: [n++, i.name, i.qty, i.unit, i.price, s] });
-      });
-      tot("Итого по поставке №" + b.no, Math.round(sub * 100) / 100);
-      rows.push({ k: "blank" });
-    });
-    // возвраты — блоками по дате
-    byDay(ops.filter((o) => o.type === "return" && !o.voided)).forEach(({ day, ops: list }) => {
-      rows.push({ k: "section", v: ["Дата: " + dt(day)], red: true });
-      rows.push({ k: "blank" });
-      rows.push({ k: "section", v: ["ВОЗВРАТЫ"], red: true });
-      rows.push({ k: "head", v: HEAD });
-      let sub = 0;
-      list.forEach((o, k) => {
-        const amt = round2(o.amount || 0), q = Number(o.qty) || 0; sub += amt;
-        rows.push({ k: "row", v: [k + 1, o.product_name || "", q || "", o.unit || "", q ? round2(amt / q) : "", amt], red: true });
-      });
-      tot("Итого возвратов :", -round2(sub), true);
-      rows.push({ k: "blank" });
-    });
-    // оплаты клиента — блоками по дате: способ, сумма в валюте оплаты, курс, сумма в $
-    byDay(ops.filter((o) => o.type === "client_payment" && !o.voided && payLive(obj))).forEach(({ day, ops: list }) => {
-      rows.push({ k: "section", v: ["Дата: " + dt(day)] });
-      rows.push({ k: "blank" });
-      rows.push({ k: "section", v: ["ОПЛАТЫ"] });
-      rows.push({ k: "head", v: ["№", "Способ оплаты", "Кол-во", "Курс", "", "Сумма"], merge: [[3, 4]] });
-      let sub = 0;
-      list.forEach((o, k) => {
-        const i = payInfo(o), usd = round2(o.amount || 0); sub += usd;
-        const uzs = i.cur === "uzs";
-        const label = i.id ? (payMethod(i.id).cur === null ? i.label + (uzs ? " сум" : " $") : i.label) : "Оплата";
-        rows.push({ k: "row", v: [k + 1, label, uzs ? (i.uzs ? fmt(i.uzs) : "") : usd, uzs ? (i.rate ? fmt(i.rate) : "") : 1, "", usd], merge: [[3, 4]] });
-      });
-      tot("Итого оплачено :", round2(sub));
-      rows.push({ k: "blank" });
+    // всё по датам, как шло на объекте: поставка → возвраты → оплаты (в один день — в этом порядке).
+    // У объекта с несколькими поставками оплаты и возвраты стоят между поставками, в свой день.
+    const ev = [];
+    batches.forEach((b) => ev.push({ day: String(b.date || "").slice(0, 10), kind: 0, b }));
+    byDay(ops.filter((o) => o.type === "return" && !o.voided)).forEach((g) => ev.push({ ...g, kind: 1 }));
+    byDay(ops.filter((o) => o.type === "client_payment" && !o.voided && payLive(obj))).forEach((g) => ev.push({ ...g, kind: 2 }));
+    ev.sort((a, b) => a.day.localeCompare(b.day) || a.kind - b.kind || (a.b && b.b ? a.b.no - b.b.no : 0));
+    ev.forEach((e) => {
+      if (e.kind === 0) {
+        const b = e.b;
+        rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
+        rows.push({ k: "head", v: HEAD });
+        let sub = 0;
+        inProdOrder(b.items).forEach((i) => {
+          const s = Math.round(i.qty * i.price * 100) / 100; sub += s;
+          rows.push({ k: "row", v: [n++, i.name, i.qty, i.unit, i.price, s] });
+        });
+        tot("Итого по поставке №" + b.no, Math.round(sub * 100) / 100);
+        rows.push({ k: "blank" });
+      } else if (e.kind === 1) {
+        rows.push({ k: "section", v: ["Дата: " + dt(e.day)], red: true });
+        rows.push({ k: "blank" });
+        rows.push({ k: "section", v: ["ВОЗВРАТЫ"], red: true });
+        rows.push({ k: "head", v: HEAD });
+        let sub = 0;
+        e.ops.forEach((o, k) => {
+          const amt = round2(o.amount || 0), q = Number(o.qty) || 0; sub += amt;
+          rows.push({ k: "row", v: [k + 1, o.product_name || "", q || "", o.unit || "", q ? round2(amt / q) : "", amt], red: true });
+        });
+        tot("Итого возвратов :", -round2(sub), true);
+        rows.push({ k: "blank" });
+      } else {
+        // оплаты клиента: способ, сумма в валюте оплаты, курс, сумма в $
+        rows.push({ k: "section", v: ["Дата: " + dt(e.day)] });
+        rows.push({ k: "blank" });
+        rows.push({ k: "section", v: ["ОПЛАТЫ"] });
+        rows.push({ k: "head", v: ["№", "Способ оплаты", "Кол-во", "Курс", "", "Сумма"], merge: [[3, 4]] });
+        let sub = 0;
+        e.ops.forEach((o, k) => {
+          const i = payInfo(o), usd = round2(o.amount || 0); sub += usd;
+          const uzs = i.cur === "uzs";
+          const label = i.id ? (payMethod(i.id).cur === null ? i.label + (uzs ? " сум" : " $") : i.label) : "Оплата";
+          rows.push({ k: "row", v: [k + 1, label, uzs ? (i.uzs ? fmt(i.uzs) : "") : usd, uzs ? (i.rate ? fmt(i.rate) : "") : 1, "", usd], merge: [[3, 4]] });
+        });
+        tot("Итого оплачено :", round2(sub));
+        rows.push({ k: "blank" });
+      }
     });
     // итоговый блок — как в утверждённом шаблоне: без рамок, подпись по центру, сумма справа
     const ftot = (label, v, red) => rows.push({ k: "ftotal", v: [label, v], red });
