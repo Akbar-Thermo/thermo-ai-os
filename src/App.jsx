@@ -779,16 +779,26 @@ async function warehouseIn(returnOps, sourceObjName, note = "возврат с �
 // отгрузка со склада: остаток берём свежий из базы (на экране он мог устареть). Возвращает число ошибок.
 // строки, которые есть на Складе Thermo, берём сначала со склада (fromWh !== false), остаток — у поставщика.
 // mk(row, qty, whRow|null) → позиция объекта. Возвращает { items, whOut } (whOut — что списать со склада после сохранения).
-function splitByWarehouse(rows, warehouse, mk) {
+// rowsFor(товар) — строки склада, откуда можно взять: сначала тот же товар, потом такой же у другого поставщика (whAvailIndex).
+// Взятый «такой же» товар записывается в объект под своим названием и товаром склада (цена продажи — как у заказанного).
+function splitByWarehouse(rows, warehouse, mk, rowsFor) {
+  const find = rowsFor || ((pid) => (warehouse || []).filter((x) => x.product_id === pid && Number(x.qty) > 0));
   const left = {}, items = [], whOut = [];
   rows.forEach((r) => {
     let q = Number(r.qty) || 0;
     if (r.product_id && r.fromWh !== false) {
-      const w = (warehouse || []).find((x) => x.product_id === r.product_id && Number(x.qty) > 0);
-      if (w) {
+      for (const w of find(r.product_id)) {
+        if (!(q > 0)) break;
         if (left[w.id] == null) left[w.id] = Number(w.qty) || 0;
         const take = round2(Math.min(q, left[w.id]));
-        if (take > 0) { items.push(mk(r, take, w)); whOut.push({ row: w, qty: take }); left[w.id] = round2(left[w.id] - take); q = round2(q - take); }
+        if (!(take > 0)) continue;
+        const it = mk(r, take, w);
+        if (w.product_id !== r.product_id) {
+          const asked = it.name;
+          Object.assign(it, { product_id: w.product_id || null, name: w.name || asked, unit: w.unit || it.unit, source_text: "со склада Thermo вместо «" + asked + "»", wh_alt_of: r.product_id });
+          if (w.size != null && w.size !== "") it.size = w.size;
+        }
+        items.push(it); whOut.push({ row: w, qty: take }); left[w.id] = round2(left[w.id] - take); q = round2(q - take);
       }
     }
     if (q > 0) items.push(mk(r, q, null));
@@ -1727,8 +1737,55 @@ const prodSearchText = (p, supName) => {
 };
 const searchWords = (q) => q.toLowerCase().replace(/ё/g, "е").trim().split(/\s+/).filter(Boolean);
 // остаток на Складе Thermo по товару (product_id → кол-во)
+/* Склад Thermo: кроме того же товара предлагаем ТАКОЙ ЖЕ по названию у другого поставщика —
+   название без бренда в кавычках и без имени поставщика/бренда, те же размеры и числа (цена и поставщик могут отличаться).
+   Цель — чтобы товар со склада расходовался, а не закупался заново. */
+const WH_SYN = { ppr: "ппр", pprc: "ппр", ппрс: "ппр" };
+const whToks = (s) => String(s || "").toLowerCase().replace(/ё/g, "е").replace(/pp-?r(c?)/g, "ppr$1").replace(/(\d),(\d)/g, "$1.$2")
+  .split(/[^a-zа-я0-9.]+/).map((t) => t.replace(/^\.+|\.+$/g, "")).filter(Boolean);
+function whNameKey(name, strip) {
+  const drop = new Set();
+  (strip || []).forEach((x) => whToks(x).forEach((t) => drop.add(WH_SYN[t] || t)));
+  const s = String(name || "").replace(/"[^"]*"|«[^»]*»|“[^”]*”/g, " ").replace(/[°º*]/g, " ");
+  const toks = whToks(s).map((t) => WH_SYN[t] || t).filter((t) => !drop.has(t) && !["мм", "mm", "шт"].includes(t));
+  if (toks.length < 2 || !toks.some((t) => /\d/.test(t))) return ""; // слишком общее название — не сравниваем
+  // слова — в любом порядке, числа (размеры) — строго по порядку: «PN 20 - 25» ≠ «PN 25 - 20»
+  const num = (t) => /^\d+(\.\d+)?$/.test(t);
+  return toks.filter((t) => !num(t)).sort().join(" ") + " | " + toks.filter(num).join(" ");
+}
+// { qty: {товар → сколько можно отдать со склада}, sim: {товар → {name, qty} такого же у другого поставщика}, rowsFor(товар) → строки склада }
+function whAvailIndex(warehouse, products, suppliers) {
+  const sup = new Map((suppliers || []).map((x) => [x.id, x.name]));
+  const prod = new Map((products || []).map((x) => [x.id, x]));
+  const exact = new Map(), byKey = new Map();
+  const push = (m, k, v) => { const a = m.get(k); if (a) a.push(v); else m.set(k, [v]); };
+  (warehouse || []).forEach((w) => {
+    if (!(Number(w.qty) > 0)) return;
+    if (w.product_id) push(exact, w.product_id, w);
+    const p = w.product_id ? prod.get(w.product_id) : null;
+    const k = whNameKey(w.name || (p && p.name), [sup.get(w.supplier_id), p && p.brand, p && sup.get(p.supplier_id)]);
+    if (k) push(byKey, k, w);
+  });
+  const rowsOf = (p) => {
+    const ex = exact.get(p.id) || [];
+    if (!byKey.size) return ex;
+    const k = whNameKey(p.name, [sup.get(p.supplier_id), p.brand]);
+    const sim = k ? (byKey.get(k) || []).filter((w) => w.product_id !== p.id) : [];
+    return sim.length ? [...ex, ...sim] : ex;
+  };
+  const qty = {}, sim = {}, rows = {};
+  if (exact.size || byKey.size) (products || []).forEach((p) => {
+    const r = rowsOf(p);
+    if (!r.length) return;
+    rows[p.id] = r;
+    qty[p.id] = round2(r.reduce((a, w) => a + (Number(w.qty) || 0), 0));
+    const alt = r.filter((w) => w.product_id !== p.id);
+    if (alt.length) sim[p.id] = { name: alt[0].name, qty: round2(alt.reduce((a, w) => a + (Number(w.qty) || 0), 0)), n: alt.length };
+  });
+  return { qty, sim, rowsFor: (pid) => rows[pid] || [] };
+}
 const whQtyMap = (warehouse) => { const m = {}; (warehouse || []).forEach((w) => { if (w.product_id && Number(w.qty) > 0) m[w.product_id] = (m[w.product_id] || 0) + Number(w.qty); }); return m; };
-function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnPick = false, whQty = null, askQty = false }) {
+function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnPick = false, whQty = null, whSim = null, askQty = false }) {
   // askQty: после выбора товара сразу спрашиваем количество (Enter — добавить и вернуться к поиску)
   const [pend, setPend] = useState(null);
   const [pq, setPq] = useState("1");
@@ -1885,7 +1942,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
                       style={{ position: "absolute", top: i * ROW, left: 0, right: 0, height: ROW, boxSizing: "border-box", padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === activeIdx ? "var(--acc-tint)" : "var(--panel)", overflow: "hidden" }}
                       onClick={() => pick(p)}>
                       <div style={{ fontWeight: 600, fontSize: 13, color: "var(--txt)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
-                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, supName[p.supplier_id]].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}{whQty && whQty[p.id] ? <b style={{ color: "var(--ok)" }}> · 🏬 есть на Складе Thermo: {fmt(whQty[p.id])}</b> : null}</div>
+                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, supName[p.supplier_id]].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}{whQty && whQty[p.id] ? <b style={{ color: "var(--ok)" }}> · 🏬 есть на Складе Thermo: {fmt(whQty[p.id])}{whSim && whSim[p.id] ? " (такой же у другого поставщика)" : ""}</b> : null}</div>
                     </div>
                   );
                 })}
@@ -3318,7 +3375,9 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
 
   const addFromBase = (p, n = 1) => {
     const add = Number(n) > 0 ? Number(n) : 1;
-    if (whQty[p.id]) toast("🏬 «" + p.name + "» есть на Складе Thermo: " + fmt(whQty[p.id]) + " " + (p.unit || "шт") + " — будет отдано со склада");
+    if (whQty[p.id]) toast(wh.sim[p.id] && wh.sim[p.id].qty >= whQty[p.id]
+      ? "🏬 На Складе Thermo есть такой же товар другого поставщика: «" + wh.sim[p.id].name + "» — " + fmt(whQty[p.id]) + " " + (p.unit || "шт") + ". Будет отдан со склада"
+      : "🏬 «" + p.name + "» есть на Складе Thermo: " + fmt(whQty[p.id]) + " " + (p.unit || "шт") + (wh.sim[p.id] ? " (вместе с таким же другого поставщика)" : "") + " — будет отдано со склада");
     setLines((prev) => {
       const ex = prev.find((l) => l.product_id === p.id);
       if (ex) return prev.map((l) => (l.product_id === p.id ? { ...l, qty: round2(qn(l.qty) + add) } : l));
@@ -3344,7 +3403,9 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
     setLines((prev) => [{ id: uuid(), product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: "", supplier_id: null, manual: true }, ...prev]);
   };
   // сколько такого товара лежит на Складе Thermo (возвраты) — можно отгрузить оттуда вместо закупки
-  const whQty = useMemo(() => whQtyMap(data.warehouse), [data.warehouse]);
+  // + такой же товар у другого поставщика (whAvailIndex) — чтобы склад расходовался
+  const wh = useMemo(() => whAvailIndex(data.warehouse, products, suppliers), [data.warehouse, products, suppliers]);
+  const whQty = wh.qty;
   const setLine = (id, patch) => setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   // перетаскивание строк (за «⠿») и цветная пометка строки
   const [dragId, setDragId] = useState(null);
@@ -3411,7 +3472,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
           };
           if (w) { Object.assign(it, whItemPatch(w, whPend)); delete it.shipped; }
           return it;
-        });
+        }, wh.rowsFor);
         whOut = sp.whOut;
         return sp.items;
       };
@@ -3581,7 +3642,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
           {xlImport && <RequestExcelImport products={filteredProducts} onClose={() => setXlImport(false)} onAdd={addImported} />}
 
           <div className="row" style={{ marginBottom: 12, gap: 10 }}>
-            <ProductPicker askQty products={filteredProducts} suppliers={suppliers} whQty={whQty} placeholder="Поиск товара по названию / коду — начните вводить…" onPick={addFromBase} />
+            <ProductPicker askQty products={filteredProducts} suppliers={suppliers} whQty={whQty} whSim={wh.sim} placeholder="Поиск товара по названию / коду — начните вводить…" onPick={addFromBase} />
           </div>
 
           {lines.length === 0 && (
@@ -3650,7 +3711,8 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                         <td className="sm">{p && whQty[p.id] ? (
                           <label className="row" style={{ gap: 5, flexWrap: "nowrap", cursor: "pointer", color: l.fromWh !== false ? "var(--ok)" : "var(--mut)", fontWeight: 700 }} title="Отдать со Склада Thermo (снимите галочку — закупить у поставщика)">
                             <input type="checkbox" checked={l.fromWh !== false} onChange={(e) => setLine(l.id, { fromWh: e.target.checked })} />
-                            <span>со склада: {fmt(Math.min(qn(l.qty), whQty[p.id]))}{qn(l.qty) > whQty[p.id] ? <span className="xs mut" style={{ fontWeight: 400 }}> (+{fmt(qn(l.qty) - whQty[p.id])} у пост.)</span> : null}</span>
+                            <span>со склада: {fmt(Math.min(qn(l.qty), whQty[p.id]))}{qn(l.qty) > whQty[p.id] ? <span className="xs mut" style={{ fontWeight: 400 }}> (+{fmt(qn(l.qty) - whQty[p.id])} у пост.)</span> : null}
+                              {wh.sim[p.id] && <span className="xs wh-alt" style={{ display: "block", fontWeight: 500 }} title="Такой же товар другого поставщика — в объект запишется он">≈ «{wh.sim[p.id].name}»{wh.sim[p.id].n > 1 ? " и др." : ""}</span>}</span>
                           </label>
                         ) : <span className="mut">—</span>}</td>
                         <td><button className="btn xs dng" onClick={() => setDelLine(l.id)}>✕</button></td>
@@ -3878,6 +3940,7 @@ function ObjectEditModal({ obj, data, reload, toast, onClose }) {
 
 function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   const { finance_ops, suppliers, products, masters } = data;
+  const wh = useMemo(() => whAvailIndex(data.warehouse, products, suppliers), [data.warehouse, products, suppliers]);
   const f = calcObject(obj, finance_ops);
   const ops = finance_ops.filter((o) => o.object_id === obj.id);
   const [opForm, setOpForm] = useState(null);
@@ -4051,7 +4114,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         };
         if (w) { Object.assign(it, whItemPatch(w, !isLive(obj))); delete it.shipped; }
         return it;
-      });
+      }, wh.rowsFor);
       whOut = sp.whOut;
       return [...cur, ...sp.items];
     });
@@ -4358,7 +4421,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       {shipForm && <ShipModal obj={obj} batches={batches} fin={fin} supName={supName} onClose={() => setShipForm(false)}
         onShip={async (ids, date) => { if (await shipItems(ids, date, true)) setShipForm(false); }}
         onUnship={async (ids) => { await shipItems(ids, null, false); }} />}
-      {addItems && <AddItemsModal products={products} suppliers={suppliers} whQty={whQtyMap(data.warehouse)} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} onSave={async (rows) => { if (await addManualItems(rows, addItems === "newbatch")) setAddItems(false); }} />}
+      {addItems && <AddItemsModal products={products} suppliers={suppliers} whQty={wh.qty} whSim={wh.sim} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} onSave={async (rows) => { if (await addManualItems(rows, addItems === "newbatch")) setAddItems(false); }} />}
       {impItems && <ObjectExcelImport products={products} suppliers={suppliers} onClose={() => setImpItems(false)} onSave={async (rows) => { if (await addManualItems(rows, false)) setImpItems(false); }} />}
       {editOp && <EditOpModal op={editOp} suppliers={suppliers} isReturn={editOp.type === "return"} onClose={() => setEditOp(null)} onSave={async (patch) => {
         const log = [...(editOp.edit_log || []), { at: new Date().toISOString(), before: { amount: editOp.amount, op_date: editOp.op_date, note: editOp.note, reason: editOp.reason } }];
@@ -4715,7 +4778,7 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
     </>
   );
 }
-function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty = {} }) {
+function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty = {}, whSim = {} }) {
   const [rows, setRows] = useState([]);
   // новая строка — сверху списка; в объект строки сохраняются в порядке добавления
   const addRow = (r) => setRows((prev) => [{ ...r, _k: uuid() }, ...prev]);
@@ -4731,7 +4794,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
     <>
     <Modal title={newBatch ? "Новая поставка" : "Добавить позиции вручную"} onClose={tryClose} w={860}>
       <div className="row" style={{ marginBottom: 10 }}>
-        <ProductPicker askQty products={products} suppliers={suppliers} whQty={whQty} placeholder="найти товар в базе и добавить строку…" onPick={(p, n) => addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: n || 1, cost: p.cost, price: retailOf(p), supplier_id: p.supplier_id })} />
+        <ProductPicker askQty products={products} suppliers={suppliers} whQty={whQty} whSim={whSim} placeholder="найти товар в базе и добавить строку…" onPick={(p, n) => addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: n || 1, cost: p.cost, price: retailOf(p), supplier_id: p.supplier_id })} />
         <button className="btn" onClick={blank}>+ Пустая строка (товара нет в базе)</button>
       </div>
       <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, maxHeight: 360 }}>
@@ -4744,6 +4807,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
                   {r.product_id && whQty[r.product_id] ? <label className="row xs" style={{ gap: 5, marginTop: 3, cursor: "pointer", color: r.fromWh !== false ? "var(--ok)" : "var(--mut)", fontWeight: 700 }}>
                     <input type="checkbox" checked={r.fromWh !== false} onChange={(e) => upd(i, "fromWh", e.target.checked)} />
                     🏬 со Склада Thermo (есть {fmt(whQty[r.product_id])}){parseNum(r.qty) > whQty[r.product_id] ? " · остальное у поставщика" : ""}
+                    {whSim[r.product_id] && <span className="wh-alt" style={{ fontWeight: 500 }}> · ≈ «{whSim[r.product_id].name}» (другой поставщик)</span>}
                   </label> : null}</td>
                 <td><input className="inp" value={r.unit} onChange={(e) => upd(i, "unit", e.target.value)} /></td>
                 <td><input type="number" className="inp" min={0} value={r.qty} onChange={(e) => upd(i, "qty", e.target.value)} style={{ borderColor: parseNum(r.qty) > 0 ? undefined : "var(--bad)" }} /></td>
