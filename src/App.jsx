@@ -405,6 +405,18 @@ table.t tr:hover td{background:var(--hover)}
 .totop:hover{border-color:var(--acc);color:var(--acc)}
 .abbox{margin:0 0 18px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
 .abwarn{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-color:var(--warn)!important}
+.cq-hint{margin:0 0 8px;padding:8px 12px;border:1px dashed var(--acc);border-radius:10px;background:var(--acc-tint);color:var(--txt);line-height:1.5}
+.inp.cq-inp{width:118px;text-align:right;margin:0 auto;display:block;font-weight:700}
+.inp.cq-inp.ch{border-color:var(--acc);background:var(--acc-tint)}
+.cq-row.ch>td:first-child{box-shadow:inset 3px 0 0 var(--acc)}
+.cq-was{margin-top:2px}
+.cq-bar{position:sticky;bottom:10px;z-index:40;display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:-4px 0 18px;padding:10px 14px;border:1px solid var(--acc);border-radius:12px;background:var(--panel);box-shadow:0 10px 30px rgba(0,0,0,.18)}
+.cq-sum{flex:1;min-width:220px;line-height:1.5}
+.cq-n{color:var(--mut)}
+.cq-n.on{color:var(--acc)}
+body.cq-on .totop{display:none}
+.cq-pm{display:none;font-weight:500}
+@media(max-width:600px){table.cq-t .cq-hm{display:none}table.cq-t .cq-pm{display:block}table.cq-t th,table.cq-t td{padding-left:6px;padding-right:6px}.inp.cq-inp{width:86px}table.cq-t th{width:auto!important}.cq-bar{gap:8px 12px;padding:8px 10px}.cq-sum{min-width:0}.cq-sum div+div{display:none}}
 .inp.batch-date{width:138px;padding:2px 6px;font-size:12px;font-weight:800;display:inline-block;vertical-align:middle;background:var(--panel);cursor:pointer}
 .calc{position:fixed;right:18px;top:120px;z-index:900;width:280px;padding:12px;border-radius:16px;background:var(--panel);border:1px solid var(--line2);box-shadow:0 24px 60px rgba(0,0,0,.35)}
 .calc-scr{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;text-align:right;min-height:64px}
@@ -3992,6 +4004,11 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   const [shipForm, setShipForm] = useState(false);
   const [pctForm, setPctForm] = useState(false);
   const [editObj, setEditObj] = useState(false);
+  // «Себестоимость подряд»: себестоимость всех позиций вводится в таблице одна за другой (Enter — к следующей)
+  const [costMode, setCostMode] = useState(false);
+  const [costDraft, setCostDraft] = useState({});
+  const [costToProd, setCostToProd] = useState(true);
+  const [costBusy, setCostBusy] = useState(false);
   const supName = (id) => (suppliers.find((s) => s.id === id) || {}).name || "—";
   const itemName = (iid) => ((obj.items || []).find((i) => i.id === iid) || {}).name || "";
 
@@ -4105,6 +4122,66 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       toast((n ? "Позиция обновлена, возвраты пересчитаны по новой цене" : costChanged ? "Себестоимость обновлена — долг поставщику и прибыль пересчитаны" : "Позиция обновлена") + prodNote);
     }
     return ok;
+  };
+  // ---- «Себестоимость подряд» ----
+  const costOf = (x) => Math.round(parseNum(x) * 10000) / 10000;
+  const costChanges = () => (obj.items || []).map((i) => {
+    const d = costDraft[i.id];
+    if (d == null) return null;
+    const c = Math.max(0, costOf(d));
+    return Math.abs(c - (Number(i.cost) || 0)) > 0.00001 ? { i, c } : null;
+  }).filter(Boolean);
+  const costFocus = (n) => {
+    const el = document.querySelector('input[data-cq="' + n + '"]');
+    if (el) { el.focus(); el.select(); return true; }
+    return false;
+  };
+  const startCost = () => {
+    setClosedBatches({});
+    setCostDraft({});
+    setCostMode(true);
+    setTimeout(() => costFocus(0), 60);
+  };
+  const exitCost = () => { setCostMode(false); setCostDraft({}); };
+  useEffect(() => {
+    if (!costMode) return;
+    document.body.classList.add("cq-on");
+    return () => document.body.classList.remove("cq-on");
+  }, [costMode]);
+  const cancelCost = async () => {
+    const n = costChanges().length;
+    if (n && !(await askConfirm({ title: "Выйти без сохранения?", text: "Изменена себестоимость у " + n + " поз. — изменения не сохранятся.", cancel: "Нет, вернуться", ok: "Да, выйти" }))) return;
+    exitCost();
+  };
+  const saveCosts = async () => {
+    const ch = costChanges();
+    if (!ch.length) { exitCost(); return; }
+    if (!(await confirmLowPrice(ch.map(({ i, c }) => ({ name: i.name, price: i.price, cost: c }))))) return;
+    setCostBusy(true);
+    const m = new Map(ch.map(({ i, c }) => [i.id, c]));
+    const ok = await saveItems((cur) => cur.map((i) => (m.has(i.id) ? { ...i, cost: m.get(i.id) } : i)));
+    if (!ok) { setCostBusy(false); toast("Не удалось сохранить — попробуйте ещё раз"); return; }
+    await logAction("Себестоимость: быстрый ввод", "object:" + obj.name, ch.length + " поз.: " + ch.slice(0, 40).map(({ i, c }) => String(i.name || "").slice(0, 50) + " " + fmt2(i.cost) + " → " + fmt2(c)).join("; ") + (ch.length > 40 ? "; …" : ""));
+    const n = await syncReturns((obj.items || []).map((i) => (m.has(i.id) ? { ...i, cost: m.get(i.id) } : i)));
+    // как в «ред.»: новая себестоимость товара из базы — и в «Товары» (кроме товара со Склада Thermo)
+    let np = 0;
+    if (costToProd) {
+      const byProd = new Map();
+      ch.forEach(({ i, c }) => { if (i.product_id && !i.from_warehouse && c > 0) byProd.set(i.product_id, c); });
+      for (const [pid, c] of byProd) {
+        const p = (products || []).find((x) => x.id === pid);
+        if (!p || Math.abs((Number(p.cost) || 0) - c) <= 0.00001) continue;
+        const r = await db.from("products").update({ cost: c, price_updated: new Date().toISOString() }).eq("id", pid);
+        if (r.error) continue;
+        np++;
+        await logAction("Изменён товар", "product:" + (p.name || ""), "себест. " + fmt2(p.cost) + " → " + fmt2(c) + " (из объекта «" + obj.name + "», быстрый ввод)");
+      }
+      if (np) await reload(["products"]);
+    }
+    if (n) await reload();
+    setCostBusy(false);
+    exitCost();
+    toast("Себестоимость обновлена: " + ch.length + " поз. — долг поставщику и прибыль пересчитаны" + (np ? " · в «Товары» тоже: " + np : "") + (n ? " · возвраты пересчитаны" : ""));
   };
   // «Наценка от себестоимости»: цена каждой позиции = себестоимость × (1 + %/100) (всего объекта или одной поставки);
   // позиции без себестоимости не меняются; возвраты по изменённым позициям пересчитываются по новой цене
@@ -4337,6 +4414,46 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   };
 
   const unshippedCnt = (obj.items || []).filter((i) => !isShipped(i)).length;
+  // «Себестоимость подряд»: порядок полей ввода = порядок видимых строк таблицы
+  const cqList = costMode ? batches.flatMap((b) => (closedBatches[b.no] ? [] : b.items)) : [];
+  const cqPos = new Map(cqList.map((i, n) => [i.id, n]));
+  const cqSet = (id, v) => setCostDraft((d) => ({ ...d, [id]: v }));
+  const cqKey = (e, n, i) => {
+    if (e.key === "Enter" || e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const up = e.key === "ArrowUp" || (e.key === "Enter" && e.shiftKey);
+      if (!costFocus(n + (up ? -1 : 1)) && !up) { const b = document.querySelector(".cq-save"); if (b) b.focus(); }
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setCostDraft((d) => { const x = { ...d }; delete x[i.id]; return x; });
+      const el = e.target; setTimeout(() => el.select(), 0);
+    }
+  };
+  // столбец из Excel: «1 234,50», «$12.5», «1,234.50» — каждая строка в следующую позицию
+  const cqNum = (s) => {
+    let x = String(s || "").replace(/[^\d.,-]/g, "");
+    if (x.includes(",") && x.includes(".")) x = x.lastIndexOf(",") > x.lastIndexOf(".") ? x.replace(/\./g, "").replace(",", ".") : x.replace(/,/g, "");
+    return x;
+  };
+  const cqPaste = (e, n) => {
+    const t = (e.clipboardData && e.clipboardData.getData("text")) || "";
+    const lines = t.replace(/\r/g, "").split("\n");
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    if (lines.length < 2) return;
+    e.preventDefault();
+    const upd = {};
+    let k = 0;
+    lines.forEach((ln, j) => { const it = cqList[n + j]; if (!it) return; upd[it.id] = cqNum(ln.split("\t")[0]); k++; });
+    setCostDraft((d) => ({ ...d, ...upd }));
+    toast("Вставлено значений: " + k + (lines.length > k ? " · лишние строки пропущены: " + (lines.length - k) : ""));
+    setTimeout(() => costFocus(Math.min(n + k, cqList.length - 1)), 30);
+  };
+  const cqTot = costMode ? (obj.items || []).reduce((a, i) => {
+    const q = Number(i.qty) || 0, c0 = Number(i.cost) || 0, d = costDraft[i.id];
+    const c1 = d != null ? Math.max(0, costOf(d)) : c0;
+    return { c0: a.c0 + q * c0, c1: a.c1 + q * c1, s: a.s + q * (Number(i.price) || 0) };
+  }, { c0: 0, c1: 0, s: 0 }) : null;
+  const cqN = costMode ? costChanges().length : 0;
   const KPI = ({ l, v, c }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}</div></div>;
   const shownOps = opsNewestFirst(ops.filter((o) => !MASTER_ONLY_OPS.includes(o.type) && (fin || MANAGER_OP_TYPES.includes(o.type))));
   return (
@@ -4386,20 +4503,26 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
 
       <div className="row sect" style={{ marginBottom: 8 }}>
         <h3 style={{ marginRight: "auto" }}>Материалы объекта</h3>
-        {isLive(obj) && (obj.items || []).some((i) => !i.from_warehouse) && <button className="btn" style={unshippedCnt ? { borderColor: "var(--warn)", color: "var(--warn)", fontWeight: 700 } : undefined} onClick={() => setShipForm(true)}>🚚 Отгрузить товар{unshippedCnt ? " (" + unshippedCnt + ")" : " ✓"}</button>}
-        <button className="btn" onClick={() => setAddItems(true)}>+ Список вручную</button>
-        <button className="btn pri" onClick={() => setAddItems("newbatch")}>📦 Новая поставка</button>
-        <button className="btn" onClick={() => setImpItems(true)}>📊 Импорт Excel</button>
+        {costMode ? <span className="sm" style={{ fontWeight: 700, color: "var(--acc)" }}>✏️ Себестоимость подряд</span> : <>
+          {isLive(obj) && (obj.items || []).some((i) => !i.from_warehouse) && <button className="btn" style={unshippedCnt ? { borderColor: "var(--warn)", color: "var(--warn)", fontWeight: 700 } : undefined} onClick={() => setShipForm(true)}>🚚 Отгрузить товар{unshippedCnt ? " (" + unshippedCnt + ")" : " ✓"}</button>}
+          {(obj.items || []).length > 0 && <button className="btn cq-start" onClick={startCost} title="Себестоимость всех позиций — в таблице одна за другой: ввели, Enter — следующая">✏️ Себестоимость подряд</button>}
+          <button className="btn" onClick={() => setAddItems(true)}>+ Список вручную</button>
+          <button className="btn pri" onClick={() => setAddItems("newbatch")}>📦 Новая поставка</button>
+          <button className="btn" onClick={() => setImpItems(true)}>📊 Импорт Excel</button>
+        </>}
       </div>
+      {costMode && <div className="cq-hint xs">Введите себестоимость и нажмите <b>Enter</b> — курсор перейдёт к следующему товару. <b>↑ ↓</b> — вверх / вниз, <b>Esc</b> — вернуть прежнее значение. Можно вставить столбец цен из Excel (<b>Ctrl+V</b>) — заполнится подряд. Сохраняется всё сразу кнопкой «Сохранить» внизу.</div>}
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
-        <table className="t" style={{ minWidth: 760 }}>
-          <thead><tr><th style={{ width: 28 }}></th><th>Товар</th><th style={{width:90}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"center",width:120}}>Цена</th><th style={{textAlign:"right"}}>Сумма</th><th></th></tr></thead>
+        <table className={"t" + (costMode ? " cq-t" : "")} style={{ minWidth: costMode ? 0 : 760 }}>
+          {costMode
+            ? <thead><tr><th className="cq-hm" style={{ width: 28 }}>№</th><th>Товар</th><th style={{ textAlign: "right", width: 90 }}>Кол-во</th><th style={{ textAlign: "center", width: 140 }}><span className="cq-hm">Себестоимость</span><span className="cq-pm">Себест.</span></th><th className="cq-hm" style={{ textAlign: "right", width: 100 }}>Цена</th><th style={{ textAlign: "right", width: 120 }}>Прибыль</th></tr></thead>
+            : <thead><tr><th style={{ width: 28 }}></th><th>Товар</th><th style={{width:90}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"center",width:120}}>Цена</th><th style={{textAlign:"right"}}>Сумма</th><th></th></tr></thead>}
           <tbody>
             {batches.map((b) => (
               <React.Fragment key={b.no}>
                 {batches.length > 1 || (obj.items || []).some((i) => i.batch_no) ? (
                   <tr className="clk" onClick={() => toggleBatch(b.no)}>
-                    <td colSpan={7} style={{ background: "var(--acc-tint)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
+                    <td colSpan={costMode ? 6 : 7} style={{ background: "var(--acc-tint)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
                       {closedBatches[b.no] ? "▸" : "▾"} 🚚 ПОСТАВКА №{b.no} · <input type="date" className="inp batch-date" title="Дата накладной — нажмите, чтобы изменить" value={String(b.date || "").slice(0, 10)}
                         onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => setBatchDate(b.no, e.target.value)} /> · позиций: {b.items.length} · на сумму {fmt(b.items.reduce((a, i) => a + i.qty * i.price, 0))}
                       {b.items.some((i) => !isShipped(i)) ? <span style={{ color: "var(--warn)" }}> · не отгружено: {b.items.filter((i) => !isShipped(i)).length}</span> : b.items.some((i) => i.shipped) ? <span style={{ color: "var(--ok)" }}> · отгружено ✓</span> : null}
@@ -4407,8 +4530,9 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
                     </td>
                   </tr>
                 ) : null}
-                {!closedBatches[b.no] && b.items.map((i) => (
-              <ObjectItemRow key={i.id} i={i} fin={fin} supName={supName} setItemQty={setItemQty} setItemPrice={setItemPrice} setEditItem={setEditItem} setDelItemId={setDelItemId} setItemMark={setItemMark} />
+                {!closedBatches[b.no] && b.items.map((i) => (costMode
+              ? <CostQuickRow key={i.id} i={i} n={cqPos.get(i.id)} val={costDraft[i.id]} onVal={cqSet} onKey={cqKey} onPaste={cqPaste} />
+              : <ObjectItemRow key={i.id} i={i} fin={fin} supName={supName} setItemQty={setItemQty} setItemPrice={setItemPrice} setEditItem={setEditItem} setDelItemId={setDelItemId} setItemMark={setItemMark} />
                 ))}
               </React.Fragment>
             ))}
@@ -4416,6 +4540,21 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
           </tbody>
         </table>
       </div>
+      {costMode && cqTot && (
+        <div className="cq-bar">
+          <div className="cq-sum sm">
+            <div><b className={cqN ? "cq-n on" : "cq-n"}>Изменено: {cqN} поз.</b></div>
+            <div>Себестоимость: {fmt2(cqTot.c0)}{cqN ? <> → <b>{fmt2(cqTot.c1)}</b></> : null} · Прибыль по позициям: {fmt2(cqTot.s - cqTot.c0)}{cqN ? <> → <b style={{ color: cqTot.s - cqTot.c1 < 0 ? "var(--bad)" : "var(--ok)" }}>{fmt2(cqTot.s - cqTot.c1)}</b></> : null}</div>
+          </div>
+          <label className="row xs clk" style={{ gap: 6, flexWrap: "nowrap" }} title="Новая себестоимость запишется и в базу «Товары» — следующие заявки возьмут её (товар со Склада Thermo не меняется)">
+            <input type="checkbox" checked={costToProd} onChange={(e) => setCostToProd(e.target.checked)} /> обновить и в «Товары»
+          </label>
+          <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
+            <button className="btn" disabled={costBusy} onClick={cancelCost}>Отмена</button>
+            <button className="btn pri cq-save" disabled={costBusy} onClick={saveCosts}>{costBusy ? "Сохраняю…" : cqN ? "✓ Сохранить (" + cqN + ")" : "Готово"}</button>
+          </div>
+        </div>
+      )}
 
       {retMismatch().some((x) => x.patch.amount != null) && (
         <div className="card sect row" style={{ borderColor: "var(--warn)", gap: 10 }}>
@@ -4645,6 +4784,32 @@ function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem,
         <button className="btn xs" onClick={() => setEditItem(i)}>ред.</button>
         <button className="btn xs dng" onClick={() => setDelItemId(i.id)}>✕</button>
       </div></td>
+    </tr>
+  );
+}
+// строка режима «Себестоимость подряд»: поле себестоимости + прибыль позиции пересчитывается сразу
+function CostQuickRow({ i, n, val, onVal, onKey, onPaste }) {
+  const c0 = Number(i.cost) || 0;
+  const cost = val != null ? Math.max(0, parseNum(val)) : c0;
+  const changed = val != null && Math.abs(cost - c0) > 0.00001;
+  const q = Number(i.qty) || 0, price = Number(i.price) || 0;
+  const pr = price - cost, pct = price > 0 ? (pr / price) * 100 : null;
+  const bad = cost > 0 && pr < -0.0001;
+  return (
+    <tr className={"cq-row" + (changed ? " ch" : "") + (bad ? " bad" : "")}>
+      <td className="xs mut mono cq-hm" style={{ width: 28, paddingRight: 0 }}>{n + 1}</td>
+      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">со склада Thermo — в «Товары» не записывается</div>}<div className="xs mut cq-pm">цена {fmt2(price)}</div></td>
+      <td className="num" style={{ whiteSpace: "nowrap" }}>{fmt(q)} <span className="sm mut">{i.unit}</span></td>
+      <td style={{ textAlign: "center" }}>
+        <input className={"inp num cq-inp" + (changed ? " ch" : "")} data-cq={n} inputMode="decimal" enterKeyHint="next" autoComplete="off" placeholder="0"
+          value={val != null ? val : c0 ? String(c0) : ""} onChange={(e) => onVal(i.id, e.target.value)}
+          onFocus={(e) => e.target.select()} onKeyDown={(e) => onKey(e, n, i)} onPaste={(e) => onPaste(e, n)} />
+        {changed && <div className="xs mut cq-was">было {fmt2(c0)}</div>}
+      </td>
+      <td className="num cq-hm">{fmt2(price)}</td>
+      <td className="num" style={{ fontWeight: 700, color: bad ? "var(--bad)" : cost > 0 ? "var(--ok)" : "var(--mut)" }}>
+        {cost > 0 ? <>{fmt2(q * pr)}<div className="xs" style={{ fontWeight: 600 }}>{pct != null ? (Math.round(pct * 10) / 10).toLocaleString("ru-RU") + "%" : ""}{bad ? " · в убыток" : ""}</div></> : "—"}
+      </td>
     </tr>
   );
 }
