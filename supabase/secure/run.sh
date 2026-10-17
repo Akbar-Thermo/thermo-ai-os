@@ -14,7 +14,9 @@ PGHOST="${TE_PGHOST:-$(echo "$POOL" | sed -E 's#^postgres(ql)?://[^@]*@([^:/]+).
 PGPORT="${TE_PGPORT:-$(echo "$POOL" | sed -E 's#^.*:([0-9]+)/.*$#\1#')}"
 PGUSER="${TE_PGUSER:-$(echo "$POOL" | sed -E 's#^postgres(ql)?://([^@:]+).*#\2#')}"
 export PGHOST PGPORT PGUSER PGDATABASE=postgres PGSSLMODE="${TE_SSL:-require}" PGCONNECT_TIMEOUT=15
-q() { psql -v ON_ERROR_STOP=1 -qtA "$@"; }
+# секрет SUPABASE_DB_URL (Supabase → Connect → Session pooler) — если задан, подключаемся по нему
+DB_URL="${SUPABASE_DB_URL:-}"
+q() { if [ -n "$DB_URL" ]; then psql "$DB_URL" -v ON_ERROR_STOP=1 -qtA "$@"; else psql -v ON_ERROR_STOP=1 -qtA "$@"; fi; }
 say() { echo "▶ $*"; }
 fail() { echo "::error::$*"; exit 1; }
 
@@ -32,9 +34,14 @@ check_api_closed() {
 
 case "$step" in
   connect)
-    [ -n "${PGPASSWORD:-}" ] || fail "Нет секрета SUPABASE_DB_PASSWORD (GitHub → Settings → Secrets and variables → Actions)"
+    [ -n "${PGPASSWORD:-}" ] || [ -n "$DB_URL" ] || fail "Нет секрета SUPABASE_DB_PASSWORD (GitHub → Settings → Secrets and variables → Actions)"
     [ -n "$URL" ] && [ -n "$ANON" ] || fail "Не найден адрес Supabase или ключ в .env.txt"
-    q -c "select 1" >/dev/null || fail "Не удалось подключиться к базе — проверьте пароль в секрете SUPABASE_DB_PASSWORD"
+    err=$(q -c "select 1" 2>&1 >/dev/null) || {
+      case "$err" in
+        *"password authentication failed"*) fail "Неверный пароль базы: сбросьте его в Supabase (Database → Settings) и вставьте в секрет SUPABASE_DB_PASSWORD" ;;
+        *"Tenant or user not found"*) fail "Адрес подключения устарел: добавьте секрет SUPABASE_DB_URL (Supabase → Connect → Session pooler)" ;;
+        *) fail "Не удалось подключиться к базе: $(echo "$err" | tr '\n' ' ' | sed -E 's/.*FATAL: *//' | cut -c1-200)" ;;
+      esac; }
     say "Подключение к базе: OK ($(q -c "select count(*) from public.users") аккаунтов, $(q -c "select count(*) from public.products") товаров)"
     ;;
   cors)

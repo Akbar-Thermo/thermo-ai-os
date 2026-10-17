@@ -43,19 +43,34 @@ async function tg(method, fields, file) {
 }
 
 // подключение к базе — как в supabase/secure/run.sh
+// подключение: секрет SUPABASE_DB_URL (строка «Session pooler» из Supabase → Connect) — если задан; иначе адрес из supabase/.temp/pooler-url
+const DB_URL = (process.env.SUPABASE_DB_URL || "").trim();
 function pgEnv() {
   const pool = existsSync("supabase/.temp/pooler-url") ? readFileSync("supabase/.temp/pooler-url", "utf8").trim() : "";
   const m = /^postgres(?:ql)?:\/\/([^@:]+)[^@]*@([^:/]+):(\d+)\//.exec(pool) || [];
-  return { ...process.env, PGHOST: process.env.TE_PGHOST || m[2] || "", PGPORT: process.env.TE_PGPORT || m[3] || "5432", PGUSER: process.env.TE_PGUSER || m[1] || "",
-    PGDATABASE: "postgres", PGSSLMODE: process.env.TE_SSL || "require", PGCONNECT_TIMEOUT: "20" };
+  const env = { ...process.env, PGDATABASE: "postgres", PGSSLMODE: process.env.TE_SSL || "require", PGCONNECT_TIMEOUT: "20" };
+  if (DB_URL) return env;
+  return { ...env, PGHOST: process.env.TE_PGHOST || m[2] || "", PGPORT: process.env.TE_PGPORT || m[3] || "5432", PGUSER: process.env.TE_PGUSER || m[1] || "" };
+}
+// понятная причина ошибки подключения (полностью, без обрезки)
+function pgReason(stderr) {
+  const t = String(stderr || "").replace(/\s+/g, " ").trim();
+  const fatal = (/FATAL:\s*(.+?)(?:\s*psql:|$)/i.exec(t) || [])[1] || "";
+  const why = fatal || t.replace(/^psql: error: /, "");
+  if (/password authentication failed/i.test(t)) return "неверный пароль базы — в Supabase сбросьте пароль (Database → Settings → Reset database password) и вставьте новый в секрет SUPABASE_DB_PASSWORD [" + why + "]";
+  if (/Tenant or user not found/i.test(t)) return "адрес подключения к базе устарел — добавьте секрет SUPABASE_DB_URL: Supabase → кнопка «Connect» → «Session pooler» → скопировать строку [" + why + "]";
+  if (/circuit breaker|too many authentication|too many connections|max client/i.test(t)) return "Supabase временно ограничил подключения (было много неверных паролей или подключений) — подождите 30–60 минут [" + why + "]";
+  if (/timeout|could not translate|Network is unreachable|could not connect/i.test(t)) return "база не отвечает (сеть / проект на паузе в Supabase) [" + why + "]";
+  return why.slice(0, 300) || "ошибка psql";
 }
 function psqlJson(sql) {
   let out;
-  try { out = execFileSync("psql", ["-v", "ON_ERROR_STOP=1", "-qtA", "-c", sql], { env: pgEnv(), maxBuffer: 1024 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }).toString().trim(); }
+  const args = ["-v", "ON_ERROR_STOP=1", "-qtA", ...(DB_URL ? ["-d", DB_URL] : []), "-c", sql];
+  try { out = execFileSync("psql", args, { env: pgEnv(), maxBuffer: 1024 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }).toString().trim(); }
   catch (e) {
-    const msg = String(e.stderr || e.message || e).split("\n").map((l) => l.trim()).filter(Boolean)[0] || "ошибка psql";
-    if (/password authentication|could not connect|connection to server|timeout expired|no pg_hba|Tenant or user not found/i.test(msg)) throw new Error("нет подключения к базе — проверьте секрет SUPABASE_DB_PASSWORD (" + msg.slice(0, 120) + ")");
-    throw new Error(msg.slice(0, 200));
+    const t = String(e.stderr || e.message || e);
+    if (/connection to server|FATAL|could not connect|timeout|could not translate/i.test(t)) throw new Error("нет подключения к базе: " + pgReason(t));
+    throw new Error(t.split("\n").map((l) => l.trim()).filter(Boolean)[0].slice(0, 300));
   }
   return JSON.parse(out || "null");
 }
@@ -103,7 +118,7 @@ async function check() {
 
 async function backup() {
   if (!TOKEN || !CHAT) { log("Ночной бэкап в Telegram ещё не настроен (нет секретов TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID) — пропускаю"); return; }
-  if (!process.env.PGPASSWORD) throw new Error("Нет секрета SUPABASE_DB_PASSWORD");
+  if (!process.env.PGPASSWORD && !/:[^:@\/]+@/.test(DB_URL)) throw new Error("Нет секрета SUPABASE_DB_PASSWORD");
   const day = dayEnded();
   const dump = { _app: "ThermoAI", _date: new Date().toISOString(), _note: "ночной бэкап (сервер), без паролей", tables: {} };
   for (const t of TABLES) dump.tables[t] = readTable(t);
