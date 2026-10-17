@@ -347,6 +347,7 @@ table.t tr:hover td{background:var(--hover)}
 .kpi{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow)}
 .kpi .v{font-family:var(--sans);font-variant-numeric:tabular-nums;font-size:22px;font-weight:700;letter-spacing:-.3px;margin-top:4px}
 .kpi .l{font-size:12px;color:var(--mut);font-weight:600}
+.kpi .kpi-sub{margin-top:4px;line-height:1.35}
 .modal-bg{position:fixed;inset:0;background:rgba(18,24,27,.45);display:flex;align-items:flex-start;justify-content:center;z-index:100;padding:30px 14px;overflow:auto;backdrop-filter:blur(2px)}
 .modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px;width:100%;box-shadow:0 24px 60px rgba(18,24,27,.22)}
 .te.dark .modal{box-shadow:0 24px 60px rgba(0,0,0,.5)}
@@ -4454,7 +4455,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     return { c0: a.c0 + q * c0, c1: a.c1 + q * c1, s: a.s + q * (Number(i.price) || 0) };
   }, { c0: 0, c1: 0, s: 0 }) : null;
   const cqN = costMode ? costChanges().length : 0;
-  const KPI = ({ l, v, c }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}</div></div>;
+  const KPI = ({ l, v, c, sub }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}</div>{sub && <div className="xs mut kpi-sub">{sub}</div>}</div>;
   const shownOps = opsNewestFirst(ops.filter((o) => !MASTER_ONLY_OPS.includes(o.type) && (fin || MANAGER_OP_TYPES.includes(o.type))));
   return (
     <div>
@@ -4494,7 +4495,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         </div>
       )}
       <div className="kpis sect">
-        <KPI l="Сумма товара (нетто)" v={f.saleNet} />
+        <KPI l="Сумма товара (нетто)" v={f.saleNet} sub={f.retSale > 0.004 || Math.abs(f.discount) > 0.004 ? "выдано товара " + fmt2(f.sale) + (f.retSale > 0.004 ? " − возвраты " + fmt2(f.retSale) : "") + (Math.abs(f.discount) > 0.004 ? " − скидка " + fmt2(f.discount) : "") : null} />
         <KPI l="Оплачено клиентом" v={f.paidClient} c="var(--ok)" />
         {isLive(obj)
           ? <KPI l={f.clientDebt < 0 ? "Переплата клиента" : "Долг клиента"} v={Math.abs(f.clientDebt)} c={f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--txt)" : "var(--mut)"} />
