@@ -4001,6 +4001,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   const [editItem, setEditItem] = useState(null);
   const [addItems, setAddItems] = useState(false);
   const [impItems, setImpItems] = useState(false);
+  const [impPick, setImpPick] = useState(null); // строки из «Импорт Excel» ждут ответа «в какую поставку»
+  const [impBusy, setImpBusy] = useState(false);
   const [delItemId, setDelItemId] = useState(null);
   const [shipForm, setShipForm] = useState(false);
   const [pctForm, setPctForm] = useState(false);
@@ -4240,7 +4242,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     let whFail = 0;
     if (ok && whOut.length && isLive(obj)) { whFail = await warehouseOut(whOut, obj, curUserName()); await reload(); }
     if (ok) {
-      await logAction(newBatch ? "Новая поставка" : "Добавлены позиции", "object:" + obj.name, "поставка №" + batchNo + ", позиций: " + rows.length);
+      await logAction(newBatch ? "Новая поставка" : "Добавлены позиции", "object:" + obj.name, "поставка №" + batchNo + ", позиций: " + rows.length + ", на сумму " + fmt2(rows.reduce((a, r) => a + parseNum(r.qty) * parseNum(r.price), 0)));
       toast((newBatch ? "Новая поставка №" + batchNo + ": " : "Добавлено в поставку №" + batchNo + ": ") + rows.length + " поз." + (whOut.length ? " · со Склада Thermo: " + whOut.length + " поз." : "") + (whFail ? " · ⚠ склад не списан у " + whFail + " поз." : ""));
     }
     return ok;
@@ -4405,6 +4407,19 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     toast(r === "xlsx" ? "Лист доставки скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
   const batches = useMemo(() => objBatches(obj), [obj]);
+  // позиции, добавленные в поставку позже других её позиций (другим днём): сумма поставки после этого выросла —
+  // видно, откуда разница, если поставку уже оплатили по старой сумме
+  const lateAdded = useMemo(() => {
+    const m = new Map();
+    const day = (x) => (x ? localIso(new Date(x)) : "");
+    batches.forEach((b) => {
+      const days = b.items.map((i) => day(i.added_at) || day(obj.created_at)).filter(Boolean);
+      if (!days.length) return;
+      const base = days.reduce((a, d) => (d < a ? d : a));
+      b.items.forEach((i) => { const d = day(i.added_at); if (d && d > base) m.set(i.id, d); });
+    });
+    return m;
+  }, [batches, obj.created_at]);
   // дата накладной (поставки): меняется у всех её позиций, номера поставок выстраиваются по датам
   const setBatchDate = async (no, d) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
@@ -4526,6 +4541,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
                     <td colSpan={costMode ? 6 : 7} style={{ background: "var(--acc-tint)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
                       {closedBatches[b.no] ? "▸" : "▾"} 🚚 ПОСТАВКА №{b.no} · <input type="date" className="inp batch-date" title="Дата накладной — нажмите, чтобы изменить" value={String(b.date || "").slice(0, 10)}
                         onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => setBatchDate(b.no, e.target.value)} /> · позиций: {b.items.length} · на сумму {fmt(b.items.reduce((a, i) => a + i.qty * i.price, 0))}
+                      {b.items.some((i) => lateAdded.has(i.id)) && <span className="late-sum" style={{ color: "var(--warn)" }}> · добавлено позже: {b.items.filter((i) => lateAdded.has(i.id)).length} поз. на {fmt2(b.items.filter((i) => lateAdded.has(i.id)).reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0))}</span>}
                       {b.items.some((i) => !isShipped(i)) ? <span style={{ color: "var(--warn)" }}> · не отгружено: {b.items.filter((i) => !isShipped(i)).length}</span> : b.items.some((i) => i.shipped) ? <span style={{ color: "var(--ok)" }}> · отгружено ✓</span> : null}
                       <span className="xs mut" style={{ fontWeight: 500 }}>  — нажмите чтобы {closedBatches[b.no] ? "раскрыть" : "свернуть"}</span>
                     </td>
@@ -4533,7 +4549,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
                 ) : null}
                 {!closedBatches[b.no] && b.items.map((i) => (costMode
               ? <CostQuickRow key={i.id} i={i} n={cqPos.get(i.id)} val={costDraft[i.id]} onVal={cqSet} onKey={cqKey} onPaste={cqPaste} />
-              : <ObjectItemRow key={i.id} i={i} fin={fin} supName={supName} setItemQty={setItemQty} setItemPrice={setItemPrice} setEditItem={setEditItem} setDelItemId={setDelItemId} setItemMark={setItemMark} />
+              : <ObjectItemRow key={i.id} i={i} late={lateAdded.get(i.id)} fin={fin} supName={supName} setItemQty={setItemQty} setItemPrice={setItemPrice} setEditItem={setEditItem} setDelItemId={setDelItemId} setItemMark={setItemMark} />
                 ))}
               </React.Fragment>
             ))}
@@ -4612,7 +4628,9 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         onShip={async (ids, date) => { if (await shipItems(ids, date, true)) setShipForm(false); }}
         onUnship={async (ids) => { await shipItems(ids, null, false); }} />}
       {addItems && <AddItemsModal products={products} suppliers={suppliers} whQty={wh.qty} whSim={wh.sim} whStock={wh.stock} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} batches={batches} onSave={async (rows, t) => { if (await addManualItems(rows, t && typeof t === "object" ? t : { newBatch: addItems === "newbatch", date: t })) setAddItems(false); }} />}
-      {impItems && <ObjectExcelImport products={products} suppliers={suppliers} onClose={() => setImpItems(false)} onSave={async (rows) => { if (await addManualItems(rows, false)) setImpItems(false); }} />}
+      {impItems && <ObjectExcelImport products={products} suppliers={suppliers} onClose={() => setImpItems(false)} onSave={async (rows) => { if (batches.length) { setImpPick(rows); return; } if (await addManualItems(rows, false)) setImpItems(false); }} />}
+      {impPick && <BatchPickDialog batches={batches} count={impPick.length} total={impPick.reduce((a, r) => a + parseNum(r.qty) * parseNum(r.price), 0)} busy={impBusy} onBack={() => setImpPick(null)}
+        onPick={async (t) => { setImpBusy(true); const ok = await addManualItems(impPick, t); setImpBusy(false); setImpPick(null); if (ok) setImpItems(false); }} />}
       {editOp && <EditOpModal op={editOp} suppliers={suppliers} isReturn={editOp.type === "return"} onClose={() => setEditOp(null)} onSave={async (patch) => {
         const log = [...(editOp.edit_log || []), { at: new Date().toISOString(), before: { amount: editOp.amount, op_date: editOp.op_date, note: editOp.note, reason: editOp.reason } }];
         const r = await db.from("finance_ops").update({ ...patch, edited: true, edit_log: log }).eq("id", editOp.id);
@@ -4643,9 +4661,45 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   );
 }
 
+/* «В какую поставку добавить?» — перед добавлением позиций в объект («+ Список вручную», «Импорт Excel»).
+   Старая поставка могла быть уже оплачена — добавление в неё меняет её сумму, поэтому вопрос задаётся всегда. */
+function BatchPickDialog({ batches, count, total, initial, busy, onBack, onPick }) {
+  const [sel, setSel] = useState(initial != null ? initial : batches.length ? batches[batches.length - 1].no : "new");
+  const [bDate, setBDate] = useState(today());
+  const lastNo = batches.length ? batches[batches.length - 1].no : null;
+  return (
+    <div className="modal-bg" style={{ zIndex: 200 }} onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onBack(); }}>
+      <div className="modal batch-pick" style={{ maxWidth: 480, marginTop: "14vh" }}>
+        <h3 style={{ marginBottom: 4 }}>В какую поставку добавить?</h3>
+        <p className="xs mut" style={{ marginBottom: 12 }}>Позиций: {count} на {money(total)}</p>
+        <div style={{ display: "grid", gap: 6 }}>
+          {batches.map((b) => (
+            <label key={b.no} className="row clk" style={{ gap: 10, flexWrap: "nowrap", padding: "8px 10px", border: "1px solid " + (sel === b.no ? "var(--acc)" : "var(--line)"), borderRadius: 10, background: sel === b.no ? "var(--acc-tint)" : "none" }}>
+              <input type="radio" name="pick-batch" checked={sel === b.no} onChange={() => setSel(b.no)} />
+              <span style={{ fontWeight: 700 }}>🚚 Поставка №{b.no}</span>
+              <span className="sm mut">от {dt(b.date)} · позиций: {b.items.length} · {fmt2(b.items.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0))}{b.items.some((x) => !isShipped(x)) ? "" : " · отгружено ✓"}</span>
+            </label>
+          ))}
+          <label className="row clk" style={{ gap: 10, flexWrap: "wrap", padding: "8px 10px", border: "1px solid " + (sel === "new" ? "var(--acc)" : "var(--line)"), borderRadius: 10, background: sel === "new" ? "var(--acc-tint)" : "none" }}>
+            <input type="radio" name="pick-batch" checked={sel === "new"} onChange={() => setSel("new")} />
+            <span style={{ fontWeight: 700 }}>🆕 Новая поставка</span>
+            {sel === "new" && <input type="date" className="inp" style={{ width: 150, marginLeft: "auto" }} value={bDate} max={today()} onChange={(e) => setBDate(e.target.value || today())} />}
+          </label>
+        </div>
+        {sel !== "new" && sel !== lastNo && <p className="xs bp-warn" style={{ color: "var(--warn)", marginTop: 8 }}>⚠ Сумма поставки №{sel} увеличится на {fmt2(total)}. Если клиент её уже оплатил — лучше «Новая поставка».</p>}
+        <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
+          <button className="btn" disabled={busy} onClick={onBack}>Назад</button>
+          <button className="btn pri" disabled={busy} autoFocus onClick={() => onPick(sel === "new" ? { newBatch: true, date: bDate } : { batchNo: sel })}>
+            {busy ? "Сохраняю…" : sel === "new" ? "Создать поставку" : "Добавить в поставку №" + sel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 function PercentModal({ obj, batches, onClose, onApply }) {
   const [pct, setPct] = useState("");
-  const [scope, setScope] = useState("all");
+  // несколько поставок — по умолчанию только последняя: прежние могли быть уже оплачены по старым ценам
+  const [scope, setScope] = useState(batches.length > 1 ? String(batches[batches.length - 1].no) : "all");
   const [busy, setBusy] = useState(false);
   const p = parseNum(pct);
   const inBatch = (obj.items || []).filter((i) => scope === "all" || String(i.batch_no || 1) === scope);
@@ -4667,6 +4721,7 @@ function PercentModal({ obj, batches, onClose, onApply }) {
           </select>
         </Fld>
       </div>
+      {scope === "all" && batches.length > 1 && <p className="xs pct-warn" style={{ color: "var(--warn)", marginTop: 6 }}>⚠ Цены изменятся во всех поставках, в том числе в уже оплаченных — их суммы тоже изменятся.</p>}
       <div className="row" style={{ marginTop: 8, gap: 6 }}>
         {[10, 15, 20, 25, 30].map((x) => <button key={x} className={"btn xs " + (p === x && pct !== "" ? "pri" : "")} onClick={() => setPct(String(x))}>{x}%</button>)}
       </div>
@@ -4764,7 +4819,7 @@ function ShipModal({ obj, batches, fin, supName, onClose, onShip, onUnship }) {
 // Строка таблицы материалов объекта: количество/цена редактируются свободно на экране,
 // в базу уходят только по потере фокуса (onBlur) — чтобы не слать запрос на каждое нажатие клавиши
 // и не ловить промежуточные значения вроде "1" при наборе "15".
-function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem, setDelItemId, setItemMark }) {
+function ObjectItemRow({ i, late, fin, supName, setItemQty, setItemPrice, setEditItem, setDelItemId, setItemMark }) {
   const [qty, setQty] = useState(i.qty);
   const [mk, setMk] = useState(i.mark || "");
   useEffect(() => { setMk(i.mark || ""); }, [i.mark]);
@@ -4774,7 +4829,7 @@ function ObjectItemRow({ i, fin, supName, setItemQty, setItemPrice, setEditItem,
   return (
     <tr>
       <td style={{ width: 28, paddingRight: 0, verticalAlign: "middle" }}><MarkDot value={mk} onClick={async () => { const nx = nextMark(mk); setMk(nx); if (!(await setItemMark(i.id, nx))) setMk(i.mark || ""); }} /></td>
-      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «Согласовано»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}</td>
+      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «Согласовано»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}{late && <div className="xs late-add" style={{ color: "var(--warn)" }} title="Позиция добавлена в эту поставку позже остальных — сумма поставки после этого выросла">добавлено позже: {dt(late)}</div>}</td>
       <td><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)}
         onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (v !== Number(i.qty)) { if (!(await setItemQty(i.id, v))) setQty(i.qty); } else setQty(i.qty); }} /></td>
       <td className="sm">{i.unit}</td>
@@ -5057,36 +5112,8 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
         </div>
       </div>
     </Modal>
-    {pickBatch != null && (
-      <div className="modal-bg" style={{ zIndex: 200 }} onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) setPickBatch(null); }}>
-        <div className="modal batch-pick" style={{ maxWidth: 480, marginTop: "14vh" }}>
-          <h3 style={{ marginBottom: 4 }}>В какую поставку добавить?</h3>
-          <p className="xs mut" style={{ marginBottom: 12 }}>Позиций: {valid.length} на {money(total)}</p>
-          <div style={{ display: "grid", gap: 6 }}>
-            {batches.map((b) => (
-              <label key={b.no} className="row clk" style={{ gap: 10, flexWrap: "nowrap", padding: "8px 10px", border: "1px solid " + (pickBatch === b.no ? "var(--acc)" : "var(--line)"), borderRadius: 10, background: pickBatch === b.no ? "var(--acc-tint)" : "none" }}>
-                <input type="radio" name="pick-batch" checked={pickBatch === b.no} onChange={() => setPickBatch(b.no)} />
-                <span style={{ fontWeight: 700 }}>🚚 Поставка №{b.no}</span>
-                <span className="sm mut">от {dt(b.date)} · позиций: {b.items.length}{b.items.some((x) => !isShipped(x)) ? "" : " · отгружено ✓"}</span>
-              </label>
-            ))}
-            <label className="row clk" style={{ gap: 10, flexWrap: "wrap", padding: "8px 10px", border: "1px solid " + (pickBatch === "new" ? "var(--acc)" : "var(--line)"), borderRadius: 10, background: pickBatch === "new" ? "var(--acc-tint)" : "none" }}>
-              <input type="radio" name="pick-batch" checked={pickBatch === "new"} onChange={() => setPickBatch("new")} />
-              <span style={{ fontWeight: 700 }}>🆕 Новая поставка</span>
-              {pickBatch === "new" && <input type="date" className="inp" style={{ width: 150, marginLeft: "auto" }} value={bDate} max={today()} onChange={(e) => setBDate(e.target.value || today())} />}
-            </label>
-          </div>
-          <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
-            <button className="btn" disabled={busy} onClick={() => setPickBatch(null)}>Назад</button>
-            <button className="btn pri" disabled={busy} autoFocus onClick={async () => {
-              setBusy(true);
-              const ok = await onSave(valid, pickBatch === "new" ? { newBatch: true, date: bDate } : { batchNo: pickBatch });
-              setBusy(false); if (ok === false) setPickBatch(null);
-            }}>{busy ? "Сохраняю…" : pickBatch === "new" ? "Создать поставку" : "Добавить в поставку №" + pickBatch}</button>
-          </div>
-        </div>
-      </div>
-    )}
+    {pickBatch != null && <BatchPickDialog batches={batches} count={valid.length} total={total} initial={pickBatch} busy={busy} onBack={() => setPickBatch(null)}
+      onPick={async (t) => { setBusy(true); const ok = await onSave(valid, t); setBusy(false); if (ok === false) setPickBatch(null); }} />}
     {askCancel && <DiscardConfirm
       text={rows.length ? "Добавленные строки (" + rows.length + ") не будут сохранены в объект." : "Окно будет закрыто, в объект ничего не добавится."}
       onStay={() => setAskCancel(false)} onDiscard={onClose} />}
