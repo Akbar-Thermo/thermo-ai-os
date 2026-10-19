@@ -36,14 +36,20 @@ jobs:
       - uses: actions/setup-node@v4
         if: github.event_name == 'schedule' || inputs.action == 'БЭКАП'
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
+      - name: Клиент базы (psql)
+        if: github.event_name == 'schedule' || inputs.action == 'БЭКАП'
+        run: which psql || (sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client)
+      # если Excel-архив не соберётся — бэкап базы всё равно уходит (в Telegram придёт пометка)
       - name: Сборка Excel-архива
         if: github.event_name == 'schedule' || inputs.action == 'БЭКАП'
+        continue-on-error: true
         run: |
-          which psql || (sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client)
           npm ci --no-audit --no-fund --loglevel=error
+          # клиент Supabase архиву не нужен (базу читает psql) — подменяем заглушкой
           npx esbuild scripts/nightly/archive-entry.js --bundle --platform=node --format=esm --outfile=.nightly/archive.mjs \
+            --alias:@supabase/supabase-js="$PWD/scripts/nightly/supabase-stub.js" \
             --jsx=automatic --log-level=warning \
             --define:import.meta.env.VITE_SUPABASE_URL='"http://localhost"' --define:import.meta.env.VITE_SUPABASE_ANON_KEY='"x"' \
             --define:process.env.NODE_ENV='"production"'

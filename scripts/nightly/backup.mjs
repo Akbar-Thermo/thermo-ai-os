@@ -128,11 +128,17 @@ async function backup() {
   log("Прочитано из базы — " + counts);
   if (!dump.tables.products.length && !dump.tables.objects.length) throw new Error("база вернулась пустой — бэкап не отправлен");
   const json = gzipSync(Buffer.from(JSON.stringify(dump)), { level: 9 });
-  const bundle = process.env.TE_ARCHIVE_BUNDLE || ".nightly/archive.mjs";
-  const { archiveBook } = await import(pathToFileURL(bundle).href);
-  const xlsx = Buffer.from(await archiveBook(dump.tables, "Ночной бэкап (сервер)").arrayBuffer());
+  if (json.length > 49e6) throw new Error("файл бэкапа больше 50 МБ — Telegram не примет");
+  // Excel-архив — дополнение: если он не собрался, бэкап базы (.json.gz) всё равно уходит, а в Telegram — пометка
+  let xlsx = null, xErr = "";
+  try {
+    const bundle = process.env.TE_ARCHIVE_BUNDLE || ".nightly/archive.mjs";
+    const { archiveBook } = await import(pathToFileURL(bundle).href);
+    xlsx = Buffer.from(await archiveBook(dump.tables, "Ночной бэкап (сервер)").arrayBuffer());
+    if (xlsx.length > 49e6) { xlsx = null; xErr = "Excel-архив больше 50 МБ — Telegram не примет"; }
+  } catch (e) { xErr = "Excel-архив не собрался: " + String((e && e.message) || e).split("\n")[0].slice(0, 200); }
+  if (xErr) console.log("::warning::" + xErr);
   const jName = "thermo_backup_" + day + ".json.gz", xName = "thermo_arxiv_" + day + ".xlsx";
-  if (json.length > 49e6 || xlsx.length > 49e6) throw new Error("файл больше 50 МБ — Telegram не примет");
   const T = dump.tables;
   const cap = "💾 Thermo — бэкап на конец дня " + ru(day) + "\n" +
     "Объектов: " + T.objects.length + " · операций: " + T.finance_ops.length + " · товаров: " + T.products.length + "\n" +
@@ -145,13 +151,16 @@ async function backup() {
     try {
       const a = jId ? await tg("sendDocument", { chat_id: id, document: jId, caption: cap, disable_notification: true })
         : await tg("sendDocument", { chat_id: id, caption: cap, disable_notification: "true" }, { field: "document", name: jName, data: json });
-      const b = xId ? await tg("sendDocument", { chat_id: id, document: xId, caption: xCap, disable_notification: true })
-        : await tg("sendDocument", { chat_id: id, caption: xCap, disable_notification: "true" }, { field: "document", name: xName, data: xlsx });
-      jId = jId || (a.document && a.document.file_id); xId = xId || (b.document && b.document.file_id);
+      jId = jId || (a.document && a.document.file_id);
       sent++;
+      if (xlsx) {
+        const b = xId ? await tg("sendDocument", { chat_id: id, document: xId, caption: xCap, disable_notification: true })
+          : await tg("sendDocument", { chat_id: id, caption: xCap, disable_notification: "true" }, { field: "document", name: xName, data: xlsx });
+        xId = xId || (b.document && b.document.file_id);
+      } else await tg("sendMessage", { chat_id: id, text: "⚠️ Бэкап базы отправлен. " + xErr + "\nПодробности: GitHub → Actions → «Ночной бэкап в Telegram»." });
     } catch (e) { fails.push("получатель №" + (CHATS.indexOf(id) + 1) + ": " + e.message); }
   }
-  log("Отправлено в Telegram (получателей: " + sent + " из " + CHATS.length + "): " + jName + " (" + Math.round(json.length / 1024) + " КБ), " + xName + " (" + Math.round(xlsx.length / 1024) + " КБ)");
+  log("Отправлено в Telegram (получателей: " + sent + " из " + CHATS.length + "): " + jName + " (" + Math.round(json.length / 1024) + " КБ)" + (xlsx ? ", " + xName + " (" + Math.round(xlsx.length / 1024) + " КБ)" : " — без Excel-архива"));
   if (fails.length) { fails.forEach((f) => console.log("::warning::" + f + " — этот человек должен открыть бота и нажать «Start»")); if (!sent) throw new Error("не доставлено ни одному получателю"); }
 }
 
