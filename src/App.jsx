@@ -401,6 +401,24 @@ table.t tr:hover td{background:var(--hover)}
 .totop:hover{border-color:var(--acc);color:var(--acc)}
 .abbox{margin:0 0 18px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
 .abwarn{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-color:var(--warn)!important}
+.kb-act>td{background:var(--acc-tint)!important;box-shadow:inset 0 1px 0 var(--acc),inset 0 -1px 0 var(--acc)}
+.kb-act>td:first-child{box-shadow:inset 3px 0 0 var(--acc),inset 0 1px 0 var(--acc),inset 0 -1px 0 var(--acc)}
+.btn:focus-visible,.tab:focus-visible,.mark-dot:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bottom-width:2px;border-radius:5px;background:var(--panel2);font:600 11px var(--mono,monospace);color:var(--txt)}
+.cmdk{overflow:hidden}
+.inp.cmdk-q{border:0;border-bottom:1px solid var(--line);border-radius:0;font-size:16px;padding:14px 16px;background:var(--panel)}
+.cmdk-list{max-height:52vh;overflow:auto}
+.cmdk-item{display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;border-bottom:1px solid var(--line)}
+.cmdk-item.on{background:var(--acc-tint);box-shadow:inset 3px 0 0 var(--acc)}
+.cmdk-grp{flex:none;width:72px;font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.4px}
+.cmdk-label{flex:1;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmdk-hint{flex:none;font-size:12px;color:var(--mut);max-width:45%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmdk-foot{padding:8px 16px;border-top:1px solid var(--line);background:var(--panel2)}
+.keys-t td{vertical-align:top}
+@media(max-width:820px){.kb-btn{display:none}}
+.xl-group{display:flex;gap:8px;flex-wrap:nowrap;flex:none}
+@media(max-width:600px){.xl-group{flex-wrap:wrap;flex:1 1 100%}}
+.inp.who-ro{display:flex;align-items:center;gap:6px;color:var(--mut);cursor:not-allowed;background:var(--panel2);user-select:none}
 .cq-hint{margin:0 0 8px;padding:8px 12px;border:1px dashed var(--acc);border-radius:10px;background:var(--acc-tint);color:var(--txt);line-height:1.5}
 .inp.cq-inp{width:118px;text-align:right;margin:0 auto;display:block;font-weight:700}
 .inp.cq-inp.ch{border-color:var(--acc);background:var(--acc-tint)}
@@ -1203,9 +1221,64 @@ const Badge = ({ c, children }) => {
   const col = String(c || "").startsWith("var(") ? c : BADGE_TONE[String(c || "").toLowerCase()] ? "var(" + BADGE_TONE[String(c).toLowerCase()] + ")" : c;
   return <span className="bdg" style={{ color: col, borderColor: "color-mix(in srgb, " + col + " 35%, transparent)", background: "color-mix(in srgb, " + col + " 9%, transparent)" }}>{children}</span>;
 };
+/* ============ КЛАВИАТУРА ============
+   Экран регистрирует свои действия (useHotActions): Alt+буква — сразу, все — в «Быстром переходе» (Ctrl+K).
+   code — физическая клавиша (KeyN…): работает в любой раскладке (рус/лат). */
+const HOT = [];
+function useHotActions(make) {
+  const ref = useRef(make);
+  ref.current = make;
+  useEffect(() => {
+    const e = { get: () => ref.current() };
+    HOT.push(e);
+    return () => { const i = HOT.indexOf(e); if (i >= 0) HOT.splice(i, 1); };
+  }, []);
+}
+const hotActions = () => HOT.flatMap((e) => { try { return (e.get() || []).filter(Boolean); } catch (er) { return []; } });
+const isTyping = (t) => !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+const topModal = () => { const a = document.querySelectorAll(".modal-bg"); return a.length ? a[a.length - 1] : null; };
+// клавиши для окна-подтверждения (не <Modal>): срабатывают, только если это окно сверху
+function useTopKeys(ref, keys) {
+  const kr = useRef(keys);
+  kr.current = keys;
+  useEffect(() => {
+    const h = (e) => {
+      if (e.defaultPrevented || !ref.current || topModal() !== ref.current) return;
+      const f = kr.current[e.key];
+      if (f && f(e) !== false) e.preventDefault();
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+}
+// окно: фокус сразу в первое поле; Esc — закрыть (если в поле не набран текст); Ctrl+Enter — главная кнопка окна
 function Modal({ title, onClose, children, w = 640 }) {
+  const bgRef = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const bg = bgRef.current;
+    const t = setTimeout(() => {
+      if (!bg || bg.contains(document.activeElement)) return;
+      const f = bg.querySelector(".modal input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([disabled]), .modal textarea:not([disabled]), .modal select:not([disabled])");
+      if (f) f.focus();
+    }, 0);
+    const h = (e) => {
+      if (e.defaultPrevented || topModal() !== bg) return;
+      if (e.key === "Escape") {
+        // поле поиска со своим списком (товар, клиент, мастер): первый Esc — его, окно не закрываем
+        if (e.target && e.target.hasAttribute && e.target.hasAttribute("data-esc") && String(e.target.value || "") !== "") return;
+        e.preventDefault(); closeRef.current();
+      } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        const b = [...bg.querySelectorAll("button.pri:not([disabled])")].pop();
+        if (b) { e.preventDefault(); b.click(); }
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => { clearTimeout(t); window.removeEventListener("keydown", h); };
+  }, []);
   return (
-    <div className="modal-bg" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div ref={bgRef} className="modal-bg" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal" style={{ maxWidth: w }}>
         <div className="row" style={{ justifyContent: "space-between", marginBottom: 14 }}>
           <h3>{title}</h3>
@@ -1251,14 +1324,14 @@ function ClientInput({ value, objects, onChange, onPick, onEnter, phoneMode = fa
   const pick = (c) => { onPick(c); setOpen(false); setAct(-1); };
   return (
     <div ref={box} style={{ position: "relative" }}>
-      <input className="inp" value={value || ""} autoComplete="off" autoCorrect="off" spellCheck={false} name={phoneMode ? "te_cl_n2" : "te_cl_n1"} id={phoneMode ? "te_cl_n2" : "te_cl_n1"} data-lpignore="true" data-form-type="other" placeholder={phoneMode ? "" : clients.length ? "начните вводить — список прошлых клиентов" : ""}
+      <input data-esc="1" className="inp" value={value || ""} autoComplete="off" autoCorrect="off" spellCheck={false} name={phoneMode ? "te_cl_n2" : "te_cl_n1"} id={phoneMode ? "te_cl_n2" : "te_cl_n1"} data-lpignore="true" data-form-type="other" placeholder={phoneMode ? "" : clients.length ? "начните вводить — список прошлых клиентов" : ""}
         onChange={(e) => { onChange(e.target.value); setOpen(true); setAct(-1); }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 120)}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" && hits.length) { e.preventDefault(); setOpen(true); setAct((i) => (i + 1 >= hits.length ? 0 : i + 1)); }
           else if (e.key === "ArrowUp" && hits.length) { e.preventDefault(); setOpen(true); setAct((i) => (i <= 0 ? hits.length - 1 : i - 1)); }
-          else if (e.key === "Escape") setOpen(false);
+          else if (e.key === "Escape") { if (open) e.preventDefault(); setOpen(false); }
           else if (e.key === "Enter") { e.preventDefault(); if (open && act >= 0 && hits[act]) pick(hits[act]); else { setOpen(false); onEnter && onEnter(e.target); } }
         }} />
       {open && hits.length > 0 && !(hits.length === 1 && same(hits[0])) && (
@@ -1291,14 +1364,14 @@ function MasterPicker({ masters, value, onChange, onAdd }) {
   const pick = (r) => { setOpen(false); setAct(-1); if (r.add) { onAdd(); return; } onChange(r.m); setQ(r.m.name); };
   return (
     <div style={{ position: "relative" }}>
-      <input className="inp" value={q} autoComplete="off" autoCorrect="off" spellCheck={false} name="te_ms_n" data-lpignore="true" data-form-type="other" placeholder="— выберите мастера —"
+      <input data-esc="1" className="inp" value={q} autoComplete="off" autoCorrect="off" spellCheck={false} name="te_ms_n" data-lpignore="true" data-form-type="other" placeholder="— выберите мастера —"
         onChange={(e) => { setQ(e.target.value); setOpen(true); setAct(-1); if (!e.target.value.trim() && cur) onChange(null); }}
         onFocus={(e) => { setOpen(true); e.target.select(); }}
         onBlur={() => setTimeout(() => { setOpen(false); setQ(cur ? cur.name : ""); }, 150)}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); if (rows.length) setAct((i) => (i + 1 >= rows.length ? 0 : i + 1)); }
           else if (e.key === "ArrowUp" && rows.length) { e.preventDefault(); setOpen(true); setAct((i) => (i <= 0 ? rows.length - 1 : i - 1)); }
-          else if (e.key === "Escape") setOpen(false);
+          else if (e.key === "Escape") { if (open) e.preventDefault(); setOpen(false); }
           else if (e.key === "Enter") { e.preventDefault(); const r = act >= 0 ? rows[act] : hits.length === 1 && typed ? rows[0] : null; if (r) pick(r); else setOpen(false); }
         }} />
       {open && (
@@ -1318,6 +1391,10 @@ function MasterPicker({ masters, value, onChange, onAdd }) {
     </div>
   );
 }
+// «кто внёс / ответственный»: всегда тот, кто вошёл в систему (в новой записи) или автор (в старой) — выбрать другого нельзя
+function WhoField({ label, value }) {
+  return <Fld label={label}><div className="inp who-ro" title="Записывается тот, кто вошёл в систему — внести от имени другого сотрудника нельзя">🔒 {value || curUserName() || "—"}</div></Fld>;
+}
 function PersonSelect({ value, onChange, placeholder = "—", compact = false, hideEmpty = false }) {
   const { people, addPerson } = useContext(PeopleCtx);
   const [adding, setAdding] = useState(false);
@@ -1329,7 +1406,7 @@ function PersonSelect({ value, onChange, placeholder = "—", compact = false, h
   if (adding && compact) return (
     <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
       <input className="inp" style={{ ...small, width: 150 }} autoFocus placeholder="Имя и фамилия" value={name} onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } else if (e.key === "Escape") cancel(); }} />
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); save(); } else if (e.key === "Escape") { e.preventDefault(); cancel(); } }} />
       <button className="btn xs pri" disabled={!name.trim()} onClick={save}>OK</button>
       <button className="btn xs" onClick={cancel}>✕</button>
     </span>
@@ -1337,7 +1414,7 @@ function PersonSelect({ value, onChange, placeholder = "—", compact = false, h
   if (adding) return (
     <div className="card" style={{ padding: 8 }}>
       <input className="inp" autoFocus placeholder="Имя и фамилия" value={name} onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); save(); } else if (e.key === "Escape") { e.stopPropagation(); cancel(); } }} />
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); save(); } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); cancel(); } }} />
       <div className="row" style={{ marginTop: 6, justifyContent: "flex-end", gap: 6 }}>
         <button className="btn xs" onClick={cancel}>Отмена</button>
         <button className="btn xs pri" disabled={!name.trim()} onClick={save}>Добавить</button>
@@ -1526,11 +1603,13 @@ function pickSheet(wb, fileName) {
 }
 function SheetPickHost() {
   const [c, setC] = useState(null);
+  const kRef = useRef(null);
+  useTopKeys(kRef, { Escape: () => { if (c) { c.res(null); setC(null); } } });
   useEffect(() => { _sheetSet = setC; return () => { _sheetSet = null; }; }, []);
   if (!c) return null;
   const done = (v) => { c.res(v); setC(null); };
   return (
-    <div className="modal-bg" style={{ zIndex: 300 }} onMouseDown={(e) => { if (e.target === e.currentTarget) done(null); }}>
+    <div ref={kRef} className="modal-bg" style={{ zIndex: 300 }} onMouseDown={(e) => { if (e.target === e.currentTarget) done(null); }}>
       <div className="modal" style={{ maxWidth: 560, marginTop: "12vh" }}>
         <h3 style={{ marginBottom: 6 }}>Какой лист загрузить?</h3>
         <p className="sm mut" style={{ marginBottom: 12 }}>В файле {c.fileName ? "«" + c.fileName + "» " : ""}несколько листов. Выберите нужный:</p>
@@ -1711,11 +1790,13 @@ function SelectPopupHost() {
 }
 function ConfirmHost() {
   const [c, setC] = useState(null);
+  const kRef = useRef(null);
+  useTopKeys(kRef, { Escape: () => { if (c) { c.res(false); setC(null); } } });
   useEffect(() => { _confirmSet = setC; return () => { _confirmSet = null; }; }, []);
   if (!c) return null;
   const done = (v) => { c.res(v); setC(null); };
   return (
-    <div className="modal-bg" style={{ zIndex: 300 }} onMouseDown={(e) => { if (e.target === e.currentTarget) done(false); }}>
+    <div ref={kRef} className="modal-bg" style={{ zIndex: 300 }} onMouseDown={(e) => { if (e.target === e.currentTarget) done(false); }}>
       <div className="modal" style={{ maxWidth: 520, marginTop: "14vh" }}>
         <h3 style={{ marginBottom: 10, color: "var(--warn)" }}>⚠ {c.title}</h3>
         {c.text && <p className="sm" style={{ marginBottom: 8 }}>{c.text}</p>}
@@ -1744,8 +1825,10 @@ async function confirmLowPrice(rows) {
 }
 /* Подтверждение отмены: введённые позиции не сохранятся */
 function DiscardConfirm({ text, onStay, onDiscard }) {
+  const kRef = useRef(null);
+  useTopKeys(kRef, { Escape: () => onStay() });
   return (
-    <div className="modal-bg" style={{ zIndex: 200 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onStay(); }}>
+    <div ref={kRef} className="modal-bg" style={{ zIndex: 200 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onStay(); }}>
       <div className="modal" style={{ maxWidth: 420, marginTop: "18vh" }}>
         <h3 style={{ marginBottom: 10 }}>Отменить добавление товаров?</h3>
         <p className="sm mut">{text}</p>
@@ -1848,15 +1931,17 @@ function whAvailIndex(warehouse, products, suppliers) {
   return { qty, sim, stock, rowsFor: (pid) => rows[pid] || [] };
 }
 const whQtyMap = (warehouse) => { const m = {}; (warehouse || []).forEach((w) => { if (w.product_id && Number(w.qty) > 0) m[w.product_id] = (m[w.product_id] || 0) + Number(w.qty); }); return m; };
-function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnPick = false, whQty = null, whSim = null, whStock = null, askQty = false }) {
+function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnPick = false, whQty = null, whSim = null, whStock = null, askQty = false, persistKey = null }) {
   // askQty: после выбора товара сразу спрашиваем количество (Enter — добавить и вернуться к поиску)
-  const [pend, setPend] = useState(null);
-  const [pq, setPq] = useState("1");
+  const [pend, setPend] = useState(() => { if (!persistKey) return null; try { const id = (JSON.parse(localStorage.getItem(persistKey) || "{}") || {}).pend; return id ? products.find((p) => p.id === id) || null : null; } catch (e) { return null; } });
+  const [pq, setPq] = useState(() => { if (!persistKey) return "1"; try { return (JSON.parse(localStorage.getItem(persistKey) || "{}") || {}).pq || "1"; } catch (e) { return "1"; } });
   const searchRef = useRef(null);
   // показываем ВСЕ найденные товары (без лимита). Список прокручивается, рисуются только видимые строки.
   // Поиск по словам: «труба 25» найдёт «ХВС ТРУБА PN16 - 25» (все слова, в любом порядке).
   const ROW = 50, BOX_H = 380;
-  const [q, setQ] = useState("");
+  // persistKey: набранный текст поиска (и товар, ждущий количества) сохраняются — переход в другой раздел их не стирает
+  const loadSaved = () => { if (!persistKey) return {}; try { return JSON.parse(localStorage.getItem(persistKey) || "{}") || {}; } catch (e) { return {}; } };
+  const [q, setQ] = useState(() => loadSaved().q || "");
   const [activeIdx, setActiveIdx] = useState(-1);
   const [top, setTop] = useState(0);
   const listRef = useRef(null);
@@ -1865,8 +1950,15 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
   // порядок результатов — как в базе/в файле Excel, из которого товары загружены (по коду 1, 2, 3…)
   const order = useMemo(() => products.map((_, i) => i).sort((a, b) => productOrder(products[a], products[b])), [products]);
   // фильтр по поставщикам: можно отметить несколько — показываются только их товары (без ввода текста — все их товары)
-  const [sfs, setSfs] = useState([]);
+  const [sfs, setSfs] = useState(() => { const x = loadSaved().sfs; return Array.isArray(x) ? x : []; });
   const sf = sfs.length > 0;
+  useEffect(() => {
+    if (!persistKey) return;
+    try {
+      if (!q && !pend && !sfs.length) localStorage.removeItem(persistKey);
+      else localStorage.setItem(persistKey, JSON.stringify({ q, pend: pend ? pend.id : null, pq, sfs }));
+    } catch (e) {}
+  }, [q, pend, pq, sfs]);
   const sfSet = useMemo(() => new Set(sfs), [sfs]);
   const [supOpen, setSupOpen] = useState(false);
   const [supQ, setSupQ] = useState("");
@@ -1937,7 +2029,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
     else if (e.key === "PageDown") { e.preventDefault(); setActiveIdx((i) => Math.min(i + 7, hits.length - 1)); }
     else if (e.key === "PageUp") { e.preventDefault(); setActiveIdx((i) => Math.max(i - 7, 0)); }
     else if (e.key === "Enter" && activeIdx >= 0) { e.preventDefault(); pick(hits[activeIdx]); }
-    else if (e.key === "Escape") { setQ(""); setActiveIdx(-1); setOpen(false); }
+    else if (e.key === "Escape") { if (q || open) e.preventDefault(); setQ(""); setActiveIdx(-1); setOpen(false); }
   };
   const start = Math.max(0, Math.floor(top / ROW) - 8);
   const end = Math.min(hits.length, Math.ceil((top + BOX_H) / ROW) + 8);
@@ -1973,7 +2065,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
             )}
           </div>
         )}
-        <input ref={searchRef} className="inp" style={{ flex: "1 1 180px", width: "auto", minWidth: 0 }} placeholder={sf ? (sfs.length === 1 ? "Поиск среди товаров поставщика…" : "Поиск среди товаров выбранных поставщиков…") : placeholder || "Поиск товара для добавления…"} value={q}
+        <input data-esc="1" ref={searchRef} className="inp" style={{ flex: "1 1 180px", width: "auto", minWidth: 0 }} placeholder={sf ? (sfs.length === 1 ? "Поиск среди товаров поставщика…" : "Поиск среди товаров выбранных поставщиков…") : placeholder || "Поиск товара для добавления…"} value={q}
           onChange={(e) => { setQ(e.target.value); setActiveIdx(-1); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown} />
@@ -2868,7 +2960,7 @@ function SupplierPayModal({ s, objects, ops, whMoves, onClose, onSave, onEditPay
         <PayFields p={pay} setP={setPay} methods={OUT_METHODS} usdLabel={payUsdLabel("supplier_payment")} />
         <Fld label="Дата оплаты"><input type="date" className="inp" value={opDate} onChange={(e) => setOpDate(e.target.value)} /></Fld>
         <Fld label="Комментарий"><input className="inp" value={note} onChange={(e) => setNote(e.target.value)} placeholder="часть / аванс / закрытие…" /></Fld>
-        <Fld label="Кто оплатил"><PersonSelect value={user} onChange={setUser} /></Fld>
+        <WhoField label="Кто оплатил" value={user} />
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
         <button className="btn xs" disabled={st.debt <= 0} onClick={() => setPay(paySetUsd(pay, st.debt))}>= весь долг</button>
@@ -3007,7 +3099,7 @@ function RequestTabs(props) {
   };
   const switchTab = (id) => commit({ ...stateRef.current, active: id });
   const removeTab = (id) => {
-    try { localStorage.removeItem(wzDraftKey(id)); } catch {}
+    try { localStorage.removeItem(wzDraftKey(id)); localStorage.removeItem(wzDraftKey(id) + ":pick"); } catch {}
     setMeta((m) => { const c = { ...m }; delete c[id]; return c; });
     const s = stateRef.current;
     const idx = s.tabs.findIndex((t) => t.id === id);
@@ -3312,7 +3404,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   useEffect(() => {
     try { localStorage.setItem(draftKey, JSON.stringify({ step, objId, newObj, lines })); } catch {}
   }, [step, objId, newObj, lines, draftKey]);
-  const clearDraft = () => { try { localStorage.removeItem(draftKey); } catch {} };
+  const clearDraft = () => { try { localStorage.removeItem(draftKey); localStorage.removeItem(draftKey + ":pick"); } catch {} };
 
   const activeObjects = objects.filter((o) => !["closed", "cancelled"].includes(o.status));
   const selObj = objects.find((o) => o.id === objId);
@@ -3589,7 +3681,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
           {xlImport && <RequestExcelImport products={filteredProducts} onClose={() => setXlImport(false)} onAdd={addImported} />}
 
           <div className="row" style={{ marginBottom: 12, gap: 10 }}>
-            <ProductPicker askQty products={filteredProducts} suppliers={suppliers} whQty={whQty} whSim={wh.sim} whStock={wh.stock} placeholder="Поиск товара по названию / коду — начните вводить…" onPick={addFromBase} />
+            <ProductPicker askQty persistKey={draftKey + ":pick"} products={filteredProducts} suppliers={suppliers} whQty={whQty} whSim={wh.sim} whStock={wh.stock} placeholder="Поиск товара по названию / коду — начните вводить…" onPick={addFromBase} />
           </div>
 
           {lines.length === 0 && (
@@ -3757,6 +3849,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
     await reload(); toast("Объект удалён");
     return true;
   };
+  useHotActions(() => (obj ? [] : [{ label: "+ Новая заявка", keys: "Alt+N", code: "KeyN", run: goRequest }]));
   if (obj) return <ObjectDetail obj={obj} data={data} reload={reload} toast={toast} fin={fin} back={() => setOpenId(null)} />;
   const ql = q.trim().toLowerCase();
   const shown = objects.filter((o) => (!stF || o.status === stF) && (!ql || [o.name, o.client, o.phone, o.address, o.master, o.manager].join(" ").toLowerCase().includes(ql)));
@@ -3764,7 +3857,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
     <div>
       <div className="row sect">
         <h2 style={{ marginRight: "auto" }}>Объекты <span className="mut sm">({shown.length !== objects.length ? shown.length + " из " + objects.length : objects.length})</span></h2>
-        <input className="inp" style={{ maxWidth: 220 }} placeholder="Поиск: объект, клиент, телефон…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className="inp" style={{ maxWidth: 220 }} data-kbnav="1" placeholder="Поиск: объект, клиент, телефон…" value={q} onChange={(e) => setQ(e.target.value)} />
         <select className="inp" style={{ maxWidth: 180 }} value={stF} onChange={(e) => setStF(e.target.value)}>
           <option value="">Все статусы</option>
           {[...OBJ_STATUSES, ...OLD_STATUSES.filter((x) => objects.some((o) => o.status === x.id))].map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
@@ -4371,6 +4464,20 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   const cqN = costMode ? costChanges().length : 0;
   const KPI = ({ l, v, c, sub }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}</div>{sub && <div className="xs mut kpi-sub">{sub}</div>}</div>;
   const shownOps = opsNewestFirst(ops.filter((o) => !MASTER_ONLY_OPS.includes(o.type) && (fin || MANAGER_OP_TYPES.includes(o.type))));
+  // клавиатура: Alt+буква — сразу; остальное — через Ctrl+K
+  useHotActions(() => [
+    { label: "Новая поставка", keys: "Alt+N", code: "KeyN", run: () => setAddItems("newbatch") },
+    { label: "+ Список вручную", keys: "Alt+L", code: "KeyL", run: () => setAddItems(true) },
+    (obj.items || []).length && !costMode ? { label: "Себестоимость подряд", keys: "Alt+S", code: "KeyS", run: startCost } : null,
+    (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes("client_payment") && payLive(obj) ? { label: "+ Оплата клиента", keys: "Alt+P", code: "KeyP", run: () => setOpForm({ type: "client_payment" }) } : null,
+    isLive(obj) && (obj.items || []).some((i) => !i.from_warehouse) ? { label: "Отгрузить товар", keys: "Alt+O", code: "KeyO", run: () => setShipForm(true) } : null,
+    { label: "Excel клиенту", run: exportClient },
+    { label: "Лист доставки", run: exportDelivery },
+    { label: "Excel себестоимость", run: exportCost },
+    { label: "Изменить объект", run: () => setEditObj(true) },
+    { label: "Импорт Excel в объект", run: () => setImpItems(true) },
+    { label: "Назад к объектам", keys: "Esc", run: back },
+  ]);
   return (
     <div>
       <div className="row sect">
@@ -4388,24 +4495,20 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
             </select>
           </div>
         </div>
-        <button className="btn" onClick={() => setEditObj(true)}>✎ Изменить</button>
         <select className="inp" style={{ maxWidth: 240 }} value={obj.status} onChange={(e) => setStatus(e.target.value)}>
           {statusOptions(obj.status).map((s) => { const off = s.id === "paid" && obj.status !== "paid" && !fullyPaid(obj, finance_ops); return <option key={s.id} value={s.id} disabled={off}>{s.label}{off ? " — после оплаты 100%" : ""}</option>; })}
         </select>
-        <button className="btn" onClick={exportClient}>⬇ Excel клиенту</button>
-        <button className="btn" onClick={exportDelivery}>🚚 Лист доставки</button>
-        <button className="btn" onClick={exportCost} title="Внутренний: себестоимость, цена и прибыль по каждой позиции">📊 Excel себестоимость</button>
+        {/* выгрузки Excel — вместе, в одном ряду и всегда в этом порядке */}
+        <div className="xl-group">
+          <button className="btn" onClick={exportClient}>⬇ Excel клиенту</button>
+          <button className="btn" onClick={exportDelivery}>🚚 Лист доставки</button>
+          <button className="btn" onClick={exportCost} title="Внутренний: себестоимость, цена и прибыль по каждой позиции">📊 Excel себестоимость</button>
+        </div>
       </div>
 
-      {!isLive(obj) && (
+      {obj.status === "approved" && f.paidIgnored > 0 && (
         <div className="card sect" style={{ borderColor: "var(--warn)", padding: "10px 14px" }}>
-          <span className="sm">Статус «{stById(obj.status).label}» — объект <b>не влияет</b> на долги клиента и поставщикам, Склад Thermo, дашборд, доставку и бонусы. Поставьте «Согласовано», когда сделка согласована.</span>
-        </div>
-      )}
-      {obj.status === "approved" && (
-        <div className="card sect" style={{ borderColor: "var(--line2)", padding: "10px 14px" }}>
-          <span className="sm">Статус «Согласовано»: учитывается на складе и в долге поставщикам. Долг клиента уже учитывается, но <b>продажа, прибыль и оплаты пока не учитываются</b> — поставьте статус «Оплата».</span>
-          {f.paidIgnored > 0 && <div className="sm" style={{ color: "var(--warn)", marginTop: 4 }}>⚠ По объекту уже записано оплат на {fmt2(f.paidIgnored)} — они начнут учитываться после статуса «Оплата».</div>}
+          <div className="sm" style={{ color: "var(--warn)" }}>⚠ По объекту уже записано оплат на {fmt2(f.paidIgnored)} — они начнут учитываться после статуса «Оплата».</div>
         </div>
       )}
       <div className="kpis sect">
@@ -4420,13 +4523,11 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         <h3 style={{ marginRight: "auto" }}>Материалы объекта</h3>
         {costMode ? <span className="sm" style={{ fontWeight: 700, color: "var(--acc)" }}>✏️ Себестоимость подряд</span> : <>
           {isLive(obj) && (obj.items || []).some((i) => !i.from_warehouse) && <button className="btn" style={unshippedCnt ? { borderColor: "var(--warn)", color: "var(--warn)", fontWeight: 700 } : undefined} onClick={() => setShipForm(true)}>🚚 Отгрузить товар{unshippedCnt ? " (" + unshippedCnt + ")" : " ✓"}</button>}
-          {(obj.items || []).length > 0 && <button className="btn cq-start" onClick={startCost} title="Себестоимость всех позиций — в таблице одна за другой: ввели, Enter — следующая">✏️ Себестоимость подряд</button>}
           <button className="btn" onClick={() => setAddItems(true)}>+ Список вручную</button>
           <button className="btn pri" onClick={() => setAddItems("newbatch")}>📦 Новая поставка</button>
           <button className="btn" onClick={() => setImpItems(true)}>📊 Импорт Excel</button>
         </>}
       </div>
-      {costMode && <div className="cq-hint xs">Введите себестоимость и нажмите <b>Enter</b> — курсор перейдёт к следующему товару. <b>↑ ↓</b> — вверх / вниз, <b>Esc</b> — вернуть прежнее значение. Можно вставить столбец цен из Excel (<b>Ctrl+V</b>) — заполнится подряд. Сохраняется всё сразу кнопкой «Сохранить» внизу.</div>}
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
         <table className={"t" + (costMode ? " cq-t" : "")} style={{ minWidth: costMode ? 0 : 760 }}>
           {costMode
@@ -4484,6 +4585,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
           <button className="btn xs" onClick={() => setOpForm({ type: t.id })}>+ {t.label}</button>
           {t.id === "discount" && (obj.items || []).length > 0 && <button className="btn xs" onClick={() => setPctForm(true)} title="Цена продажи = себестоимость ÷ (1 − %)">+ Прибыль от себестоимости</button>}
         </React.Fragment>)}
+        {(obj.items || []).length > 0 && !costMode && <button className="btn xs cq-start" onClick={startCost} title="Себестоимость всех позиций — в таблице одна за другой: ввели, Enter — следующая (Alt+S)">✏️ Себестоимость подряд</button>}
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
@@ -4566,8 +4668,13 @@ function BatchPickDialog({ batches, count, total, initial, busy, onBack, onPick 
   const [sel, setSel] = useState(initial != null ? initial : batches.length ? batches[batches.length - 1].no : "new");
   const [bDate, setBDate] = useState(today());
   const lastNo = batches.length ? batches[batches.length - 1].no : null;
+  // клавиатура: ↑/↓ — поставка (по кругу), Enter — добавить (кнопка в фокусе), Esc — назад
+  const kRef = useRef(null);
+  const opts = [...batches.map((b) => b.no), "new"];
+  const move = (d) => setSel((v) => opts[(opts.indexOf(v) + d + opts.length) % opts.length]);
+  useTopKeys(kRef, { Escape: () => { if (!busy) onBack(); }, ArrowDown: (e) => { if (e.target.type === "date") return false; move(1); }, ArrowUp: (e) => { if (e.target.type === "date") return false; move(-1); } });
   return (
-    <div className="modal-bg" style={{ zIndex: 200 }} onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onBack(); }}>
+    <div ref={kRef} className="modal-bg" style={{ zIndex: 200 }} onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onBack(); }}>
       <div className="modal batch-pick" style={{ maxWidth: 480, marginTop: "14vh" }}>
         <h3 style={{ marginBottom: 4 }}>В какую поставку добавить?</h3>
         <p className="xs mut" style={{ marginBottom: 12 }}>Позиций: {count} на {money(total)}</p>
@@ -5051,7 +5158,7 @@ function EditOpModal({ op, suppliers, isReturn, onClose, onSave, products = null
         {bonusItem && !products && <Fld label="Предмет"><input className="inp" autoComplete="off" value={v.item_name} onChange={(e) => setV({ ...v, item_name: e.target.value })} /></Fld>}
         {!usesPay && (isReturn || op.reason != null) && <Fld label="Причина"><input className="inp" value={v.reason} onChange={(e) => setV({ ...v, reason: e.target.value })} /></Fld>}
         <Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} /></Fld>
-        <Fld label="Ответственный"><PersonSelect value={v.user} onChange={(u) => setV({ ...v, user: u })} /></Fld>
+        <WhoField label="Ответственный" value={v.user} />
       </div>
       {op.edit_log && op.edit_log.length > 0 && (
         <div className="xs mut" style={{ marginTop: 10 }}>
@@ -5089,7 +5196,7 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
   }));
   const [reason, setReason] = useState("");
   const [opDate, setOpDate] = useState(today());
-  const [user, setUser] = useState(obj.manager || curUserName());
+  const [user] = useState(curUserName()); // возврат оформляет тот, кто вошёл в систему
   // куда уходит товар: на Склад Thermo (долг поставщику не меняется) или сразу поставщику (долг уменьшается)
   const [dest, setDest] = useState("wh");
   const setRet = (idx, val) => setRows(rows.map((r, j) => (j === idx ? { ...r, ret: Math.max(0, Math.min(Number(val) || 0, r.avail)) } : r)));
@@ -5145,7 +5252,7 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
       <div className="grid" style={{ gridTemplateColumns: "2fr 1fr 1fr" }}>
         <Fld label="Причина (общая)"><input className="inp" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="брак / не подошло / излишек" /></Fld>
         <Fld label="Дата возврата"><input type="date" className="inp" value={opDate} onChange={(e) => setOpDate(e.target.value)} /></Fld>
-        <Fld label="Ответственный"><PersonSelect value={user} onChange={setUser} /></Fld>
+        <WhoField label="Ответственный" value={user} />
       </div>
       <div className="row" style={{ justifyContent: "space-between", marginTop: 16 }}>
         <div className="mono" style={{ fontWeight: 700 }}>Позиций: {totalCnt} · Итого возврат: <span style={{ color: "var(--bad)" }}>{money(totalSum)}</span>
@@ -5163,7 +5270,7 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
   // поставщики этого объекта — первыми в списке; если он один, выбран сразу
   const objSupIds = [...new Set(items.filter((i) => i.supplier_id && !i.from_warehouse).map((i) => i.supplier_id))];
   const supOpts = [...suppliers.filter((s) => objSupIds.includes(s.id)), ...activeSuppliers(suppliers).filter((s) => !objSupIds.includes(s.id))];
-  const [v, setV] = useState({ amount: 0, note: "", reason: "", supplier_id: type === "supplier_payment" && objSupIds.length === 1 ? objSupIds[0] : "", item_id: items[0] ? items[0].id : "", qty: 1, item_name: "", op_date: today(), user: obj.manager || curUserName() });
+  const [v, setV] = useState({ amount: 0, note: "", reason: "", supplier_id: type === "supplier_payment" && objSupIds.length === 1 ? objSupIds[0] : "", item_id: items[0] ? items[0].id : "", qty: 1, item_name: "", op_date: today(), user: curUserName() });
   const isReturn = type === "return";
   const isSupPay = type === "supplier_payment";
   const isBonus = type === "bonus";
@@ -5205,7 +5312,7 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
           </>
         )}
         <Fld label="Дата операции"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
-        <Fld label="Ответственный"><PersonSelect value={v.user} onChange={(u) => setV({ ...v, user: u })} /></Fld>
+        <WhoField label="Ответственный" value={v.user} />
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
@@ -5667,7 +5774,7 @@ function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
     <div>
       <div className="row sect">
         <h2 style={{ marginRight: "auto" }}>Доставка <span className="mut sm">({list.length})</span></h2>
-        <input className="inp" style={{ maxWidth: 260 }} placeholder="Поиск: объект, клиент, адрес…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className="inp" style={{ maxWidth: 260 }} data-kbnav="1" placeholder="Поиск: объект, клиент, адрес…" value={q} onChange={(e) => setQ(e.target.value)} />
         <label className="row sm" style={{ gap: 6, cursor: "pointer" }}><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> показать и доставленные</label>
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
@@ -5939,7 +6046,7 @@ function IssueForm({ stock, objects, onClose, onSave }) {
             {targets.map((o) => <option key={o.id} value={o.id}>{o.name} ({o.client})</option>)}
           </select>
         </Fld>
-        <Fld label="Ответственный"><PersonSelect value={user} onChange={setUser} /></Fld>
+        <WhoField label="Ответственный" value={user} />
       </div>
       <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, maxHeight: 320 }}>
         <table className="t">
@@ -6450,6 +6557,10 @@ function Dashboard({ data }) {
       if (x.type === "return" || x.type === "discount" || x.type === "client_payment") byClient[clientKey(o)] = (byClient[clientKey(o)] || 0) - (Number(x.amount) || 0);
     });
     Object.values(byClient).forEach((v) => { v = round2(v); if (v > 0) cdebt += v; else overpay -= v; });
+    // список «кто сколько должен» — для блока долгов внизу
+    const cInfo = {};
+    objects.forEach((o) => { if (objOk(o)) { const k = clientKey(o); if (!cInfo[k]) cInfo[k] = { name: o.client || o.name || "—", phone: o.phone || "", n: 0 }; cInfo[k].n++; } });
+    const clientRows = Object.entries(byClient).map(([k, v]) => ({ k, ...(cInfo[k] || { name: "—" }), v: round2(v) })).filter((r) => r.v > 0.004).sort((a, b) => b.v - a.v);
     // поставщики: отгруженный товар + приход на склад − возвраты поставщику − оплаты (до даты)
     const retIds = supplierReturnIds(finance_ops, data.wh_moves);
     const bySup = {};
@@ -6467,10 +6578,11 @@ function Dashboard({ data }) {
       else if (x.type === "return" && retIds.has(x.id)) bySup[x.supplier_id] = (bySup[x.supplier_id] || 0) - (Number(x.cost_amount) || 0);
     });
     Object.values(bySup).forEach((v) => { if (v > 0.004) sdebt += round2(v); });
+    const supRows = Object.entries(bySup).map(([id, v]) => ({ k: id, name: (suppliers.find((x) => x.id === id) || {}).name || "—", v: round2(v) })).filter((r) => r.v > 0.004).sort((a, b) => b.v - a.v);
     const whCost = warehouse.reduce((a, w) => a + (w.qty || 0) * (w.cost || 0), 0);
     const whQty = warehouse.filter((w) => (w.qty || 0) > 0).length;
     const active = objects.filter((o) => isLive(o) && o.status !== "closed" && (!mgr || (o.manager || "") === mgr)).length;
-    return { cdebt, overpay, sdebt, whCost, whQty, active, cut };
+    return { cdebt, overpay, sdebt, whCost, whQty, active, cut, clientRows, supRows };
   }, [objects, finance_ops, suppliers, warehouse, mgr, data.wh_moves, to]);
 
   const lowMargin = ranks.prod.filter((r) => r.rev > 0 && r.margin < 10).sort((a, b) => a.margin - b.margin).slice(0, 8);
@@ -6611,6 +6723,26 @@ function Dashboard({ data }) {
             <tbody>{lowMargin.map((r) => <tr key={r.key}><td className="sm">{r.name}</td><td className="num">{fmt(r.rev)}</td><td className="num" style={{ color: r.gross < 0 ? "var(--bad)" : undefined }}>{fmt(r.gross)}</td><td className="num" style={{ color: r.margin < 0 ? "var(--bad)" : "var(--warn)" }}>{r.margin.toLocaleString("ru-RU", { maximumFractionDigits: 1 })}%</td></tr>)}</tbody></table>
         </div>
       )}
+
+      {/* долги внизу дашборда: кто должен нам и кому должны мы */}
+      <div className="split sect dash-debts" style={{ alignItems: "start" }}>
+        <div className="card" style={{ minWidth: 0 }}>
+          <div className="row" style={{ marginBottom: 8 }}><h3 style={{ marginRight: "auto" }}>Нам должны — клиенты</h3><span className="sm" style={{ fontWeight: 800, color: "var(--bad)" }}>{fmt(bal.cdebt)}</span></div>
+          <div style={{ maxHeight: 420, overflow: "auto" }}>
+            <table className="t"><thead><tr><th>Клиент</th><th style={{ textAlign: "right" }}>Объектов</th><th style={{ textAlign: "right" }}>Долг</th></tr></thead>
+              <tbody>{bal.clientRows.map((r) => <tr key={r.k}><td className="sm">{r.name}{r.phone && <div className="xs mut mono">{r.phone}</div>}</td><td className="num">{r.n || ""}</td><td className="num" style={{ fontWeight: 700 }}>{fmt(r.v)}</td></tr>)}
+                {!bal.clientRows.length && <tr><td colSpan={3} className="mut sm" style={{ textAlign: "center", padding: 16 }}>Долгов клиентов нет</td></tr>}</tbody></table>
+          </div>
+        </div>
+        <div className="card" style={{ minWidth: 0 }}>
+          <div className="row" style={{ marginBottom: 8 }}><h3 style={{ marginRight: "auto" }}>Мы должны — поставщикам</h3><span className="sm" style={{ fontWeight: 800, color: "var(--warn)" }}>{fmt(bal.sdebt)}</span></div>
+          <div style={{ maxHeight: 420, overflow: "auto" }}>
+            <table className="t"><thead><tr><th>Поставщик</th><th style={{ textAlign: "right" }}>Долг</th></tr></thead>
+              <tbody>{bal.supRows.map((r) => <tr key={r.k}><td className="sm">{r.name}</td><td className="num" style={{ fontWeight: 700 }}>{fmt(r.v)}</td></tr>)}
+                {!bal.supRows.length && <tr><td colSpan={2} className="mut sm" style={{ textAlign: "center", padding: 16 }}>Долгов поставщикам нет</td></tr>}</tbody></table>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -6620,7 +6752,8 @@ function CompanyExpenseForm({ onClose, onSave, boss = false, employees = [], onE
   const cats = boss ? EXPENSE_CATEGORIES : EXPENSE_CATEGORIES.filter((c) => c !== SALARY_CAT);
   const [v, setV] = useState({ category: cats[0], op_date: today(), note: "", user: curUserName(), kind: "Зарплата", emp: "" });
   const sal = v.category === SALARY_CAT;
-  const [pay, setPay] = useState(() => payInit(null));
+  // расходы компании обычно в сумах — валюта «сум» выбрана сразу
+  const [pay, setPay] = useState(() => { const p = payInit(null); return p.method === "usd" ? { ...p, method: "uzs", cur: "uzs" } : p; });
   const [busy, setBusy] = useState(false);
   return (
     <Modal title="Расход компании" onClose={onClose} w={560}>
@@ -6632,7 +6765,7 @@ function CompanyExpenseForm({ onClose, onSave, boss = false, employees = [], onE
         {sal && <Fld label="Сотрудник"><EmployeeSelect value={v.emp} onChange={(emp) => setV({ ...v, emp })} employees={employees} onAdded={onEmployeeAdded} data={data} /></Fld>}
         <PayFields p={pay} setP={setPay} methods={OUT_METHODS} usdLabel={payUsdLabel("company_expense")} />
         <Fld label="Дата"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
-        <Fld label="Кто внёс"><PersonSelect value={v.user} onChange={(u) => setV({ ...v, user: u })} /></Fld>
+        <WhoField label="Кто внёс" value={v.user} />
         <div style={{ gridColumn: "1/-1" }}><Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} placeholder="за июнь / Шерзоду / свет+вода…" /></Fld></div>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
@@ -6942,9 +7075,6 @@ function LogTab({ data, reload, onBackup }) {
           <option value={0}>Весь период</option><option value={1}>Сегодня</option><option value={7}>7 дней</option><option value={30}>30 дней</option>
         </select>
       </div>
-      <div className="card sect" style={{ borderColor: "var(--line2)" }}>
-        <p className="sm mut">Журнал фиксирует ключевые действия сотрудников: заявки, оплаты, возвраты, изменения и удаления, отгрузки со склада, операции с аккаунтами. Записи не редактируются.</p>
-      </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
           <thead><tr><th style={{width:150}}>Дата / время</th><th>Сотрудник</th><th>Роль</th><th>Действие</th><th>Объект/сущность</th><th>Детали</th></tr></thead>
@@ -6978,9 +7108,6 @@ function AdminTab({ data, reload, toast, currentUser }) {
       <div className="row sect">
         <h2 style={{ marginRight: "auto" }}>Аккаунты <span className="mut sm">({users.length})</span></h2>
         <button className="btn pri" onClick={() => setEdit({ role: "manager", status: "active" })}>+ Аккаунт</button>
-      </div>
-      <div className="card sect" style={{ borderColor: "var(--line2)" }}>
-        <p className="sm mut">Руководитель создаёт логины и пароли вручную. Вход в систему — строго по паролю (в базе хранится не сам пароль, а его хеш). Отключённый аккаунт войти не может.</p>
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
@@ -7364,6 +7491,76 @@ class ErrBoundary extends React.Component {
     }
     return this.props.children;
   }
+}
+/* «Быстрый переход» (Ctrl+K): действия текущего экрана, разделы, объекты (название, клиент, телефон) */
+function CommandPalette({ tabs, objects, onTab, onObject, onClose }) {
+  const [q, setQ] = useState("");
+  const [act, setAct] = useState(0);
+  const listRef = useRef(null);
+  const words = searchWords(q);
+  const has = (t) => { const x = String(t || "").toLowerCase().replace(/ё/g, "е"); return words.every((w) => x.includes(w)); };
+  const items = useMemo(() => {
+    const out = [];
+    hotActions().forEach((a) => { if (has(a.label)) out.push({ k: "a:" + a.label, label: a.label, hint: a.keys || "", grp: "Действие", run: a.run }); });
+    tabs.forEach((t, i) => { if (has(t.label + " раздел перейти")) out.push({ k: "t:" + t.id, label: t.label, hint: "Alt+" + (i === 9 ? 0 : i + 1), grp: "Раздел", run: () => onTab(t.id) }); });
+    if (words.length) {
+      let n = 0;
+      for (const o of objects) {
+        if (n >= 40) break;
+        if (has([o.name, o.client, o.phone, o.address, o.master].join(" "))) { n++; out.push({ k: "o:" + o.id, label: o.name, hint: [o.client, o.phone].filter(Boolean).join(" · "), grp: "Объект", run: () => onObject(o.id) }); }
+      }
+    }
+    return out;
+  }, [q, tabs, objects]);
+  useEffect(() => { setAct(0); }, [q]);
+  useEffect(() => { const el = listRef.current && listRef.current.children[act]; if (el) el.scrollIntoView({ block: "nearest" }); }, [act]);
+  const run = (it) => { if (!it) return; onClose(); setTimeout(() => it.run(), 0); };
+  return (
+    <div className="modal-bg" style={{ zIndex: 400 }} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal cmdk" style={{ maxWidth: 620, marginTop: "12vh", padding: 0 }}>
+        <input className="inp cmdk-q" autoFocus placeholder="Быстрый переход: объект, клиент, телефон, раздел или действие…" value={q} onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown") { e.preventDefault(); setAct((i) => (i + 1 >= items.length ? 0 : i + 1)); }
+            else if (e.key === "ArrowUp") { e.preventDefault(); setAct((i) => (i <= 0 ? items.length - 1 : i - 1)); }
+            else if (e.key === "Enter") { e.preventDefault(); run(items[act]); }
+            else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); }
+          }} />
+        <div ref={listRef} className="cmdk-list">
+          {items.map((it, i) => (
+            <div key={it.k} className={"cmdk-item" + (i === act ? " on" : "")} onMouseEnter={() => setAct(i)} onMouseDown={(e) => { e.preventDefault(); run(it); }}>
+              <span className="cmdk-grp">{it.grp}</span>
+              <span className="cmdk-label">{it.label}</span>
+              {it.hint && <span className="cmdk-hint">{it.hint}</span>}
+            </div>
+          ))}
+          {!items.length && <div className="sm mut" style={{ padding: "14px 16px" }}>Ничего не найдено</div>}
+        </div>
+        <div className="xs mut cmdk-foot">↑ ↓ — выбор · Enter — открыть · Esc — закрыть · «?» — все сочетания клавиш</div>
+      </div>
+    </div>
+  );
+}
+// подсказка: все сочетания клавиш
+function KeysHelp({ tabs, onClose }) {
+  const here = hotActions().filter((a) => a.keys);
+  const Row = ({ k, t }) => <tr><td style={{ whiteSpace: "nowrap", width: 150 }}>{k.split(" / ").map((x, i) => <React.Fragment key={i}>{i > 0 && " / "}<kbd>{x}</kbd></React.Fragment>)}</td><td className="sm">{t}</td></tr>;
+  return (
+    <Modal title="⌨ Работа с клавиатуры" onClose={onClose} w={640}>
+      <table className="t keys-t"><tbody>
+        <Row k="Ctrl+K" t="Быстрый переход: найти объект (название, клиент, телефон), раздел или действие" />
+        <Row k={"Alt+1 … Alt+" + Math.min(tabs.length, 9) + (tabs.length > 9 ? " / Alt+0" : "")} t={"Разделы по порядку: " + tabs.map((t, i) => (i === 9 ? 0 : i + 1) + " — " + t.label).join(", ")} />
+        <Row k="↑ / ↓" t="В списке (объекты, доставка, мастера): выбрать строку; из поля поиска ↓ — сразу к списку" />
+        <Row k="Enter" t="Открыть выбранную строку" />
+        <Row k="Esc" t="Закрыть окно; в карточке (объект, мастер) — назад к списку" />
+        <Row k="Ctrl+Enter" t="В окне — главная кнопка (Сохранить / Добавить)" />
+        <Row k="Tab / Shift+Tab" t="Следующее / предыдущее поле" />
+        <Row k="Alt+X" t="Калькулятор" />
+        <Row k="?" t="Эта подсказка" />
+        {here.map((a) => <Row key={a.label} k={a.keys} t={a.label + " (на этом экране)"} />)}
+      </tbody></table>
+      <p className="xs mut" style={{ marginTop: 10 }}>Буквы работают в любой раскладке (рус / лат). В поиске товара: ↑ ↓ — выбор, Enter — добавить, ввести количество — Enter.</p>
+    </Modal>
+  );
 }
 function AppInner() {
   const [ready, setReady] = useState(false);
@@ -7756,6 +7953,54 @@ function AppInner() {
   const TAB_LABELS = lang === "uz" ? TAB_LABELS_UZ : TAB_LABELS_RU;
   const allTabs = roleTabs.map((id) => ({ id, label: TAB_LABELS[id] }));
   useEffect(() => { if (currentUser) { setTab(roleTabs[0]); setOpenId(null); } }, [currentUser ? currentUser.id + ":" + currentUser.role : ""]);
+  // ---- работа с клавиатуры ----
+  const [palette, setPalette] = useState(false);
+  const [keysHelp, setKeysHelp] = useState(false);
+  const goTab = (id) => { if (tab === id) { setOpenId(null); setTabNonce((n) => n + 1); } setTab(id); if (id !== "objects") setOpenId(null); setMobileMenuOpen(false); };
+  const kbRef = useRef({});
+  kbRef.current = { allTabs, goTab, on: !!currentUser };
+  useEffect(() => {
+    // строки списка: ↑/↓ — выбор (по кругу), Enter — открыть
+    const rowNav = (dir, fromInput) => {
+      const rows = [...document.querySelectorAll(".body tr.clk")].filter((r) => r.offsetParent !== null);
+      if (!rows.length) return false;
+      let i = rows.findIndex((r) => r.classList.contains("kb-act"));
+      rows.forEach((r) => r.classList.remove("kb-act"));
+      i = fromInput || i < 0 ? (dir > 0 ? 0 : rows.length - 1) : (i + dir + rows.length) % rows.length;
+      rows[i].classList.add("kb-act");
+      rows[i].scrollIntoView({ block: "nearest" });
+      if (fromInput && document.activeElement) document.activeElement.blur();
+      return true;
+    };
+    const h = (e) => {
+      const k = kbRef.current;
+      if (!k.on || e.defaultPrevented) return;
+      const t = e.target, typing = isTyping(t), modal = !!topModal();
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.code === "KeyK") { e.preventDefault(); setKeysHelp(false); setPalette(true); return; }
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !modal) {
+        const d = /^Digit(\d)$/.exec(e.code || "");
+        if (d) { const tb = k.allTabs[d[1] === "0" ? 9 : Number(d[1]) - 1]; if (tb) { e.preventDefault(); k.goTab(tb.id); } return; }
+        const a = hotActions().find((x) => x.code === e.code);
+        if (a) { e.preventDefault(); a.run(); }
+        return;
+      }
+      if (modal || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (typing) {
+        if (e.key === "ArrowDown" && t.hasAttribute("data-kbnav") && rowNav(1, true)) e.preventDefault();
+        return;
+      }
+      if (e.key === "?") { e.preventDefault(); setKeysHelp(true); return; }
+      if (e.key === "/") { const f = document.querySelector(".body [data-kbnav]"); if (f) { e.preventDefault(); f.focus(); f.select && f.select(); } return; }
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") { if (rowNav(e.key === "ArrowDown" ? 1 : -1)) e.preventDefault(); return; }
+      if (e.key === "Enter") { const r = document.querySelector(".body tr.kb-act"); if (r && (!t || t === document.body || t.tagName === "TR")) { e.preventDefault(); r.click(); } return; }
+      if (e.key === "Escape") {
+        const back = [...document.querySelectorAll(".body button")].find((b) => /^←/.test(b.textContent.trim()) && b.offsetParent !== null);
+        if (back) { e.preventDefault(); back.click(); }
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
 
   // заставка всегда второй элемент верхнего уровня — один и тот же экземпляр, анимация не начинается заново
   const intro = !ready ? <Intro /> : introGone ? null : <Intro out={introOut} onDone={() => setIntroGone(true)} />;
@@ -7781,9 +8026,10 @@ function AppInner() {
             // повторное нажатие на открытую вкладку — назад к списку (из карточки объекта, мастера и т.п.)
             if (tab === t.id) { setOpenId(null); setTabNonce((n) => n + 1); }
             setTab(t.id); if (t.id !== "objects") setOpenId(null); setMobileMenuOpen(false);
-          }}>{t.label}</button>)}
+          }} title={"Alt+" + (allTabs.indexOf(t) === 9 ? 0 : allTabs.indexOf(t) + 1)}>{t.label}</button>)}
         </div>
         <button className="burger" onClick={() => setMobileMenuOpen((v) => !v)} title="Меню">{mobileMenuOpen ? "✕" : "☰"}</button>
+        {role !== "driver" && <button className="btn xs kb-btn" title="Работа без мыши: Ctrl+K — быстрый переход (объект, раздел, действие), «?» — все сочетания клавиш" onClick={() => setPalette(true)}>⌨ Ctrl+K</button>}
         {role !== "driver" && <button className={"btn xs" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => setCalcOpen((v) => !v)}>🧮 Калькулятор</button>}
         <input ref={restoreRef} type="file" accept=".json,.gz,application/json,application/gzip" style={{ display: "none" }} onChange={onRestore} />
       </div>
@@ -7802,6 +8048,8 @@ function AppInner() {
           </span>
         </div>}
         {tab === "dash" && <Dashboard data={data} />}
+        {palette && <CommandPalette tabs={allTabs} objects={data.objects || []} onTab={goTab} onObject={(id) => { setTab("objects"); setOpenId(id); }} onClose={() => setPalette(false)} />}
+        {keysHelp && <KeysHelp tabs={allTabs} onClose={() => setKeysHelp(false)} />}
         {tab === "objects" && <ObjectsTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} goRequest={() => setTab("request")} fin={role === "boss"} />}
         {tab === "request" && <RequestTabs data={data} reload={reload} toast={toast} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "products" && <ProductsTab data={data} reload={reload} toast={toast} />}
