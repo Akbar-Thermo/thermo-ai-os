@@ -1255,8 +1255,8 @@ function ClientInput({ value, objects, onChange, onPick, onEnter, phoneMode = fa
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 120)}
         onKeyDown={(e) => {
-          if (e.key === "ArrowDown" && hits.length) { e.preventDefault(); setOpen(true); setAct((i) => Math.min(hits.length - 1, i + 1)); }
-          else if (e.key === "ArrowUp" && hits.length) { e.preventDefault(); setAct((i) => Math.max(0, i - 1)); }
+          if (e.key === "ArrowDown" && hits.length) { e.preventDefault(); setOpen(true); setAct((i) => (i + 1 >= hits.length ? 0 : i + 1)); }
+          else if (e.key === "ArrowUp" && hits.length) { e.preventDefault(); setOpen(true); setAct((i) => (i <= 0 ? hits.length - 1 : i - 1)); }
           else if (e.key === "Escape") setOpen(false);
           else if (e.key === "Enter") { e.preventDefault(); if (open && act >= 0 && hits[act]) pick(hits[act]); else { setOpen(false); onEnter && onEnter(e.target); } }
         }} />
@@ -1295,8 +1295,8 @@ function MasterPicker({ masters, value, onChange, onAdd }) {
         onFocus={(e) => { setOpen(true); e.target.select(); }}
         onBlur={() => setTimeout(() => { setOpen(false); setQ(cur ? cur.name : ""); }, 150)}
         onKeyDown={(e) => {
-          if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setAct((i) => Math.min(rows.length - 1, i + 1)); }
-          else if (e.key === "ArrowUp") { e.preventDefault(); setAct((i) => Math.max(0, i - 1)); }
+          if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); if (rows.length) setAct((i) => (i + 1 >= rows.length ? 0 : i + 1)); }
+          else if (e.key === "ArrowUp" && rows.length) { e.preventDefault(); setOpen(true); setAct((i) => (i <= 0 ? rows.length - 1 : i - 1)); }
           else if (e.key === "Escape") setOpen(false);
           else if (e.key === "Enter") { e.preventDefault(); const r = act >= 0 ? rows[act] : hits.length === 1 && typed ? rows[0] : null; if (r) pick(r); else setOpen(false); }
         }} />
@@ -1910,8 +1910,9 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
   const supCount = useMemo(() => { const m = {}; products.forEach((p) => { if (p.supplier_id && p.status !== "archive") m[p.supplier_id] = (m[p.supplier_id] || 0) + 1; }); return m; }, [products]);
   const onKeyDown = (e) => {
     if (!hits.length) return;
-    if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, hits.length - 1)); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, 0)); }
+    // по кругу: с последнего ↓ — на первый, с первого ↑ — на последний
+    if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => (i + 1 >= hits.length ? 0 : i + 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActiveIdx((i) => (i <= 0 ? hits.length - 1 : i - 1)); }
     else if (e.key === "PageDown") { e.preventDefault(); setActiveIdx((i) => Math.min(i + 7, hits.length - 1)); }
     else if (e.key === "PageUp") { e.preventDefault(); setActiveIdx((i) => Math.max(i - 7, 0)); }
     else if (e.key === "Enter" && activeIdx >= 0) { e.preventDefault(); pick(hits[activeIdx]); }
