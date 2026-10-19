@@ -451,6 +451,7 @@ table.t td{position:static}
 
 /* ============ DATA LAYER = Supabase (db из ./db.js) ============ */
 const TABLES = ["products", "suppliers", "objects", "finance_ops", "requests", "masters", "warehouse", "wh_moves", "users", "audit_log"];
+const TABLE_JSON = new WeakMap(); // массив таблицы → его JSON (сравнить с новой загрузкой без повторной сериализации)
 // id записи всегда в формате UUID: колонки id в базе имеют тип uuid, другой формат база не примет
 // (crypto.randomUUID есть не во всех браузерах — например, в старых Safari)
 const uuid = () => {
@@ -1758,9 +1759,18 @@ function DiscardConfirm({ text, onStay, onDiscard }) {
 }
 // текст для поиска товара: название, код, размер, бренд и ПОСТАВЩИК (по «water pro» находятся все товары
 // поставщика Water Pro, а не только те, где это слово есть в названии) + слитная версия («waterpro» = «water pro»)
+// бренд товара для подписи в списках (если совпадает с поставщиком — не повторяем)
+const brandOf = (p, sup) => { const b = String((p && p.brand) || "").trim(); return b && b.toLowerCase() !== String(sup || "").trim().toLowerCase() ? b : ""; };
+const PST_CACHE = new Map(); // тот же текст после перечитывания базы — без повторных регулярных выражений
 const prodSearchText = (p, supName) => {
-  const t = [p.name, p.alt_names, p.code, p.sku, p.size, p.brand, p.category, supName].filter(Boolean).join(" ").toLowerCase().replace(/ё/g, "е");
-  return t + " " + t.replace(/[\s\-_."']+/g, "");
+  const raw = [p.name, p.alt_names, p.code, p.sku, p.size, p.brand, p.category, supName].filter(Boolean).join(" ");
+  const hit = PST_CACHE.get(raw);
+  if (hit !== undefined) return hit;
+  if (PST_CACHE.size > 60000) PST_CACHE.clear();
+  const t = raw.toLowerCase().replace(/ё/g, "е");
+  const out = t + " " + t.replace(/[\s\-_."']+/g, "");
+  PST_CACHE.set(raw, out);
+  return out;
 };
 const searchWords = (q) => q.toLowerCase().replace(/ё/g, "е").trim().split(/\s+/).filter(Boolean);
 // остаток на Складе Thermo по товару (product_id → кол-во)
@@ -1774,7 +1784,18 @@ const whToks = (s) => String(s || "").toLowerCase().replace(/ё/g, "е").replace
   .replace(/(\d)([a-zа-я])/g, "$1 $2").replace(/([a-zа-я])(\d)/g, "$1 $2") // «50х45» → «50 х 45», «d50» → «d 50»
   .split(/[^a-zа-я0-9.]+/).map((t) => t.replace(/^\.+|\.+$/g, "")).filter(Boolean);
 // подпись названия: слова (без бренда в кавычках, без имени поставщика/бренда) и числа-размеры строго по порядку
+// подписи кэшируются: после каждого сохранения база перечитывается, и пересчёт для тысяч товаров
+// (регулярные выражения на каждое название) подвешивал окно на 0,5–2 с; названия при этом почти не меняются
+const WH_SIG_CACHE = new Map();
 function whNameSig(name, strip) {
+  const key = String(name || "") + "\u0001" + (strip || []).map((x) => String(x || "")).join("\u0001");
+  if (WH_SIG_CACHE.has(key)) return WH_SIG_CACHE.get(key);
+  if (WH_SIG_CACHE.size > 60000) WH_SIG_CACHE.clear();
+  const sig = whNameSigCalc(name, strip);
+  WH_SIG_CACHE.set(key, sig);
+  return sig;
+}
+function whNameSigCalc(name, strip) {
   const drop = new Set();
   (strip || []).forEach((x) => whToks(x).forEach((t) => drop.add(WH_SYN[t] || t)));
   const s = String(name || "").replace(/"[^"]*"|«[^»]*»|“[^”]*”/g, " ").replace(/\(\s*код[^)]*\)|\(\s*\d+\s*шт\.?\s*\)/gi, " ").replace(/[°º⁰*]/g, " ");
@@ -1988,7 +2009,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
                       style={{ position: "absolute", top: i * ROW, left: 0, right: 0, height: ROW, boxSizing: "border-box", padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === activeIdx ? "var(--acc-tint)" : whSet.has(p.id) ? "var(--wh-tint)" : "var(--panel)", boxShadow: whSet.has(p.id) ? "inset 3px 0 0 var(--ok)" : "none", overflow: "hidden" }}
                       onClick={() => pick(p)}>
                       <div style={{ fontWeight: 600, fontSize: 13, color: "var(--txt)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
-                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, supName[p.supplier_id]].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}{whQty && whQty[p.id] ? <b style={{ color: "var(--ok)" }}> · 🏬 {whSet.has(p.id) ? "Склад Thermo" : "есть на Складе Thermo"}: {fmt(whQty[p.id])}{whSim && whSim[p.id] ? (whSet.has(p.id) ? " (+ такой же у другого поставщика)" : " (такой же у другого поставщика)") : ""}</b> : null}</div>
+                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, brandOf(p, supName[p.supplier_id]), supName[p.supplier_id]].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}{whQty && whQty[p.id] ? <b style={{ color: "var(--ok)" }}> · 🏬 {whSet.has(p.id) ? "Склад Thermo" : "есть на Складе Thermo"}: {fmt(whQty[p.id])}{whSim && whSim[p.id] ? (whSet.has(p.id) ? " (+ такой же у другого поставщика)" : " (такой же у другого поставщика)") : ""}</b> : null}</div>
                     </div>
                   );
                 })}
@@ -3243,7 +3264,7 @@ function RequestExcelImport({ products, onClose, onAdd }) {
                       <td className="num">{fmt(it.qty)}</td>
                       <td>
                         <select className="inp" value={c} onChange={(e) => setPick({ ...pick, [it.i]: e.target.value })}>
-                          {it.cands.map((x) => <option key={x.p.id} value={x.p.id}>{x.p.name} — код {x.p.code} ({x.by || pct(x.score)})</option>)}
+                          {it.cands.map((x) => <option key={x.p.id} value={x.p.id}>{x.p.name}{brandOf(x.p) ? " · " + brandOf(x.p) : ""} — код {x.p.code} ({x.by || pct(x.score)})</option>)}
                           <option value="">— нет в базе: добавить как ручную позицию —</option>
                         </select>
                       </td>
@@ -7396,7 +7417,20 @@ function AppInner() {
       if ((appliedSeq.current[t] || 0) > seq) return;
       appliedSeq.current[t] = seq; upd[t] = t === "finance_ops" ? rows.map(normFinOp) : rows;
     });
-    if (Object.keys(upd).length) setData((prev) => ({ ...prev, ...upd }));
+    // таблица не изменилась — оставляем прежний массив: расчёты (склад, долги, поиск) не пересчитываются заново
+    // и экран не «замирает» после каждого сохранения на больших базах
+    Object.keys(upd).forEach((t) => { try { TABLE_JSON.set(upd[t], JSON.stringify(upd[t])); } catch (e) {} });
+    if (Object.keys(upd).length) setData((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      Object.keys(upd).forEach((t) => {
+        const old = prev[t];
+        const oldJ = old ? (TABLE_JSON.has(old) ? TABLE_JSON.get(old) : (() => { try { return JSON.stringify(old); } catch (e) { return null; } })()) : null;
+        if (old && oldJ != null && oldJ === TABLE_JSON.get(upd[t])) return;
+        next[t] = upd[t]; changed = true;
+      });
+      return changed ? next : prev;
+    });
     if (all && !failed.length) lastFull.current = Date.now();
     if (failed.length) {
       console.error("[reload]", failed);
