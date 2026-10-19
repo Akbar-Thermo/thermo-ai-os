@@ -29,11 +29,11 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Проверка бота
         if: github.event_name == 'workflow_dispatch' && inputs.action == 'ПРОВЕРКА'
         run: node scripts/nightly/backup.mjs check
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         if: github.event_name == 'schedule' || inputs.action == 'БЭКАП'
         with:
           node-version: 22

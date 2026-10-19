@@ -15,7 +15,35 @@ const MODE = process.argv[2] || "backup";
 // токен из @BotFather; лишние пробелы/кавычки/«bot» в начале при копировании — убираем
 const TOKEN = (process.env.TELEGRAM_BOT_TOKEN || "").replace(/\s+/g, "").replace(/^["'`]+|["'`]+$/g, "").replace(/^bot(?=\d)/i, "");
 // получатели: один или несколько ID через запятую / пробел (например «123456789, 987654321»); можно и ID группы (-100…)
-const CHATS = [...new Set((process.env.TELEGRAM_CHAT_ID || "").split(/[\s,;]+/).map((x) => x.trim()).filter((x) => /^-?\d+$/.test(x)))];
+// «-100 1234567890» (пробел внутри ID группы) — склеиваем: короткий кусок (до 4 цифр или один «-») — начало следующего числа
+function parseChats(raw) {
+  const out = [];
+  String(raw || "").replace(/[\u2212\u2012-\u2015]/g, "-").split(/[,;\n]+/).forEach((part) => {
+    const toks = part.replace(/[^\d\s-]/g, " ").split(/\s+/).filter(Boolean);
+    let acc = "";
+    toks.forEach((t) => { acc += t; if (!/^-?\d{0,4}$/.test(acc)) { out.push(acc); acc = ""; } });
+    if (acc) out.push(acc);
+  });
+  return [...new Set(out.filter((x) => /^-?\d{5,}$/.test(x)))];
+}
+const CHATS = parseChats(process.env.TELEGRAM_CHAT_ID);
+// в логах (репозиторий открытый) ID не печатаем целиком — только конец и длину, чтобы найти ошибку в секрете
+const maskId = (id) => "…" + String(id).slice(-4) + " (" + String(id).replace("-", "").length + " цифр" + (String(id).startsWith("-") ? ", с минусом" : "") + ")";
+const NOT_FOUND_HINT = " — проверьте этот ID в секрете TELEGRAM_CHAT_ID: у человека — число из сообщения бота «Ваш TELEGRAM_CHAT_ID» (и он должен нажать в боте «Start»); у группы — число с минусом -100…, и бот должен состоять в группе";
+// отправка с исправлением частой ошибки: ID группы скопирован без минуса — пробуем «-ID»
+const fixedIds = {};
+async function tgTo(id, method, fields, file) {
+  const to = fixedIds[id] || id;
+  try { return await tg(method, { ...fields, chat_id: to }, file); }
+  catch (e) {
+    if (!/chat not found/i.test(e.message) || String(to).startsWith("-")) throw /chat not found/i.test(e.message) ? new Error(e.message + NOT_FOUND_HINT) : e;
+    let r;
+    try { r = await tg(method, { ...fields, chat_id: "-" + to }, file); } catch (e2) { throw new Error(e.message + NOT_FOUND_HINT); }
+    fixedIds[id] = "-" + to;
+    console.log("::warning::ID " + maskId(id) + " указан без минуса — отправил на «-ID» (группа). Исправьте секрет TELEGRAM_CHAT_ID: поставьте минус в начале");
+    return r;
+  }
+}
 const CHAT = CHATS.join(",");
 const TG = process.env.TE_TG_API || "https://api.telegram.org";
 const TABLES = ["products", "suppliers", "objects", "finance_ops", "requests", "masters", "warehouse", "wh_moves", "users", "audit_log"];
@@ -89,10 +117,11 @@ async function check() {
   log("Бот: @" + me.username);
   let okN = 0;
   for (const id of CHATS) {
-    try { await tg("sendMessage", { chat_id: id, text: "✅ Бот бэкапов Thermo подключён. Каждый день в 00:00 сюда будут приходить бэкап базы и Excel-архив." }); okN++; }
-    catch (e) { console.log("::warning::Получатель №" + (CHATS.indexOf(id) + 1) + ": не удалось отправить (" + e.message + ") — этот человек должен открыть бота и нажать «Start»"); }
+    try { await tgTo(id, "sendMessage", { text: "✅ Бот бэкапов Thermo подключён. Каждый день в 00:00 сюда будут приходить бэкап базы и Excel-архив." }); okN++; }
+    catch (e) { console.log("::warning::Получатель №" + (CHATS.indexOf(id) + 1) + " " + maskId(id) + ": не удалось отправить (" + e.message + ")"); }
   }
   if (CHATS.length) log("Тестовое сообщение отправлено получателям: " + okN + " из " + CHATS.length);
+  if (okN < CHATS.length) fail("Не дошло до получателей: " + (CHATS.length - okN) + " из " + CHATS.length + " — какой именно и почему, см. предупреждения выше");
   // если у бота когда-то был webhook, getUpdates ничего не отдаёт — снимаем (сообщения не теряются)
   try { await tg("deleteWebhook", { drop_pending_updates: false }); } catch (e) {}
   const ups = await tg("getUpdates", { limit: 100, allowed_updates: ["message", "edited_message", "my_chat_member"] });
@@ -100,7 +129,7 @@ async function check() {
   const chats = new Map();
   ups.forEach((u) => {
     const m = u.message || u.edited_message || u.my_chat_member;
-    if (m && m.chat && ["private", "group", "supergroup"].includes(m.chat.type) && !CHATS.includes(String(m.chat.id))) chats.set(m.chat.id, m.chat);
+    if (m && m.chat && ["private", "group", "supergroup"].includes(m.chat.type) && !CHATS.includes(String(m.chat.id)) && !Object.values(fixedIds).includes(String(m.chat.id))) chats.set(m.chat.id, m.chat);
   });
   log("Обновлений у бота: " + ups.length + ", новых чатов (ещё не получатели): " + chats.size);
   if (CHATS.length && !chats.size) return;
@@ -110,7 +139,7 @@ async function check() {
     return;
   }
   for (const id of chats.keys()) {
-    await tg("sendMessage", { chat_id: id, text: "Ваш TELEGRAM_CHAT_ID: " + id + "\n\nДобавьте это число в GitHub → Settings → Secrets and variables → Actions → секрет TELEGRAM_CHAT_ID " +
+    await tg("sendMessage", { chat_id: id, parse_mode: "HTML", text: "Ваш TELEGRAM_CHAT_ID: <code>" + id + "</code>" + (String(id).startsWith("-") ? " (вместе с минусом)" : "") + "\nНажмите на число — оно скопируется.\n\nДобавьте это число в GitHub → Settings → Secrets and variables → Actions → секрет TELEGRAM_CHAT_ID " +
       "(несколько получателей — через запятую: 111111111,222222222) и запустите проверку ещё раз." });
   }
   log("ID отправлен в Telegram (новых чатов: " + chats.size + "). Добавьте его в секрет TELEGRAM_CHAT_ID (через запятую) и запустите проверку снова.");
@@ -149,24 +178,24 @@ async function backup() {
   const fails = [];
   for (const id of CHATS) {
     try {
-      const a = jId ? await tg("sendDocument", { chat_id: id, document: jId, caption: cap, disable_notification: true })
-        : await tg("sendDocument", { chat_id: id, caption: cap, disable_notification: "true" }, { field: "document", name: jName, data: json });
+      const a = jId ? await tgTo(id, "sendDocument", { document: jId, caption: cap, disable_notification: true })
+        : await tgTo(id, "sendDocument", { caption: cap, disable_notification: "true" }, { field: "document", name: jName, data: json });
       jId = jId || (a.document && a.document.file_id);
       sent++;
       if (xlsx) {
-        const b = xId ? await tg("sendDocument", { chat_id: id, document: xId, caption: xCap, disable_notification: true })
-          : await tg("sendDocument", { chat_id: id, caption: xCap, disable_notification: "true" }, { field: "document", name: xName, data: xlsx });
+        const b = xId ? await tgTo(id, "sendDocument", { document: xId, caption: xCap, disable_notification: true })
+          : await tgTo(id, "sendDocument", { caption: xCap, disable_notification: "true" }, { field: "document", name: xName, data: xlsx });
         xId = xId || (b.document && b.document.file_id);
-      } else await tg("sendMessage", { chat_id: id, text: "⚠️ Бэкап базы отправлен. " + xErr + "\nПодробности: GitHub → Actions → «Ночной бэкап в Telegram»." });
-    } catch (e) { fails.push("получатель №" + (CHATS.indexOf(id) + 1) + ": " + e.message); }
+      } else await tgTo(id, "sendMessage", { text: "⚠️ Бэкап базы отправлен. " + xErr + "\nПодробности: GitHub → Actions → «Ночной бэкап в Telegram»." });
+    } catch (e) { fails.push("получатель №" + (CHATS.indexOf(id) + 1) + " " + maskId(id) + ": " + e.message); }
   }
   log("Отправлено в Telegram (получателей: " + sent + " из " + CHATS.length + "): " + jName + " (" + Math.round(json.length / 1024) + " КБ)" + (xlsx ? ", " + xName + " (" + Math.round(xlsx.length / 1024) + " КБ)" : " — без Excel-архива"));
-  if (fails.length) { fails.forEach((f) => console.log("::warning::" + f + " — этот человек должен открыть бота и нажать «Start»")); if (!sent) throw new Error("не доставлено ни одному получателю"); }
+  if (fails.length) { fails.forEach((f) => console.log("::warning::" + f)); if (!sent) throw new Error("не доставлено ни одному получателю"); }
 }
 
 try {
   if (MODE === "check") await check(); else await backup();
 } catch (e) {
   fail("Ночной бэкап не удался: " + e.message);
-  if (TOKEN && CHATS.length && MODE !== "check") for (const id of CHATS) { try { await tg("sendMessage", { chat_id: id, text: "⚠️ Ночной бэкап Thermo не удался: " + e.message + "\nПодробности: GitHub → Actions → «Ночной бэкап в Telegram»." }); } catch (e2) {} }
+  if (TOKEN && CHATS.length && MODE !== "check") for (const id of CHATS) { try { await tgTo(id, "sendMessage", { text: "⚠️ Ночной бэкап Thermo не удался: " + e.message + "\nПодробности: GitHub → Actions → «Ночной бэкап в Telegram»." }); } catch (e2) {} }
 }
