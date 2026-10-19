@@ -144,7 +144,40 @@ const ROLES = [
   // доставщик: только объекты для доставки (без цен) и Склад Thermo (без цен)
   { id: "driver", label: "Доставщик", tabs: ["delivery", "wh"] },
 ];
-const roleLabel = (r) => (ROLES.find((x) => x.id === r) || {}).label || "—";
+/* Роли и права (Аккаунты → «Роли и права»). Настройка хранится одной служебной записью в таблице requests
+   (mode = "te_roles", lines = [{ id, label, base, tabs, perms }]) — новая колонка в базе не нужна.
+   base — как работает экран: «manager» (обычный) или «driver» (доставка без цен). Руководитель — всегда всё. */
+const ROLE_CFG_MODE = "te_roles";
+const TAB_NAMES = { dash: "Дашборд", request: "Новая заявка", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", delivery: "Доставка", admin: "Аккаунты" };
+const GRANT_TABS = ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "delivery"];
+const PERMS = [
+  { id: "fin", label: "Себестоимость, прибыль, все финансовые операции" },
+  { id: "del", label: "Удаление: объекты с оплатами, операции, мастера" },
+  { id: "salary", label: "Зарплата сотрудников" },
+  { id: "backup", label: "Бэкап базы и Excel-архив" },
+];
+const ALL_PERMS = { fin: true, del: true, salary: true, backup: true };
+const rolesCfgRow = (data) => ((data && data.requests) || []).find((x) => x.mode === ROLE_CFG_MODE) || null;
+function allRoles(data) {
+  const row = rolesCfgRow(data);
+  const saved = row && Array.isArray(row.lines) ? row.lines : [];
+  const get = (id) => saved.find((x) => x && x.id === id);
+  const out = [{ ...ROLES[1], base: "boss", perms: ALL_PERMS, fixed: true }];
+  ["manager", "driver"].forEach((id) => {
+    const b = ROLES.find((x) => x.id === id), o = get(id) || {};
+    out.push({ id, base: id, builtin: true, label: o.label || b.label, tabs: Array.isArray(o.tabs) ? o.tabs.filter((t) => GRANT_TABS.includes(t)) : b.tabs, perms: { ...(o.perms || {}) } });
+  });
+  saved.forEach((r) => { if (r && r.id && !["boss", "manager", "driver"].includes(r.id)) out.push({ id: r.id, label: r.label || "Роль", base: r.base === "driver" ? "driver" : "manager", tabs: (r.tabs || []).filter((t) => GRANT_TABS.includes(t)), perms: { ...(r.perms || {}) }, custom: true }); });
+  return out;
+}
+// что может этот аккаунт: роль из настроек (неизвестная — как менеджер)
+function accessOf(u, roles) {
+  const r = (u && roles.find((x) => x.id === u.role)) || roles.find((x) => x.id === "manager");
+  const tabs = r.base === "boss" ? r.tabs : (r.tabs.length ? r.tabs : r.base === "driver" ? ["delivery"] : ["objects"]);
+  return { id: r.id, label: r.label, base: r.base, tabs, perms: r.base === "boss" ? ALL_PERMS : r.perms || {} };
+}
+let ROLE_LIST = ROLES; // для подписей ролей вне компонентов (журнал)
+const roleLabel = (r) => (ROLE_LIST.find((x) => x.id === r) || ROLES.find((x) => x.id === r) || {}).label || "—";
 const MANAGER_OP_TYPES = ["client_payment", "return", "discount"];
 const EXPENSE_CATEGORIES = ["Зарплата", "Аренда", "Коммунальные", "Обед / питание", "Доставка", "Заправка транспорта", "Освежения", "Для showroom", "Связь / интернет", "Налоги", "Реклама", "Хозрасходы", "Прочее"];
 // зарплату видит только руководитель
@@ -419,6 +452,13 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .xl-group{display:flex;gap:8px;flex-wrap:nowrap;flex:none}
 @media(max-width:600px){.xl-group{flex-wrap:wrap;flex:1 1 100%}}
 .inp.who-ro{display:flex;align-items:center;gap:6px;color:var(--mut);cursor:not-allowed;background:var(--panel2);user-select:none}
+.role-can .xs{color:var(--mut);line-height:1.4}
+.perm-chip{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;border:1px solid var(--acc);color:var(--acc);background:var(--acc-tint)}
+.roles-t th.rc,.roles-t td.rc{text-align:center;min-width:120px}
+.roles-t td.rc input[type=checkbox]{width:16px;height:16px;cursor:pointer}
+.roles-grp td{background:var(--panel2);font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--mut)}
+.inp.role-name{padding:4px 6px;font-size:12px;font-weight:800;text-align:center;min-width:110px}
+.inp.role-base{padding:2px 4px;font-size:11px;width:auto}
 .cq-hint{margin:0 0 8px;padding:8px 12px;border:1px dashed var(--acc);border-radius:10px;background:var(--acc-tint);color:var(--txt);line-height:1.5}
 .inp.cq-inp{width:118px;text-align:right;margin:0 auto;display:block;font-weight:700}
 .inp.cq-inp.ch{border-color:var(--acc);background:var(--acc-tint)}
@@ -1844,6 +1884,22 @@ function DiscardConfirm({ text, onStay, onDiscard }) {
 // поставщика Water Pro, а не только те, где это слово есть в названии) + слитная версия («waterpro» = «water pro»)
 // бренд товара для подписи в списках (если совпадает с поставщиком — не повторяем)
 const brandOf = (p, sup) => { const b = String((p && p.brand) || "").trim(); return b && b.toLowerCase() !== String(sup || "").trim().toLowerCase() ? b : ""; };
+/* Кириллица → латиница (узбекская латиница): кнопка «UZ» переводит весь экран на латиницу */
+const TR_MAP = { а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "j", з: "z", и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "x", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ъ: "", ы: "i", ь: "", э: "e", ю: "yu", я: "ya", ў: "o‘", қ: "q", ғ: "g‘", ҳ: "h" };
+const CYR_RE = /[а-яёўқғҳ]/i;
+function translit(str) {
+  const s = String(str == null ? "" : str);
+  if (!CYR_RE.test(s)) return s;
+  return s.replace(/[А-ЯЁЎҚҒҲа-яёўқғҳ]+/g, (w) => {
+    const up = w.length > 1 && w === w.toUpperCase();
+    let out = "";
+    for (let i = 0; i < w.length; i++) {
+      const ch = w[i], lo = ch.toLowerCase(), t = TR_MAP[lo] != null ? TR_MAP[lo] : ch;
+      out += ch !== lo ? (up ? t.toUpperCase() : t.charAt(0).toUpperCase() + t.slice(1)) : t;
+    }
+    return out;
+  });
+}
 const PST_CACHE = new Map(); // тот же текст после перечитывания базы — без повторных регулярных выражений
 const prodSearchText = (p, supName) => {
   const raw = [p.name, p.alt_names, p.code, p.sku, p.size, p.brand, p.category, supName].filter(Boolean).join(" ");
@@ -1851,7 +1907,9 @@ const prodSearchText = (p, supName) => {
   if (hit !== undefined) return hit;
   if (PST_CACHE.size > 60000) PST_CACHE.clear();
   const t = raw.toLowerCase().replace(/ё/g, "е");
-  const out = t + " " + t.replace(/[\s\-_."']+/g, "");
+  // и латиницей: «truba 25» найдёт «ТРУБА - 25» (при работе на латинице)
+  const lat = CYR_RE.test(t) ? " " + translit(t) : "";
+  const out = t + " " + t.replace(/[\s\-_."']+/g, "") + lat;
   PST_CACHE.set(raw, out);
   return out;
 };
@@ -7099,10 +7157,90 @@ function LogTab({ data, reload, onBackup }) {
 }
 
 /* ============ АДМИН: АККАУНТЫ ============ */
+// коротко «что может»: разделы и особые права роли
+function RoleCan({ r }) {
+  if (!r) return null;
+  return (
+    <div className="role-can">
+      <div className="xs">{r.base === "boss" ? "все разделы" : r.tabs.map((t) => TAB_NAMES[t]).join(" · ") || "—"}</div>
+      <div className="row" style={{ gap: 4, marginTop: 3 }}>
+        {PERMS.filter((p) => r.perms[p.id]).map((p) => <span key={p.id} className="perm-chip">{p.label.split(",")[0].split(":")[0]}</span>)}
+        {r.base === "driver" && <span className="perm-chip">без цен</span>}
+      </div>
+    </div>
+  );
+}
+// «Роли и права»: столбцы — роли, строки — разделы и особые права; свои роли можно добавить и назвать
+function RolesEditor({ data, reload, toast, users }) {
+  const init = () => allRoles(data).filter((r) => r.base !== "boss" || !r.fixed).map((r) => ({ id: r.id, label: r.label, base: r.base, tabs: [...r.tabs], perms: { ...r.perms }, custom: !!r.custom, builtin: !!r.builtin }));
+  const [roles, setRoles] = useState(init);
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => { if (!dirty) setRoles(init()); }, [data.requests]);
+  const upd = (id, f) => { setRoles((rs) => rs.map((r) => (r.id === id ? f({ ...r, tabs: [...r.tabs], perms: { ...r.perms } }) : r))); setDirty(true); };
+  const togTab = (id, t) => upd(id, (r) => { r.tabs = r.tabs.includes(t) ? r.tabs.filter((x) => x !== t) : GRANT_TABS.filter((x) => x === t || r.tabs.includes(x)); return r; });
+  const togPerm = (id, p) => upd(id, (r) => { r.perms[p] = !r.perms[p]; return r; });
+  const addRole = () => { const id = "r_" + Date.now().toString(36); setRoles((rs) => [...rs, { id, label: "Новая роль", base: "manager", tabs: ["request", "objects"], perms: {}, custom: true }]); setDirty(true); };
+  const delRole = (r) => {
+    const n = users.filter((u) => u.role === r.id).length;
+    if (n) { setErr("Роль «" + r.label + "» назначена аккаунтам: " + n + " — сначала смените им роль."); return; }
+    setRoles((rs) => rs.filter((x) => x.id !== r.id)); setDirty(true);
+  };
+  const save = async () => {
+    setErr("");
+    if (roles.some((r) => !String(r.label || "").trim())) { setErr("У каждой роли должно быть название"); return; }
+    setBusy(true);
+    const lines = roles.map((r) => ({ id: r.id, label: String(r.label).trim(), base: r.base, tabs: r.tabs, perms: r.perms }));
+    const row = rolesCfgRow(data);
+    const res = row ? await db.from("requests").update({ lines }).eq("id", row.id) : await db.from("requests").insert({ mode: ROLE_CFG_MODE, source: "config", lines });
+    setBusy(false);
+    if (res.error) { setErr("Не удалось сохранить: " + (res.error.message || res.error)); return; }
+    await logAction("Изменены роли и права", "roles", lines.map((r) => r.label + ": " + r.tabs.map((t) => TAB_NAMES[t]).join(", ") + (PERMS.some((p) => r.perms[p.id]) ? " + " + PERMS.filter((p) => r.perms[p.id]).map((p) => p.id).join(",") : "")).join(" | "));
+    setDirty(false); await reload(["requests"]); toast("Роли и права сохранены");
+  };
+  const Ck = ({ on, onClick, disabled }) => <input type="checkbox" checked={!!on} disabled={disabled} onChange={onClick} />;
+  return (
+    <div className="card sect roles-ed">
+      <div className="row" style={{ marginBottom: 10 }}>
+        <h3 style={{ marginRight: "auto" }}>Роли и права</h3>
+        <button className="btn xs" onClick={addRole}>+ Новая роль</button>
+        <button className="btn xs pri" disabled={!dirty || busy} onClick={save}>{busy ? "Сохраняю…" : dirty ? "Сохранить роли" : "Сохранено"}</button>
+      </div>
+      {err && <p className="sm" style={{ color: "var(--bad)", marginBottom: 8 }}>{err}</p>}
+      <div style={{ overflow: "auto" }}>
+        <table className="t roles-t">
+          <thead><tr><th>Что можно</th><th className="rc">Руководитель</th>
+            {roles.map((r) => <th key={r.id} className="rc">
+              <input className="inp role-name" value={r.label} onChange={(e) => upd(r.id, (x) => { x.label = e.target.value; return x; })} />
+              {r.custom && <div className="row" style={{ gap: 4, justifyContent: "center", marginTop: 4, flexWrap: "nowrap" }}>
+                <select className="inp role-base" value={r.base} onChange={(e) => upd(r.id, (x) => { x.base = e.target.value; return x; })} title="Как выглядят экраны: обычный вид или «доставка» (без цен)">
+                  <option value="manager">обычный вид</option><option value="driver">как доставщик (без цен)</option>
+                </select>
+                <button className="btn xs dng" title="Удалить роль" onClick={() => delRole(r)}>✕</button>
+              </div>}
+            </th>)}
+          </tr></thead>
+          <tbody>
+            <tr className="roles-grp"><td colSpan={2 + roles.length}>Разделы</td></tr>
+            {GRANT_TABS.map((t) => <tr key={t}><td className="sm">{TAB_NAMES[t]}</td><td className="rc"><Ck on disabled /></td>
+              {roles.map((r) => <td key={r.id} className="rc"><Ck on={r.tabs.includes(t)} onClick={() => togTab(r.id, t)} /></td>)}</tr>)}
+            <tr><td className="sm">Аккаунты</td><td className="rc"><Ck on disabled /></td>{roles.map((r) => <td key={r.id} className="rc"><Ck on={false} disabled /></td>)}</tr>
+            <tr className="roles-grp"><td colSpan={2 + roles.length}>Особые права</td></tr>
+            {PERMS.map((p) => <tr key={p.id}><td className="sm">{p.label}</td><td className="rc"><Ck on disabled /></td>
+              {roles.map((r) => <td key={r.id} className="rc"><Ck on={r.perms[p.id]} onClick={() => togPerm(r.id, p.id)} disabled={r.base === "driver"} /></td>)}</tr>)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 function AdminTab({ data, reload, toast, currentUser }) {
   const users = (data.users || []).filter((u) => !isStaff(u)); // сотрудники (для зарплаты) — не аккаунты
   const [edit, setEdit] = useState(null);
   const [del, setDel] = useState(null);
+  const roles = useMemo(() => allRoles(data), [data.requests]);
+  useEffect(() => { reload(["requests"]); }, []);
   return (
     <div>
       <div className="row sect">
@@ -7111,13 +7249,14 @@ function AdminTab({ data, reload, toast, currentUser }) {
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
-          <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th>Статус</th><th></th></tr></thead>
+          <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th>Что может</th><th>Статус</th><th></th></tr></thead>
           <tbody>
             {users.map((u) => (
               <tr key={u.id} style={{ opacity: u.status === "active" ? 1 : 0.45 }}>
                 <td className="mono" style={{ fontWeight: 700 }}>{u.username}{u.id === currentUser.id && <span className="xs mut"> (вы)</span>}</td>
                 <td className="sm">{u.name}</td>
-                <td><Badge c={u.role === "boss" ? "#ff707b" : "#fff"}>{roleLabel(u.role)}</Badge></td>
+                <td><Badge c={u.role === "boss" ? "#ff707b" : "#fff"}>{accessOf(u, roles).label}</Badge></td>
+                <td style={{ minWidth: 220 }}><RoleCan r={roles.find((x) => x.id === accessOf(u, roles).id)} /></td>
                 <td className="sm">{u.status === "active" ? "активен" : "отключён"}</td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
                   <button className="btn xs" onClick={() => setEdit(u)}>ред.</button>
@@ -7128,11 +7267,12 @@ function AdminTab({ data, reload, toast, currentUser }) {
           </tbody>
         </table>
       </div>
-      {edit && <UserForm u={edit} users={users} self={currentUser} onClose={() => setEdit(null)} onSave={async (vals) => {
+      <RolesEditor data={data} reload={reload} toast={toast} users={users} />
+      {edit && <UserForm u={edit} users={users} roles={roles} self={currentUser} onClose={() => setEdit(null)} onSave={async (vals) => {
         const { id, created_at, ...rest } = vals;
         const r = id ? await db.from("users").update(rest).eq("id", id) : await db.from("users").insert(rest);
         if (r.error) return false; // ошибка показана, окно остаётся открытым
-        await logAction(id ? "Изменён аккаунт" : "Создан аккаунт", "user:" + rest.username, "роль: " + rest.role + (rest.pass_hash ? ", пароль задан" : ""));
+        await logAction(id ? "Изменён аккаунт" : "Создан аккаунт", "user:" + rest.username, "роль: " + ((roles.find((x) => x.id === rest.role) || {}).label || rest.role) + (rest.pass_hash ? ", пароль задан" : ""));
         setEdit(null); await reload(); toast("Аккаунт сохранён"); return true;
       }} />}
       {del && (
@@ -7152,7 +7292,7 @@ function AdminTab({ data, reload, toast, currentUser }) {
     </div>
   );
 }
-function UserForm({ u, users, self, onClose, onSave }) {
+function UserForm({ u, users, self, onClose, onSave, roles = allRoles(null) }) {
   const [v, setV] = useState({ role: "manager", status: "active", ...u });
   const [pw, setPw] = useState("");
   const [show, setShow] = useState(false);
@@ -7178,7 +7318,8 @@ function UserForm({ u, users, self, onClose, onSave }) {
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         <Fld label="Логин"><input className="inp mono" value={v.username || ""} onChange={set("username")} placeholder="manager1" /></Fld>
         <Fld label="Имя сотрудника"><input className="inp" value={v.name || ""} onChange={set("name")} /></Fld>
-        <Fld label="Роль"><select className="inp" value={v.role} disabled={isSelf} title={isSelf ? "Свою роль изменить нельзя" : ""} onChange={set("role")}><option value="manager">Менеджер</option><option value="driver">Доставщик</option><option value="boss">Руководитель</option></select></Fld>
+        <Fld label="Роль"><select className="inp" value={v.role} disabled={isSelf} title={isSelf ? "Свою роль изменить нельзя" : ""} onChange={set("role")}>{roles.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}</select></Fld>
+        <div style={{ gridColumn: "1/-1", marginTop: -4 }}><RoleCan r={roles.find((x) => x.id === v.role) || roles.find((x) => x.id === "manager")} /></div>
         <Fld label="Статус"><select className="inp" value={v.status} disabled={isSelf} title={isSelf ? "Свой аккаунт отключить нельзя" : ""} onChange={set("status")}><option value="active">активен</option><option value="disabled">отключён</option></select></Fld>
         <div style={{ gridColumn: "1/-1" }}><Fld label={v.id ? "Новый пароль (оставьте пустым — без изменений)" : "Пароль"}>
           <div style={{ position: "relative" }}>
@@ -7396,13 +7537,12 @@ function Calculator({ onClose }) {
    Чёрный занавес опускается сверху, белые буквы «TE» проявляются из размытия, под ними прорисовывается красная линия;
    когда база загрузилась — занавес уезжает вверх (то же движение в обратную сторону). Без текста. */
 const INTRO_CSS = `
-.intro{position:fixed;inset:0;z-index:10000;background:#000;display:flex;align-items:center;justify-content:center;flex-direction:column;
-  animation:introDrop .8s cubic-bezier(.76,0,.24,1) both}
-.intro.out{animation:introLift .85s cubic-bezier(.76,0,.24,1) both}
-.intro-mark{width:170px;height:170px;animation:introMark 1.1s cubic-bezier(.16,1,.3,1) .8s both}
-.intro-mark .t{animation:introT .9s cubic-bezier(.16,1,.3,1) .9s both}
-.intro-mark .e{animation:introE .9s cubic-bezier(.16,1,.3,1) 1.08s both}
-.intro-line{width:120px;height:3px;margin-top:22px;background:#ff1f30;transform-origin:center;animation:introLine .7s cubic-bezier(.65,0,.35,1) 1.45s both}
+.intro{position:fixed;inset:0;z-index:10000;background:#000;display:flex;align-items:center;justify-content:center;flex-direction:column}
+.intro.out{animation:introLift .55s cubic-bezier(.76,0,.24,1) both}
+.intro-mark{width:170px;height:170px;animation:introMark .6s cubic-bezier(.16,1,.3,1) .02s both}
+.intro-mark .t{animation:introT .5s cubic-bezier(.16,1,.3,1) .08s both}
+.intro-mark .e{animation:introE .5s cubic-bezier(.16,1,.3,1) .18s both}
+.intro-line{width:120px;height:3px;margin-top:22px;background:#ff1f30;transform-origin:center;animation:introLine .45s cubic-bezier(.65,0,.35,1) .4s both}
 .intro.out .intro-mark,.intro.out .intro-line{opacity:0;transition:opacity .35s ease}
 @keyframes introDrop{from{transform:translateY(-100%)}to{transform:none}}
 @keyframes introLift{from{transform:none}to{transform:translateY(-100%)}}
@@ -7415,6 +7555,9 @@ const INTRO_CSS = `
 function Intro({ out = false, onDone }) {
   // пока идёт заставка, у страницы нет полосы прокрутки (иначе справа видна полоса от страницы под занавесом)
   useEffect(() => {
+    // чёрная заставка из index.html (видна, пока грузится программа) — убираем, её место заняла эта
+    const boot = document.getElementById("boot"); if (boot) boot.remove();
+    document.documentElement.classList.remove("booting");
     const h = document.documentElement, b = document.body;
     const prev = [h.style.overflow, b.style.overflow];
     h.style.overflow = "hidden"; b.style.overflow = "hidden";
@@ -7564,21 +7707,25 @@ function KeysHelp({ tabs, onClose }) {
 }
 function AppInner() {
   const [ready, setReady] = useState(false);
-  // заставка: занавес опускается, показывается не меньше 2,5 с (успевает проиграть анимацию), потом уезжает вверх
+  // заставка: чёрный экран с первой же секунды (index.html), знак проигрывается ~0,9 с, не меньше 1 с — потом уезжает вверх
   const introStart = useRef(Date.now());
   const [introOut, setIntroOut] = useState(false);
   const [introGone, setIntroGone] = useState(false);
   useEffect(() => {
     if (!ready || introOut) return;
-    const t = setTimeout(() => setIntroOut(true), Math.max(0, 2500 - (Date.now() - introStart.current)));
+    const t = setTimeout(() => setIntroOut(true), Math.max(0, 1000 - (Date.now() - introStart.current)));
     return () => clearTimeout(t);
   }, [ready]);
-  useEffect(() => { if (introOut && !introGone) { const t = setTimeout(() => setIntroGone(true), 1200); return () => clearTimeout(t); } }, [introOut]);
+  useEffect(() => { if (introOut && !introGone) { const t = setTimeout(() => setIntroGone(true), 800); return () => clearTimeout(t); } }, [introOut]);
   const [data, setData] = useState({ products: [], suppliers: [], objects: [], finance_ops: [], requests: [], masters: [], warehouse: [], wh_moves: [], users: [], audit_log: [] });
   const [tab, setTab] = useState("dash");
   const [tabNonce, setTabNonce] = useState(0);
   const [currentUser, setCurrentUser] = useState(null);
-  const role = currentUser ? currentUser.role : "boss";
+  // роль и права вошедшего (Аккаунты → «Роли и права»); role — базовый вид экранов: boss / manager / driver
+  const rolesList = useMemo(() => allRoles(data), [data.requests]);
+  ROLE_LIST = rolesList;
+  const acc = currentUser ? accessOf(currentUser, rolesList) : { base: "boss", label: "", tabs: ROLES[1].tabs, perms: ALL_PERMS };
+  const role = acc.base;
   const [openId, setOpenId] = useState(null);
   const [msg, setMsg] = useState("");
 
@@ -7853,6 +8000,52 @@ function AppInner() {
   const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("te:dark") === "1"; } catch { return false; } });
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("te:lang") || "ru"; } catch { return "ru"; } });
   const toggleDark = () => { setDarkMode((v) => { const n = !v; try { localStorage.setItem("te:dark", n ? "1" : "0"); } catch {} return n; }); };
+  // «UZ»: весь экран латиницей — текст, подсказки и плейсхолдеры переписываются на лету (данные в базе не меняются);
+  // «RU» — возвращаем исходный текст
+  useEffect(() => {
+    if (lang !== "uz") return;
+    const orig = new WeakMap();
+    const skip = (n) => { const p = n.parentNode; return !p || p.nodeName === "STYLE" || p.nodeName === "SCRIPT" || p.nodeName === "TEXTAREA" || (p.closest && p.closest(".no-translit")); };
+    const doText = (n) => {
+      const v = n.nodeValue;
+      if (!v || !CYR_RE.test(v) || skip(n)) return;
+      orig.set(n, v); n.nodeValue = translit(v);
+    };
+    const ATTRS = ["placeholder", "title", "aria-label"];
+    const doEl = (el) => {
+      ATTRS.forEach((a) => { const v = el.getAttribute && el.getAttribute(a); if (v && CYR_RE.test(v)) { const m = orig.get(el) || {}; m[a] = v; orig.set(el, m); el.setAttribute(a, translit(v)); } });
+    };
+    const walk = (root) => {
+      if (root.nodeType === 3) { doText(root); return; }
+      if (root.nodeType !== 1 || root.nodeName === "STYLE" || root.nodeName === "SCRIPT") return;
+      doEl(root);
+      const tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+      let n; while ((n = tw.nextNode())) { if (n.nodeType === 3) doText(n); else doEl(n); }
+    };
+    walk(document.body);
+    const t0 = document.title; document.title = translit(t0);
+    const mo = new MutationObserver((ms) => {
+      ms.forEach((m) => {
+        if (m.type === "characterData") doText(m.target);
+        else if (m.type === "attributes") doEl(m.target);
+        else m.addedNodes.forEach(walk);
+      });
+    });
+    mo.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ATTRS });
+    return () => {
+      mo.disconnect();
+      document.title = t0;
+      // вернуть кириллицу: текст, который React с тех пор не менял
+      const tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+      let n;
+      while ((n = tw.nextNode())) {
+        const o = orig.get(n);
+        if (!o) continue;
+        if (n.nodeType === 3) { if (n.nodeValue === translit(o)) n.nodeValue = o; }
+        else Object.entries(o).forEach(([a, v]) => { if (n.getAttribute(a) === translit(v)) n.setAttribute(a, v); });
+      }
+    };
+  }, [lang]);
   const toggleLang = () => { setLang((v) => { const n = v === "ru" ? "uz" : "ru"; try { localStorage.setItem("te:lang", n); } catch {} return n; }); };
   const L = (ru, uz) => lang === "uz" ? uz : ru;
   const [backupOpen, setBackupOpen] = useState(false);
@@ -7872,7 +8065,7 @@ function AppInner() {
   const [abNeed, setAbNeed] = useState(""); // perm — нужен клик «Разрешить», nodir — папка пропала, err — не удалось (повтор позже)
   const [abLast, setAbLast] = useState(undefined);
   const [abHide, setAbHide] = useState(() => { try { return localStorage.getItem("te_ab_hide") === localIso(new Date()); } catch (e) { return false; } });
-  const isBoss = !!currentUser && role === "boss";
+  const isBoss = !!currentUser && !!acc.perms.backup; // автобэкап — у тех, кому разрешён бэкап
   const abWho = currentUser ? currentUser.name || currentUser.username : "";
   useEffect(() => {
     if (!isBoss) return;
@@ -7947,12 +8140,14 @@ function AppInner() {
     catch (err) { await reload("all"); toast("Ошибка восстановления: " + err.message); }
   };
 
-  const roleTabs = (ROLES.find((r) => r.id === role) || ROLES[0]).tabs;
+  const roleTabs = acc.tabs;
   const TAB_LABELS_RU = { delivery: "Доставка", request: "Новая заявка", dash: "Дашборд", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", admin: "Аккаунты" };
   const TAB_LABELS_UZ = { delivery: "Yetkazish", request: "Yangi ariza", dash: "Boshqaruv", objects: "Ob'ektlar", products: "Tovarlar", wh: "Ombor Thermo", suppliers: "Ta'minotchilar", masters: "Ustalar", finance: "Moliya", log: "Jurnal", admin: "Hisoblar" };
   const TAB_LABELS = lang === "uz" ? TAB_LABELS_UZ : TAB_LABELS_RU;
   const allTabs = roleTabs.map((id) => ({ id, label: TAB_LABELS[id] }));
   useEffect(() => { if (currentUser) { setTab(roleTabs[0]); setOpenId(null); } }, [currentUser ? currentUser.id + ":" + currentUser.role : ""]);
+  // права роли изменили — открытый раздел стал недоступен: переходим в первый доступный
+  useEffect(() => { if (currentUser && roleTabs.length && !roleTabs.includes(tab)) setTab(roleTabs[0]); }, [roleTabs.join(","), tab]);
   // ---- работа с клавиатуры ----
   const [palette, setPalette] = useState(false);
   const [keysHelp, setKeysHelp] = useState(false);
@@ -8015,9 +8210,9 @@ function AppInner() {
         <div className="row" style={{ gap: 8 }}>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontWeight: 700, fontSize: 13 }}>{currentUser.name || currentUser.username}</div>
-            <div className="xs mut">{role === "boss" ? (lang === "uz" ? "Rahbar" : "Руководитель") : role === "driver" ? (lang === "uz" ? "Yetkazuvchi" : "Доставщик") : (lang === "uz" ? "Menejer" : "Менеджер")}</div>
+            <div className="xs mut">{lang === "uz" && ({ boss: "Rahbar", manager: "Menejer", driver: "Yetkazuvchi" })[acc.id] || acc.label}</div>
           </div>
-          <button className="btn xs" onClick={toggleLang} title={lang === "ru" ? "Переключить на узбекский" : "Ruscha tilga o'tish"} style={{ fontWeight: 800 }}>{lang === "ru" ? "UZ" : "RU"}</button>
+          <button className="btn xs" onClick={toggleLang} title={lang === "ru" ? "Весь экран — латиницей (узбекская латиница)" : "Kirill yozuviga qaytish"} style={{ fontWeight: 800 }}>{lang === "ru" ? "UZ" : "RU"}</button>
           <button className="btn xs" onClick={toggleDark} title={darkMode ? "Светлая тема" : "Тёмная тема"}>{darkMode ? "☀️" : "🌙"}</button>
           <button className="btn xs" onClick={doLogout} title={lang === "uz" ? "Chiqish" : "Выйти"}>{lang === "uz" ? "Chiqish" : "Выйти"}</button>
         </div>
@@ -8050,18 +8245,18 @@ function AppInner() {
         {tab === "dash" && <Dashboard data={data} />}
         {palette && <CommandPalette tabs={allTabs} objects={data.objects || []} onTab={goTab} onObject={(id) => { setTab("objects"); setOpenId(id); }} onClose={() => setPalette(false)} />}
         {keysHelp && <KeysHelp tabs={allTabs} onClose={() => setKeysHelp(false)} />}
-        {tab === "objects" && <ObjectsTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} goRequest={() => setTab("request")} fin={role === "boss"} />}
+        {tab === "objects" && <ObjectsTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} goRequest={() => setTab("request")} fin={!!acc.perms.fin} />}
         {tab === "request" && <RequestTabs data={data} reload={reload} toast={toast} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "products" && <ProductsTab data={data} reload={reload} toast={toast} />}
-        {tab === "suppliers" && <SuppliersTab data={data} reload={reload} toast={toast} fin={role === "boss"} />}
-        {tab === "masters" && <MastersTab data={data} reload={reload} toast={toast} fin={true} canDel={role === "boss"} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
+        {tab === "suppliers" && <SuppliersTab data={data} reload={reload} toast={toast} fin={!!acc.perms.fin} />}
+        {tab === "masters" && <MastersTab data={data} reload={reload} toast={toast} fin={true} canDel={!!acc.perms.del} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "wh" && <WarehouseTab data={data} reload={reload} toast={toast} readOnly={role === "driver"} openObject={(id) => { if (role === "driver") { setTab("delivery"); setOpenId(id); } else { setOpenId(id); setTab("objects"); } }} />}
         {tab === "delivery" && <DeliveryTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} />}
-        {tab === "log" && <LogTab data={data} reload={reload} onBackup={role === "boss" ? () => setBackupOpen(true) : null} />}
+        {tab === "log" && <LogTab data={data} reload={reload} onBackup={acc.perms.backup ? () => setBackupOpen(true) : null} />}
         {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} />}
-        {tab === "finance" && <FinanceTab data={data} reload={reload} toast={toast} boss={role === "boss"} />}
+        {tab === "finance" && <FinanceTab data={data} reload={reload} toast={toast} boss={!!acc.perms.salary} />}
       </div>
-      {backupOpen && role === "boss" && <BackupModal who={currentUser.name || currentUser.username} data={data} reload={reload} onClose={() => { setBackupOpen(false); setAbTick((n) => n + 1); }} toast={toast} onFilePick={() => restoreRef.current.click()} onRestoreText={async (text) => {
+      {backupOpen && acc.perms.backup && <BackupModal who={currentUser.name || currentUser.username} data={data} reload={reload} onClose={() => { setBackupOpen(false); setAbTick((n) => n + 1); }} toast={toast} onFilePick={() => restoreRef.current.click()} onRestoreText={async (text) => {
         const dump = JSON.parse(text);
         if (!(await confirmRestore())) return;
         try { await restoreFromSupabase(dump); } catch (e) { await reload("all"); throw e; }
@@ -8120,10 +8315,12 @@ function WipeModal({ data, reload, onClose, onDone }) {
       if (log) tables.push("audit_log");
       for (const t of tables) {
         setStep("Удаляю: " + t + "…");
-        await deleteByIds(t, (dump.tables[t] || []).map((r) => r.id));
+        // настройка «Роли и права» (служебная запись в requests) при очистке сохраняется
+        const del = (list) => list.filter((r) => !(t === "requests" && r.mode === ROLE_CFG_MODE)).map((r) => r.id);
+        await deleteByIds(t, del(dump.tables[t] || []));
         // строки, добавленные кем-то за эти секунды
-        const rest = await fetchAllRows(t);
-        if (rest.length) await deleteByIds(t, rest.map((r) => r.id));
+        const rest = del(await fetchAllRows(t));
+        if (rest.length) await deleteByIds(t, rest);
       }
       await logAction("База очищена", "", "удалено: " + tables.join(", "));
       setStep("");

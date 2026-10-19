@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" class="booting">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -13,9 +13,11 @@
     <meta name="apple-mobile-web-app-title" content="Thermo" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <!-- полоса прокрутки у края окна скрыта; прокрутка колесом, тачпадом, клавишами и пальцем работает как обычно -->
-    <style>html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::-webkit-scrollbar{width:0;height:0;display:none}</style>
+    <style>html.booting{background:#000}html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::-webkit-scrollbar{width:0;height:0;display:none}</style>
   </head>
   <body>
+    <!-- пока загружается программа — сразу чёрный экран со знаком (раньше секунду-две был белый фон) -->
+    <div id="boot" style="position:fixed;inset:0;z-index:9999;background:#000"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
     <script>
