@@ -148,6 +148,24 @@ const ROLES = [
    (mode = "te_roles", lines = [{ id, label, base, tabs, perms }]) — новая колонка в базе не нужна.
    base — как работает экран: «manager» (обычный) или «driver» (доставка без цен). Руководитель — всегда всё. */
 const ROLE_CFG_MODE = "te_roles";
+/* Облачный пароль (как в Telegram): после обычного пароля — второй, свой у каждого аккаунта.
+   Хэши хранятся служебной записью requests (mode = "te_2fa", lines = { id аккаунта: хэш }). */
+const CLOUD_MODE = "te_2fa";
+const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE];
+const cloudHash = (uid, pw) => hashPass("te2fa:" + uid + ":" + pw);
+const cloudOkKey = (uid) => "te:cloud:" + uid;
+async function cloudRow() {
+  const r = await db.from("requests").select().eq("mode", CLOUD_MODE);
+  if (r.error) throw new Error(r.error.message || String(r.error));
+  return (r.data || [])[0] || null;
+}
+async function cloudSet(uid, hash) {
+  const row = await cloudRow();
+  const lines = { ...((row && row.lines && !Array.isArray(row.lines) ? row.lines : {}) || {}) };
+  if (hash) lines[uid] = hash; else delete lines[uid];
+  const r = row ? await db.from("requests").update({ lines }).eq("id", row.id) : await db.from("requests").insert({ mode: CLOUD_MODE, source: "config", lines });
+  return !r.error;
+}
 const TAB_NAMES = { dash: "Дашборд", request: "Новая заявка", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", delivery: "Доставка", admin: "Аккаунты" };
 const GRANT_TABS = ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "delivery"];
 const PERMS = [
@@ -7240,6 +7258,7 @@ function AdminTab({ data, reload, toast, currentUser }) {
   const [edit, setEdit] = useState(null);
   const [del, setDel] = useState(null);
   const roles = useMemo(() => allRoles(data), [data.requests]);
+  const cloud = useMemo(() => { const r = (data.requests || []).find((x) => x.mode === CLOUD_MODE); return (r && r.lines && !Array.isArray(r.lines) && r.lines) || {}; }, [data.requests]);
   useEffect(() => { reload(["requests"]); }, []);
   return (
     <div>
@@ -7257,9 +7276,13 @@ function AdminTab({ data, reload, toast, currentUser }) {
                 <td className="sm">{u.name}</td>
                 <td><Badge c={u.role === "boss" ? "#ff707b" : "#fff"}>{accessOf(u, roles).label}</Badge></td>
                 <td style={{ minWidth: 220 }}><RoleCan r={roles.find((x) => x.id === accessOf(u, roles).id)} /></td>
-                <td className="sm">{u.status === "active" ? "активен" : "отключён"}</td>
+                <td className="sm">{u.status === "active" ? "активен" : "отключён"}<div className="xs" style={{ color: cloud[u.id] ? "var(--ok)" : "var(--warn)" }}>{cloud[u.id] ? "☁ облачный пароль есть" : "☁ облачного пароля нет"}</div></td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
                   <button className="btn xs" onClick={() => setEdit(u)}>ред.</button>
+                  {cloud[u.id] && <button className="btn xs" title="Сбросить облачный пароль — при следующем входе сотрудник создаст новый" onClick={async () => {
+                    if (!(await askConfirm({ title: "Сбросить облачный пароль?", text: "«" + (u.name || u.username) + "» при следующем входе создаст новый облачный пароль.", ok: "Да, сбросить", cancel: "Нет" }))) return;
+                    if (await cloudSet(u.id, null)) { await logAction("Сброшен облачный пароль", "user:" + u.username, ""); await reload(["requests"]); toast("Облачный пароль сброшен"); }
+                  }}>☁ сброс</button>}
                   {u.id !== currentUser.id && <button className="btn xs dng" onClick={() => setDel(u)}>✕</button>}
                 </div></td>
               </tr>
@@ -7301,9 +7324,9 @@ function UserForm({ u, users, self, onClose, onSave, roles = allRoles(null) }) {
   const set = (k) => (e) => setV({ ...v, [k]: e.target.value });
   const isSelf = !!(self && v.id && v.id === self.id); // себе нельзя снять роль руководителя или отключить вход
   const submit = async () => {
-    const uname = (v.username || "").trim().toLowerCase();
+    const uname = (v.username || "").trim(); // регистр сохраняется («Jamol»); вход — без учёта регистра
     if (!uname) return setErr("Укажите логин");
-    if (users.some((x) => String(x.username || "").toLowerCase() === uname && x.id !== v.id)) return setErr("Такой логин уже есть");
+    if (users.some((x) => String(x.username || "").trim().toLowerCase() === uname.toLowerCase() && x.id !== v.id)) return setErr("Такой логин уже есть");
     if (!v.id && !pw) return setErr("Задайте пароль");
     if (pw && pw.length < 4) return setErr("Пароль слишком короткий — минимум 4 символа");
     const out = { ...v, username: uname, name: String(v.name || "").trim() };
@@ -7705,6 +7728,92 @@ function KeysHelp({ tabs, onClose }) {
     </Modal>
   );
 }
+// экран облачного пароля: есть — спросить; нет — создать (обязательно для всех)
+function CloudGate({ user, onOk, onLogout }) {
+  const [st, setSt] = useState({ load: true, has: false, err: "" });
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [fails, setFails] = useState(0);
+  const load = async () => {
+    setSt({ load: true, has: false, err: "" });
+    try { const row = await cloudRow(); const h = row && row.lines && row.lines[user.id]; setSt({ load: false, has: !!h, hash: h || null, err: "" }); }
+    catch (e) { setSt({ load: false, has: false, err: "Нет связи с базой: " + e.message, net: true }); }
+  };
+  useEffect(() => { load(); }, [user.id]);
+  const submit = async () => {
+    if (busy) return;
+    setBusy(true);
+    if (st.has) {
+      if ((await cloudHash(user.id, pw)) === st.hash) { await logAction("Облачный пароль введён", "user:" + user.username, ""); onOk(); return; }
+      const n = fails + 1; setFails(n); setPw(""); setBusy(false);
+      await logAction("Неверный облачный пароль", "user:" + user.username, "попытка " + n);
+      if (n >= 5) { onLogout("Облачный пароль введён неверно 5 раз — войдите заново"); return; }
+      setSt({ ...st, err: "Неверный облачный пароль (осталось попыток: " + (5 - n) + ")" });
+      return;
+    }
+    if (pw.length < 4) { setBusy(false); setSt({ ...st, err: "Облачный пароль — минимум 4 символа" }); return; }
+    if (pw !== pw2) { setBusy(false); setSt({ ...st, err: "Пароли не совпадают" }); return; }
+    if (!(await cloudSet(user.id, await cloudHash(user.id, pw)))) { setBusy(false); setSt({ ...st, err: "Не удалось сохранить — проверьте интернет" }); return; }
+    await logAction("Создан облачный пароль", "user:" + user.username, "");
+    onOk();
+  };
+  const key = (e) => { if (e.key === "Enter") submit(); };
+  return (
+    <div className="te" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+      <style>{CSS}</style>
+      <div className="card cloud-gate" style={{ width: 380, boxShadow: "0 24px 60px rgba(18,24,27,.16)" }}>
+        <div style={{ textAlign: "center", fontSize: 34 }}>☁️🔒</div>
+        <h3 style={{ textAlign: "center", margin: "8px 0 4px" }}>{st.has ? "Облачный пароль" : "Создайте облачный пароль"}</h3>
+        <p className="sm mut" style={{ textAlign: "center", marginBottom: 12 }}>{user.name || user.username}{st.has ? "" : " — второй пароль для входа, только ваш (как в Telegram)"}</p>
+        {st.load ? <p className="sm mut" style={{ textAlign: "center" }}>Проверка…</p> : st.net ? (
+          <div style={{ textAlign: "center" }}><p className="sm" style={{ color: "var(--bad)", marginBottom: 8 }}>{st.err}</p><button className="btn xs" onClick={load}>↻ Повторить</button></div>
+        ) : <>
+          {st.err && <p className="sm" style={{ color: "var(--bad)", textAlign: "center", marginBottom: 8 }}>{st.err}</p>}
+          <Fld label={st.has ? "Облачный пароль" : "Новый облачный пароль"}><div style={{ position: "relative" }}>
+            <input type={show ? "text" : "password"} className="inp mono" autoFocus style={{ paddingRight: 38 }} value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={key} />
+            <button type="button" onClick={() => setShow(!show)} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 15, color: "var(--mut)", padding: 4 }}>{show ? "🙈" : "👁"}</button>
+          </div></Fld>
+          {!st.has && <Fld label="Повторите"><input type={show ? "text" : "password"} className="inp mono" value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={key} /></Fld>}
+          <button className="btn pri" style={{ width: "100%", marginTop: 12 }} disabled={busy || !pw} onClick={submit}>{busy ? "Проверка…" : st.has ? "Войти" : "Сохранить и войти"}</button>
+          {st.has && <p className="xs mut" style={{ textAlign: "center", marginTop: 10 }}>Забыли облачный пароль? Руководитель может сбросить его в «Аккаунты».</p>}
+        </>}
+        <button className="btn xs" style={{ display: "block", margin: "12px auto 0" }} onClick={() => onLogout("")}>Выйти</button>
+      </div>
+    </div>
+  );
+}
+// сменить свой облачный пароль (Ctrl+K → «Сменить облачный пароль»)
+function CloudChange({ user, onClose, toast }) {
+  const [old, setOld] = useState(""), [pw, setPw] = useState(""), [pw2, setPw2] = useState("");
+  const [err, setErr] = useState(""), [busy, setBusy] = useState(false);
+  const save = async () => {
+    setErr("");
+    if (pw.length < 4) return setErr("Минимум 4 символа");
+    if (pw !== pw2) return setErr("Пароли не совпадают");
+    setBusy(true);
+    try {
+      const row = await cloudRow(); const h = row && row.lines && row.lines[user.id];
+      if (h && (await cloudHash(user.id, old)) !== h) { setBusy(false); return setErr("Текущий облачный пароль неверный"); }
+      if (!(await cloudSet(user.id, await cloudHash(user.id, pw)))) throw new Error("не сохранено");
+      await logAction("Изменён облачный пароль", "user:" + user.username, "");
+      toast("Облачный пароль изменён"); onClose();
+    } catch (e) { setBusy(false); setErr("Не удалось: " + e.message); }
+  };
+  return (
+    <Modal title="Сменить облачный пароль" onClose={onClose} w={400}>
+      {err && <p className="sm" style={{ color: "var(--bad)", marginBottom: 8 }}>{err}</p>}
+      <Fld label="Текущий облачный пароль"><input type="password" className="inp mono" value={old} onChange={(e) => setOld(e.target.value)} /></Fld>
+      <Fld label="Новый"><input type="password" className="inp mono" value={pw} onChange={(e) => setPw(e.target.value)} /></Fld>
+      <Fld label="Повторите новый"><input type="password" className="inp mono" value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} /></Fld>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
+        <button className="btn" onClick={onClose}>Отмена</button>
+        <button className="btn pri" disabled={busy} onClick={save}>{busy ? "Сохраняю…" : "Сохранить"}</button>
+      </div>
+    </Modal>
+  );
+}
 function AppInner() {
   const [ready, setReady] = useState(false);
   // заставка: чёрный экран с первой же секунды (index.html), знак проигрывается ~0,9 с, не меньше 1 с — потом уезжает вверх
@@ -7721,6 +7830,9 @@ function AppInner() {
   const [tab, setTab] = useState("dash");
   const [tabNonce, setTabNonce] = useState(0);
   const [currentUser, setCurrentUser] = useState(null);
+  const [cloudOk, setCloudOk] = useState(false);
+  const [cloudChange, setCloudChange] = useState(false);
+  useEffect(() => { if (currentUser) { let ok = false; try { ok = localStorage.getItem(cloudOkKey(currentUser.id)) === "1"; } catch (e) {} setCloudOk(ok); } }, [currentUser ? currentUser.id : ""]);
   // роль и права вошедшего (Аккаунты → «Роли и права»); role — базовый вид экранов: boss / manager / driver
   const rolesList = useMemo(() => allRoles(data), [data.requests]);
   ROLE_LIST = rolesList;
@@ -7963,6 +8075,9 @@ function AppInner() {
     if (u.role !== currentUser.role || u.name !== currentUser.name || u.username !== currentUser.username) { setCurrentUser(u); CURRENT_USER = u; }
   }, [data.users]);
   const doLogin = async (u, token) => {
+    // обычный вход — дальше облачный пароль (на этом устройстве после входа больше не спрашивается до выхода)
+    try { localStorage.removeItem(cloudOkKey(u.id)); } catch (e) {}
+    setCloudOk(false);
     if (token) { setDbSession(token); try { localStorage.setItem("te:token", token); } catch (e) {} }
     setLoginNote("");
     setCurrentUser(u); CURRENT_USER = u;
@@ -7972,6 +8087,7 @@ function AppInner() {
   };
   // выход: в защищённом режиме сессия закрывается и на сервере, данные стираются из памяти страницы
   const endSession = (note) => {
+    if (CURRENT_USER) { try { localStorage.removeItem(cloudOkKey(CURRENT_USER.id)); } catch (e) {} }
     setCurrentUser(null); CURRENT_USER = null;
     try { localStorage.removeItem("te:session"); localStorage.removeItem("te:token"); } catch (e) {}
     if (SECURE) { setDbSession(null); setData(EMPTY_DATA); setOpenId(null); setBackupOpen(false); }
@@ -8148,6 +8264,7 @@ function AppInner() {
   useEffect(() => { if (currentUser) { setTab(roleTabs[0]); setOpenId(null); } }, [currentUser ? currentUser.id + ":" + currentUser.role : ""]);
   // права роли изменили — открытый раздел стал недоступен: переходим в первый доступный
   useEffect(() => { if (currentUser && roleTabs.length && !roleTabs.includes(tab)) setTab(roleTabs[0]); }, [roleTabs.join(","), tab]);
+  useHotActions(() => (currentUser ? [{ label: "Сменить облачный пароль", run: () => setCloudChange(true) }] : []));
   // ---- работа с клавиатуры ----
   const [palette, setPalette] = useState(false);
   const [keysHelp, setKeysHelp] = useState(false);
@@ -8201,6 +8318,8 @@ function AppInner() {
   const intro = !ready ? <Intro /> : introGone ? null : <Intro out={introOut} onDone={() => setIntroGone(true)} />;
   if (!ready) return <>{null}{intro}</>;
   if (!currentUser) return <>{<LoginScreen users={data.users || []} onLogin={doLogin} bootErr={bootErr} onRetry={() => { setReady(false); boot(); }} secure={secureMode} seed={secureSeed} note={loginNote} />}{intro}<IosInstallHint /></>;
+  if (!cloudOk) return <>{<CloudGate user={currentUser} onOk={() => { try { localStorage.setItem(cloudOkKey(currentUser.id), "1"); } catch (e) {} setCloudOk(true); }}
+    onLogout={(note) => { (async () => { if (SECURE && sb) { try { await sb.rpc("te_logout"); } catch (e) {} } endSession(note); })(); }} />}{intro}</>;
   return (<>
     <PeopleCtx.Provider value={peopleCtx}>
     <div className={"te" + (darkMode ? " dark" : "")}>
@@ -8245,6 +8364,7 @@ function AppInner() {
         {tab === "dash" && <Dashboard data={data} />}
         {palette && <CommandPalette tabs={allTabs} objects={data.objects || []} onTab={goTab} onObject={(id) => { setTab("objects"); setOpenId(id); }} onClose={() => setPalette(false)} />}
         {keysHelp && <KeysHelp tabs={allTabs} onClose={() => setKeysHelp(false)} />}
+        {cloudChange && <CloudChange user={currentUser} toast={toast} onClose={() => setCloudChange(false)} />}
         {tab === "objects" && <ObjectsTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} goRequest={() => setTab("request")} fin={!!acc.perms.fin} />}
         {tab === "request" && <RequestTabs data={data} reload={reload} toast={toast} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "products" && <ProductsTab data={data} reload={reload} toast={toast} />}
@@ -8316,7 +8436,7 @@ function WipeModal({ data, reload, onClose, onDone }) {
       for (const t of tables) {
         setStep("Удаляю: " + t + "…");
         // настройка «Роли и права» (служебная запись в requests) при очистке сохраняется
-        const del = (list) => list.filter((r) => !(t === "requests" && r.mode === ROLE_CFG_MODE)).map((r) => r.id);
+        const del = (list) => list.filter((r) => !(t === "requests" && CFG_MODES.includes(r.mode))).map((r) => r.id);
         await deleteByIds(t, del(dump.tables[t] || []));
         // строки, добавленные кем-то за эти секунды
         const rest = del(await fetchAllRows(t));
