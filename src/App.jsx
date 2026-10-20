@@ -2716,13 +2716,28 @@ function AktEditModal({ ed, s, onClose, onDone }) {
 }
 function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, reload = null, canEdit = false }) {
   const [ed, setEd] = useState(null); // правка строки: { kind: "item" | "ret" | "pay", it | o }
+  // дата накладной (поставки): у всех позиций этой поставки объекта; номера поставок выстраиваются по датам.
+  // Приход на склад вручную — дата операции
+  const setGroupDate = async (g, d) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || String(g.date || "").slice(0, 10) === d) return;
+    let r;
+    if (String(g.obj_id).startsWith("wh:")) r = await db.from("finance_ops").update({ op_date: d }).eq("id", String(g.obj_id).slice(3));
+    else {
+      const ob = objects.find((x) => x.id === g.obj_id);
+      r = await updateObjectItems(g.obj_id, (cur) => renumberBatches(cur.map((i) => ((i.batch_no || 1) === g.no ? { ...i, batch_no: g.no, batch_date: d } : i)), ob && ob.created_at));
+    }
+    if (r && r.error) return;
+    await logAction("Дата накладной изменена (акт сверки)", "supplier:" + s.name, g.obj_name + " · поставка №" + g.no + ": " + dt(g.date) + " → " + dt(d));
+    if (reload) await reload();
+    if (toast) toast("Дата поставки: " + dt(d) + " — поставки выстроены по датам");
+  };
   // Received items (purchases) from all non-cancelled objects
   const received = [];
   objects.forEach((ob) => {
     if (!isLive(ob)) return;
     (ob.items || []).forEach((it) => {
       if (it.supplier_id === s.id && !it.from_warehouse && isShipped(it)) {
-        received.push({ ...it, obj_name: ob.name, obj_id: ob.id, date: it.shipped_date || it.batch_date || ob.created_at });
+        received.push({ ...it, obj_name: ob.name, obj_id: ob.id, date: it.batch_date || it.shipped_date || ob.created_at }); // дата накладной (поставки)
       }
     });
   });
@@ -2750,7 +2765,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
     received.forEach((it) => {
       const no = it.batch_no || 1;
       const key = it.obj_id + "#" + no;
-      if (!m.has(key)) m.set(key, { key, obj_name: it.obj_name, no, date: it.date, items: [], sum: 0 });
+      if (!m.has(key)) m.set(key, { key, obj_name: it.obj_name, obj_id: it.obj_id, no, date: it.date, items: [], sum: 0 });
       const g = m.get(key);
       g.items.push(it); g.sum += (it.qty || 0) * (it.cost || 0);
       if (it.date && (!g.date || it.date < g.date)) g.date = it.date;
@@ -2848,7 +2863,10 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
                   <tr className="clk" onClick={() => setClosed((c) => ({ ...c, [g.key]: !c[g.key] }))} style={{ background: "var(--acc-tint)" }}>
                     <td colSpan={4} style={{ fontWeight: 700 }}>
                       <span className="mut" style={{ display: "inline-block", width: 14 }}>{closed[g.key] ? "▸" : "▾"}</span>
-                      🚚 {g.obj_name} · Поставка №{g.no} · <span className="mono">{dt(g.date)}</span>
+                      🚚 {g.obj_name} · Поставка №{g.no} · {canEdit
+                        ? <input type="date" className="inp batch-date" title="Дата накладной — нажмите, чтобы изменить" value={String(g.date || "").slice(0, 10)}
+                          onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => setGroupDate(g, e.target.value)} />
+                        : <span className="mono">{dt(g.date)}</span>}
                       <span className="xs mut" style={{ fontWeight: 400 }}> · позиций: {g.items.length}</span>
                       {retByKey[g.key] > 0 && <span className="xs" style={{ fontWeight: 600, color: "var(--warn)" }}> · возврат −{fmt(retByKey[g.key])}</span>}
                     </td>
