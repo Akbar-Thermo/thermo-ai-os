@@ -490,6 +490,7 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .role-can .xs{color:var(--mut);line-height:1.4}
 .perm-chip{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;border:1px solid var(--acc);color:var(--acc);background:var(--acc-tint)}
 .role-perms{margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+.cloud-row{margin-top:12px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);gap:8px}
 .perm-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px}
 .perm-grid label{display:flex;align-items:center;gap:6px}
 .roles-t th.rc,.roles-t td.rc{text-align:center;min-width:120px}
@@ -7233,13 +7234,9 @@ function AdminTab({ data, reload, toast, currentUser }) {
                 <td className="sm">{u.name}</td>
                 <td><Badge c={u.role === "boss" ? "#ff707b" : "#fff"}>{accessOf(u, roles, uperms).label}</Badge></td>
                 <td style={{ minWidth: 220 }}><RoleCan r={accessOf(u, roles, uperms)} /></td>
-                <td className="sm">{u.status === "active" ? "активен" : "отключён"}<div className="xs" style={{ color: cloud[u.id] ? "var(--ok)" : "var(--warn)" }}>{cloud[u.id] ? "☁ облачный пароль есть" : "☁ облачного пароля нет"}</div></td>
+                <td className="sm">{u.status === "active" ? "активен" : "отключён"}</td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
                   <button className="btn xs" onClick={() => setEdit(u)}>ред.</button>
-                  {cloud[u.id] && <button className="btn xs" title="Сбросить облачный пароль — при следующем входе сотрудник создаст новый" onClick={async () => {
-                    if (!(await askConfirm({ title: "Сбросить облачный пароль?", text: "«" + (u.name || u.username) + "» при следующем входе создаст новый облачный пароль.", ok: "Да, сбросить", cancel: "Нет" }))) return;
-                    if (await cloudSet(u.id, null)) { await logAction("Сброшен облачный пароль", "user:" + u.username, ""); await reload(["requests"]); toast("Облачный пароль сброшен"); }
-                  }}>☁ сброс</button>}
                   {u.id !== currentUser.id && <button className="btn xs dng" onClick={() => setDel(u)}>✕</button>}
                 </div></td>
               </tr>
@@ -7247,7 +7244,12 @@ function AdminTab({ data, reload, toast, currentUser }) {
           </tbody>
         </table>
       </div>
-      {edit && <UserForm u={edit} users={users} data={data} uperms={uperms} self={currentUser} onClose={() => setEdit(null)} onSave={async (vals, own) => {
+      {edit && <UserForm u={edit} users={users} data={data} uperms={uperms} self={currentUser} hasCloud={!!(edit.id && cloud[edit.id])}
+        onCloudReset={async () => {
+          if (!(await askConfirm({ title: "Сбросить облачный пароль?", text: "«" + (edit.name || edit.username) + "» при следующем входе создаст новый облачный пароль.", ok: "Да, сбросить", cancel: "Нет" }))) return false;
+          if (!(await cloudSet(edit.id, null))) return false;
+          await logAction("Сброшен облачный пароль", "user:" + edit.username, ""); await reload(["requests"]); toast("Облачный пароль сброшен"); return true;
+        }} onClose={() => setEdit(null)} onSave={async (vals, own) => {
         const { id, created_at, ...rest } = vals;
         const r = id ? await db.from("users").update(rest).eq("id", id) : await db.from("users").insert(rest);
         if (r.error) return false; // ошибка показана, окно остаётся открытым
@@ -7273,7 +7275,8 @@ function AdminTab({ data, reload, toast, currentUser }) {
     </div>
   );
 }
-function UserForm({ u, users, self, onClose, onSave, data = null, uperms = {} }) {
+function UserForm({ u, users, self, onClose, onSave, data = null, uperms = {}, hasCloud = false, onCloudReset = null }) {
+  const [cloudHas, setCloudHas] = useState(hasCloud);
   const [v, setV] = useState({ role: "manager", status: "active", ...u });
   // роли (с правами) — правятся прямо здесь; права роли общие для всех аккаунтов с этой ролью
   const [roles, setRoles] = useState(() => allRoles(data).map((r) => ({ ...r, tabs: [...r.tabs], perms: { ...r.perms } })));
@@ -7335,6 +7338,10 @@ function UserForm({ u, users, self, onClose, onSave, data = null, uperms = {} })
           </div>
         </Fld></div>
       </div>
+      {u.id && <div className="row cloud-row">
+        <span className="sm" style={{ marginRight: "auto", color: cloudHas ? "var(--ok)" : "var(--warn)" }}>☁ {cloudHas ? "Облачный пароль есть" : "Облачного пароля нет — создаст при входе"}</span>
+        {cloudHas && onCloudReset && <button type="button" className="btn xs" onClick={async () => { if (await onCloudReset()) setCloudHas(false); }}>Сбросить</button>}
+      </div>}
       <div className="role-perms">
         <div className="row" style={{ gap: 8, marginBottom: 8 }}>
           <b className="sm" style={{ marginRight: "auto" }}>Права аккаунта</b>
