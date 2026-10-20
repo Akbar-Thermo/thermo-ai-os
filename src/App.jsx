@@ -151,7 +151,17 @@ const ROLE_CFG_MODE = "te_roles";
 /* Облачный пароль (как в Telegram): после обычного пароля — второй, свой у каждого аккаунта.
    Хэши хранятся служебной записью requests (mode = "te_2fa", lines = { id аккаунта: хэш }). */
 const CLOUD_MODE = "te_2fa";
-const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE];
+const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms"];
+// служебная запись-словарь в requests: прочитать свежую и поменять один ключ
+async function cfgSetKey(mode, key, value) {
+  const r0 = await db.from("requests").select().eq("mode", mode);
+  if (r0.error) return false;
+  const row = (r0.data || [])[0];
+  const lines = { ...((row && row.lines && !Array.isArray(row.lines) ? row.lines : {}) || {}) };
+  if (value == null) delete lines[key]; else lines[key] = value;
+  const r = row ? await db.from("requests").update({ lines }).eq("id", row.id) : await db.from("requests").insert({ mode, source: "config", lines });
+  return !r.error;
+}
 const cloudHash = (uid, pw) => hashPass("te2fa:" + uid + ":" + pw);
 // «облачный пароль введён» — только до закрытия вкладки/окна (sessionStorage): обновление страницы не спрашивает, закрыли (✕) и открыли — спросит снова
 const cloudOkKey = (uid) => "te:cloud:" + uid;
@@ -190,10 +200,16 @@ function allRoles(data) {
   return out;
 }
 // что может этот аккаунт: роль из настроек (неизвестная — как менеджер)
-function accessOf(u, roles) {
+// права у каждого аккаунта свои (requests, mode = "te_perms", lines = { id аккаунта: { tabs, perms } });
+// роль — название и вид экранов, её галочки — только начальные для нового аккаунта
+const PERMS_MODE = "te_perms";
+const userPermsOf = (data) => { const r = ((data && data.requests) || []).find((x) => x.mode === PERMS_MODE); return (r && r.lines && !Array.isArray(r.lines) && r.lines) || {}; };
+function accessOf(u, roles, uperms) {
   const r = (u && roles.find((x) => x.id === u.role)) || roles.find((x) => x.id === "manager");
-  const tabs = r.base === "boss" ? r.tabs : (r.tabs.length ? r.tabs : r.base === "driver" ? ["delivery"] : ["objects"]);
-  return { id: r.id, label: r.label, base: r.base, tabs, perms: r.base === "boss" ? ALL_PERMS : r.perms || {} };
+  const own = r.base !== "boss" && u && uperms && uperms[u.id];
+  const t0 = own && Array.isArray(own.tabs) ? own.tabs.filter((t) => GRANT_TABS.includes(t)) : r.tabs;
+  const tabs = r.base === "boss" ? r.tabs : (t0.length ? t0 : r.base === "driver" ? ["delivery"] : ["objects"]);
+  return { id: r.id, label: r.label, base: r.base, tabs, perms: r.base === "boss" ? ALL_PERMS : (own ? own.perms || {} : r.perms || {}) };
 }
 let ROLE_LIST = ROLES; // для подписей ролей вне компонентов (журнал)
 const roleLabel = (r) => (ROLE_LIST.find((x) => x.id === r) || ROLES.find((x) => x.id === r) || {}).label || "—";
@@ -7198,6 +7214,7 @@ function AdminTab({ data, reload, toast, currentUser }) {
   const [edit, setEdit] = useState(null);
   const [del, setDel] = useState(null);
   const roles = useMemo(() => allRoles(data), [data.requests]);
+  const uperms = useMemo(() => userPermsOf(data), [data.requests]);
   const cloud = useMemo(() => { const r = (data.requests || []).find((x) => x.mode === CLOUD_MODE); return (r && r.lines && !Array.isArray(r.lines) && r.lines) || {}; }, [data.requests]);
   useEffect(() => { reload(["requests"]); }, []);
   return (
@@ -7214,8 +7231,8 @@ function AdminTab({ data, reload, toast, currentUser }) {
               <tr key={u.id} style={{ opacity: u.status === "active" ? 1 : 0.45 }}>
                 <td className="mono" style={{ fontWeight: 700 }}>{u.username}{u.id === currentUser.id && <span className="xs mut"> (вы)</span>}</td>
                 <td className="sm">{u.name}</td>
-                <td><Badge c={u.role === "boss" ? "#ff707b" : "#fff"}>{accessOf(u, roles).label}</Badge></td>
-                <td style={{ minWidth: 220 }}><RoleCan r={roles.find((x) => x.id === accessOf(u, roles).id)} /></td>
+                <td><Badge c={u.role === "boss" ? "#ff707b" : "#fff"}>{accessOf(u, roles, uperms).label}</Badge></td>
+                <td style={{ minWidth: 220 }}><RoleCan r={accessOf(u, roles, uperms)} /></td>
                 <td className="sm">{u.status === "active" ? "активен" : "отключён"}<div className="xs" style={{ color: cloud[u.id] ? "var(--ok)" : "var(--warn)" }}>{cloud[u.id] ? "☁ облачный пароль есть" : "☁ облачного пароля нет"}</div></td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
                   <button className="btn xs" onClick={() => setEdit(u)}>ред.</button>
@@ -7230,10 +7247,12 @@ function AdminTab({ data, reload, toast, currentUser }) {
           </tbody>
         </table>
       </div>
-      {edit && <UserForm u={edit} users={users} data={data} self={currentUser} onClose={() => setEdit(null)} onSave={async (vals) => {
+      {edit && <UserForm u={edit} users={users} data={data} uperms={uperms} self={currentUser} onClose={() => setEdit(null)} onSave={async (vals, own) => {
         const { id, created_at, ...rest } = vals;
         const r = id ? await db.from("users").update(rest).eq("id", id) : await db.from("users").insert(rest);
         if (r.error) return false; // ошибка показана, окно остаётся открытым
+        const uid = id || (r.data && r.data[0] && r.data[0].id);
+        if (uid && own) await cfgSetKey(PERMS_MODE, uid, own);
         await logAction(id ? "Изменён аккаунт" : "Создан аккаунт", "user:" + rest.username, "роль: " + ((roles.find((x) => x.id === rest.role) || {}).label || rest.role) + (rest.pass_hash ? ", пароль задан" : ""));
         setEdit(null); await reload(); await reload(["requests"]); toast("Аккаунт сохранён"); return true;
       }} />}
@@ -7254,20 +7273,30 @@ function AdminTab({ data, reload, toast, currentUser }) {
     </div>
   );
 }
-function UserForm({ u, users, self, onClose, onSave, data = null }) {
+function UserForm({ u, users, self, onClose, onSave, data = null, uperms = {} }) {
   const [v, setV] = useState({ role: "manager", status: "active", ...u });
   // роли (с правами) — правятся прямо здесь; права роли общие для всех аккаунтов с этой ролью
   const [roles, setRoles] = useState(() => allRoles(data).map((r) => ({ ...r, tabs: [...r.tabs], perms: { ...r.perms } })));
   const [rolesDirty, setRolesDirty] = useState(false);
   const cur = roles.find((x) => x.id === v.role) || roles.find((x) => x.id === "manager");
   const updRole = (f) => { setRoles((rs) => rs.map((r) => (r.id === cur.id ? f({ ...r, tabs: [...r.tabs], perms: { ...r.perms } }) : r))); setRolesDirty(true); };
+  // права ЭТОГО аккаунта (другие аккаунты с той же ролью не меняются)
+  const [own, setOwn] = useState(() => { const a = accessOf({ ...u, role: u.role || "manager" }, roles, uperms); return { tabs: [...a.tabs], perms: { ...a.perms } }; });
+  const updOwn = (f) => setOwn((o) => f({ tabs: [...o.tabs], perms: { ...o.perms } }));
   const onRole = (e) => {
-    if (e.target.value !== "__new") { setV({ ...v, role: e.target.value }); return; }
+    if (e.target.value !== "__new") {
+      const r = roles.find((x) => x.id === e.target.value);
+      setV({ ...v, role: e.target.value });
+      if (r) setOwn({ tabs: [...r.tabs], perms: { ...r.perms } }); // новая роль — её начальные галочки
+      return;
+    }
     const id = "r_" + Date.now().toString(36);
-    setRoles((rs) => [...rs, { id, label: "Новая роль", base: "manager", tabs: ["request", "objects"], perms: {}, custom: true }]);
+    setRoles((rs) => [...rs, { id, label: "Новая роль", base: "manager", tabs: [...own.tabs], perms: { ...own.perms }, custom: true }]);
     setRolesDirty(true); setV({ ...v, role: id });
   };
   const roleUsers = (id) => users.filter((x) => x.role === id && x.id !== v.id).length;
+  const savedRoleIds = useMemo(() => new Set(allRoles(data).map((r) => r.id)), []);
+  const isNewRole = !!cur.custom && !savedRoleIds.has(cur.id); // название и вид задаются при создании роли
   const [pw, setPw] = useState("");
   const [show, setShow] = useState(false);
   const [err, setErr] = useState("");
@@ -7284,8 +7313,10 @@ function UserForm({ u, users, self, onClose, onSave, data = null }) {
     const out = { ...v, username: uname, name: String(v.name || "").trim() };
     if (pw) { out.pass_hash = await hashPass(pw); out.need_seed_pass = null; }
     setBusy(true); setErr("");
-    if (rolesDirty) { const e = await saveRolesCfg(data, roles); if (e) { setBusy(false); return setErr("Права не сохранены: " + e); } }
-    const ok = await onSave(out);
+    // новая роль: её начальные галочки — как у этого аккаунта
+    const rs = roles.map((r) => (r.custom && r.id === v.role && !(data && allRoles(data).some((x) => x.id === r.id)) ? { ...r, tabs: [...own.tabs], perms: { ...own.perms } } : r));
+    if (rolesDirty) { const e = await saveRolesCfg(data, rs); if (e) { setBusy(false); return setErr("Роль не сохранена: " + e); } }
+    const ok = await onSave(out, cur.base === "boss" ? null : own);
     if (!ok) setBusy(false);
   };
   return (
@@ -7306,19 +7337,18 @@ function UserForm({ u, users, self, onClose, onSave, data = null }) {
       </div>
       <div className="role-perms">
         <div className="row" style={{ gap: 8, marginBottom: 8 }}>
-          <b className="sm" style={{ marginRight: "auto" }}>Права роли</b>
-          {cur.base !== "boss" && <input className="inp role-name" value={cur.label} onChange={(e) => updRole((r) => { r.label = e.target.value; return r; })} title="Название роли" />}
-          {cur.custom && <select className="inp role-base" value={cur.base} onChange={(e) => updRole((r) => { r.base = e.target.value; return r; })}><option value="manager">обычный вид</option><option value="driver">как доставщик (без цен)</option></select>}
+          <b className="sm" style={{ marginRight: "auto" }}>Права аккаунта</b>
+          {isNewRole && <input className="inp role-name" value={cur.label} onChange={(e) => updRole((r) => { r.label = e.target.value; return r; })} title="Название роли" />}
+          {isNewRole && <select className="inp role-base" value={cur.base} onChange={(e) => updRole((r) => { r.base = e.target.value; return r; })}><option value="manager">обычный вид</option><option value="driver">как доставщик (без цен)</option></select>}
           {cur.custom && !roleUsers(cur.id) && <button className="btn xs dng" title="Удалить роль" onClick={() => { setRoles((rs) => rs.filter((r) => r.id !== cur.id)); setRolesDirty(true); setV({ ...v, role: "manager" }); }}>✕</button>}
         </div>
         {cur.base === "boss" ? <p className="sm mut">Все разделы и все права.</p> : <>
           <div className="perm-grid">
-            {GRANT_TABS.map((t) => <label key={t} className="clk sm"><input type="checkbox" checked={cur.tabs.includes(t)} onChange={() => updRole((r) => { r.tabs = r.tabs.includes(t) ? r.tabs.filter((x) => x !== t) : GRANT_TABS.filter((x) => x === t || r.tabs.includes(x)); return r; })} /> {TAB_NAMES[t]}</label>)}
+            {GRANT_TABS.map((t) => <label key={t} className="clk sm"><input type="checkbox" checked={own.tabs.includes(t)} onChange={() => updOwn((r) => { r.tabs = r.tabs.includes(t) ? r.tabs.filter((x) => x !== t) : GRANT_TABS.filter((x) => x === t || r.tabs.includes(x)); return r; })} /> {TAB_NAMES[t]}</label>)}
           </div>
           {cur.base !== "driver" && <div className="perm-grid" style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
-            {PERMS.map((p) => <label key={p.id} className="clk sm" style={{ gridColumn: "1/-1" }}><input type="checkbox" checked={!!cur.perms[p.id]} onChange={() => updRole((r) => { r.perms[p.id] = !r.perms[p.id]; return r; })} /> {p.label}</label>)}
+            {PERMS.map((p) => <label key={p.id} className="clk sm" style={{ gridColumn: "1/-1" }}><input type="checkbox" checked={!!own.perms[p.id]} onChange={() => updOwn((r) => { r.perms[p.id] = !r.perms[p.id]; return r; })} /> {p.label}</label>)}
           </div>}
-          {roleUsers(cur.id) > 0 && <p className="xs mut" style={{ marginTop: 6 }}>Эта роль ещё у {roleUsers(cur.id)} акк. — права изменятся и у них.</p>}
         </>}
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
@@ -7805,7 +7835,8 @@ function AppInner() {
   // роль и права вошедшего (Аккаунты → «Роли и права»); role — базовый вид экранов: boss / manager / driver
   const rolesList = useMemo(() => allRoles(data), [data.requests]);
   ROLE_LIST = rolesList;
-  const acc = currentUser ? accessOf(currentUser, rolesList) : { base: "boss", label: "", tabs: ROLES[1].tabs, perms: ALL_PERMS };
+  const userPerms = useMemo(() => userPermsOf(data), [data.requests]);
+  const acc = currentUser ? accessOf(currentUser, rolesList, userPerms) : { base: "boss", label: "", tabs: ROLES[1].tabs, perms: ALL_PERMS };
   const role = acc.base;
   const [openId, setOpenId] = useState(null);
   const [msg, setMsg] = useState("");
