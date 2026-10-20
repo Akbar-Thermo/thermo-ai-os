@@ -153,6 +153,7 @@ const ROLE_CFG_MODE = "te_roles";
 const CLOUD_MODE = "te_2fa";
 const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE];
 const cloudHash = (uid, pw) => hashPass("te2fa:" + uid + ":" + pw);
+// «облачный пароль введён» — только до закрытия вкладки/окна (sessionStorage): обновление страницы не спрашивает, закрыли (✕) и открыли — спросит снова
 const cloudOkKey = (uid) => "te:cloud:" + uid;
 async function cloudRow() {
   const r = await db.from("requests").select().eq("mode", CLOUD_MODE);
@@ -7832,7 +7833,7 @@ function AppInner() {
   const [currentUser, setCurrentUser] = useState(null);
   const [cloudOk, setCloudOk] = useState(false);
   const [cloudChange, setCloudChange] = useState(false);
-  useEffect(() => { if (currentUser) { let ok = false; try { ok = localStorage.getItem(cloudOkKey(currentUser.id)) === "1"; } catch (e) {} setCloudOk(ok); } }, [currentUser ? currentUser.id : ""]);
+  useEffect(() => { if (currentUser) { let ok = false; try { ok = sessionStorage.getItem(cloudOkKey(currentUser.id)) === "1"; } catch (e) {} setCloudOk(ok); } }, [currentUser ? currentUser.id : ""]);
   // роль и права вошедшего (Аккаунты → «Роли и права»); role — базовый вид экранов: boss / manager / driver
   const rolesList = useMemo(() => allRoles(data), [data.requests]);
   ROLE_LIST = rolesList;
@@ -8076,7 +8077,7 @@ function AppInner() {
   }, [data.users]);
   const doLogin = async (u, token) => {
     // обычный вход — дальше облачный пароль (на этом устройстве после входа больше не спрашивается до выхода)
-    try { localStorage.removeItem(cloudOkKey(u.id)); } catch (e) {}
+    try { sessionStorage.removeItem(cloudOkKey(u.id)); } catch (e) {}
     setCloudOk(false);
     if (token) { setDbSession(token); try { localStorage.setItem("te:token", token); } catch (e) {} }
     setLoginNote("");
@@ -8087,7 +8088,7 @@ function AppInner() {
   };
   // выход: в защищённом режиме сессия закрывается и на сервере, данные стираются из памяти страницы
   const endSession = (note) => {
-    if (CURRENT_USER) { try { localStorage.removeItem(cloudOkKey(CURRENT_USER.id)); } catch (e) {} }
+    if (CURRENT_USER) { try { sessionStorage.removeItem(cloudOkKey(CURRENT_USER.id)); } catch (e) {} }
     setCurrentUser(null); CURRENT_USER = null;
     try { localStorage.removeItem("te:session"); localStorage.removeItem("te:token"); } catch (e) {}
     if (SECURE) { setDbSession(null); setData(EMPTY_DATA); setOpenId(null); setBackupOpen(false); }
@@ -8318,7 +8319,7 @@ function AppInner() {
   const intro = !ready ? <Intro /> : introGone ? null : <Intro out={introOut} onDone={() => setIntroGone(true)} />;
   if (!ready) return <>{null}{intro}</>;
   if (!currentUser) return <>{<LoginScreen users={data.users || []} onLogin={doLogin} bootErr={bootErr} onRetry={() => { setReady(false); boot(); }} secure={secureMode} seed={secureSeed} note={loginNote} />}{intro}<IosInstallHint /></>;
-  if (!cloudOk) return <>{<CloudGate user={currentUser} onOk={() => { try { localStorage.setItem(cloudOkKey(currentUser.id), "1"); } catch (e) {} setCloudOk(true); }}
+  if (!cloudOk) return <>{<CloudGate user={currentUser} onOk={() => { try { sessionStorage.setItem(cloudOkKey(currentUser.id), "1"); } catch (e) {} setCloudOk(true); }}
     onLogout={(note) => { (async () => { if (SECURE && sb) { try { await sb.rpc("te_logout"); } catch (e) {} } endSession(note); })(); }} />}{intro}</>;
   return (<>
     <PeopleCtx.Provider value={peopleCtx}>
