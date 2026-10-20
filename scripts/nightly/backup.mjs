@@ -32,10 +32,23 @@ const maskId = (id) => "…" + String(id).slice(-4) + " (" + String(id).replace(
 const NOT_FOUND_HINT = " — проверьте этот ID в секрете TELEGRAM_CHAT_ID: у человека — число из сообщения бота «Ваш TELEGRAM_CHAT_ID» (и он должен нажать в боте «Start»); у группы — число с минусом -100…, и бот должен состоять в группе";
 // отправка с исправлением частой ошибки: ID группы скопирован без минуса — пробуем «-ID»
 const fixedIds = {};
+const migrated = new Set();
 async function tgTo(id, method, fields, file) {
   const to = fixedIds[id] || id;
   try { return await tg(method, { ...fields, chat_id: to }, file); }
   catch (e) {
+    // группу превратили в «супергруппу» (например, сменили фото/настройки) — у неё новый ID; Telegram его сообщает
+    const nid = e.tg && e.tg.parameters && e.tg.parameters.migrate_to_chat_id;
+    if (nid) {
+      fixedIds[id] = String(nid);
+      const r = await tg(method, { ...fields, chat_id: nid }, file);
+      if (!migrated.has(id)) {
+        migrated.add(id);
+        console.log("::warning::ID группы " + maskId(id) + " сменился (группа стала супергруппой) — отправил на новый ID …" + String(nid).slice(-4) + ". Новый ID бот написал в группу — замените его в секрете TELEGRAM_CHAT_ID");
+        try { await tg("sendMessage", { chat_id: nid, parse_mode: "HTML", text: "ℹ️ У группы новый ID: <code>" + nid + "</code> (нажмите — скопируется).\nЗамените им старый ID группы в GitHub → Settings → Secrets and variables → Actions → TELEGRAM_CHAT_ID. Бэкапы приходят и сейчас." }); } catch (e3) {}
+      }
+      return r;
+    }
     if (!/chat not found/i.test(e.message) || String(to).startsWith("-")) throw /chat not found/i.test(e.message) ? new Error(e.message + NOT_FOUND_HINT) : e;
     let r;
     try { r = await tg(method, { ...fields, chat_id: "-" + to }, file); } catch (e2) { throw new Error(e.message + NOT_FOUND_HINT); }
@@ -65,7 +78,9 @@ async function tg(method, fields, file) {
   if (!j.ok) {
     const why = j.description || (r.status + " " + txt.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 80));
     const hint = r.status === 401 || r.status === 404 ? " — проверьте секрет TELEGRAM_BOT_TOKEN (весь токен из @BotFather, вида 123456:ABC…)" : "";
-    throw new Error("Telegram " + method + ": " + why + hint);
+    const err = new Error("Telegram " + method + ": " + why + hint);
+    err.tg = j;
+    throw err;
   }
   return j.result;
 }
