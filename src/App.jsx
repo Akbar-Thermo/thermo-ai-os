@@ -2651,7 +2651,71 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
 
 /* ============ SUPPLIERS TAB ============ */
 const fileSafe = (x) => String(x || "file").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
-function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast }) {
+// правка строки акта сверки: полученный товар (кол-во, себестоимость), возврат поставщику, оплата
+function AktEditModal({ ed, s, onClose, onDone }) {
+  const [v, setV] = useState(() => {
+    if (ed.kind === "item") return { qty: ed.it.qty, cost: round2(ed.it.cost) };
+    if (ed.kind === "ret") return { qty: ed.o.qty || 0, sum: ed.o.cost_amount || 0, date: String(ed.o.op_date || ed.o.created_at || "").slice(0, 10) };
+    return { pay: payInit(ed.o), date: String(ed.o.op_date || ed.o.created_at || "").slice(0, 10), note: ed.o.note || "" };
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const editLog = (o, before) => [...(o.edit_log || []), { at: new Date().toISOString(), before }];
+  const save = async () => {
+    setBusy(true); setErr("");
+    let r, what = "";
+    if (ed.kind === "item") {
+      const it = ed.it, qty = Math.max(0, parseNum(v.qty)), cost = Math.max(0, parseNum(v.cost));
+      if (String(it.obj_id).startsWith("wh:")) {
+        r = await db.from("finance_ops").update({ qty, cost_amount: round2(qty * cost), edited: true, edit_log: editLog(it._op, { qty: it._op.qty, cost_amount: it._op.cost_amount }) }).eq("id", it.id);
+      } else {
+        r = await updateObjectItems(it.obj_id, (cur) => cur.map((i) => (i.id === it.id ? { ...i, qty, cost } : i)));
+      }
+      what = (it.name || "") + ": " + fmt(it.qty) + " × " + fmt2(it.cost) + " → " + fmt(qty) + " × " + fmt2(cost) + " (" + it.obj_name + ")";
+    } else if (ed.kind === "ret") {
+      const o = ed.o, qty = Math.max(0, parseNum(v.qty)), sum = round2(Math.max(0, parseNum(v.sum)));
+      r = await db.from("finance_ops").update({ qty, cost_amount: sum, op_date: v.date || o.op_date, edited: true, edit_log: editLog(o, { qty: o.qty, cost_amount: o.cost_amount, op_date: o.op_date }) }).eq("id", o.id);
+      what = "возврат " + (o.product_name || "") + ": " + fmt(o.qty) + " / " + fmt2(o.cost_amount) + " → " + fmt(qty) + " / " + fmt2(sum);
+    } else {
+      const o = ed.o;
+      if (!(payUsd(v.pay) > 0)) { setBusy(false); return setErr("Укажите сумму"); }
+      const patch = { ...payPatch(v.pay, "supplier_payment", false), op_date: v.date || today(), note: v.note };
+      r = await db.from("finance_ops").update({ ...patch, edited: true, edit_log: editLog(o, { amount: o.amount, op_date: o.op_date, note: o.note, reason: o.reason }) }).eq("id", o.id);
+      what = "оплата: " + fmt2(o.amount) + " → " + fmt2(patch.amount);
+    }
+    if (r && r.error) { setBusy(false); return setErr("Не сохранено: " + (r.error.message || r.error)); }
+    await logAction("Изменено в акте сверки", "supplier:" + s.name, what);
+    setBusy(false); onDone();
+  };
+  return (
+    <Modal title={ed.kind === "item" ? "Изменить: " + (ed.it.name || "") : ed.kind === "ret" ? "Изменить возврат" : "Изменить оплату"} onClose={onClose} w={520}>
+      {err && <p className="sm" style={{ color: "var(--bad)", marginBottom: 8 }}>{err}</p>}
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        {ed.kind === "item" && <>
+          <Fld label="Кол-во"><input type="number" className="inp" value={v.qty} onChange={(e) => setV({ ...v, qty: e.target.value })} /></Fld>
+          <Fld label="Себестоимость за ед., $"><input type="number" className="inp" value={v.cost} onChange={(e) => setV({ ...v, cost: e.target.value })} /></Fld>
+          <p className="xs mut" style={{ gridColumn: "1/-1" }}>Сумма: {fmt2(parseNum(v.qty) * parseNum(v.cost))} · меняется и в объекте «{ed.it.obj_name}»</p>
+        </>}
+        {ed.kind === "ret" && <>
+          <Fld label="Кол-во"><input type="number" className="inp" value={v.qty} onChange={(e) => setV({ ...v, qty: e.target.value })} /></Fld>
+          <Fld label="Сумма по себестоимости, $"><input type="number" className="inp" value={v.sum} onChange={(e) => setV({ ...v, sum: e.target.value })} /></Fld>
+          <Fld label="Дата возврата"><input type="date" className="inp" value={v.date} onChange={(e) => setV({ ...v, date: e.target.value })} /></Fld>
+        </>}
+        {ed.kind === "pay" && <>
+          <PayFields p={v.pay} setP={(np) => setV({ ...v, pay: np })} methods={OUT_METHODS} usdLabel={payUsdLabel("supplier_payment")} />
+          <Fld label="Дата оплаты"><input type="date" className="inp" value={v.date} onChange={(e) => setV({ ...v, date: e.target.value })} /></Fld>
+          <Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} /></Fld>
+        </>}
+      </div>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
+        <button className="btn" onClick={onClose}>Отмена</button>
+        <button className="btn pri" disabled={busy} onClick={save}>{busy ? "Сохраняю…" : "Сохранить"}</button>
+      </div>
+    </Modal>
+  );
+}
+function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, reload = null, canEdit = false }) {
+  const [ed, setEd] = useState(null); // правка строки: { kind: "item" | "ret" | "pay", it | o }
   // Received items (purchases) from all non-cancelled objects
   const received = [];
   objects.forEach((ob) => {
@@ -2665,7 +2729,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast }) 
   // приходы на Склад Thermo вручную (закупка у поставщика)
   ops.filter((o) => !o.voided && o.type === "wh_purchase" && o.supplier_id === s.id).forEach((o) => {
     const q = Number(o.qty) || 0;
-    received.push({ id: o.id, name: o.product_name || "—", qty: q, unit: o.unit || "шт", cost: q ? (o.cost_amount || 0) / q : 0, obj_name: "Склад Thermo", obj_id: "wh:" + o.id, batch_no: 1, date: o.op_date || o.created_at });
+    received.push({ id: o.id, _op: o, name: o.product_name || "—", qty: q, unit: o.unit || "шт", cost: q ? (o.cost_amount || 0) / q : 0, obj_name: "Склад Thermo", obj_id: "wh:" + o.id, batch_no: 1, date: o.op_date || o.created_at });
   });
   // Возвраты поставщику (уменьшают долг). Возвраты клиентов на Склад Thermo долг не уменьшают — показаны отдельно
   const retIdsAkt = supplierReturnIds(ops, whMoves);
@@ -2777,7 +2841,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast }) 
           {batches.length > 1 && <button className="btn xs" style={{ marginLeft: 10 }} onClick={(e) => { e.preventDefault(); toggleAll(); }}>{allClosed ? "Развернуть все" : "Свернуть все"}</button>}
         </summary>
         <div style={{ overflow: "auto", maxHeight: 440 }}>
-          <table className="t"><thead><tr><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"right"}}>Себест.</th><th style={{textAlign:"right"}}>Сумма</th></tr></thead>
+          <table className="t"><thead><tr><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"right"}}>Себест.</th><th style={{textAlign:"right"}}>Сумма</th>{canEdit && <th></th>}</tr></thead>
             <tbody>
               {batches.map((g) => (
                 <React.Fragment key={g.key}>
@@ -2789,6 +2853,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast }) 
                       {retByKey[g.key] > 0 && <span className="xs" style={{ fontWeight: 600, color: "var(--warn)" }}> · возврат −{fmt(retByKey[g.key])}</span>}
                     </td>
                     <td className="num" style={{ fontWeight: 800 }}>{fmt(g.sum)}</td>
+                    {canEdit && <td></td>}
                   </tr>
                   {!closed[g.key] && g.items.map((it, i) => (
                     <tr key={g.key + i}>
@@ -2797,6 +2862,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast }) 
                       <td className="xs mut">{it.unit}</td>
                       <td className="num">{fmt(it.cost)}</td>
                       <td className="num">{fmt((it.qty || 0) * (it.cost || 0))}</td>
+                      {canEdit && <td><button className="btn xs" title="Изменить кол-во / себестоимость" onClick={() => setEd({ kind: "item", it })}>✎</button></td>}
                     </tr>
                   ))}
                 </React.Fragment>
@@ -2811,7 +2877,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast }) 
         <summary className="sm" style={{ cursor: "pointer", fontWeight: 700, marginBottom: 8 }}>Возвраты поставщику по поставкам ({returns.length})</summary>
         {toWh.length > 0 && <p className="xs mut" style={{ margin: "0 0 8px" }}>Ещё возвращено клиентами на Склад Thermo: {toWh.length} поз. на {fmt(toWhCost)} по себестоимости — долг поставщику они не уменьшают, пока товар не вернут поставщику (Склад Thermo → «↩ поставщику»).</p>}
         <div style={{ overflow: "auto", maxHeight: 360 }}>
-        <table className="t"><thead><tr><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th style={{textAlign:"right"}}>Сумма (себест.)</th><th>Дата возврата</th><th>Причина</th></tr></thead>
+        <table className="t"><thead><tr><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th style={{textAlign:"right"}}>Сумма (себест.)</th><th>Дата возврата</th><th>Причина</th>{canEdit && <th></th>}</tr></thead>
           <tbody>
             {retGroups.map((g) => (
               <React.Fragment key={g.key}>
@@ -2831,6 +2897,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast }) 
                     <td className="num" style={{ color: "var(--warn)" }}>{fmt(o.cost_amount || 0)}</td>
                     <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
                     <td className="xs mut">{[o.reason, o.note].filter(Boolean).join(" · ")}</td>
+                    {canEdit && <td><button className="btn xs" title="Изменить возврат" onClick={() => setEd({ kind: "ret", o })}>✎</button></td>}
                   </tr>
                 ))}
               </React.Fragment>
@@ -2843,11 +2910,12 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast }) 
       </details>
       <details style={{ marginTop: 12 }}>
         <summary className="sm" style={{ cursor: "pointer", fontWeight: 700, marginBottom: 8 }}>Платежи ({payments.length})</summary>
-        <table className="t"><thead><tr><th>Дата</th><th style={{textAlign:"right"}}>Сумма, $</th><th>Способ оплаты</th><th>Кто</th><th>Примечание</th></tr></thead>
-          <tbody>{payments.map((o) => <tr key={o.id}><td className="xs mono mut">{dt(o.op_date||o.created_at)}</td><td className="num" style={{color:"var(--ok)",fontWeight:700}}>{fmt(o.amount)}</td><td className="xs">{payText(o) || <span className="mut">не указан</span>}</td><td className="xs mut">{o.user}</td><td className="xs mut">{o.note}</td></tr>)}
+        <table className="t"><thead><tr><th>Дата</th><th style={{textAlign:"right"}}>Сумма, $</th><th>Способ оплаты</th><th>Кто</th><th>Примечание</th>{canEdit && <th></th>}</tr></thead>
+          <tbody>{payments.map((o) => <tr key={o.id}><td className="xs mono mut">{dt(o.op_date||o.created_at)}</td><td className="num" style={{color:"var(--ok)",fontWeight:700}}>{fmt(o.amount)}</td><td className="xs">{payText(o) || <span className="mut">не указан</span>}</td><td className="xs mut">{o.user}</td><td className="xs mut">{o.note}</td>{canEdit && <td><button className="btn xs" title="Изменить оплату" onClick={() => setEd({ kind: "pay", o })}>✎</button></td>}</tr>)}
           {!payments.length && <tr><td colSpan={5} className="mut sm" style={{padding:14}}>Нет платежей</td></tr>}</tbody>
         </table>
       </details>
+      {ed && <AktEditModal ed={ed} s={s} onClose={() => setEd(null)} onDone={async () => { setEd(null); if (reload) await reload(); if (toast) toast("Изменено — акт сверки и долг пересчитаны"); }} />}
     </Modal>
   );
 }
@@ -2978,7 +3046,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
           </tbody>
         </table>
       </div>
-      {akt && <AktSverkaModal s={akt} objects={objects} ops={finance_ops} whMoves={wh_moves} products={products} toast={toast} onClose={() => setAkt(null)} />}
+      {akt && <AktSverkaModal s={akt} objects={objects} ops={finance_ops} whMoves={wh_moves} products={products} toast={toast} reload={reload} canEdit={fin} onClose={() => setAkt(null)} />}
       {pay && <SupplierPayModal s={pay} objects={objects} ops={finance_ops} whMoves={wh_moves} fin={fin} onClose={() => setPay(null)}
         onRateFixed={async (usd) => { await reload(); toast("Исправлено: " + fmt(usd) + " $"); }}
         onSave={async (op) => {
