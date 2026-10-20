@@ -4398,6 +4398,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
         rows.push({ k: "head", v: HEAD });
         let sub = 0;
+        n = 1; // нумерация в каждой поставке — заново с 1
         inProdOrder(b.items).forEach((i) => {
           const s = Math.round(i.qty * i.price * 100) / 100; sub += s;
           rows.push({ k: "row", v: [n++, i.name, i.qty, i.unit, i.price, s] });
