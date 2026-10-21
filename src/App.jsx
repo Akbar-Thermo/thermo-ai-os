@@ -1356,6 +1356,15 @@ function Modal({ title, onClose, children, w = 640 }) {
       } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
         const b = [...bg.querySelectorAll("button.pri:not([disabled])")].pop();
         if (b) { e.preventDefault(); b.click(); }
+      } else if (e.key === "Enter" && !e.shiftKey && !e.altKey && bg.contains(e.target) && /^(INPUT|SELECT)$/.test(e.target.tagName) && !/^(button|submit|file)$/.test(e.target.type)) {
+        // Enter — к следующему полю окна; после последнего — на главную кнопку (ещё Enter — сохранить)
+        const all = [...bg.querySelectorAll("input:not([type=hidden]):not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled])")]
+          .filter((x) => (x.offsetParent !== null && x.type !== "checkbox" && x.type !== "radio") || x === e.target);
+        const i = all.indexOf(e.target);
+        // главная кнопка окна — последняя «pri» (выбранные варианты вроде «Наличные» тоже pri, но они выше)
+        const next = all[i + 1] || [...bg.querySelectorAll("button.pri")].pop();
+        if (next && next.tagName === "BUTTON" && next.disabled) { e.preventDefault(); next.focus(); return; }
+        if (next) { e.preventDefault(); next.focus(); if (next.select && next.tagName === "INPUT" && /^(text|number|search|tel|)$/.test(next.type)) next.select(); }
       }
     };
     window.addEventListener("keydown", h);
@@ -1485,10 +1494,6 @@ function MasterPicker({ masters, value, onChange, onAdd }) {
       )}
     </div>
   );
-}
-// «кто внёс / ответственный»: всегда тот, кто вошёл в систему (в новой записи) или автор (в старой) — выбрать другого нельзя
-function WhoField({ label, value }) {
-  return <Fld label={label}><div className="inp who-ro" title="Записывается тот, кто вошёл в систему — внести от имени другого сотрудника нельзя">🔒 {value || curUserName() || "—"}</div></Fld>;
 }
 function PersonSelect({ value, onChange, placeholder = "—", compact = false, hideEmpty = false }) {
   const { people, addPerson } = useContext(PeopleCtx);
@@ -3159,7 +3164,6 @@ function SupplierPayModal({ s, objects, ops, whMoves, onClose, onSave, onEditPay
         <PayFields p={pay} setP={setPay} methods={OUT_METHODS} usdLabel={payUsdLabel("supplier_payment")} />
         <Fld label="Дата оплаты"><input type="date" className="inp" value={opDate} onChange={(e) => setOpDate(e.target.value)} /></Fld>
         <Fld label="Комментарий"><input className="inp" value={note} onChange={(e) => setNote(e.target.value)} placeholder="часть / аванс / закрытие…" /></Fld>
-        <WhoField label="Кто оплатил" value={user} />
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
         <button className="btn xs" disabled={st.debt <= 0} onClick={() => setPay(paySetUsd(pay, st.debt))}>= весь долг</button>
@@ -5358,7 +5362,6 @@ function EditOpModal({ op, suppliers, isReturn, onClose, onSave, products = null
         {bonusItem && !products && <Fld label="Предмет"><input className="inp" autoComplete="off" value={v.item_name} onChange={(e) => setV({ ...v, item_name: e.target.value })} /></Fld>}
         {!usesPay && (isReturn || op.reason != null) && <Fld label="Причина"><input className="inp" value={v.reason} onChange={(e) => setV({ ...v, reason: e.target.value })} /></Fld>}
         <Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} /></Fld>
-        <WhoField label="Ответственный" value={v.user} />
       </div>
       {op.edit_log && op.edit_log.length > 0 && (
         <div className="xs mut" style={{ marginTop: 10 }}>
@@ -5452,7 +5455,6 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
       <div className="grid" style={{ gridTemplateColumns: "2fr 1fr 1fr" }}>
         <Fld label="Причина (общая)"><input className="inp" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="брак / не подошло / излишек" /></Fld>
         <Fld label="Дата возврата"><input type="date" className="inp" value={opDate} onChange={(e) => setOpDate(e.target.value)} /></Fld>
-        <WhoField label="Ответственный" value={user} />
       </div>
       <div className="row" style={{ justifyContent: "space-between", marginTop: 16 }}>
         <div className="mono" style={{ fontWeight: 700 }}>Позиций: {totalCnt} · Итого возврат: <span style={{ color: "var(--bad)" }}>{money(totalSum)}</span>
@@ -5512,7 +5514,6 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
           </>
         )}
         <Fld label="Дата операции"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
-        <WhoField label="Ответственный" value={v.user} />
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
@@ -6246,7 +6247,6 @@ function IssueForm({ stock, objects, onClose, onSave }) {
             {targets.map((o) => <option key={o.id} value={o.id}>{o.name} ({o.client})</option>)}
           </select>
         </Fld>
-        <WhoField label="Ответственный" value={user} />
       </div>
       <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, maxHeight: 320 }}>
         <table className="t">
@@ -6965,7 +6965,6 @@ function CompanyExpenseForm({ onClose, onSave, boss = false, employees = [], onE
         {sal && <Fld label="Сотрудник"><EmployeeSelect value={v.emp} onChange={(emp) => setV({ ...v, emp })} employees={employees} onAdded={onEmployeeAdded} data={data} /></Fld>}
         <PayFields p={pay} setP={setPay} methods={OUT_METHODS} usdLabel={payUsdLabel("company_expense")} />
         <Fld label="Дата"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
-        <WhoField label="Кто внёс" value={v.user} />
         <div style={{ gridColumn: "1/-1" }}><Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} placeholder="за июнь / Шерзоду / свет+вода…" /></Fld></div>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
