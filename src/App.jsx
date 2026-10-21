@@ -2052,6 +2052,113 @@ function whAvailIndex(warehouse, products, suppliers) {
   return { qty, sim, stock, rowsFor: (pid) => rows[pid] || [] };
 }
 const whQtyMap = (warehouse) => { const m = {}; (warehouse || []).forEach((w) => { if (w.product_id && Number(w.qty) > 0) m[w.product_id] = (m[w.product_id] || 0) + Number(w.qty); }); return m; };
+/* Фильтр «поставщики → бренды» (поиск товара в заявке/объекте/складе и «Товары»):
+   галочки поставщиков; наведение или стрелки на поставщика — справа его бренды (→ — в бренды, ↑↓, Enter, ← — назад) */
+function SupBrandFilter({ suppliers, products, sfs, setSfs, sbr, setSbr, onChange, onDone, width = 210 }) {
+  const sf = sfs.length > 0;
+  const sfSet = useMemo(() => new Set(sfs), [sfs]);
+  const supName = useMemo(() => { const m = {}; suppliers.forEach((x) => { m[x.id] = x.name; }); return m; }, [suppliers]);
+  const supCount = useMemo(() => { const m = {}; products.forEach((p) => { if (p.supplier_id && p.status !== "archive") m[p.supplier_id] = (m[p.supplier_id] || 0) + 1; }); return m; }, [products]);
+  const [supOpen, setSupOpen] = useState(false);
+  const [supQ, setSupQ] = useState("");
+  const supRef = useRef(null);
+  useEffect(() => {
+    if (!supOpen) return;
+    const h = (e) => { if (supRef.current && !supRef.current.contains(e.target)) setSupOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [supOpen]);
+  const toggleSup = (id) => {
+    setSfs((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    if (sfs.includes(id)) setSbr((b) => { const n = { ...b }; delete n[id]; return n; });
+    if (onChange) onChange();
+  };
+  // бренды поставщика (по числу товаров); отметка бренда сама включает поставщика в фильтр
+  const supBrands = useMemo(() => {
+    const m = {};
+    products.forEach((p) => { if (!p.supplier_id || p.status === "archive") return; const b = String(p.brand || "").trim(); const x = (m[p.supplier_id] = m[p.supplier_id] || {}); x[b] = (x[b] || 0) + 1; });
+    const out = {};
+    Object.entries(m).forEach(([id, x]) => { out[id] = Object.entries(x).map(([b, n]) => ({ b, n })).sort((a, c) => c.n - a.n || a.b.localeCompare(c.b)); });
+    return out;
+  }, [products]);
+  const toggleBrand = (sid, b) => {
+    setSbr((prev) => { const cur = prev[sid] || []; const nx = cur.includes(b) ? cur.filter((x) => x !== b) : [...cur, b]; const n = { ...prev }; if (nx.length) n[sid] = nx; else delete n[sid]; return n; });
+    setSfs((prev) => (prev.includes(sid) ? prev : [...prev, sid]));
+    if (onChange) onChange();
+  };
+  const [hov, setHov] = useState(null);      // поставщик под курсором / стрелками — справа его бренды
+  const [supAct, setSupAct] = useState(-1);  // стрелки в списке поставщиков
+  const [brAct, setBrAct] = useState(-1);    // стрелки в списке брендов (≥0 — фокус в брендах)
+  useEffect(() => { if (supRef.current) supRef.current.querySelectorAll('.pick-sup[data-on="1"]').forEach((el) => el.scrollIntoView({ block: "nearest" })); }, [supAct, brAct, hov]);
+  return (
+          <div ref={supRef} style={{ position: "relative", flex: "0 0 auto" }}>
+            <button type="button" className="inp sup-filter" title="Только товары выбранных поставщиков (можно несколько)" onClick={() => setSupOpen(!supOpen)}
+              style={{ width, textAlign: "left", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6, borderColor: sf ? "var(--acc)" : undefined }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{!sf ? "Все поставщики" : sfs.length === 1 ? (supName[sfs[0]] || "1 поставщик") + (sbr[sfs[0]] && sbr[sfs[0]].length ? " · " + (sbr[sfs[0]].length === 1 ? (sbr[sfs[0]][0] || "без бренда") : "брендов: " + sbr[sfs[0]].length) : "") : "Поставщиков: " + sfs.length}</span>
+              <span className="mut">▾</span>
+            </button>
+            {supOpen && (
+              <div className="sup-pop" style={{ position: "absolute", top: "105%", left: 0, width: 290, zIndex: 1002, background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 10, boxShadow: "0 16px 44px rgba(0,0,0,.2)", padding: 8 }}>
+                {(() => {
+                  const list = suppliers.filter((x) => x.status !== "inactive" && supCount[x.id] && (!supQ.trim() || String(x.name || "").toLowerCase().includes(supQ.trim().toLowerCase())));
+                  const hs = hov && list.some((x) => x.id === hov) ? hov : null;
+                  const brands = hs ? supBrands[hs] || [] : [];
+                  const onKey = (e) => {
+                    const inBr = brAct >= 0 && hs && brands.length;
+                    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                      e.preventDefault(); const d = e.key === "ArrowDown" ? 1 : -1;
+                      if (inBr) setBrAct((i) => (i + d + brands.length) % brands.length);
+                      else if (list.length) { const i = (supAct < 0 ? (d > 0 ? 0 : list.length - 1) : (supAct + d + list.length) % list.length); setSupAct(i); setHov(list[i].id); }
+                    } else if (e.key === "ArrowRight" && hs && brands.length > 1) { e.preventDefault(); setBrAct(0); }
+                    else if (e.key === "ArrowLeft" && brAct >= 0) { e.preventDefault(); setBrAct(-1); }
+                    else if ((e.key === "Enter" || (e.key === " " && !supQ)) && (inBr || supAct >= 0)) {
+                      e.preventDefault(); e.stopPropagation();
+                      if (inBr) toggleBrand(hs, brands[brAct].b); else if (list[supAct]) toggleSup(list[supAct].id);
+                    } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setSupOpen(false); setBrAct(-1); if (onDone) onDone(); }
+                  };
+                  return <>
+                    <input className="inp" autoFocus placeholder="Найти поставщика…  (↑↓ · → бренды · Enter — отметить)" value={supQ} onChange={(e) => { setSupQ(e.target.value); setSupAct(-1); setBrAct(-1); }} onKeyDown={onKey} style={{ marginBottom: 6 }} />
+                    <div className="sup-list" style={{ maxHeight: 300, overflow: "auto" }}>
+                      {list.map((x, i) => (
+                        <label key={x.id} className={"row clk pick-sup" + (hs === x.id ? " hov" : "")} data-on={supAct === i ? "1" : undefined} onMouseEnter={() => { setHov(x.id); setSupAct(i); setBrAct(-1); }}
+                          style={{ gap: 8, flexWrap: "nowrap", padding: "6px 6px", borderRadius: 6, background: sfSet.has(x.id) ? "var(--acc-tint)" : "none" }}>
+                          <input type="checkbox" checked={sfSet.has(x.id)} onChange={() => toggleSup(x.id)} />
+                          <span className="sm" style={{ flex: 1, fontWeight: sfSet.has(x.id) ? 700 : 500 }}>{x.name}{sbr[x.id] && sbr[x.id].length ? <span className="xs" style={{ color: "var(--acc)", fontWeight: 600 }}> · брендов: {sbr[x.id].length}</span> : null}</span>
+                          <span className="xs mut">{supCount[x.id]}</span>
+                          {(supBrands[x.id] || []).length > 1 && <span className="xs mut">›</span>}
+                        </label>
+                      ))}
+                    </div>
+                    {hs && brands.length > 1 && (
+                      <div className="brand-fly">
+                        <div className="xs mut" style={{ fontWeight: 700, marginBottom: 6 }}>Бренды · {supName[hs]}</div>
+                        <div style={{ maxHeight: 300, overflow: "auto" }}>
+                          {brands.map((r, i) => {
+                            const on = !!(sbr[hs] && sbr[hs].includes(r.b));
+                            return (
+                              <label key={r.b || "—"} className={"row clk pick-sup" + (brAct === i ? " hov" : "")} data-on={brAct === i ? "1" : undefined} onMouseEnter={() => setBrAct(i)}
+                                style={{ gap: 8, flexWrap: "nowrap", padding: "5px 6px", borderRadius: 6, background: on ? "var(--acc-tint)" : "none" }}>
+                                <input type="checkbox" checked={on} onChange={() => toggleBrand(hs, r.b)} />
+                                <span className="sm" style={{ flex: 1, fontWeight: on ? 700 : 500 }}>{r.b || "без бренда"}</span>
+                                <span className="xs mut">{r.n}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                        {sbr[hs] && sbr[hs].length > 0 && <button type="button" className="btn xs" style={{ marginTop: 6 }} onClick={() => setSbr((b) => { const n = { ...b }; delete n[hs]; return n; })}>Все бренды</button>}
+                      </div>
+                    )}
+                  </>;
+                })()}
+                <div className="row" style={{ justifyContent: "space-between", marginTop: 6, gap: 6 }}>
+                  <button type="button" className="btn xs" disabled={!sf} onClick={() => { setSfs([]); setSbr({}); if (onChange) onChange(); }}>Сбросить</button>
+                  <button type="button" className="btn xs pri" onClick={() => { setSupOpen(false); if (onDone) onDone(); }}>Готово</button>
+                </div>
+              </div>
+            )}
+          </div>
+  );
+}
 function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnPick = false, whQty = null, whSim = null, whStock = null, askQty = false, persistKey = null }) {
   // askQty: после выбора товара сразу спрашиваем количество (Enter — добавить и вернуться к поиску)
   const [pend, setPend] = useState(() => { if (!persistKey) return null; try { const id = (JSON.parse(localStorage.getItem(persistKey) || "{}") || {}).pend; return id ? products.find((p) => p.id === id) || null : null; } catch (e) { return null; } });
@@ -2083,37 +2190,6 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
     } catch (e) {}
   }, [q, pend, pq, sfs, sbr]);
   const sfSet = useMemo(() => new Set(sfs), [sfs]);
-  const [supOpen, setSupOpen] = useState(false);
-  const [supQ, setSupQ] = useState("");
-  const supRef = useRef(null);
-  useEffect(() => {
-    if (!supOpen) return;
-    const h = (e) => { if (supRef.current && !supRef.current.contains(e.target)) setSupOpen(false); };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [supOpen]);
-  const toggleSup = (id) => {
-    setSfs((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-    if (sfs.includes(id)) setSbr((b) => { const n = { ...b }; delete n[id]; return n; });
-    setOpen(true); setActiveIdx(-1);
-  };
-  // бренды поставщика (по числу товаров); отметка бренда сама включает поставщика в фильтр
-  const supBrands = useMemo(() => {
-    const m = {};
-    products.forEach((p) => { if (!p.supplier_id || p.status === "archive") return; const b = String(p.brand || "").trim(); const x = (m[p.supplier_id] = m[p.supplier_id] || {}); x[b] = (x[b] || 0) + 1; });
-    const out = {};
-    Object.entries(m).forEach(([id, x]) => { out[id] = Object.entries(x).map(([b, n]) => ({ b, n })).sort((a, c) => c.n - a.n || a.b.localeCompare(c.b)); });
-    return out;
-  }, [products]);
-  const toggleBrand = (sid, b) => {
-    setSbr((prev) => { const cur = prev[sid] || []; const nx = cur.includes(b) ? cur.filter((x) => x !== b) : [...cur, b]; const n = { ...prev }; if (nx.length) n[sid] = nx; else delete n[sid]; return n; });
-    setSfs((prev) => (prev.includes(sid) ? prev : [...prev, sid]));
-    setOpen(true); setActiveIdx(-1);
-  };
-  const [hov, setHov] = useState(null);      // поставщик под курсором / стрелками — справа его бренды
-  const [supAct, setSupAct] = useState(-1);  // стрелки в списке поставщиков
-  const [brAct, setBrAct] = useState(-1);    // стрелки в списке брендов (≥0 — фокус в брендах)
-  useEffect(() => { if (supRef.current) supRef.current.querySelectorAll('.pick-sup[data-on="1"]').forEach((el) => el.scrollIntoView({ block: "nearest" })); }, [supAct, brAct, hov]);
   const [open, setOpen] = useState(false);
   const boxRef = useRef(null);
   useEffect(() => {
@@ -2183,74 +2259,8 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
   return (
     <div ref={boxRef} style={{ position: "relative", minWidth: 220, flex: 1, zIndex: hits.length || noHits ? 999 : "auto" }}>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {suppliers.length > 0 && (
-          <div ref={supRef} style={{ position: "relative", flex: "0 0 auto" }}>
-            <button type="button" className="inp sup-filter" title="Только товары выбранных поставщиков (можно несколько)" onClick={() => setSupOpen(!supOpen)}
-              style={{ width: 210, textAlign: "left", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6, borderColor: sf ? "var(--acc)" : undefined }}>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{!sf ? "Все поставщики" : sfs.length === 1 ? (supName[sfs[0]] || "1 поставщик") + (sbr[sfs[0]] && sbr[sfs[0]].length ? " · " + (sbr[sfs[0]].length === 1 ? (sbr[sfs[0]][0] || "без бренда") : "брендов: " + sbr[sfs[0]].length) : "") : "Поставщиков: " + sfs.length}</span>
-              <span className="mut">▾</span>
-            </button>
-            {supOpen && (
-              <div className="sup-pop" style={{ position: "absolute", top: "105%", left: 0, width: 290, zIndex: 1002, background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 10, boxShadow: "0 16px 44px rgba(0,0,0,.2)", padding: 8 }}>
-                {(() => {
-                  const list = suppliers.filter((x) => x.status !== "inactive" && supCount[x.id] && (!supQ.trim() || String(x.name || "").toLowerCase().includes(supQ.trim().toLowerCase())));
-                  const hs = hov && list.some((x) => x.id === hov) ? hov : null;
-                  const brands = hs ? supBrands[hs] || [] : [];
-                  const onKey = (e) => {
-                    const inBr = brAct >= 0 && hs && brands.length;
-                    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                      e.preventDefault(); const d = e.key === "ArrowDown" ? 1 : -1;
-                      if (inBr) setBrAct((i) => (i + d + brands.length) % brands.length);
-                      else if (list.length) { const i = (supAct < 0 ? (d > 0 ? 0 : list.length - 1) : (supAct + d + list.length) % list.length); setSupAct(i); setHov(list[i].id); }
-                    } else if (e.key === "ArrowRight" && hs && brands.length > 1) { e.preventDefault(); setBrAct(0); }
-                    else if (e.key === "ArrowLeft" && brAct >= 0) { e.preventDefault(); setBrAct(-1); }
-                    else if ((e.key === "Enter" || (e.key === " " && !supQ)) && (inBr || supAct >= 0)) {
-                      e.preventDefault(); e.stopPropagation();
-                      if (inBr) toggleBrand(hs, brands[brAct].b); else if (list[supAct]) toggleSup(list[supAct].id);
-                    } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setSupOpen(false); setBrAct(-1); setTimeout(() => { if (searchRef.current) searchRef.current.focus(); }, 0); }
-                  };
-                  return <>
-                    <input className="inp" autoFocus placeholder="Найти поставщика…  (↑↓ · → бренды · Enter — отметить)" value={supQ} onChange={(e) => { setSupQ(e.target.value); setSupAct(-1); setBrAct(-1); }} onKeyDown={onKey} style={{ marginBottom: 6 }} />
-                    <div className="sup-list" style={{ maxHeight: 300, overflow: "auto" }}>
-                      {list.map((x, i) => (
-                        <label key={x.id} className={"row clk pick-sup" + (hs === x.id ? " hov" : "")} data-on={supAct === i ? "1" : undefined} onMouseEnter={() => { setHov(x.id); setSupAct(i); setBrAct(-1); }}
-                          style={{ gap: 8, flexWrap: "nowrap", padding: "6px 6px", borderRadius: 6, background: sfSet.has(x.id) ? "var(--acc-tint)" : "none" }}>
-                          <input type="checkbox" checked={sfSet.has(x.id)} onChange={() => toggleSup(x.id)} />
-                          <span className="sm" style={{ flex: 1, fontWeight: sfSet.has(x.id) ? 700 : 500 }}>{x.name}{sbr[x.id] && sbr[x.id].length ? <span className="xs" style={{ color: "var(--acc)", fontWeight: 600 }}> · брендов: {sbr[x.id].length}</span> : null}</span>
-                          <span className="xs mut">{supCount[x.id]}</span>
-                          {(supBrands[x.id] || []).length > 1 && <span className="xs mut">›</span>}
-                        </label>
-                      ))}
-                    </div>
-                    {hs && brands.length > 1 && (
-                      <div className="brand-fly">
-                        <div className="xs mut" style={{ fontWeight: 700, marginBottom: 6 }}>Бренды · {supName[hs]}</div>
-                        <div style={{ maxHeight: 300, overflow: "auto" }}>
-                          {brands.map((r, i) => {
-                            const on = !!(sbr[hs] && sbr[hs].includes(r.b));
-                            return (
-                              <label key={r.b || "—"} className={"row clk pick-sup" + (brAct === i ? " hov" : "")} data-on={brAct === i ? "1" : undefined} onMouseEnter={() => setBrAct(i)}
-                                style={{ gap: 8, flexWrap: "nowrap", padding: "5px 6px", borderRadius: 6, background: on ? "var(--acc-tint)" : "none" }}>
-                                <input type="checkbox" checked={on} onChange={() => toggleBrand(hs, r.b)} />
-                                <span className="sm" style={{ flex: 1, fontWeight: on ? 700 : 500 }}>{r.b || "без бренда"}</span>
-                                <span className="xs mut">{r.n}</span>
-                              </label>
-                            );
-                          })}
-                        </div>
-                        {sbr[hs] && sbr[hs].length > 0 && <button type="button" className="btn xs" style={{ marginTop: 6 }} onClick={() => setSbr((b) => { const n = { ...b }; delete n[hs]; return n; })}>Все бренды</button>}
-                      </div>
-                    )}
-                  </>;
-                })()}
-                <div className="row" style={{ justifyContent: "space-between", marginTop: 6, gap: 6 }}>
-                  <button type="button" className="btn xs" disabled={!sf} onClick={() => { setSfs([]); setSbr({}); setActiveIdx(-1); }}>Сбросить</button>
-                  <button type="button" className="btn xs pri" onClick={() => { setSupOpen(false); setOpen(true); setTimeout(() => { if (searchRef.current) searchRef.current.focus(); }, 0); }}>Готово</button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        {suppliers.length > 0 && <SupBrandFilter suppliers={suppliers} products={products} sfs={sfs} setSfs={setSfs} sbr={sbr} setSbr={setSbr}
+          onChange={() => { setOpen(true); setActiveIdx(-1); }} onDone={() => { setOpen(true); setTimeout(() => { if (searchRef.current) searchRef.current.focus(); }, 0); }} />}
         <input data-esc="1" ref={searchRef} className="inp" style={{ flex: "1 1 180px", width: "auto", minWidth: 0 }} placeholder={sf ? (sfs.length === 1 ? "Поиск среди товаров поставщика…" : "Поиск среди товаров выбранных поставщиков…") : placeholder || "Поиск товара для добавления…"} value={q}
           onChange={(e) => { setQ(e.target.value); setActiveIdx(-1); setOpen(true); }}
           onFocus={() => setOpen(true)}
@@ -2341,7 +2351,8 @@ const ProductRow = memo(function ProductRow({ p, checked, sup, onToggle, onEdit 
 function ProductsTab({ data, reload, toast }) {
   const { products, suppliers } = data;
   const [q, setQ] = useState("");
-  const [supF, setSupF] = useState("");
+  const [sfs, setSfs] = useState([]); // поставщики (можно несколько) и бренды внутри них — как в поиске товара
+  const [sbr, setSbr] = useState({});
   const [brandF, setBrandF] = useState("");
   const [edit, setEdit] = useState(null);
   const [imp, setImp] = useState(false);
@@ -2358,7 +2369,7 @@ function ProductsTab({ data, reload, toast }) {
     const upd = () => { if (boxRef.current) setViewH(boxRef.current.clientHeight || 700); };
     upd(); window.addEventListener("resize", upd); return () => window.removeEventListener("resize", upd);
   }, []);
-  useEffect(() => { if (boxRef.current) boxRef.current.scrollTop = 0; setScrollTop(0); }, [dq, supF, brandF]);
+  useEffect(() => { if (boxRef.current) boxRef.current.scrollTop = 0; setScrollTop(0); }, [dq, sfs, sbr, brandF]);
   const brands = useMemo(() => [...new Set(products.map((p) => p.brand).filter(Boolean))].sort(), [products]);
   const sorted = useMemo(() => [...products].sort(productOrder), [products]); // по коду: 1, 2, 3…
   const needRenum = useMemo(() => codesNeedRenumber(products), [products]);
@@ -2367,11 +2378,12 @@ function ProductsTab({ data, reload, toast }) {
   const list = useMemo(() => {
     const qw = searchWords(dq);
     return sorted.filter((p, i) =>
-      (!supF || p.supplier_id === supF) &&
+      (!sfs.length || sfs.includes(p.supplier_id)) &&
+      (!(sbr[p.supplier_id] || []).length || sbr[p.supplier_id].includes(String(p.brand || "").trim())) &&
       (!brandF || p.brand === brandF) &&
       (!qw.length || qw.every((w) => searchIdx[i].includes(w)))
     );
-  }, [sorted, searchIdx, dq, supF, brandF]);
+  }, [sorted, searchIdx, dq, sfs, sbr, brandF]);
   // перенумеровать все коды 1…N (порядок: уже пронумерованные, затем по дате добавления и названию)
   const doRenumber = async () => {
     const all = [...products].sort(productOrder).map((p, i) => ({ p, code: String(i + 1) })).filter((x) => String(x.p.code || "").trim() !== x.code);
@@ -2423,10 +2435,7 @@ function ProductsTab({ data, reload, toast }) {
       <div className="row sect">
         <h2 style={{ marginRight: "auto" }}>База товаров <span className="mut sm">({list.length !== products.length ? list.length + " из " + products.length : products.length})</span></h2>
         <input className="inp" style={{ maxWidth: 200 }} placeholder="Поиск…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select className="inp" style={{ maxWidth: 170 }} value={supF} onChange={(e) => setSupF(e.target.value)}>
-          <option value="">Все поставщики</option>
-          {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
+        <SupBrandFilter suppliers={suppliers} products={products} sfs={sfs} setSfs={setSfs} sbr={sbr} setSbr={setSbr} width={200} />
         <select className="inp" style={{ maxWidth: 150 }} value={brandF} onChange={(e) => setBrandF(e.target.value)}>
           <option value="">Все бренды</option>
           {brands.map((b) => <option key={b} value={b}>{b}</option>)}
