@@ -4237,7 +4237,6 @@ function ObjectEditModal({ obj, data, reload, toast, onClose }) {
           )}
           {!v.master_id && obj.master && !obj.master_id && <div className="xs mut" style={{ marginTop: 4 }}>сейчас: {obj.master} (без привязки)</div>}
         </div>
-        <Fld label="Менеджер"><PersonSelect value={v.manager} onChange={(m) => setV({ ...v, manager: m })} /></Fld>
         <Fld label="Адрес"><input className="inp" value={v.address} onChange={(e) => setV({ ...v, address: e.target.value })} /></Fld>
       </div>
       {err && <p className="sm" style={{ color: "var(--bad)", marginTop: 8 }}>{err}</p>}
@@ -4758,7 +4757,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
           <h2>{obj.name}</h2>
           <div className="sm mut">
             {obj.client} · {obj.phone} · менеджер:{" "}
-            <PersonSelect compact value={obj.manager || ""} onChange={(m) => setField({ manager: m || null }, "менеджер")} />
+            <b style={{ color: "var(--txt)" }}>{obj.manager || "—"}</b>{/* менеджер — тот, кто создал заявку; менять нельзя */}
             {" "}· мастер:{" "}
             <select className="inp" style={{ display: "inline-block", width: "auto", padding: "2px 6px", fontSize: 12 }} value={obj.master_id || ""}
               onChange={(e) => { const m = masters.find((x) => x.id === e.target.value); setField({ master_id: e.target.value || null, master: m ? m.name : obj.master }, "мастер"); }}>
