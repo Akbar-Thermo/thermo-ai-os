@@ -7131,10 +7131,9 @@ function FinanceTab({ data, reload, toast, boss = false }) {
         <Fld label="С даты"><input type="date" className="inp" style={{ width: 150 }} value={from} onChange={(e) => setFrom(e.target.value)} /></Fld>
         <Fld label="По дату"><input type="date" className="inp" style={{ width: 150 }} value={to} onChange={(e) => setTo(e.target.value)} /></Fld>
         <div style={{ display: "flex", gap: 4, alignSelf: "flex-end", flexWrap: "wrap" }}>
-          <button className="btn xs" onClick={() => { setFrom(monthStart()); setTo(today()); }}>Этот месяц</button>
-          <button className="btn xs" onClick={() => { setFrom(daysAgo(6)); setTo(today()); }}>7 дней</button>
-          <button className="btn xs" onClick={() => { setFrom(daysAgo(29)); setTo(today()); }}>30 дней</button>
-          <button className="btn xs" onClick={() => { setFrom(""); setTo(""); }}>Весь период</button>
+          {[["Сегодня", today(), today()], ["Вчера", daysAgo(1), daysAgo(1)], ["7 дней", daysAgo(6), today()], ["Этот месяц", monthStart(), today()], ["30 дней", daysAgo(29), today()], ["Весь период", "", ""]].map(([l, f, t]) => (
+            <button key={l} className={"btn xs" + (from === f && to === t ? " pri" : "")} onClick={() => { setFrom(f); setTo(t); }}>{from === f && to === t ? "✓ " : ""}{l}</button>
+          ))}
         </div>
       </div>
       <PayMethodsCard objects={objects} ops={finance_ops} from={from} to={to} />
