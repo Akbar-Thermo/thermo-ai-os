@@ -502,6 +502,7 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .roles-grp td{background:var(--panel2);font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--mut)}
 .inp.role-name{padding:4px 6px;font-size:12px;font-weight:800;text-align:center;min-width:110px}
 .inp.role-base{padding:2px 4px;font-size:11px;width:auto}
+.pick-name{font-weight:600;font-size:13px;line-height:17px;color:var(--txt);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
 .cq-hint{margin:0 0 8px;padding:8px 12px;border:1px dashed var(--acc);border-radius:10px;background:var(--acc-tint);color:var(--txt);line-height:1.5}
 .inp.cq-inp{width:118px;text-align:right;margin:0 auto;display:block;font-weight:700}
 .inp.cq-inp.ch{border-color:var(--acc);background:var(--acc-tint)}
@@ -1379,10 +1380,19 @@ function Modal({ title, onClose, children, w = 640 }) {
 const PeopleCtx = createContext({ people: [], addPerson: () => {} });
 const curUserName = () => (CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username || "") : "");
 // поле «Клиент» с подсказками: клиенты из прошлых объектов (имя · телефон); выбор подставляет и телефон
+// подсказки: строка, выбранная стрелками, всегда видна (список прокручивается за ней)
+function useActScroll(ref, act) {
+  useEffect(() => {
+    if (act < 0 || !ref.current) return;
+    const el = ref.current.querySelector('.pick-row[data-on="1"]');
+    if (el) el.scrollIntoView({ block: "nearest" });
+  }, [act]);
+}
 function ClientInput({ value, objects, onChange, onPick, onEnter, phoneMode = false }) {
   const [open, setOpen] = useState(false);
   const [act, setAct] = useState(-1);
   const box = useRef(null);
+  useActScroll(box, act);
   useEffect(() => {
     if (!open) return;
     const h = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
@@ -1421,7 +1431,7 @@ function ClientInput({ value, objects, onChange, onPick, onEnter, phoneMode = fa
         <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, boxShadow: "0 16px 44px rgba(0,0,0,.18)", overflow: "hidden", maxHeight: 300, overflowY: "auto" }}>
           <div className="xs mut" style={{ padding: "6px 11px", borderBottom: "1px solid var(--line)" }}>Клиенты из прошлых объектов</div>
           {hits.map((c, i) => (
-            <div key={c.k} className="clk pick-row" style={{ padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === act ? "var(--acc-tint)" : "var(--panel)" }}
+            <div key={c.k} className="clk pick-row" data-on={i === act ? "1" : undefined} style={{ padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === act ? "var(--acc-tint)" : "var(--panel)" }}
               onMouseDown={(e) => e.preventDefault()} onClick={() => pick(c)}>
               <div style={{ fontWeight: 600, fontSize: 13 }}>{phoneMode ? c.phone : c.client}</div>
               <div className="xs mut">{[phoneMode ? c.client : c.phone, "объектов: " + c.n, c.last].filter(Boolean).join(" · ")}</div>
@@ -1445,8 +1455,10 @@ function MasterPicker({ masters, value, onChange, onAdd }) {
   const hits = list.filter((m) => !typed || !qq || [m.name, m.phone, m.specialty].filter(Boolean).join(" ").toLowerCase().includes(qq));
   const rows = [...hits.map((m) => ({ m })), { add: true }];
   const pick = (r) => { setOpen(false); setAct(-1); if (r.add) { onAdd(); return; } onChange(r.m); setQ(r.m.name); };
+  const wrapRef = useRef(null);
+  useActScroll(wrapRef, act);
   return (
-    <div style={{ position: "relative" }}>
+    <div ref={wrapRef} style={{ position: "relative" }}>
       <input data-esc="1" className="inp" value={q} autoComplete="off" autoCorrect="off" spellCheck={false} name="te_ms_n" data-lpignore="true" data-form-type="other" placeholder="— выберите мастера —"
         onChange={(e) => { setQ(e.target.value); setOpen(true); setAct(-1); if (!e.target.value.trim() && cur) onChange(null); }}
         onFocus={(e) => { setOpen(true); e.target.select(); }}
@@ -1461,7 +1473,7 @@ function MasterPicker({ masters, value, onChange, onAdd }) {
         <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, boxShadow: "0 16px 44px rgba(0,0,0,.18)", overflow: "hidden", maxHeight: 320, overflowY: "auto" }}>
           <div className="xs mut" style={{ padding: "6px 11px", borderBottom: "1px solid var(--line)" }}>{hits.length ? "Мастера" : "Не найдено"}</div>
           {rows.map((r, i) => (
-            <div key={r.add ? "__add" : r.m.id} className="clk pick-row" style={{ padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === act || (!r.add && r.m.id === value) ? "var(--acc-tint)" : "var(--panel)" }}
+            <div key={r.add ? "__add" : r.m.id} className="clk pick-row" data-on={i === act ? "1" : undefined} style={{ padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === act || (!r.add && r.m.id === value) ? "var(--acc-tint)" : "var(--panel)" }}
               onMouseDown={(e) => e.preventDefault()} onClick={() => pick(r)}>
               {r.add ? <div style={{ fontWeight: 600, fontSize: 13, color: "var(--acc)" }}>+ добавить нового мастера…</div> : <>
                 <div style={{ fontWeight: 600, fontSize: 13 }}>{r.m.name}{r.m.id === value ? " ✓" : ""}</div>
@@ -2039,7 +2051,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
   const searchRef = useRef(null);
   // показываем ВСЕ найденные товары (без лимита). Список прокручивается, рисуются только видимые строки.
   // Поиск по словам: «труба 25» найдёт «ХВС ТРУБА PN16 - 25» (все слова, в любом порядке).
-  const ROW = 50, BOX_H = 380;
+  const ROW = 68, BOX_H = 420; // строка — до 2 строк названия: длинные названия видны целиком
   // persistKey: набранный текст поиска (и товар, ждущий количества) сохраняются — переход в другой раздел их не стирает
   const loadSaved = () => { if (!persistKey) return {}; try { return JSON.parse(localStorage.getItem(persistKey) || "{}") || {}; } catch (e) { return {}; } };
   const [q, setQ] = useState(() => loadSaved().q || "");
@@ -2201,7 +2213,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
                     <div key={p.id} className={"clk pick-row" + (whSet.has(p.id) ? " pick-wh" : "")} title={p.name}
                       style={{ position: "absolute", top: i * ROW, left: 0, right: 0, height: ROW, boxSizing: "border-box", padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === activeIdx ? "var(--acc-tint)" : whSet.has(p.id) ? "var(--wh-tint)" : "var(--panel)", boxShadow: whSet.has(p.id) ? "inset 3px 0 0 var(--ok)" : "none", overflow: "hidden" }}
                       onClick={() => pick(p)}>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: "var(--txt)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                      <div className="pick-name">{p.name}</div>
                       <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, brandOf(p, supName[p.supplier_id]), supName[p.supplier_id]].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}{whQty && whQty[p.id] ? <b style={{ color: "var(--ok)" }}> · 🏬 {whSet.has(p.id) ? "Склад Thermo" : "есть на Складе Thermo"}: {fmt(whQty[p.id])}{whSim && whSim[p.id] ? (whSet.has(p.id) ? " (+ такой же у другого поставщика)" : " (такой же у другого поставщика)") : ""}</b> : null}</div>
                     </div>
                   );
