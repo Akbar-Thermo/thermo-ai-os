@@ -190,11 +190,19 @@ end $$;
 -- ---------- аккаунты: пароль сразу в закрытую таблицу; менять аккаунты — только руководитель ----------
 create or replace function public.te_users_guard() returns trigger
 language plpgsql security definer set search_path = public as $$
-declare r text;
+declare r text; acc boolean;
 begin
   if public.te_via_api() then
     r := public.te_session_role();
-    if r is distinct from 'boss' then
+    -- право «Аккаунты» (Аккаунты → ред. → галочка): создавать и менять аккаунты, кроме руководителей
+    acc := r is distinct from 'boss' and coalesce((
+      select case when jsonb_typeof(x.lines) = 'object' then (x.lines -> (public.te_session_user()::text) -> 'perms' ->> 'accounts') = 'true' else false end
+      from public.requests x where x.mode = 'te_perms' limit 1), false);
+    if acc then
+      if (tg_op <> 'INSERT' and old.role = 'boss') or (tg_op <> 'DELETE' and new.role = 'boss') then
+        raise exception 'te_forbidden: аккаунты руководителей меняет только руководитель' using errcode = '42501';
+      end if;
+    elsif r is distinct from 'boss' then
       -- менеджер может только добавлять / переименовывать / убирать «сотрудников» (staff) в финансах
       if tg_op = 'DELETE' then
         if old.role is distinct from 'staff' then raise exception 'te_forbidden: аккаунты меняет только руководитель' using errcode = '42501'; end if;

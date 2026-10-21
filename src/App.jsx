@@ -184,8 +184,9 @@ const PERMS = [
   { id: "del", label: "Удаление: объекты с оплатами, операции, мастера" },
   { id: "salary", label: "Зарплата сотрудников" },
   { id: "backup", label: "Бэкап базы и Excel-архив" },
+  { id: "accounts", label: "Аккаунты: создавать и менять (кроме руководителей)" },
 ];
-const ALL_PERMS = { fin: true, del: true, salary: true, backup: true };
+const ALL_PERMS = { fin: true, del: true, salary: true, backup: true, accounts: true };
 const rolesCfgRow = (data) => ((data && data.requests) || []).find((x) => x.mode === ROLE_CFG_MODE) || null;
 function allRoles(data) {
   const row = rolesCfgRow(data);
@@ -208,8 +209,11 @@ function accessOf(u, roles, uperms) {
   const r = (u && roles.find((x) => x.id === u.role)) || roles.find((x) => x.id === "manager");
   const own = r.base !== "boss" && u && uperms && uperms[u.id];
   const t0 = own && Array.isArray(own.tabs) ? own.tabs.filter((t) => GRANT_TABS.includes(t)) : r.tabs;
-  const tabs = r.base === "boss" ? r.tabs : (t0.length ? t0 : r.base === "driver" ? ["delivery"] : ["objects"]);
-  return { id: r.id, label: r.label, base: r.base, tabs, perms: r.base === "boss" ? ALL_PERMS : (own ? own.perms || {} : r.perms || {}) };
+  const tabs0 = r.base === "boss" ? r.tabs : (t0.length ? t0 : r.base === "driver" ? ["delivery"] : ["objects"]);
+  const perms = r.base === "boss" ? ALL_PERMS : (own ? own.perms || {} : r.perms || {});
+  // «Аккаунты»: руководителю — всегда; другим — если дано право управлять аккаунтами
+  const tabs = r.base !== "boss" && perms.accounts && !tabs0.includes("admin") ? [...tabs0, "admin"] : tabs0;
+  return { id: r.id, label: r.label, base: r.base, tabs, perms };
 }
 let ROLE_LIST = ROLES; // для подписей ролей вне компонентов (журнал)
 const roleLabel = (r) => (ROLE_LIST.find((x) => x.id === r) || ROLES.find((x) => x.id === r) || {}).label || "—";
@@ -7297,7 +7301,7 @@ async function saveRolesCfg(data, roles) {
   await logAction("Изменены роли и права", "roles", lines.map((r) => r.label + ": " + r.tabs.map((t) => TAB_NAMES[t]).join(", ") + (PERMS.some((p) => r.perms[p.id]) ? " + " + PERMS.filter((p) => r.perms[p.id]).map((p) => p.id).join(",") : "")).join(" | "));
   return "";
 }
-function AdminTab({ data, reload, toast, currentUser }) {
+function AdminTab({ data, reload, toast, currentUser, isBoss = true }) {
   const users = (data.users || []).filter((u) => !isStaff(u)); // сотрудники (для зарплаты) — не аккаунты
   const [edit, setEdit] = useState(null);
   const [del, setDel] = useState(null);
@@ -7323,15 +7327,16 @@ function AdminTab({ data, reload, toast, currentUser }) {
                 <td style={{ minWidth: 220 }}><RoleCan r={accessOf(u, roles, uperms)} /></td>
                 <td className="sm">{u.status === "active" ? "активен" : "отключён"}</td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
-                  <button className="btn xs" onClick={() => setEdit(u)}>ред.</button>
-                  {u.id !== currentUser.id && <button className="btn xs dng" onClick={() => setDel(u)}>✕</button>}
+                  {/* не руководитель с правом «Аккаунты»: аккаунты руководителей не меняет и не удаляет */}
+                  {(isBoss || u.role !== "boss") && <button className="btn xs" onClick={() => setEdit(u)}>ред.</button>}
+                  {u.id !== currentUser.id && (isBoss || u.role !== "boss") && <button className="btn xs dng" onClick={() => setDel(u)}>✕</button>}
                 </div></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {edit && <UserForm u={edit} users={users} data={data} uperms={uperms} self={currentUser} hasCloud={!!(edit.id && cloud[edit.id])}
+      {edit && <UserForm u={edit} users={users} data={data} uperms={uperms} self={currentUser} isBoss={isBoss} hasCloud={!!(edit.id && cloud[edit.id])}
         onCloudReset={async () => {
           if (!(await askConfirm({ title: "Сбросить облачный пароль?", text: "«" + (edit.name || edit.username) + "» при следующем входе создаст новый облачный пароль.", ok: "Да, сбросить", cancel: "Нет" }))) return false;
           if (!(await cloudSet(edit.id, null))) return false;
@@ -7362,7 +7367,7 @@ function AdminTab({ data, reload, toast, currentUser }) {
     </div>
   );
 }
-function UserForm({ u, users, self, onClose, onSave, data = null, uperms = {}, hasCloud = false, onCloudReset = null }) {
+function UserForm({ u, users, self, onClose, onSave, data = null, uperms = {}, hasCloud = false, onCloudReset = null, isBoss = true }) {
   const [cloudHas, setCloudHas] = useState(hasCloud);
   const [v, setV] = useState({ role: "manager", status: "active", ...u });
   // роли (с правами) — правятся прямо здесь; права роли общие для всех аккаунтов с этой ролью
@@ -7393,6 +7398,7 @@ function UserForm({ u, users, self, onClose, onSave, data = null, uperms = {}, h
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setV({ ...v, [k]: e.target.value });
   const isSelf = !!(self && v.id && v.id === self.id); // себе нельзя снять роль руководителя или отключить вход
+  const permsLocked = isSelf && !isBoss; // свои права может менять только руководитель
   const submit = async () => {
     const uname = (v.username || "").trim(); // регистр сохраняется («Jamol»); вход — без учёта регистра
     if (!uname) return setErr("Укажите логин");
@@ -7415,7 +7421,7 @@ function UserForm({ u, users, self, onClose, onSave, data = null, uperms = {}, h
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         <Fld label="Логин"><input className="inp mono" value={v.username || ""} onChange={set("username")} placeholder="manager1" /></Fld>
         <Fld label="Имя сотрудника"><input className="inp" value={v.name || ""} onChange={set("name")} /></Fld>
-        <Fld label="Роль"><select className="inp" value={v.role} disabled={isSelf} title={isSelf ? "Свою роль изменить нельзя" : ""} onChange={onRole}>{roles.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}<option value="__new">+ Новая роль…</option></select></Fld>
+        <Fld label="Роль"><select className="inp" value={v.role} disabled={isSelf} title={isSelf ? "Свою роль изменить нельзя" : ""} onChange={onRole}>{roles.filter((r) => isBoss || r.base !== "boss" || r.id === v.role).map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}<option value="__new">+ Новая роль…</option></select></Fld>
         <Fld label="Статус"><select className="inp" value={v.status} disabled={isSelf} title={isSelf ? "Свой аккаунт отключить нельзя" : ""} onChange={set("status")}><option value="active">активен</option><option value="disabled">отключён</option></select></Fld>
         <div style={{ gridColumn: "1/-1" }}><Fld label={v.id ? "Новый пароль (оставьте пустым — без изменений)" : "Пароль"}>
           <div style={{ position: "relative" }}>
@@ -7438,10 +7444,10 @@ function UserForm({ u, users, self, onClose, onSave, data = null, uperms = {}, h
         </div>
         {cur.base === "boss" ? <p className="sm mut">Все разделы и все права.</p> : <>
           <div className="perm-grid">
-            {GRANT_TABS.map((t) => <label key={t} className="clk sm"><input type="checkbox" checked={own.tabs.includes(t)} onChange={() => updOwn((r) => { r.tabs = r.tabs.includes(t) ? r.tabs.filter((x) => x !== t) : GRANT_TABS.filter((x) => x === t || r.tabs.includes(x)); return r; })} /> {TAB_NAMES[t]}</label>)}
+            {GRANT_TABS.map((t) => <label key={t} className="clk sm"><input type="checkbox" disabled={permsLocked} checked={own.tabs.includes(t)} onChange={() => updOwn((r) => { r.tabs = r.tabs.includes(t) ? r.tabs.filter((x) => x !== t) : GRANT_TABS.filter((x) => x === t || r.tabs.includes(x)); return r; })} /> {TAB_NAMES[t]}</label>)}
           </div>
           {cur.base !== "driver" && <div className="perm-grid" style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
-            {PERMS.map((p) => <label key={p.id} className="clk sm" style={{ gridColumn: "1/-1" }}><input type="checkbox" checked={!!own.perms[p.id]} onChange={() => updOwn((r) => { r.perms[p.id] = !r.perms[p.id]; return r; })} /> {p.label}</label>)}
+            {PERMS.map((p) => <label key={p.id} className="clk sm" style={{ gridColumn: "1/-1" }}><input type="checkbox" disabled={permsLocked} checked={!!own.perms[p.id]} onChange={() => updOwn((r) => { r.perms[p.id] = !r.perms[p.id]; return r; })} /> {p.label}</label>)}
           </div>}
         </>}
       </div>
@@ -8467,7 +8473,7 @@ function AppInner() {
         {tab === "wh" && <WarehouseTab data={data} reload={reload} toast={toast} readOnly={role === "driver"} openObject={(id) => { if (role === "driver") { setTab("delivery"); setOpenId(id); } else { setOpenId(id); setTab("objects"); } }} />}
         {tab === "delivery" && <DeliveryTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} />}
         {tab === "log" && <LogTab data={data} reload={reload} onBackup={acc.perms.backup ? () => setBackupOpen(true) : null} />}
-        {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} />}
+        {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} isBoss={role === "boss"} />}
         {tab === "finance" && <FinanceTab data={data} reload={reload} toast={toast} boss={!!acc.perms.salary} />}
       </div>
       {backupOpen && acc.perms.backup && <BackupModal who={currentUser.name || currentUser.username} data={data} reload={reload} onClose={() => { setBackupOpen(false); setAbTick((n) => n + 1); }} toast={toast} onFilePick={() => restoreRef.current.click()} onRestoreText={async (text) => {
