@@ -151,7 +151,7 @@ const ROLE_CFG_MODE = "te_roles";
 /* Облачный пароль (как в Telegram): после обычного пароля — второй, свой у каждого аккаунта.
    Хэши хранятся служебной записью requests (mode = "te_2fa", lines = { id аккаунта: хэш }). */
 const CLOUD_MODE = "te_2fa";
-const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms"];
+const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note"];
 // служебная запись-словарь в requests: прочитать свежую и поменять один ключ
 async function cfgSetKey(mode, key, value) {
   const r0 = await db.from("requests").select().eq("mode", mode);
@@ -177,7 +177,7 @@ async function cloudSet(uid, hash) {
   const r = row ? await db.from("requests").update({ lines }).eq("id", row.id) : await db.from("requests").insert({ mode: CLOUD_MODE, source: "config", lines });
   return !r.error;
 }
-const TAB_NAMES = { dash: "Дашборд", request: "Новая заявка", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", delivery: "Доставка", admin: "Аккаунты" };
+const TAB_NAMES = { notes: "Заметки", dash: "Дашборд", request: "Новая заявка", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", delivery: "Доставка", admin: "Аккаунты" };
 const GRANT_TABS = ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "delivery"];
 const PERMS = [
   { id: "fin", label: "Себестоимость, прибыль, все финансовые операции" },
@@ -212,7 +212,8 @@ function accessOf(u, roles, uperms) {
   const tabs0 = r.base === "boss" ? r.tabs : (t0.length ? t0 : r.base === "driver" ? ["delivery"] : ["objects"]);
   const perms = r.base === "boss" ? ALL_PERMS : (own ? own.perms || {} : r.perms || {});
   // «Аккаунты»: руководителю — всегда; другим — если дано право управлять аккаунтами
-  const tabs = r.base !== "boss" && perms.accounts && !tabs0.includes("admin") ? [...tabs0, "admin"] : tabs0;
+  const tabs1 = r.base !== "boss" && perms.accounts && !tabs0.includes("admin") ? [...tabs0, "admin"] : tabs0;
+  const tabs = tabs1.includes("notes") ? tabs1 : [...tabs1, "notes"]; // «Заметки» — у всех
   return { id: r.id, label: r.label, base: r.base, tabs, perms };
 }
 let ROLE_LIST = ROLES; // для подписей ролей вне компонентов (журнал)
@@ -505,6 +506,14 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .brand-fly{position:absolute;top:0;left:calc(100% + 6px);width:240px;background:var(--panel);border:1px solid var(--line2);border-radius:10px;box-shadow:0 16px 44px rgba(0,0,0,.2);padding:8px;z-index:1003}
 .pick-sup.hov{outline:1px solid var(--acc);outline-offset:-1px}
 @media(max-width:600px){.brand-fly{position:static;width:auto;margin-top:8px;box-shadow:none}}
+.notes-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;align-items:start}
+.card.note{border-top:4px solid var(--line);padding:12px 14px;min-height:96px}
+.card.note:hover,.card.note:focus-visible{border-color:var(--acc);outline:none}
+.note-title{font-size:14px;overflow-wrap:anywhere}
+.note-text{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--txt);display:-webkit-box;-webkit-line-clamp:8;-webkit-box-orient:vertical;overflow:hidden}
+.inp.note-area{min-height:220px;resize:vertical;line-height:1.5}
+.note-color{width:22px;height:22px;border-radius:50%;border:2px solid var(--line2);cursor:pointer;padding:0}
+.note-color.on{border-color:var(--txt);box-shadow:0 0 0 2px var(--acc-ring)}
 .pick-name{font-weight:600;font-size:13px;line-height:17px;color:var(--txt);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
 .cq-hint{margin:0 0 8px;padding:8px 12px;border:1px dashed var(--acc);border-radius:10px;background:var(--acc-tint);color:var(--txt);line-height:1.5}
 .inp.cq-inp{width:118px;text-align:right;margin:0 auto;display:block;font-weight:700}
@@ -7321,6 +7330,83 @@ function VozvratSection({ objects, finance_ops, suppliers, whMoves }) {
   );
 }
 
+/* ============ ЗАМЕТКИ ============
+   Каждая заметка — служебная запись в requests (mode = "te_note", lines = { title, text, color, pinned, shared, user_id, author, updated_at }).
+   Видны автору; «видна всем» — всем сотрудникам (менять и удалять может только автор). */
+const NOTE_MODE = "te_note";
+const NOTE_COLORS = ["", "#ff1f30", "#ffb020", "#3ddc7d", "#3d9bff", "#a46bff"];
+function NotesTab({ data, reload, toast, user }) {
+  useEffect(() => { reload(["requests"]); }, []);
+  const [q, setQ] = useState("");
+  const [ed, setEd] = useState(null);
+  const notes = useMemo(() => (data.requests || []).filter((r) => r.mode === NOTE_MODE && r.lines && (r.lines.user_id === user.id || r.lines.shared))
+    .map((r) => ({ id: r.id, ...r.lines })), [data.requests, user.id]);
+  const words = searchWords(q);
+  const shown = notes.filter((n) => !words.length || words.every((w) => (String(n.title || "") + " " + String(n.text || "") + " " + String(n.author || "")).toLowerCase().replace(/ё/g, "е").includes(w)))
+    .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+  useHotActions(() => [{ label: "+ Заметка", keys: "Alt+N", code: "KeyN", run: () => setEd({}) }]);
+  const save = async (n) => {
+    const lines = { title: String(n.title || "").trim(), text: n.text || "", color: n.color || "", pinned: !!n.pinned, shared: !!n.shared,
+      user_id: n.user_id || user.id, author: n.author || user.name || user.username, updated_at: new Date().toISOString() };
+    const r = n.id ? await db.from("requests").update({ lines }).eq("id", n.id) : await db.from("requests").insert({ mode: NOTE_MODE, source: "note", lines });
+    if (r.error) { toast("Заметка не сохранена: " + (r.error.message || r.error)); return false; }
+    await reload(["requests"]); return true;
+  };
+  const del = async (n) => {
+    if (!(await askConfirm({ title: "Удалить заметку?", text: "«" + (n.title || String(n.text || "").slice(0, 40) || "без названия") + "»", ok: "Да, удалить", cancel: "Нет" }))) return false;
+    const r = await db.from("requests").delete().eq("id", n.id);
+    if (r.error) return false;
+    await reload(["requests"]); toast("Заметка удалена"); return true;
+  };
+  return (
+    <div>
+      <div className="row sect">
+        <h2 style={{ marginRight: "auto" }}>Заметки <span className="mut sm">({notes.length})</span></h2>
+        <input className="inp" data-kbnav="1" style={{ maxWidth: 240 }} placeholder="Поиск по заметкам…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button className="btn pri" onClick={() => setEd({})}>+ Заметка</button>
+      </div>
+      <div className="notes-grid">
+        {shown.map((n) => {
+          const mine = n.user_id === user.id;
+          return (
+            <div key={n.id} className="card note clk" style={{ borderTopColor: n.color || "var(--line)" }} onClick={() => setEd(n)} tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setEd(n); }}>
+              <div className="row" style={{ gap: 6, flexWrap: "nowrap", marginBottom: 4 }}>
+                <b className="note-title" style={{ marginRight: "auto" }}>{n.title || "Без названия"}</b>
+                {n.pinned && <span title="Закреплена">📌</span>}
+                {n.shared && <span className="xs mut" title="Видна всем">👥</span>}
+              </div>
+              <div className="sm note-text">{n.text}</div>
+              <div className="xs mut" style={{ marginTop: 8 }}>{mine ? "" : (n.author || "") + " · "}{n.updated_at ? new Date(n.updated_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</div>
+            </div>
+          );
+        })}
+        {!shown.length && <div className="card mut sm" style={{ textAlign: "center", padding: 24 }}>{notes.length ? "Ничего не найдено" : "Заметок пока нет — «+ Заметка»"}</div>}
+      </div>
+      {ed && <NoteModal n={ed} mine={!ed.id || ed.user_id === user.id} onClose={() => setEd(null)} onSave={async (n) => { if (await save(n)) setEd(null); }} onDelete={async () => { if (await del(ed)) setEd(null); }} />}
+    </div>
+  );
+}
+function NoteModal({ n, mine, onClose, onSave, onDelete }) {
+  const [v, setV] = useState({ title: "", text: "", color: "", pinned: false, shared: false, ...n });
+  const [busy, setBusy] = useState(false);
+  const ro = !mine; // чужую общую заметку — только читать
+  return (
+    <Modal title={n.id ? (ro ? "Заметка · " + (n.author || "") : "Заметка") : "Новая заметка"} onClose={onClose} w={620}>
+      <Fld label="Заголовок"><input className="inp" value={v.title} readOnly={ro} onChange={(e) => setV({ ...v, title: e.target.value })} placeholder="например: позвонить клиенту" /></Fld>
+      <Fld label="Текст"><textarea className="inp note-area" value={v.text} readOnly={ro} autoFocus={!!n.id && !ro} onChange={(e) => setV({ ...v, text: e.target.value })} placeholder="Текст заметки…" /></Fld>
+      {!ro && <div className="row" style={{ gap: 12, marginTop: 6 }}>
+        <span className="row" style={{ gap: 6 }}>{NOTE_COLORS.map((c) => <button key={c || "none"} type="button" className={"note-color" + (v.color === c ? " on" : "")} style={{ background: c || "var(--panel2)" }} title={c ? "Цвет" : "Без цвета"} onClick={() => setV({ ...v, color: c })} />)}</span>
+        <label className="clk sm row" style={{ gap: 6 }}><input type="checkbox" checked={v.pinned} onChange={(e) => setV({ ...v, pinned: e.target.checked })} /> 📌 закрепить</label>
+        <label className="clk sm row" style={{ gap: 6 }}><input type="checkbox" checked={v.shared} onChange={(e) => setV({ ...v, shared: e.target.checked })} /> 👥 видна всем</label>
+      </div>}
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
+        {n.id && !ro && <button className="btn dng" style={{ marginRight: "auto" }} onClick={onDelete}>Удалить</button>}
+        <button className="btn" onClick={onClose}>{ro ? "Закрыть" : "Отмена"}</button>
+        {!ro && <button className="btn pri" disabled={busy || !(String(v.title).trim() || String(v.text).trim())} onClick={async () => { setBusy(true); await onSave(v); setBusy(false); }}>{busy ? "Сохраняю…" : "Сохранить"}</button>}
+      </div>
+    </Modal>
+  );
+}
 /* ============ ЖУРНАЛ ДЕЙСТВИЙ ============ */
 function LogTab({ data, reload, onBackup }) {
   const { audit_log } = data;
@@ -8444,8 +8530,8 @@ function AppInner() {
   };
 
   const roleTabs = acc.tabs;
-  const TAB_LABELS_RU = { delivery: "Доставка", request: "Новая заявка", dash: "Дашборд", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", admin: "Аккаунты" };
-  const TAB_LABELS_UZ = { delivery: "Yetkazish", request: "Yangi ariza", dash: "Boshqaruv", objects: "Ob'ektlar", products: "Tovarlar", wh: "Ombor Thermo", suppliers: "Ta'minotchilar", masters: "Ustalar", finance: "Moliya", log: "Jurnal", admin: "Hisoblar" };
+  const TAB_LABELS_RU = { delivery: "Доставка", request: "Новая заявка", dash: "Дашборд", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", admin: "Аккаунты" , notes: "Заметки" };
+  const TAB_LABELS_UZ = { delivery: "Yetkazish", request: "Yangi ariza", dash: "Boshqaruv", objects: "Ob'ektlar", products: "Tovarlar", wh: "Ombor Thermo", suppliers: "Ta'minotchilar", masters: "Ustalar", finance: "Moliya", log: "Jurnal", admin: "Hisoblar" , notes: "Eslatmalar" };
   const TAB_LABELS = lang === "uz" ? TAB_LABELS_UZ : TAB_LABELS_RU;
   const allTabs = roleTabs.map((id) => ({ id, label: TAB_LABELS[id] }));
   useEffect(() => { if (currentUser) { setTab(roleTabs[0]); setOpenId(null); } }, [currentUser ? currentUser.id + ":" + currentUser.role : ""]);
@@ -8559,6 +8645,7 @@ function AppInner() {
         {tab === "masters" && <MastersTab data={data} reload={reload} toast={toast} fin={true} canDel={!!acc.perms.del} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "wh" && <WarehouseTab data={data} reload={reload} toast={toast} readOnly={role === "driver"} openObject={(id) => { if (role === "driver") { setTab("delivery"); setOpenId(id); } else { setOpenId(id); setTab("objects"); } }} />}
         {tab === "delivery" && <DeliveryTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} />}
+        {tab === "notes" && <NotesTab data={data} reload={reload} toast={toast} user={currentUser} />}
         {tab === "log" && <LogTab data={data} reload={reload} onBackup={acc.perms.backup ? () => setBackupOpen(true) : null} />}
         {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} isBoss={role === "boss"} />}
         {tab === "finance" && <FinanceTab data={data} reload={reload} toast={toast} boss={!!acc.perms.salary} />}
