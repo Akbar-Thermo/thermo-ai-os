@@ -2970,7 +2970,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
           {batches.length > 1 && <button className="btn xs" style={{ marginLeft: 10 }} onClick={(e) => { e.preventDefault(); toggleAll(); }}>{allClosed ? "Развернуть все" : "Свернуть все"}</button>}
         </summary>
         <div style={{ overflow: "auto", maxHeight: 440 }}>
-          <table className="t"><thead><tr><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"right"}}>Себест.</th><th style={{textAlign:"right"}}>Сумма</th>{canEdit && <th></th>}</tr></thead>
+          <table className="t"><thead><tr><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"right"}}>Себест.</th><th style={{textAlign:"right"}}>Сумма</th></tr></thead>
             <tbody>
               {batches.map((g) => (
                 <React.Fragment key={g.key}>
@@ -2985,16 +2985,14 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
                       {retByKey[g.key] > 0 && <span className="xs" style={{ fontWeight: 600, color: "var(--warn)" }}> · возврат −{fmt(retByKey[g.key])}</span>}
                     </td>
                     <td className="num" style={{ fontWeight: 800 }}>{fmt(g.sum)}</td>
-                    {canEdit && <td></td>}
                   </tr>
                   {!closed[g.key] && g.items.map((it, i) => (
-                    <tr key={g.key + i}>
+                    <tr key={g.key + i} className={canEdit ? "clk" : undefined} title={canEdit ? "Нажмите, чтобы изменить кол-во / себестоимость" : undefined} onClick={canEdit ? () => setEd({ kind: "item", it }) : undefined}>
                       <td className="sm" style={{ paddingLeft: 28 }}>{it.name}</td>
                       <td className="num">{it.qty}</td>
                       <td className="xs mut">{it.unit}</td>
                       <td className="num">{fmt(it.cost)}</td>
                       <td className="num">{fmt((it.qty || 0) * (it.cost || 0))}</td>
-                      {canEdit && <td><button className="btn xs" title="Изменить кол-во / себестоимость" onClick={() => setEd({ kind: "item", it })}>✎</button></td>}
                     </tr>
                   ))}
                 </React.Fragment>
@@ -3009,7 +3007,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
         <summary className="sm" style={{ cursor: "pointer", fontWeight: 700, marginBottom: 8 }}>Возвраты поставщику по поставкам ({returns.length})</summary>
         {toWh.length > 0 && <p className="xs mut" style={{ margin: "0 0 8px" }}>Ещё возвращено клиентами на Склад Thermo: {toWh.length} поз. на {fmt(toWhCost)} по себестоимости — долг поставщику они не уменьшают, пока товар не вернут поставщику (Склад Thermo → «↩ поставщику»).</p>}
         <div style={{ overflow: "auto", maxHeight: 360 }}>
-        <table className="t"><thead><tr><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th style={{textAlign:"right"}}>Сумма (себест.)</th><th>Дата возврата</th><th>Причина</th>{canEdit && <th></th>}</tr></thead>
+        <table className="t"><thead><tr><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th style={{textAlign:"right"}}>Сумма (себест.)</th><th>Дата возврата</th><th>Причина</th></tr></thead>
           <tbody>
             {retGroups.map((g) => (
               <React.Fragment key={g.key}>
@@ -3023,13 +3021,12 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
                   <td colSpan={2}></td>
                 </tr>
                 {!rClosed[g.key] && g.ops.map((o) => (
-                  <tr key={o.id}>
+                  <tr key={o.id} className={canEdit ? "clk" : undefined} title={canEdit ? "Нажмите, чтобы изменить возврат" : undefined} onClick={canEdit ? () => setEd({ kind: "ret", o }) : undefined}>
                     <td className="sm" style={{ paddingLeft: 28 }}>{o.product_name || "—"}</td>
                     <td className="num">{o.qty || "—"}{o.unit ? <span className="xs mut"> {o.unit}</span> : null}</td>
                     <td className="num" style={{ color: "var(--warn)" }}>{fmt(o.cost_amount || 0)}</td>
                     <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
                     <td className="xs mut">{[o.reason, o.note].filter(Boolean).join(" · ")}</td>
-                    {canEdit && <td><button className="btn xs" title="Изменить возврат" onClick={() => setEd({ kind: "ret", o })}>✎</button></td>}
                   </tr>
                 ))}
               </React.Fragment>
@@ -3042,8 +3039,8 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
       </details>
       <details style={{ marginTop: 12 }}>
         <summary className="sm" style={{ cursor: "pointer", fontWeight: 700, marginBottom: 8 }}>Платежи ({payments.length})</summary>
-        <table className="t"><thead><tr><th>Дата</th><th style={{textAlign:"right"}}>Сумма, $</th><th>Способ оплаты</th><th>Кто</th><th>Примечание</th>{canEdit && <th></th>}</tr></thead>
-          <tbody>{payments.map((o) => <tr key={o.id}><td className="xs mono mut">{dt(o.op_date||o.created_at)}</td><td className="num" style={{color:"var(--ok)",fontWeight:700}}>{fmt(o.amount)}</td><td className="xs">{payText(o) || <span className="mut">не указан</span>}</td><td className="xs mut">{o.user}</td><td className="xs mut">{o.note}</td>{canEdit && <td><button className="btn xs" title="Изменить оплату" onClick={() => setEd({ kind: "pay", o })}>✎</button></td>}</tr>)}
+        <table className="t"><thead><tr><th>Дата</th><th style={{textAlign:"right"}}>Сумма, $</th><th>Способ оплаты</th><th>Кто</th><th>Примечание</th></tr></thead>
+          <tbody>{payments.map((o) => <tr key={o.id} className={canEdit ? "clk" : undefined} title={canEdit ? "Нажмите, чтобы изменить оплату" : undefined} onClick={canEdit ? () => setEd({ kind: "pay", o }) : undefined}><td className="xs mono mut">{dt(o.op_date||o.created_at)}</td><td className="num" style={{color:"var(--ok)",fontWeight:700}}>{fmt(o.amount)}</td><td className="xs">{payText(o) || <span className="mut">не указан</span>}</td><td className="xs mut">{o.user}</td><td className="xs mut">{o.note}</td></tr>)}
           {!payments.length && <tr><td colSpan={5} className="mut sm" style={{padding:14}}>Нет платежей</td></tr>}</tbody>
         </table>
       </details>
