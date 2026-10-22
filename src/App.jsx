@@ -132,6 +132,7 @@ const OP_TYPES = [
   { id: "bonus", label: "Бонус мастеру (начисление)" },
   { id: "bonus_payment", label: "Выплата бонуса мастеру" },
   { id: "company_expense", label: "Расход компании" },
+  { id: "company_income", label: "Приход компании" },
   { id: "wh_purchase", label: "Приход на склад (закупка)" },
 ];
 // бонусы мастеру начисляются и показываются только в разделе «Мастера»
@@ -514,6 +515,8 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .inp.note-area{min-height:220px;resize:vertical;line-height:1.5}
 .note-color{width:22px;height:22px;border-radius:50%;border:2px solid var(--line2);cursor:pointer;padding:0}
 .note-color.on{border-color:var(--txt);box-shadow:0 0 0 2px var(--acc-ring)}
+.fin-seg{display:inline-flex;gap:6px;flex-wrap:wrap}
+.kassa-pre{white-space:pre-wrap;font:13px/1.45 inherit;font-family:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:12px 0 0;max-height:300px;overflow:auto}
 .pick-name{font-weight:600;font-size:13px;line-height:17px;color:var(--txt);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
 .cq-hint{margin:0 0 8px;padding:8px 12px;border:1px dashed var(--acc);border-radius:10px;background:var(--acc-tint);color:var(--txt);line-height:1.5}
 .inp.cq-inp{width:118px;text-align:right;margin:0 auto;display:block;font-weight:700}
@@ -1560,11 +1563,11 @@ const PAY_GROUPS = [
   { key: "card", label: "Карта", ids: ["card"] },
   { key: "transfer", label: "Перечисление", ids: ["transfer"] },
 ];
-const PAY_IN_TYPES = ["client_payment"];
+const PAY_IN_TYPES = ["client_payment", "company_income"];
 const PAY_OUT_TYPES = ["supplier_payment", "expense", "company_expense", "bonus_payment"];
 const isPayType = (t) => PAY_IN_TYPES.includes(t) || PAY_OUT_TYPES.includes(t);
 const payMethodsFor = (type) => (PAY_IN_TYPES.includes(type) ? PAY_METHODS : OUT_METHODS);
-const PAY_USD_LABEL = { client_payment: "В долг клиента, $", supplier_payment: "В счёт долга поставщику, $", bonus_payment: "Выплата мастеру, $" };
+const PAY_USD_LABEL = { company_income: "Приход, $", client_payment: "В долг клиента, $", supplier_payment: "В счёт долга поставщику, $", bonus_payment: "Выплата мастеру, $" };
 const payUsdLabel = (type) => PAY_USD_LABEL[type] || "Расход, $";
 const RATE_KEY = "te:usd_rate";
 // курс — сум за $1 (≈ 12 000). Меньше 1 000 — это ошибка ввода (например «11,9» вместо «11 900»)
@@ -6652,7 +6655,7 @@ function payReport(objects, ops, from, to, mgr) {
     if (mgr && (!o || (o.manager || "") !== mgr)) return;
     const i = payInfo(x), r = rows[i.id || "none"], a = Number(x.amount) || 0;
     r.n++;
-    if (x.type === "client_payment") { r.inUsd += a; if (i.cur === "uzs") r.inUzs += i.uzs; return; }
+    if (x.type === "client_payment" || x.type === "company_income") { r.inUsd += a; if (i.cur === "uzs") r.inUzs += i.uzs; return; }
     r.outUsd += a;
     if (i.cur === "uzs") r.outUzs += i.uzs;
     if (x.type === "supplier_payment") r.sup += a;
@@ -6689,7 +6692,7 @@ function PayMethodsCard({ objects, ops, from, to, mgr }) {
       </div>
       <div style={{ overflowX: "auto" }}>
         <table className="t">
-          <thead><tr><th>Способ оплаты</th><th style={R}>Поступило от клиентов</th><th style={R}>Поставщикам</th><th style={R} title="доп. расходы объектов и расходы компании">Расходы</th><th style={R}>Бонусы мастерам</th><th style={R}>Всего выплачено</th><th style={R}>Разница</th></tr></thead>
+          <thead><tr><th>Способ оплаты</th><th style={R} title="оплаты клиентов и приходы компании">Поступило</th><th style={R}>Поставщикам</th><th style={R} title="доп. расходы объектов и расходы компании">Расходы</th><th style={R}>Бонусы мастерам</th><th style={R}>Всего выплачено</th><th style={R}>Разница</th></tr></thead>
           <tbody>
             {rep.list.map((r) => line(r))}
             {line(rep.tot, true)}
@@ -6885,7 +6888,7 @@ function Dashboard({ data }) {
       K.push([], [bal.cut ? "Долги — на " + dt(bal.cut) + "; склад и объекты — на сегодня" : "Остатки на сегодня"], ["Долги клиентов", bal.cdebt], ["Переплаты клиентов", bal.overpay], ["Долги поставщикам", bal.sdebt], ["Склад (по себестоимости)", bal.whCost], ["Объектов в работе", bal.active]);
       add("Показатели", K);
       const pr = payReport(objects, finance_ops, from, to, mgr);
-      add("Способы оплаты", [["Способ оплаты", "Поступило от клиентов, $", "в т.ч. сум", "Поставщикам, $", "Расходы, $", "Бонусы мастерам, $", "Всего выплачено, $", "в т.ч. сум", "Разница, $", "Операций"]]
+      add("Способы оплаты", [["Способ оплаты", "Поступило (клиенты и приходы), $", "в т.ч. сум", "Поставщикам, $", "Расходы, $", "Бонусы мастерам, $", "Всего выплачено, $", "в т.ч. сум", "Разница, $", "Операций"]]
         .concat([...pr.list, pr.tot].map((r) => [r.label, round2(r.inUsd), r.inUzs || "", round2(r.sup), round2(r.exp), round2(r.bonus), round2(r.outUsd), r.outUzs || "", round2(r.inUsd - r.outUsd), r.n])));
       add("Динамика", [["Период", "Выручка", "Валовая прибыль", "Поставок"]].concat(buckets.list.map((b) => [b.title, b.rev, b.gross, b.deals])));
       const sheet = (rows, extra = []) => [["Название", "Выручка", "Себестоимость", "Валовая прибыль", "Маржа, %", "Кол-во", "Поставок"].concat(extra.map((e) => e[0]))]
@@ -7033,6 +7036,30 @@ function Dashboard({ data }) {
 }
 
 /* ============ FINANCE TAB ============ */
+const INCOME_CATEGORIES = ["Инвестиция / вложение", "Займ", "Возврат долга", "Аренда (доход)", "Продажа имущества", "Прочее"];
+function CompanyIncomeForm({ onClose, onSave }) {
+  const [v, setV] = useState({ category: INCOME_CATEGORIES[0], op_date: today(), note: "" });
+  const [pay, setPay] = useState(() => { const p = payInit(null); return p.method === "usd" ? { ...p, method: "uzs", cur: "uzs" } : p; });
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal title="Приход компании" onClose={onClose} w={560}>
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <div style={{ gridColumn: "1/-1" }}><Fld label="Источник"><select className="inp" value={v.category} onChange={(e) => setV({ ...v, category: e.target.value })}>{INCOME_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></Fld></div>
+        <PayFields p={pay} setP={setPay} methods={PAY_METHODS} usdLabel={payUsdLabel("company_income")} />
+        <Fld label="Дата"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
+        <div style={{ gridColumn: "1/-1" }}><Fld label="Комментарий"><input className="inp" value={v.note} placeholder="от кого / за что…" onChange={(e) => setV({ ...v, note: e.target.value })} /></Fld></div>
+      </div>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
+        <button className="btn" onClick={onClose}>Отмена</button>
+        <button className="btn pri" disabled={busy || !(payUsd(pay) > 0)} onClick={async () => {
+          setBusy(true);
+          await onSave({ type: "company_income", object_id: null, category: v.category, ...payPatch(pay, "company_income"), op_date: v.op_date || today(), note: v.note, user: curUserName() });
+          setBusy(false);
+        }}>Сохранить</button>
+      </div>
+    </Modal>
+  );
+}
 function CompanyExpenseForm({ onClose, onSave, boss = false, employees = [], onEmployeeAdded, data = {} }) {
   const cats = boss ? EXPENSE_CATEGORIES : EXPENSE_CATEGORIES.filter((c) => c !== SALARY_CAT);
   const [v, setV] = useState({ category: cats[0], op_date: today(), note: "", user: curUserName(), kind: "Зарплата", emp: "" });
@@ -7075,6 +7102,11 @@ function FinanceTab({ data, reload, toast, boss = false }) {
   const supRows = useMemo(() => suppliers.map((s) => ({ s, st: supplierStats(s, objects, finance_ops, data.wh_moves) }))
     .filter(({ st }) => st.purchases || st.paid || st.returns).sort((a, b) => b.st.balance - a.st.balance), [suppliers, objects, finance_ops, data.wh_moves]);
   const [expForm, setExpForm] = useState(false);
+  const [incForm, setIncForm] = useState(false);
+  const [finView, setFinView] = useState("exp"); // «Расходы» / «Приходы» компании
+  const [kassa, setKassa] = useState(false);
+  const openKassa = async () => { setKassa(true); await reload(["requests"]); }; // заметки нужны для «остатка со вчера»
+  useHotActions(() => [{ label: "📝 Касса в заметки", keys: "Alt+K", code: "KeyK", run: openKassa }]);
   const [delExp, setDelExp] = useState(null);
   const monthStart = () => { const d = new Date(); return localIso(new Date(d.getFullYear(), d.getMonth(), 1)); };
   const [opsAll, setOpsAll] = useState(false);
@@ -7089,6 +7121,11 @@ function FinanceTab({ data, reload, toast, boss = false }) {
   };
   // общие расходы компании = expense без привязки к объекту
   const genExpenses = finance_ops.filter((o) => o.type === "company_expense" && !o.voided && inRange(o));
+  // приходы компании (не от клиентов по объектам): инвестиции, займы, возврат долга и т.п.
+  const genIncomes = finance_ops.filter((o) => o.type === "company_income" && !o.voided && inRange(o));
+  const totalInc = genIncomes.reduce((a, o) => a + (o.amount || 0), 0);
+  const byIncCat = {};
+  genIncomes.forEach((o) => { byIncCat[o.category || "Прочее"] = (byIncCat[o.category || "Прочее"] || 0) + (o.amount || 0); });
   const employees = useMemo(() => employeeList(data), [data.users, data.finance_ops]);
   const [staffOpen, setStaffOpen] = useState(false);
   const [newEmp, setNewEmp] = useState("");
@@ -7138,9 +7175,45 @@ function FinanceTab({ data, reload, toast, boss = false }) {
       </div>
       <PayMethodsCard objects={objects} ops={finance_ops} from={from} to={to} />
       <div className="row sect">
-        <h3 style={{ marginRight: "auto" }}>Расходы компании <span className="mut sm">(зарплата, аренда, коммунальные, обед и т.д.)</span></h3>
-        <button className="btn pri" onClick={() => setExpForm(true)}>+ Добавить расход</button>
+        <span className="seg fin-seg" style={{ marginRight: "auto" }}>
+          <button type="button" className={"btn" + (finView === "exp" ? " pri" : "")} onClick={() => setFinView("exp")}>Расходы компании · {fmt(totalExp)}</button>
+          <button type="button" className={"btn" + (finView === "inc" ? " pri" : "")} onClick={() => setFinView("inc")}>Приходы компании · {fmt(totalInc)}</button>
+        </span>
+        <button className="btn" title="Приход и расход за день — в заметки (Alt+K)" onClick={openKassa}>📝 Касса в заметки</button>
+        <button className="btn" onClick={() => { setFinView("inc"); setIncForm(true); }}>+ Добавить приход</button>
+        <button className="btn pri" onClick={() => { setFinView("exp"); setExpForm(true); }}>+ Добавить расход</button>
       </div>
+      {finView === "inc" && <>
+        <div className="kpis sect">
+          <div className="kpi"><div className="l">Всего приходов{(from || to) ? " за период" : ""}</div><div className="v" style={{ color: "var(--ok)" }}>{fmt(totalInc)}</div></div>
+          <div className="kpi"><div className="l">Приходы − расходы компании</div><div className="v" style={{ color: totalInc - totalExp >= 0 ? "var(--ok)" : "var(--bad)" }}>{(totalInc - totalExp < 0 ? "−" : "") + fmt(Math.abs(totalInc - totalExp))}</div></div>
+          {Object.keys(byIncCat).filter((c) => byIncCat[c]).sort((x, y) => byIncCat[y] - byIncCat[x]).map((c) => <div key={c} className="kpi"><div className="l">{c}</div><div className="v">{fmt(byIncCat[c])}</div></div>)}
+        </div>
+        <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
+          <table className="t inc-t">
+            <thead><tr><th>Дата</th><th>Источник</th><th style={{ textAlign: "right" }}>Сумма, $</th><th>Способ оплаты</th><th>Комментарий</th><th>Кто</th><th></th></tr></thead>
+            <tbody>
+              {opsNewestFirst(genIncomes).map((o) => (
+                <tr key={o.id}>
+                  <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
+                  <td className="sm" style={{ fontWeight: 600 }}>{o.category || "Прочее"}</td>
+                  <td className="num" style={{ fontWeight: 700, color: "var(--ok)" }}>{fmt(o.amount)}</td>
+                  <td className="xs">{payText(o) || <span className="mut">—</span>}</td>
+                  <td className="xs mut">{o.note}</td>
+                  <td className="xs mut">{o.user}</td>
+                  <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>{delExp === o.id ? (<>
+                    <span className="xs" style={{ color: "var(--bad)" }}>Удалить?</span>
+                    <button className="btn xs dng" onClick={async () => { const r = await db.from("finance_ops").delete().eq("id", o.id); if (r.error) return; await logAction("Удалён приход", "company:" + (o.category || ""), fmt(o.amount) + " от " + dt(o.op_date || o.created_at) + (o.note ? " · " + o.note : "")); setDelExp(null); await reload(); toast("Приход удалён"); }}>Да</button>
+                    <button className="btn xs" onClick={() => setDelExp(null)}>Нет</button>
+                  </>) : <button className="btn xs dng" onClick={() => setDelExp(o.id)}>удалить</button>}</div></td>
+                </tr>
+              ))}
+              {!genIncomes.length && <tr><td colSpan={7} className="mut" style={{ textAlign: "center", padding: 22 }}>Приходов нет — «+ Добавить приход»</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </>}
+      {finView === "exp" && <>
       <div className="kpis sect">
         <div className="kpi"><div className="l">Всего расходов{(from || to) ? " за период" : ""}</div><div className="v" style={{ color: "var(--bad)" }}>{fmt(totalExp)}</div></div>
         {/* статьи расходов — от самой большой к самой маленькой */}
@@ -7171,6 +7244,15 @@ function FinanceTab({ data, reload, toast, boss = false }) {
           </tbody>
         </table>
       </div>
+      </>}
+      {kassa && <KassaNoteModal data={data} ops={finance_ops} date0={from && from === to ? from : today()} toast={toast} onClose={() => setKassa(false)}
+        onSaved={async (msg) => { setKassa(false); await reload(["requests"]); toast(msg); }} />}
+      {incForm && <CompanyIncomeForm onClose={() => setIncForm(false)} onSave={async (op) => {
+        const r = await db.from("finance_ops").insert(cleanUuids(op));
+        if (r.error) return;
+        await logAction("Приход компании: " + op.category, "company", fmt(op.amount) + " · " + payText(op) + (op.note ? " · " + op.note : ""));
+        setIncForm(false); await reload(); toast("Приход добавлен");
+      }} />}
       {boss && (
         <div className="card sect">
           <div className="row" style={{ marginBottom: staffOpen ? 8 : 0 }}>
@@ -7329,6 +7411,115 @@ function VozvratSection({ objects, finance_ops, suppliers, whMoves }) {
   );
 }
 
+/* ============ КАССА ЗА ДЕНЬ → ЗАМЕТКА ============
+   Отчёт в виде, как его пишут в Telegram: остаток со вчера, приход, конвертация, расход, остаток.
+   Берутся все движения денег за день (оплаты клиентов, приходы компании, оплаты поставщикам, расходы, бонусы),
+   по умолчанию — только наличные. Остаток на конец дня запоминается в заметке (lines.kassa) и
+   подставляется «остатком со вчера» в следующий отчёт. */
+const KASSA_IN = ["client_payment", "company_income"];
+const KASSA_OUT = ["company_expense", "expense", "supplier_payment", "bonus_payment"];
+// 85000 → «85.000», 2450.5 → «2.450,5»
+const fmtDot = (n) => {
+  const r = Math.round(Math.abs(Number(n) || 0) * 100) / 100;
+  const [i, d] = r.toFixed(2).split(".");
+  return (Number(n) < 0 && r ? "-" : "") + i.replace(/\B(?=(\d{3})+(?!\d))/g, ".") + (d === "00" ? "" : "," + d.replace(/0$/, ""));
+};
+const kassaMoney = (uzs, usd) => fmtDot(uzs) + " sum va " + fmtDot(usd) + " $";
+function kassaLines(data, ops, date, cashOnly) {
+  const objById = {};
+  (data.objects || []).forEach((o) => { objById[o.id] = o; });
+  const supName = (id) => ((data.suppliers || []).find((s) => s.id === id) || {}).name || "";
+  const mName = (id) => ((data.masters || []).find((s) => s.id === id) || {}).name || "";
+  const inc = [], out = [];
+  ops.filter((x) => !x.voided && (KASSA_IN.includes(x.type) || KASSA_OUT.includes(x.type)) && String(x.op_date || x.created_at || "").slice(0, 10) === date)
+    .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")))
+    .forEach((x) => {
+      const o = x.object_id ? objById[x.object_id] : null;
+      if (x.object_id && (!o || !isLive(o) || (x.type === "client_payment" && !payLive(o)))) return;
+      const i = payInfo(x);
+      if (cashOnly && i.id && !["usd", "uzs"].includes(i.id)) return; // карта / перечисление — не через кассу
+      const uzs = i.cur === "uzs" ? Number(i.uzs) || 0 : 0;
+      const usd = i.cur === "uzs" ? 0 : Number(x.amount) || 0;
+      if (!uzs && !usd) return;
+      const s = salaryInfo(x);
+      let what = "";
+      if (x.type === "client_payment") what = [o && o.name, x.note].filter(Boolean).join(", ");
+      else if (x.type === "supplier_payment") what = [supName(x.supplier_id), x.note].filter(Boolean).join(", ");
+      else if (x.type === "bonus_payment") what = ["Bonus", mName(x.master_id) || x.product_name, x.note].filter(Boolean).join(" ");
+      else if (s) what = [x.category, s.emp, s.note].filter(Boolean).join(" ");
+      else what = x.note || x.category || opLabel(x.type);
+      if (x.type === "expense" && o) what += " (" + o.name + ")";
+      if (!cashOnly && i.id && !["usd", "uzs"].includes(i.id)) what += " (" + (i.id === "card" ? "karta" : "perechisleniye") + ")";
+      (KASSA_IN.includes(x.type) ? inc : out).push({ uzs, usd, what });
+    });
+  return { inc, out };
+}
+function kassaText({ open, inc, out, conv }) {
+  const line = (r) => (r.uzs ? fmtDot(r.uzs) + " sum" : fmtDot(r.usd) + " $") + (r.what ? " - " + r.what : "");
+  const cv = conv.filter((c) => parseNum(c.usd) > 0 && parseNum(c.uzs) > 0);
+  let uzs = parseNum(open.uzs), usd = parseNum(open.usd);
+  inc.forEach((r) => { uzs += r.uzs; usd += r.usd; });
+  out.forEach((r) => { uzs -= r.uzs; usd -= r.usd; });
+  cv.forEach((c) => { const a = parseNum(c.usd), b = parseNum(c.uzs); if (c.dir === "uzs2usd") { uzs -= b; usd += a; } else { usd -= a; uzs += b; } });
+  const parts = ["Kechagi kundan ostatka :\n" + kassaMoney(parseNum(open.uzs), parseNum(open.usd))];
+  if (inc.length) parts[0] += "\nPrixod :\n" + inc.map(line).join("\n");
+  if (cv.length) parts.push("Konvertatsiya :\n" + cv.map((c) => (c.dir === "uzs2usd" ? fmtDot(parseNum(c.uzs)) + " sum - " + fmtDot(parseNum(c.usd)) + "$" : fmtDot(parseNum(c.usd)) + "$ - " + fmtDot(parseNum(c.uzs)) + " sum")).join("\n"));
+  if (out.length) parts.push("Rasxod :\n" + out.map(line).join("\n"));
+  parts.push("Ostatka : " + kassaMoney(uzs, usd));
+  return { text: parts.join("\n\n"), close: { uzs: round2(uzs), usd: round2(usd) } };
+}
+function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
+  const user = CURRENT_USER || {};
+  const notes = (data.requests || []).filter((r) => r.mode === NOTE_MODE && r.lines && r.lines.kassa && (r.lines.user_id === user.id || r.lines.shared));
+  const [date, setDate] = useState(date0 || today());
+  const prev = notes.filter((r) => r.lines.kassa.date < date).sort((a, b) => b.lines.kassa.date.localeCompare(a.lines.kassa.date))[0];
+  const same = notes.find((r) => r.lines.kassa.date === date && r.lines.user_id === user.id);
+  const [open, setOpen] = useState(null); // null — взять из прошлого отчёта
+  const [conv, setConv] = useState([]);
+  const [cashOnly, setCashOnly] = useState(true);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setOpen(null); setConv(same && same.lines.kassa.conv ? same.lines.kassa.conv : []); }, [date]);
+  const op = open || (prev ? { uzs: String(prev.lines.kassa.close.uzs || 0), usd: String(prev.lines.kassa.close.usd || 0) } : { uzs: "", usd: "" });
+  const { inc, out } = useMemo(() => kassaLines(data, ops, date, cashOnly), [data, ops, date, cashOnly]);
+  const rep = kassaText({ open: op, inc, out, conv });
+  const save = async () => {
+    setBusy(true);
+    const lines = { title: "Kassa " + dt(date), text: rep.text, color: "#3ddc7d", pinned: false, shared: same ? !!same.lines.shared : false,
+      user_id: user.id, author: user.name || user.username, updated_at: new Date().toISOString(),
+      kassa: { date, open: { uzs: parseNum(op.uzs), usd: parseNum(op.usd) }, close: rep.close, conv } };
+    const r = same ? await db.from("requests").update({ lines: { ...same.lines, ...lines, color: same.lines.color || lines.color, pinned: !!same.lines.pinned } }).eq("id", same.id)
+      : await db.from("requests").insert({ mode: NOTE_MODE, source: "note", lines });
+    setBusy(false);
+    if (r.error) { toast("Не сохранено: " + (r.error.message || r.error)); return; }
+    await onSaved(same ? "Отчёт кассы обновлён в заметках" : "Отчёт кассы сохранён в заметки");
+  };
+  const setC = (k, patch) => setConv(conv.map((c, j) => (j === k ? { ...c, ...patch } : c)));
+  return (
+    <Modal title="Касса за день → в заметки" onClose={onClose} w={640}>
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <Fld label="Дата"><input type="date" className="inp" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} /></Fld>
+        <Fld label=" "><label className="clk sm row" style={{ gap: 6, minHeight: 36 }}><input type="checkbox" checked={cashOnly} onChange={(e) => setCashOnly(e.target.checked)} /> только наличные</label></Fld>
+        <Fld label={"Остаток со вчера, сум" + (prev && !open ? " (из отчёта " + dt(prev.lines.kassa.date) + ")" : "")}><input className="inp" inputMode="decimal" value={op.uzs} onChange={(e) => setOpen({ ...op, uzs: e.target.value })} /></Fld>
+        <Fld label="Остаток со вчера, $"><input className="inp" inputMode="decimal" value={op.usd} onChange={(e) => setOpen({ ...op, usd: e.target.value })} /></Fld>
+      </div>
+      {conv.map((c, k) => (
+        <div key={k} className="row kassa-conv" style={{ gap: 6, marginTop: 6, flexWrap: "nowrap" }}>
+          <select className="inp" style={{ maxWidth: 120 }} value={c.dir} onChange={(e) => setC(k, { dir: e.target.value })}><option value="usd2uzs">$ → сум</option><option value="uzs2usd">сум → $</option></select>
+          <input className="inp" inputMode="decimal" placeholder="$" value={c.usd} onChange={(e) => setC(k, { usd: e.target.value })} />
+          <input className="inp" inputMode="decimal" placeholder="сум" value={c.uzs} onChange={(e) => setC(k, { uzs: e.target.value })} />
+          <button type="button" className="btn xs dng" title="Убрать" onClick={() => setConv(conv.filter((_, j) => j !== k))}>✕</button>
+        </div>
+      ))}
+      <button type="button" className="btn xs" style={{ marginTop: 6 }} onClick={() => setConv([...conv, { dir: "usd2uzs", usd: "", uzs: "" }])}>+ Конвертация</button>
+      <pre className="kassa-pre">{rep.text}</pre>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 12, gap: 8 }}>
+        <button className="btn" onClick={onClose}>Отмена</button>
+        <button className="btn pri" disabled={busy} onClick={save}>{busy ? "Сохраняю…" : same ? "Обновить заметку" : "Сохранить в заметки"}</button>
+      </div>
+    </Modal>
+  );
+}
+
 /* ============ ЗАМЕТКИ ============
    Каждая заметка — служебная запись в requests (mode = "te_note", lines = { title, text, color, pinned, shared, user_id, author, updated_at }).
    Видны автору; «видна всем» — всем сотрудникам (менять и удалять может только автор). */
@@ -7347,6 +7538,7 @@ function NotesTab({ data, reload, toast, user }) {
   const save = async (n) => {
     const lines = { title: String(n.title || "").trim(), text: n.text || "", color: n.color || "", pinned: !!n.pinned, shared: !!n.shared,
       user_id: n.user_id || user.id, author: n.author || user.name || user.username, updated_at: new Date().toISOString() };
+    if (n.kassa) lines.kassa = n.kassa; // отчёт кассы: остаток переносится в следующий отчёт
     const r = n.id ? await db.from("requests").update({ lines }).eq("id", n.id) : await db.from("requests").insert({ mode: NOTE_MODE, source: "note", lines });
     if (r.error) { toast("Заметка не сохранена: " + (r.error.message || r.error)); return false; }
     await reload(["requests"]); return true;
