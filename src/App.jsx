@@ -532,6 +532,8 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .obj-grp{background:var(--panel2);font-weight:800;font-size:12px;letter-spacing:.4px;text-transform:uppercase;padding:10px 12px;border-bottom:1px solid var(--line)}
 .obj-t{width:100%;min-width:0!important}
 .obj-t td{vertical-align:top}
+.pct-row.on{font-weight:700}
+.pct-row.on span{color:var(--txt)}
 .obj-act{display:flex;gap:4px;justify-content:flex-end;margin-top:6px}
 .batch-del{float:right;margin-left:8px;letter-spacing:0;font-size:11px}
 .kassa-pre{white-space:pre-wrap;font:13px/1.45 inherit;font-family:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:12px 0 0;max-height:300px;overflow:auto}
@@ -5138,6 +5140,16 @@ function PercentModal({ obj, batches, onClose, onApply }) {
   const cost = list.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.cost) || 0), 0);
   const after = list.reduce((a, i) => a + (Number(i.qty) || 0) * round2((Number(i.cost) || 0) * marginK(p)), 0);
   const valid = pct !== "" && p >= 0 && p < 100;
+  // какой % прибыли сейчас в каждой поставке: (продажа − себестоимость) ÷ продажа, по позициям с себестоимостью
+  const curPct = batches.map((b) => {
+    const its = b.items.filter((i) => Number(i.cost) > 0 && Number(i.price) > 0);
+    const sale = its.reduce((a, i) => a + (Number(i.qty) || 0) * Number(i.price), 0);
+    const cst = its.reduce((a, i) => a + (Number(i.qty) || 0) * Number(i.cost), 0);
+    const each = its.map((i) => (1 - Number(i.cost) / Number(i.price)) * 100);
+    return { b, n: its.length, pct: sale > 0 ? ((sale - cst) / sale) * 100 : null, min: each.length ? Math.min(...each) : 0, max: each.length ? Math.max(...each) : 0 };
+  });
+  // цены округляются до центов, поэтому 20% может выйти 20,1% — близкое к целому показываем целым
+  const pctTxt = (x) => (x.pct == null ? "нет себестоимости" : (x.max - x.min > 1 ? "≈ " : "") + (Math.abs(x.pct - Math.round(x.pct)) < 0.35 ? Math.round(x.pct) : x.pct.toLocaleString("ru-RU", { maximumFractionDigits: 1 })) + "%");
   return (
     <Modal title="Прибыль от себестоимости" onClose={onClose} w={500}>
       <p className="sm mut" style={{ marginBottom: 10 }}>Новая цена продажи = <b>себестоимость ÷ (1 − %)</b>: 20% → себестоимость ÷ 0,8; 15% → ÷ 0,85. Прибыль — это % от цены продажи (вычтите те же % из цены — получится себестоимость). Текущие цены продажи заменяются.</p>
@@ -5146,9 +5158,18 @@ function PercentModal({ obj, batches, onClose, onApply }) {
         <Fld label="К каким товарам">
           <select className="inp" value={scope} onChange={(e) => setScope(e.target.value)}>
             <option value="all">Все поставки объекта</option>
-            {batches.length > 1 && batches.map((b) => <option key={b.no} value={String(b.no)}>Поставка №{b.no} · {dt(b.date)}</option>)}
+            {batches.length > 1 && curPct.map((x) => <option key={x.b.no} value={String(x.b.no)}>Поставка №{x.b.no} · {dt(x.b.date)} · сейчас {pctTxt(x)}</option>)}
           </select>
         </Fld>
+      </div>
+      <div className="card pct-now" style={{ marginTop: 10, padding: "8px 12px" }}>
+        <div className="xs mut" style={{ marginBottom: 4 }}>Сейчас прибыль по поставкам:</div>
+        {curPct.map((x) => (
+          <div key={x.b.no} className={"row sm clk pct-row" + (scope === String(x.b.no) ? " on" : "")} style={{ gap: 8, padding: "2px 0" }} title="Выбрать эту поставку" onClick={() => setScope(String(x.b.no))}>
+            <span style={{ marginRight: "auto" }}>Поставка №{x.b.no} · <span className="mono mut">{dt(x.b.date)}</span></span>
+            <b className="mono" style={{ color: x.pct == null ? "var(--mut)" : x.pct < 0 ? "var(--bad)" : "var(--ok)" }} title={x.max - x.min > 1 ? "по позициям от " + fmt(x.min) + "% до " + fmt(x.max) + "%" : ""}>{pctTxt(x)}</b>
+          </div>
+        ))}
       </div>
       {scope === "all" && batches.length > 1 && <p className="xs pct-warn" style={{ color: "var(--warn)", marginTop: 6 }}>⚠ Цены изменятся во всех поставках, в том числе в уже оплаченных — их суммы тоже изменятся.</p>}
       <div className="row" style={{ marginTop: 8, gap: 6 }}>
