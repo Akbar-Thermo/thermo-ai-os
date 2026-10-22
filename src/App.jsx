@@ -7103,8 +7103,8 @@ function FinanceTab({ data, reload, toast, boss = false }) {
   const monthStart = () => { const d = new Date(); return localIso(new Date(d.getFullYear(), d.getMonth(), 1)); };
   const [opsAll, setOpsAll] = useState(false);
   const [opsQ, setOpsQ] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [from, setFrom] = useState(() => today()); // по умолчанию — «Сегодня»
+  const [to, setTo] = useState(() => today());
   const inRange = (o) => {
     const d = (o.op_date || o.created_at || "").slice(0, 10);
     if (from && d < from) return false;
