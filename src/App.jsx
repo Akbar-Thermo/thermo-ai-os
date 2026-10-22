@@ -7439,7 +7439,7 @@ function kassaLines(data, ops, date, cashOnly) {
       else if (x.type === "supplier_payment") what = [supName(x.supplier_id), x.note].filter(Boolean).join(", ");
       else if (x.type === "bonus_payment") what = ["Bonus", mName(x.master_id) || x.product_name, x.note].filter(Boolean).join(" ");
       else if (s) what = [x.category, s.emp, s.note].filter(Boolean).join(" ");
-      else what = x.note || x.category || opLabel(x.type);
+      else what = [x.category || opLabel(x.type), x.note].filter(Boolean).join(", "); // сначала вид (статья / источник), потом комментарий
       if (x.type === "expense" && o) what += " (" + o.name + ")";
       if (!cashOnly && i.id && !["usd", "uzs"].includes(i.id)) what += " (" + (i.id === "card" ? "karta" : "perechisleniye") + ")";
       (KASSA_IN.includes(x.type) ? inc : out).push({ uzs, usd, what });
