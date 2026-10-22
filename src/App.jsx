@@ -508,8 +508,9 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .pick-sup.hov{outline:1px solid var(--acc);outline-offset:-1px}
 @media(max-width:600px){.brand-fly{position:static;width:auto;margin-top:8px;box-shadow:none}}
 .notes-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;align-items:start}
-.card.note{border-top:4px solid var(--line);padding:12px 14px;min-height:96px}
-.card.note:hover,.card.note:focus-visible{border-color:var(--acc);outline:none}
+.card.note{--nc:var(--mut);border-top:4px solid var(--nc);padding:12px 14px;min-height:96px}
+.card.note:not(.colored){border-top-color:var(--line)}
+.card.note:hover,.card.note:focus-visible{border-color:var(--nc);outline:none}
 .note-title{font-size:14px;overflow-wrap:anywhere}
 .note-text{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--txt);display:-webkit-box;-webkit-line-clamp:8;-webkit-box-orient:vertical;overflow:hidden}
 .inp.note-area{min-height:220px;resize:vertical;line-height:1.5}
@@ -7560,7 +7561,7 @@ function NotesTab({ data, reload, toast, user }) {
         {shown.map((n) => {
           const mine = n.user_id === user.id;
           return (
-            <div key={n.id} className="card note clk" style={{ borderTopColor: n.color || "var(--line)" }} onClick={() => setEd(n)} tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setEd(n); }}>
+            <div key={n.id} className={"card note clk" + (n.color ? " colored" : "")} style={n.color ? { "--nc": n.color } : undefined} onClick={() => setEd(n)} tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setEd(n); }}>
               <div className="row" style={{ gap: 6, flexWrap: "nowrap", marginBottom: 4 }}>
                 <b className="note-title" style={{ marginRight: "auto" }}>{n.title || "Без названия"}</b>
                 {n.pinned && <span title="Закреплена">📌</span>}
