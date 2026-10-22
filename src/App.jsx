@@ -520,6 +520,7 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .note-color{width:22px;height:22px;border-radius:50%;border:2px solid var(--line2);cursor:pointer;padding:0}
 .note-color.on{border-color:var(--txt);box-shadow:0 0 0 2px var(--acc-ring)}
 .fin-seg{display:inline-flex;gap:6px;flex-wrap:wrap}
+.batch-del{float:right;margin-left:8px;letter-spacing:0;font-size:11px}
 .kassa-pre{white-space:pre-wrap;font:13px/1.45 inherit;font-family:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:12px 0 0;max-height:300px;overflow:auto}
 .pick-name{font-weight:600;font-size:13px;line-height:17px;color:var(--txt);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
 .cq-hint{margin:0 0 8px;padding:8px 12px;border:1px dashed var(--acc);border-radius:10px;background:var(--acc-tint);color:var(--txt);line-height:1.5}
@@ -2828,23 +2829,8 @@ function AktEditModal({ ed, s, onClose, onDone }) {
     </Modal>
   );
 }
-function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, reload = null, canEdit = false }) {
-  const [ed, setEd] = useState(null); // правка строки: { kind: "item" | "ret" | "pay", it | o }
-  // дата накладной (поставки): у всех позиций этой поставки объекта; номера поставок выстраиваются по датам.
-  // Приход на склад вручную — дата операции
-  const setGroupDate = async (g, d) => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || String(g.date || "").slice(0, 10) === d) return;
-    let r;
-    if (String(g.obj_id).startsWith("wh:")) r = await db.from("finance_ops").update({ op_date: d }).eq("id", String(g.obj_id).slice(3));
-    else {
-      const ob = objects.find((x) => x.id === g.obj_id);
-      r = await updateObjectItems(g.obj_id, (cur) => renumberBatches(cur.map((i) => ((i.batch_no || 1) === g.no ? { ...i, batch_no: g.no, batch_date: d } : i)), ob && ob.created_at));
-    }
-    if (r && r.error) return;
-    await logAction("Дата накладной изменена (акт сверки)", "supplier:" + s.name, g.obj_name + " · поставка №" + g.no + ": " + dt(g.date) + " → " + dt(d));
-    if (reload) await reload();
-    if (toast) toast("Дата поставки: " + dt(d) + " — поставки выстроены по датам");
-  };
+/* Данные акта сверки поставщика: получено (по поставкам), возвраты, оплаты, баланс. Без React — нужно и для «Истории (Excel)». */
+function aktData(s, objects, ops, whMoves) {
   // Received items (purchases) from all non-cancelled objects
   const received = [];
   objects.forEach((ob) => {
@@ -2874,7 +2860,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
   const totalPaid = payments.reduce((a, o) => a + (o.amount || 0), 0);
   const balance = round2(totalReceived - totalReturns - totalPaid); // < 0 — переплата (аванс)
   // группировка полученных товаров: объект + номер поставки
-  const batches = useMemo(() => {
+  const batches = (() => {
     const m = new Map();
     received.forEach((it) => {
       const no = it.batch_no || 1;
@@ -2885,9 +2871,9 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
       if (it.date && (!g.date || it.date < g.date)) g.date = it.date;
     });
     return [...m.values()].sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || a.obj_name.localeCompare(b.obj_name) || a.no - b.no);
-  }, [objects, ops, s.id]);
+  })();
   // группировка возвратов по тем же поставкам: возврат с объекта хранит item_id → у позиции есть номер поставки
-  const retGroups = useMemo(() => {
+  const retGroups = (() => {
     const itemIdx = {};
     objects.forEach((ob) => (ob.items || []).forEach((it) => { itemIdx[it.id] = { ob, it }; }));
     const m = new Map();
@@ -2913,12 +2899,79 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
       if (!g.date || (g.no == null && d && d < g.date)) g.date = d;
     });
     return [...m.values()].sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || a.label.localeCompare(b.label));
-  }, [objects, ops, s.id, whMoves]);
-  const retByKey = useMemo(() => { const r = {}; retGroups.forEach((g) => { r[g.key] = g.sum; }); return r; }, [retGroups]);
-  const [closed, setClosed] = useState({});
-  const [rClosed, setRClosed] = useState({});
+  })();
+  const retByKey = {}; retGroups.forEach((g) => { retByKey[g.key] = g.sum; });
+  return { received, returns, toWh, toWhCost, payments, totalReceived, totalReturns, totalPaid, balance, batches, retGroups, retByKey };
+}
+/* «История (Excel)»: все расчёты с поставщиком по датам — поставки (с товарами), возвраты, оплаты и долг после каждой операции */
+function supplierHistorySheet(s, objects, ops, whMoves) {
+  const d = aktData(s, objects, ops, whMoves);
+  const day = (x) => String(x || "").slice(0, 10);
+  const ev = [];
+  d.batches.forEach((g) => ev.push({ date: day(g.date), ord: 0, op: "Поставка", what: g.obj_name + (String(g.obj_id).startsWith("wh:") ? "" : " · Поставка №" + g.no) + " · " + g.items.length + " поз.", got: round2(g.sum), items: g.items }));
+  d.returns.forEach((o) => ev.push({ date: day(o.op_date || o.created_at), ord: 1, op: "Возврат поставщику", what: [(o.product_name || "—") + (o.qty ? " × " + fmt(o.qty) + (o.unit ? " " + o.unit : "") : ""), o.reason, o.note].filter(Boolean).join(" · "), ret: round2(o.cost_amount || 0) }));
+  d.payments.forEach((o) => ev.push({ date: day(o.op_date || o.created_at), ord: 2, op: "Оплата", what: [payText(o), o.note, o.user].filter(Boolean).join(" · "), paid: round2(o.amount || 0) }));
+  ev.sort((a, b) => a.date.localeCompare(b.date) || a.ord - b.ord);
+  const rows = [
+    { k: "title", v: ["ИСТОРИЯ РАСЧЁТОВ: " + s.name] },
+    { k: "info", v: ["Thermo Engineering · составлено " + new Date().toLocaleDateString("ru-RU") + " · суммы в $ по себестоимости" + (s.phone ? " · тел. " + s.phone : "")] },
+    { k: "blank" },
+    { k: "head", v: ["№", "Дата", "Операция", "Описание", "Получено, $", "Возврат, $", "Оплата, $", "Долг после, $"] },
+  ];
+  let bal = 0, n = 1;
+  ev.forEach((e) => {
+    bal = round2(bal + (e.got || 0) - (e.ret || 0) - (e.paid || 0));
+    rows.push({ k: "row", v: [n++, e.date ? dt(e.date) : "", e.op, e.what, e.got || "", e.ret || "", e.paid || "", bal] });
+    (e.items || []).forEach((it) => rows.push({ k: "row", v: ["", "", "", "    • " + it.name + " — " + fmt(it.qty) + " " + (it.unit || "") + " × " + fmt2(it.cost) + " = " + fmt2((it.qty || 0) * (it.cost || 0)), "", "", "", ""] }));
+  });
+  if (!ev.length) rows.push({ k: "info", v: ["Операций нет"] });
+  rows.push({ k: "sum", v: ["", "", "", "Итого", round2(d.totalReceived), round2(d.totalReturns), round2(d.totalPaid), round2(d.balance)] });
+  rows.push({ k: "blank" });
+  rows.push({ k: "section", v: [d.balance > 0 ? "Долг Thermo Engineering перед " + s.name + ": " + fmt2(d.balance) + " $" : d.balance < 0 ? "Аванс (переплата) " + s.name + ": " + fmt2(-d.balance) + " $" : "Задолженности нет"] });
+  const cols = [5, 11, 18, 60, 13, 13, 13, 14], types = ["c", "c", "t", "t", "m", "m", "m", "m"];
+  return { name: s.name, rows, cols: fitTextCols(rows, cols, types), types, d, n: ev.length };
+}
+// один поставщик — один лист; список — «Сводка» + лист на каждого поставщика с движением
+function downloadSupplierHistory(list, objects, ops, whMoves, fileName) {
+  const sheets = list.map((s) => supplierHistorySheet(s, objects, ops, whMoves)).filter((sh, i, a) => a.length === 1 || sh.n);
+  if (!sheets.length) return "empty";
+  if (sheets.length > 1) {
+    const rows = [{ k: "title", v: ["РАСЧЁТЫ С ПОСТАВЩИКАМИ — СВОДКА"] }, { k: "info", v: ["Thermo Engineering · составлено " + new Date().toLocaleDateString("ru-RU") + " · суммы в $"] }, { k: "blank" },
+      { k: "head", v: ["№", "Поставщик", "Получено, $", "Возвраты, $", "Оплачено, $", "Долг, $"] }];
+    const t = { r: 0, ret: 0, p: 0, b: 0 };
+    sheets.forEach((sh, i) => { const d = sh.d; t.r += d.totalReceived; t.ret += d.totalReturns; t.p += d.totalPaid; t.b += d.balance; rows.push({ k: "row", v: [i + 1, sh.name, round2(d.totalReceived), round2(d.totalReturns), round2(d.totalPaid), round2(d.balance)] }); });
+    rows.push({ k: "sum", v: ["", "Итого", round2(t.r), round2(t.ret), round2(t.p), round2(t.b)] });
+    const cols = [5, 34, 14, 14, 14, 14], types = ["c", "t", "m", "m", "m", "m"];
+    sheets.unshift({ name: "Сводка", rows, cols: fitTextCols(rows, cols, types), types });
+  }
+  try { downloadBlob(fileName, styledXlsxBook(sheets.map(({ name, rows, cols, types }) => ({ name, rows, cols, types })))); return "xlsx"; } catch (e) { console.error(e); return false; }
+}
+function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, reload = null, canEdit = false, inline = false }) {
+  const [ed, setEd] = useState(null); // правка строки: { kind: "item" | "ret" | "pay", it | o }
+  // дата накладной (поставки): у всех позиций этой поставки объекта; номера поставок выстраиваются по датам.
+  // Приход на склад вручную — дата операции
+  const setGroupDate = async (g, d) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || String(g.date || "").slice(0, 10) === d) return;
+    let r;
+    if (String(g.obj_id).startsWith("wh:")) r = await db.from("finance_ops").update({ op_date: d }).eq("id", String(g.obj_id).slice(3));
+    else {
+      const ob = objects.find((x) => x.id === g.obj_id);
+      r = await updateObjectItems(g.obj_id, (cur) => renumberBatches(cur.map((i) => ((i.batch_no || 1) === g.no ? { ...i, batch_no: g.no, batch_date: d } : i)), ob && ob.created_at));
+    }
+    if (r && r.error) return;
+    await logAction("Дата накладной изменена (акт сверки)", "supplier:" + s.name, g.obj_name + " · поставка №" + g.no + ": " + dt(g.date) + " → " + dt(d));
+    if (reload) await reload();
+    if (toast) toast("Дата поставки: " + dt(d) + " — поставки выстроены по датам");
+  };
+  const { received, returns, toWh, toWhCost, payments, totalReceived, totalReturns, totalPaid, balance, batches, retGroups, retByKey } =
+    useMemo(() => aktData(s, objects, ops, whMoves), [s, objects, ops, whMoves]);
+  // накладные (поставки) и группы возвратов по умолчанию свёрнуты — нажатие на строку раскрывает
+  const [opened, setOpened] = useState({});
+  const [rOpened, setROpened] = useState({});
+  const closed = {}; batches.forEach((g) => { if (!opened[g.key]) closed[g.key] = true; });
+  const rClosed = {}; retGroups.forEach((g) => { if (!rOpened[g.key]) rClosed[g.key] = true; });
   const allClosed = batches.length > 0 && batches.every((g) => closed[g.key]);
-  const toggleAll = () => { const n = {}; if (!allClosed) batches.forEach((g) => { n[g.key] = true; }); setClosed(n); };
+  const toggleAll = () => { const n = {}; if (allClosed) batches.forEach((g) => { n[g.key] = true; }); setOpened(n); };
   // акт сверки в Excel (с рамками) — чтобы отправить поставщику
   const exportAkt = () => {
     const rows = [
@@ -2956,8 +3009,10 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
     if (toast) toast(r === "xlsx" ? "Акт сверки скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
   return (
-    <Modal title={"Акт-сверка: " + s.name} onClose={onClose} w={860}>
-      <div className="row" style={{ justifyContent: "flex-end", marginTop: -6, marginBottom: 10 }}><button className="btn xs" onClick={exportAkt}>⬇ Excel</button></div>
+    <AktWrap inline={inline} title={"Акт-сверка: " + s.name} onClose={onClose}>
+      {inline
+        ? <div className="row" style={{ marginBottom: 10 }}><h3 style={{ marginRight: "auto" }}>Акт-сверка</h3><button className="btn xs" onClick={exportAkt}>⬇ Акт сверки Excel</button></div>
+        : <div className="row" style={{ justifyContent: "flex-end", marginTop: -6, marginBottom: 10 }}><button className="btn xs" onClick={exportAkt}>⬇ Excel</button></div>}
       <div className="kpis" style={{ marginBottom: 16 }}>
         <div className="kpi"><div className="l">Получено товаров</div><div className="v">{fmt(totalReceived)}</div></div>
         <div className="kpi"><div className="l">Возвраты</div><div className="v" style={{ color: "var(--warn)" }}>{fmt(totalReturns)}</div></div>
@@ -2974,7 +3029,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
             <tbody>
               {batches.map((g) => (
                 <React.Fragment key={g.key}>
-                  <tr className="clk" onClick={() => setClosed((c) => ({ ...c, [g.key]: !c[g.key] }))} style={{ background: "var(--acc-tint)" }}>
+                  <tr className="clk akt-grp" onClick={() => setOpened((c) => ({ ...c, [g.key]: !c[g.key] }))} style={{ background: "var(--acc-tint)" }}>
                     <td colSpan={4} style={{ fontWeight: 700 }}>
                       <span className="mut" style={{ display: "inline-block", width: 14 }}>{closed[g.key] ? "▸" : "▾"}</span>
                       🚚 {g.obj_name} · Поставка №{g.no} · {canEdit
@@ -3011,7 +3066,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
           <tbody>
             {retGroups.map((g) => (
               <React.Fragment key={g.key}>
-                <tr className="clk" onClick={() => setRClosed((c) => ({ ...c, [g.key]: !c[g.key] }))} style={{ background: "rgba(255,176,32,.09)" }}>
+                <tr className="clk akt-grp" onClick={() => setROpened((c) => ({ ...c, [g.key]: !c[g.key] }))} style={{ background: "rgba(255,176,32,.09)" }}>
                   <td colSpan={2} style={{ fontWeight: 700 }}>
                     <span className="mut" style={{ display: "inline-block", width: 14 }}>{rClosed[g.key] ? "▸" : "▾"}</span>
                     ↩ {g.label}{g.no != null && g.date ? <> · <span className="mono">{dt(g.date)}</span></> : null}
@@ -3045,9 +3100,11 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
         </table>
       </details>
       {ed && <AktEditModal ed={ed} s={s} onClose={() => setEd(null)} onDone={async () => { setEd(null); if (reload) await reload(); if (toast) toast("Изменено — акт сверки и долг пересчитаны"); }} />}
-    </Modal>
+    </AktWrap>
   );
 }
+// акт сверки — окном или прямо на странице поставщика
+const AktWrap = ({ inline, title, onClose, children }) => (inline ? <div className="card sect akt-inline">{children}</div> : <Modal title={title} onClose={onClose} w={860}>{children}</Modal>);
 // поставщики для выбора в формах: неактивные скрыты (кроме уже выбранного)
 const activeSuppliers = (suppliers, keepId) => suppliers.filter((s) => s.status !== "inactive" || (keepId && s.id === keepId));
 const signedMoney = (b) => (b < 0 ? "−" + fmt(-b) : fmt(b));
@@ -3060,7 +3117,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
   const [delErr, setDelErr] = useState("");
   const [delBusy, setDelBusy] = useState(false);
   const [pay, setPay] = useState(null);
-  const [akt, setAkt] = useState(null);
+  const [openId, setOpenId] = useState(null); // страница поставщика (как у объекта): оплата и акт-сверка — внутри
   const [q, setQ] = useState("");
   const prodCnt = useMemo(() => { const m = {}; products.forEach((p) => { if (p.supplier_id) m[p.supplier_id] = (m[p.supplier_id] || 0) + 1; }); return m; }, [products]);
   const rows = useMemo(() => suppliers.map((s) => ({ s, st: supplierStats(s, objects, finance_ops, wh_moves) }))
@@ -3113,14 +3170,35 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
       setDelBusy(false); await reload("all"); return;
     }
     await logAction("Удалён поставщик", "supplier:" + s.name, "товаров отвязано: " + ids.length);
-    setDelBusy(false); setDel(null); await reload("all"); toast("Поставщик удалён");
+    setDelBusy(false); setDel(null); setOpenId(null); await reload("all"); toast("Поставщик удалён");
   };
+  const history = (list, name) => {
+    const r = downloadSupplierHistory(list, objects, finance_ops, wh_moves, name);
+    toast(r === "xlsx" ? "История расчётов скачана" : r === "empty" ? "Операций с поставщиками нет" : "Скачивание заблокировано браузером");
+  };
+  const cur = openId ? suppliers.find((x) => x.id === openId) : null;
+  const curSt = cur ? supplierStats(cur, objects, finance_ops, wh_moves) : null;
 
   return (
     <div>
+      {cur ? <>
+        <div className="row sect">
+          <button className="btn" onClick={() => setOpenId(null)}>← Поставщики</button>
+          <div style={{ marginRight: "auto" }}>
+            <h2>{cur.name} {cur.status === "inactive" && <Badge c="#9a9a9a">неактивен</Badge>}</h2>
+            <div className="sm mut">{[cur.contact, cur.phone, cur.terms, "товаров: " + (prodCnt[cur.id] || 0)].filter(Boolean).join(" · ")}</div>
+          </div>
+          {fin && <button className="btn dng" onClick={() => { setDelErr(""); setDel(cur); }}>Удалить</button>}
+          <button className="btn" onClick={() => setEdit(cur)}>Редактировать</button>
+          <button className="btn" onClick={() => history([cur], "История_" + fileSafe(cur.name) + ".xlsx")}>⬇ История (Excel)</button>
+          <button className="btn pri sup-pay" onClick={() => setPay(cur)}>💵 Оплата{curSt && curSt.debt > 0 ? " · долг " + fmt(curSt.debt) : ""}</button>
+        </div>
+        <AktSverkaModal inline s={cur} objects={objects} ops={finance_ops} whMoves={wh_moves} products={products} toast={toast} reload={reload} canEdit={fin} onClose={() => setOpenId(null)} />
+      </> : <>
       <div className="row sect">
         <h2 style={{ marginRight: "auto" }}>Поставщики <span className="mut sm">({suppliers.length})</span></h2>
         <input className="inp" style={{ maxWidth: 220 }} placeholder="Поиск поставщика…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button className="btn" title="Все расчёты со всеми поставщиками: сводка + лист на каждого" onClick={() => history(shown.map((x) => x.s), "История_поставщики_" + today() + ".xlsx")}>⬇ История (Excel)</button>
         <button className="btn pri" onClick={() => setEdit({ status: "active" })}>+ Поставщик</button>
       </div>
       {orphan.length > 0 && (
@@ -3141,10 +3219,10 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
       )}
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
-          <thead><tr><th>Поставщик</th><th>Контакт</th><th>Условия</th><th style={{textAlign:"right"}}>Закупки</th><th style={{textAlign:"right"}}>Оплачено</th><th style={{textAlign:"right"}}>Возвраты</th><th style={{textAlign:"right"}}>Долг</th><th style={{textAlign:"right"}}>Товаров</th><th></th></tr></thead>
+          <thead><tr><th>Поставщик</th><th>Контакт</th><th>Условия</th><th style={{textAlign:"right"}}>Закупки</th><th style={{textAlign:"right"}}>Оплачено</th><th style={{textAlign:"right"}}>Возвраты</th><th style={{textAlign:"right"}}>Долг</th><th style={{textAlign:"right"}}>Товаров</th></tr></thead>
           <tbody>
             {shown.map(({ s, st }) => (
-              <tr key={s.id} style={{ opacity: s.status === "inactive" ? 0.55 : 1 }}>
+              <tr key={s.id} className="clk" title="Открыть: оплата и акт-сверка" onClick={() => setOpenId(s.id)} style={{ opacity: s.status === "inactive" ? 0.55 : 1 }}>
                 <td style={{ fontWeight: 700 }}>{s.name}{s.status === "inactive" && <> <Badge c="#9a9a9a">неактивен</Badge></>}</td>
                 <td className="sm">{s.contact}<div className="xs mut mono">{s.phone}</div></td>
                 <td className="sm mut">{s.terms}</td>
@@ -3153,15 +3231,9 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
                 <td className="num">{fmt(st.returns)}</td>
                 <td className="num" style={{ color: balColor(st.balance), fontWeight: 700 }} title={st.balance < 0 ? "переплата (аванс поставщику)" : ""}>{signedMoney(st.balance)}</td>
                 <td className="num">{prodCnt[s.id] || 0}</td>
-                <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
-                  <button className="btn xs" style={{ color: "var(--ok)" }} onClick={() => setPay(s)}>💵 оплата</button>
-                  <button className="btn xs" onClick={() => setAkt(s)}>📋 акт</button>
-                  <button className="btn xs" onClick={() => setEdit(s)}>ред.</button>
-                  {fin && <button className="btn xs dng" onClick={() => { setDelErr(""); setDel(s); }}>✕</button>}
-                </div></td>
               </tr>
             ))}
-            {!shown.length && <tr><td colSpan={9} className="mut" style={{ textAlign: "center", padding: 24 }}>{suppliers.length ? "Ничего не найдено" : "Поставщиков пока нет — добавьте через «+ Поставщик»"}</td></tr>}
+            {!shown.length && <tr><td colSpan={8} className="mut" style={{ textAlign: "center", padding: 24 }}>{suppliers.length ? "Ничего не найдено" : "Поставщиков пока нет — добавьте через «+ Поставщик»"}</td></tr>}
             {shown.length > 1 && (
               <tr style={{ background: "var(--panel2)" }}>
                 <td colSpan={3} style={{ fontWeight: 800 }}>Итого{q ? " (по найденным)" : ""}</td>
@@ -3169,13 +3241,13 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
                 <td className="num" style={{ fontWeight: 800, color: "var(--ok)" }}>{fmt(tot.paid)}</td>
                 <td className="num" style={{ fontWeight: 800 }}>{fmt(tot.returns)}</td>
                 <td className="num" style={{ fontWeight: 800, color: tot.debt > 0 ? "var(--bad)" : "var(--mut)" }} title="сумма долгов (переплаты не вычитаются)">{fmt(tot.debt)}</td>
-                <td colSpan={2}></td>
+                <td></td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
-      {akt && <AktSverkaModal s={akt} objects={objects} ops={finance_ops} whMoves={wh_moves} products={products} toast={toast} reload={reload} canEdit={fin} onClose={() => setAkt(null)} />}
+      </>}
       {pay && <SupplierPayModal s={pay} objects={objects} ops={finance_ops} whMoves={wh_moves} fin={fin} onClose={() => setPay(null)}
         onRateFixed={async (usd) => { await reload(); toast("Исправлено: " + fmt(usd) + " $"); }}
         onSave={async (op) => {
@@ -4276,10 +4348,11 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   const f = calcObject(obj, finance_ops);
   const ops = finance_ops.filter((o) => o.object_id === obj.id);
   const [opForm, setOpForm] = useState(null);
-  const [closedBatches, setClosedBatches] = useState({});
+  const [openBatches, setOpenBatches] = useState({}); // поставки (накладные) по умолчанию свёрнуты
+  const [delBatch, setDelBatch] = useState(null);
   const [editOp, setEditOp] = useState(null);
   const [delAsk, setDelAsk] = useState(null);
-  const toggleBatch = (no) => setClosedBatches({ ...closedBatches, [no]: !closedBatches[no] });
+  const toggleBatch = (no) => setOpenBatches((o) => ({ ...o, [no]: !o[no] }));
   const [editItem, setEditItem] = useState(null);
   const [addItems, setAddItems] = useState(false);
   const [impItems, setImpItems] = useState(false);
@@ -4422,7 +4495,6 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     return false;
   };
   const startCost = () => {
-    setClosedBatches({});
     setCostDraft({});
     setCostMode(true);
     setTimeout(() => costFocus(0), 60);
@@ -4692,6 +4764,28 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     toast(r === "xlsx" ? "Лист доставки скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
   const batches = useMemo(() => objBatches(obj), [obj]);
+  const batchHead = batches.length > 1 || (obj.items || []).some((i) => i.batch_no);
+  // свёрнута, пока не нажали на строку поставки; в «Себестоимости подряд» раскрыты все
+  const closedBatches = {};
+  if (batchHead && !costMode) batches.forEach((b) => { if (!openBatches[b.no]) closedBatches[b.no] = true; });
+  // удалить всю накладную (поставку): позиции убираются из объекта, товар со Склада Thermo возвращается на склад
+  const deleteBatch = async (b) => {
+    const ids = new Set(b.items.map((i) => i.id));
+    const rets = ops.filter((o) => !o.voided && o.type === "return" && o.item_id && ids.has(o.item_id));
+    if (rets.length) { toast("По этой поставке есть возвраты (" + rets.length + ") — сначала удалите их в «Финансовых операциях»"); return false; }
+    const r = await updateObjectItems(obj.id, (cur) => renumberBatches(cur.filter((i) => !ids.has(i.id)), obj.created_at));
+    if (r.error) { await reload(); return false; }
+    let note = "";
+    if (isLive(obj) && b.items.some((i) => i.from_warehouse && !i.wh_pending)) {
+      const t = await whReturnLive({ ...obj, items: b.items }, finance_ops, "удалена поставка №" + b.no + " объекта — товар вернулся на склад");
+      if (t.ids.length) note = " · на Склад Thermo возвращено: " + t.ids.length + " поз." + (t.fail ? " ⚠ не записано: " + t.fail : "");
+    }
+    const sum = b.items.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0);
+    await logAction("Удалена накладная (поставка №" + b.no + ")", "object:" + obj.name, b.items.length + " поз. на " + fmt2(sum) + " от " + dt(b.date) + note);
+    setOpenBatches({});
+    await reload(); toast("Поставка №" + b.no + " удалена: " + b.items.length + " поз." + note);
+    return true;
+  };
   // позиции, добавленные в поставку позже других её позиций (другим днём): сумма поставки после этого выросла —
   // видно, откуда разница, если поставку уже оплатили по старой сумме
   const lateAdded = useMemo(() => {
@@ -4829,14 +4923,15 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
           <tbody>
             {batches.map((b) => (
               <React.Fragment key={b.no}>
-                {batches.length > 1 || (obj.items || []).some((i) => i.batch_no) ? (
-                  <tr className="clk" onClick={() => toggleBatch(b.no)}>
+                {batchHead ? (
+                  <tr className="clk batch-head" onClick={() => toggleBatch(b.no)}>
                     <td colSpan={costMode ? 6 : 7} style={{ background: "var(--acc-tint)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
                       {closedBatches[b.no] ? "▸" : "▾"} 🚚 ПОСТАВКА №{b.no} · <input type="date" className="inp batch-date" title="Дата накладной — нажмите, чтобы изменить" value={String(b.date || "").slice(0, 10)}
                         onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => setBatchDate(b.no, e.target.value)} /> · позиций: {b.items.length} · на сумму {fmt(b.items.reduce((a, i) => a + i.qty * i.price, 0))}
                       {b.items.some((i) => lateAdded.has(i.id)) && <span className="late-sum" style={{ color: "var(--warn)" }}> · добавлено позже: {b.items.filter((i) => lateAdded.has(i.id)).length} поз. на {fmt2(b.items.filter((i) => lateAdded.has(i.id)).reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0))}</span>}
                       {b.items.some((i) => !isShipped(i)) ? <span style={{ color: "var(--warn)" }}> · не отгружено: {b.items.filter((i) => !isShipped(i)).length}</span> : b.items.some((i) => i.shipped) ? <span style={{ color: "var(--ok)" }}> · отгружено ✓</span> : null}
                       <span className="xs mut" style={{ fontWeight: 500 }}>  — нажмите чтобы {closedBatches[b.no] ? "раскрыть" : "свернуть"}</span>
+                      {!costMode && fin && <button className="btn xs dng batch-del" title="Удалить всю накладную (все позиции этой поставки)" onClick={(e) => { e.stopPropagation(); setDelBatch(b); }}>🗑 Удалить накладную</button>}
                     </td>
                   </tr>
                 ) : null}
@@ -4906,6 +5001,17 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
           </tbody>
         </table>
       </div>
+      {delBatch && (
+        <Modal title={"Удалить поставку №" + delBatch.no + "?"} onClose={() => setDelBatch(null)} w={460}>
+          <p className="sm">Из объекта будут удалены все позиции накладной от <b>{dt(delBatch.date)}</b>: <b>{delBatch.items.length} поз.</b> на <b>{fmt2(delBatch.items.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0))}</b>.</p>
+          {isLive(obj) && delBatch.items.some((i) => i.from_warehouse && !i.wh_pending) && <p className="sm mut" style={{ marginTop: 6 }}>Товар со Склада Thermo вернётся на склад.</p>}
+          <p className="sm mut" style={{ marginTop: 6 }}>Долг клиента и долг поставщикам пересчитаются. Это действие нельзя отменить.</p>
+          <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
+            <button className="btn" onClick={() => setDelBatch(null)}>Отмена</button>
+            <button className="btn dng" onClick={async () => { const b = delBatch; setDelBatch(null); await deleteBatch(b); }}>Удалить накладную</button>
+          </div>
+        </Modal>
+      )}
       {delItemId && (
         <Modal title="Удалить позицию?" onClose={() => setDelItemId(null)} w={420}>
           <p className="sm mut">Позиция будет удалена из объекта. Это действие нельзя отменить.</p>
