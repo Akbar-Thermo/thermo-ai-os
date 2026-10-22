@@ -527,7 +527,12 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .note-color{width:22px;height:22px;border-radius:50%;border:2px solid var(--line2);cursor:pointer;padding:0}
 .note-color.on{border-color:var(--txt);box-shadow:0 0 0 2px var(--acc-ring)}
 .fin-seg{display:inline-flex;gap:6px;flex-wrap:wrap}
-.t tr.obj-grp td{background:var(--panel2);font-weight:800;font-size:12px;letter-spacing:.4px;text-transform:uppercase;padding-top:9px;padding-bottom:9px}
+.obj-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;align-items:start}
+.obj-col{overflow:hidden}
+.obj-grp{background:var(--panel2);font-weight:800;font-size:12px;letter-spacing:.4px;text-transform:uppercase;padding:10px 12px;border-bottom:1px solid var(--line)}
+.obj-t{width:100%;min-width:0!important}
+.obj-t td{vertical-align:top}
+.obj-act{display:flex;gap:4px;justify-content:flex-end;margin-top:6px}
 .batch-del{float:right;margin-left:8px;letter-spacing:0;font-size:11px}
 .kassa-pre{white-space:pre-wrap;font:13px/1.45 inherit;font-family:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:12px 0 0;max-height:300px;overflow:auto}
 .pick-name{font-weight:600;font-size:13px;line-height:17px;color:var(--txt);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
@@ -4226,7 +4231,8 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   const ql = q.trim().toLowerCase();
   const shown = objects.filter((o) => (!stF || o.status === stF) && (!ql || [o.name, o.client, o.phone, o.address, o.master, o.manager].join(" ").toLowerCase().includes(ql)));
   // список по статусам: «Черновик», «Согласовано», «В процессе» и «Оплачено» вместе, старые статусы — в конце
-  const groups = OBJ_GROUPS.map((g) => ({ ...g, list: shown.filter((o) => (g.ids ? g.ids.includes(o.status || "draft") : !OBJ_GROUPS.some((x) => x.ids && x.ids.includes(o.status || "draft")))) })).filter((g) => g.list.length);
+  const groups = OBJ_GROUPS.map((g) => ({ ...g, list: shown.filter((o) => (g.ids ? g.ids.includes(o.status || "draft") : !OBJ_GROUPS.some((x) => x.ids && x.ids.includes(o.status || "draft")))) }))
+    .filter((g) => g.list.length || (g.ids && !stF)); // три основные колонки — всегда (если не выбран статус), «старые статусы» — только если есть
   return (
     <div>
       <div className="row sect">
@@ -4238,35 +4244,41 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         </select>
         <button className="btn pri" onClick={goRequest}>+ Новая заявка</button>
       </div>
-      <div className="card" style={{ padding: 0, overflow: "auto" }}>
-        <table className="t">
-          <thead><tr><th>Объект</th><th>Клиент</th><th>Мастер</th><th>Статус</th><th style={{textAlign:"right"}}>Сумма товара</th><th style={{textAlign:"right"}}>Долг клиента</th><th>Дата</th><th></th></tr></thead>
-          <tbody>
-            {groups.map((g) => <React.Fragment key={g.key}>
-              <tr className="obj-grp"><td colSpan={8}>{g.label} <span className="mut">· {g.list.length}</span></td></tr>
+      {/* статусы — колонками рядом: Черновик · Согласовано · В процессе и Оплачено (· старые статусы) */}
+      {!shown.length ? <div className="card mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? "Ничего не найдено" : "Объектов пока нет — создайте через «Новая заявка»"}</div> : (
+      <div className="obj-cols">
+        {groups.map((g) => {
+          const debt = g.list.reduce((a, o) => a + (isLive(o) ? Math.max(0, calcObject(o, finance_ops).clientDebt) : 0), 0);
+          return (
+          <div key={g.key} className="card obj-col" style={{ padding: 0 }}>
+            <div className="obj-grp row" style={{ gap: 6 }}><span style={{ marginRight: "auto" }}>{g.label} <span className="mut">· {g.list.length}</span></span>{debt > 0.004 && <span className="xs" style={{ color: "var(--bad)", textTransform: "none", letterSpacing: 0 }}>долг {fmt(debt)}</span>}</div>
+            <table className="t obj-t"><tbody>
               {g.list.map((o) => {
-              const f = calcObject(o, finance_ops);
-              const st = stById(o.status);
-              return (
-                <tr key={o.id} className="clk" onClick={() => setOpenId(o.id)}>
-                  <td style={{ fontWeight: 700 }}>{o.name}<div className="xs mut">{o.address}</div></td>
-                  <td className="sm">{o.client}{o.phone && <div className="xs mut mono">{o.phone}</div>}</td>
-                  <td className="sm">{o.master}</td>
-                  <td><Badge c={st.c}>{st.label}</Badge></td>
-                  <td className="num">{fmt(f.saleNet)}</td>
-                  {isLive(o)
-                    ? <td className="num" style={{ color: f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--ok)" : "var(--mut)" }}>{f.clientDebt < 0 ? "−" + fmt(Math.abs(f.clientDebt)) : fmt(f.clientDebt)}</td>
-                    : <td className="num mut" title="«Черновик» / «Согласовано» — долг клиента не учитывается">—</td>}
-                  <td className="xs mut mono">{dt(o.created_at)}</td>
-                  <td style={{ whiteSpace: "nowrap" }}><button className="btn xs" title="Изменить объект" onClick={(e) => { e.stopPropagation(); setEditO(o); }}>✎</button>{canDelete(o) ? <> <button className="btn xs dng" title="Удалить объект" onClick={(e) => { e.stopPropagation(); setDelObj(o); }}>✕</button></> : null}</td>
-                </tr>
-              );
-            })}
-            </React.Fragment>)}
-            {!shown.length && <tr><td colSpan={8} className="mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? "Ничего не найдено" : "Объектов пока нет — создайте через «Новая заявка»"}</td></tr>}
-          </tbody>
-        </table>
-      </div>
+                const f = calcObject(o, finance_ops);
+                const st = stById(o.status);
+                return (
+                  <tr key={o.id} className="clk" onClick={() => setOpenId(o.id)}>
+                    <td>
+                      <div style={{ fontWeight: 700 }}>{o.name}</div>
+                      {g.key !== "draft" && g.key !== "approved" && <div style={{ margin: "3px 0" }}><Badge c={st.c}>{st.label.replace(" (старый статус)", "")}</Badge></div>}
+                      <div className="xs mut">{[o.client, o.phone, o.master].filter(Boolean).join(" · ")}</div>
+                      {o.address && <div className="xs mut">{o.address}</div>}
+                    </td>
+                    <td className="num" style={{ whiteSpace: "nowrap" }}>
+                      <div>{fmt(f.saleNet)}</div>
+                      {isLive(o) && Math.abs(f.clientDebt) > 0.004 && <div className="xs" style={{ color: f.clientDebt > 0 ? "var(--bad)" : "var(--ok)", fontWeight: 700 }} title={f.clientDebt > 0 ? "долг клиента" : "переплата клиента"}>{f.clientDebt > 0 ? "долг " + fmt(f.clientDebt) : "переплата " + fmt(-f.clientDebt)}</div>}
+                      <div className="xs mut mono">{dt(o.created_at)}</div>
+                      <div className="obj-act"><button className="btn xs" title="Изменить объект" onClick={(e) => { e.stopPropagation(); setEditO(o); }}>✎</button>{canDelete(o) ? <button className="btn xs dng" title="Удалить объект" onClick={(e) => { e.stopPropagation(); setDelObj(o); }}>✕</button> : null}</div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {!g.list.length && <tr><td colSpan={2} className="mut sm" style={{ textAlign: "center", padding: 18 }}>—</td></tr>}
+            </tbody></table>
+          </div>
+          );
+        })}
+      </div>)}
       {editO && <ObjectEditModal obj={editO} data={data} reload={reload} toast={toast} onClose={() => setEditO(null)} />}
       {delObj && (() => { const f = calcObject(delObj, finance_ops); return (
         <Modal title="Удалить объект" onClose={() => { if (!delBusy) setDelObj(null); }} w={460}>
