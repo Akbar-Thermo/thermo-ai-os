@@ -7494,7 +7494,20 @@ function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
     if (r.error) { toast("Не сохранено: " + (r.error.message || r.error)); return; }
     await onSaved(same ? "Отчёт кассы обновлён в заметках" : "Отчёт кассы сохранён в заметки");
   };
-  const setC = (k, patch) => setConv(conv.map((c, j) => (j === k ? { ...c, ...patch } : c)));
+  // курс в системе: последний курс из операций в сумах (по дате ≤ дня отчёта), иначе последний введённый на этом компьютере
+  const sysRate = useMemo(() => {
+    const r = ops.filter((x) => !x.voided && rateOk(x.pay_rate) && String(x.op_date || x.created_at || "").slice(0, 10) <= date)
+      .sort((a, b) => String(b.op_date || b.created_at || "").localeCompare(String(a.op_date || a.created_at || "")) || String(b.created_at || "").localeCompare(String(a.created_at || "")))[0];
+    return r ? Number(r.pay_rate) : Number(lastRate()) || "";
+  }, [ops, date]);
+  // $ ↔ сум по курсу: считается от поля, которое вводили последним
+  const calcC = (c) => {
+    const rate = parseNum(c.rate) || Number(sysRate) || 0; // у старых строк курса нет — берём курс системы
+    if (!rateOk(rate)) return c;
+    if (c.src === "uzs") return { ...c, usd: parseNum(c.uzs) ? String(round2(parseNum(c.uzs) / rate)) : "" };
+    return { ...c, uzs: parseNum(c.usd) ? String(Math.round(parseNum(c.usd) * rate)) : "" };
+  };
+  const setC = (k, patch) => setConv(conv.map((c, j) => (j === k ? calcC({ ...c, ...patch }) : c)));
   return (
     <Modal title="Касса за день → в заметки" onClose={onClose} w={640}>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
@@ -7506,12 +7519,15 @@ function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
       {conv.map((c, k) => (
         <div key={k} className="row kassa-conv" style={{ gap: 6, marginTop: 6, flexWrap: "nowrap" }}>
           <select className="inp" style={{ maxWidth: 120 }} value={c.dir} onChange={(e) => setC(k, { dir: e.target.value })}><option value="usd2uzs">$ → сум</option><option value="uzs2usd">сум → $</option></select>
-          <input className="inp" inputMode="decimal" placeholder="$" value={c.usd} onChange={(e) => setC(k, { usd: e.target.value })} />
-          <input className="inp" inputMode="decimal" placeholder="сум" value={c.uzs} onChange={(e) => setC(k, { uzs: e.target.value })} />
+          <input className="inp" inputMode="decimal" placeholder="$" value={c.usd} onChange={(e) => setC(k, { usd: e.target.value, src: "usd" })} />
+          <span className="xs mut" style={{ whiteSpace: "nowrap" }}>× курс</span>
+          <input className="inp kassa-rate" inputMode="decimal" placeholder="курс" title="Курс доллара (из системы, можно изменить)" style={{ maxWidth: 110 }} value={c.rate != null ? c.rate : sysRate ? String(sysRate) : ""} onChange={(e) => setC(k, { rate: e.target.value })} />
+          <span className="xs mut">=</span>
+          <input className="inp" inputMode="decimal" placeholder="сум" value={c.uzs} onChange={(e) => setC(k, { uzs: e.target.value, src: "uzs" })} />
           <button type="button" className="btn xs dng" title="Убрать" onClick={() => setConv(conv.filter((_, j) => j !== k))}>✕</button>
         </div>
       ))}
-      <button type="button" className="btn xs" style={{ marginTop: 6 }} onClick={() => setConv([...conv, { dir: "usd2uzs", usd: "", uzs: "" }])}>+ Конвертация</button>
+      <button type="button" className="btn xs" style={{ marginTop: 6 }} onClick={() => setConv([...conv, { dir: "usd2uzs", usd: "", uzs: "", rate: sysRate ? String(sysRate) : "", src: "usd" }])}>+ Конвертация</button>
       <pre className="kassa-pre">{rep.text}</pre>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12, gap: 8 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
