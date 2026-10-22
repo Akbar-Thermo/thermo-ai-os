@@ -109,20 +109,26 @@ const db = dbWrap(dbModule.db);
    DATA LAYER = Supabase (db импортируется из ./db.js)
    ============================================================ */
 
-// статусы объекта: «Согласовано» (id approved) — склад, долг поставщикам, доставка и долг клиента;
-// «Оплата» (id payment) и «Оплачено» (id paid, ставится сам при оплате 100%) — ещё продажи, прибыль, оплаты клиента, дашборд, бонусы. «Черновик» (и старый «На тендере») — объект виден, но ни на что не влияет.
+// статусы объекта: «Черновик» и «Согласовано» (id approved) — только для информации, ни на что не влияют;
+// «В процессе» (id payment — бывшая «Оплата») и «Оплачено» (id paid, ставится сам при оплате 100%) — отгрузка, склад,
+// долг клиента и поставщикам, продажи, прибыль, оплаты клиента, дашборд, бонусы
 const OBJ_STATUSES = [
   { id: "draft", label: "Черновик", c: "var(--t-neutral)" },
   { id: "approved", label: "Согласовано", c: "var(--t-strong)" },
-  { id: "payment", label: "Оплата", c: "var(--t-info)" },
+  { id: "payment", label: "В процессе", c: "var(--t-info)" },
   // «Оплачено» ставится сам, когда клиент оплатил 100%; вручную — только при оплате 100%
   { id: "paid", label: "Оплачено", c: "var(--t-ok)" },
 ];
-const IDLE_STATUSES = ["draft", "tender", "cancelled"];
+const IDLE_STATUSES = ["draft", "approved", "tender", "cancelled"];
+const OBJ_GROUPS = [
+  { key: "draft", label: "Черновик", ids: ["draft"] },
+  { key: "approved", label: "Согласовано", ids: ["approved"] },
+  { key: "work", label: "В процессе и Оплачено", ids: ["payment", "paid"] },
+  { key: "old", label: "Старые статусы" },
+];
 const isLive = (o) => !!o && !IDLE_STATUSES.includes(o.status || "draft");
-// продажи, прибыль, оплаты клиента и дашборд — только со статуса «Оплата» / «Оплачено» (и у старых статусов «Закрыто/…»);
-// в «Согласовано» объект влияет на склад, долг поставщикам, доставку и долг клиента (оплаты пока не учитываются)
-const payLive = (o) => isLive(o) && o.status !== "approved";
+// оплаты клиента учитываются там же, где и всё остальное: «В процессе» / «Оплачено» (и старые «Закрыто/…»)
+const payLive = (o) => isLive(o);
 const OP_TYPES = [
   { id: "client_payment", label: "Оплата клиента" },
   { id: "supplier_payment", label: "Оплата поставщику" },
@@ -152,7 +158,8 @@ const ROLE_CFG_MODE = "te_roles";
 /* Облачный пароль (как в Telegram): после обычного пароля — второй, свой у каждого аккаунта.
    Хэши хранятся служебной записью requests (mode = "te_2fa", lines = { id аккаунта: хэш }). */
 const CLOUD_MODE = "te_2fa";
-const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note"];
+const MIGR_MODE = "te_migr"; // отметки о разовых переходах данных
+const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note", MIGR_MODE];
 // служебная запись-словарь в requests: прочитать свежую и поменять один ключ
 async function cfgSetKey(mode, key, value) {
   const r0 = await db.from("requests").select().eq("mode", mode);
@@ -520,6 +527,7 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .note-color{width:22px;height:22px;border-radius:50%;border:2px solid var(--line2);cursor:pointer;padding:0}
 .note-color.on{border-color:var(--txt);box-shadow:0 0 0 2px var(--acc-ring)}
 .fin-seg{display:inline-flex;gap:6px;flex-wrap:wrap}
+.t tr.obj-grp td{background:var(--panel2);font-weight:800;font-size:12px;letter-spacing:.4px;text-transform:uppercase;padding-top:9px;padding-bottom:9px}
 .batch-del{float:right;margin-left:8px;letter-spacing:0;font-size:11px}
 .kassa-pre{white-space:pre-wrap;font:13px/1.45 inherit;font-family:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:12px 0 0;max-height:300px;overflow:auto}
 .pick-name{font-weight:600;font-size:13px;line-height:17px;color:var(--txt);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
@@ -2981,10 +2989,11 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
       { k: "section", v: ["1. ПОЛУЧЕНО ТОВАРОВ"] },
       { k: "head", v: ["№", "Наименование", "Кол-во", "Ед.", "Себест.", "Сумма"] },
     ];
-    let n = 1;
+    // каждая накладная: позиции с 1, под ней — сумма накладной
     batches.forEach((g) => {
-      rows.push({ k: "section", v: [g.obj_name + " · Поставка №" + g.no + " от " + dt(g.date)] });
-      g.items.forEach((it) => rows.push({ k: "row", v: [n++, it.name, Number(it.qty) || 0, it.unit || "", Number(it.cost) || 0, round2((it.qty || 0) * (it.cost || 0))] }));
+      rows.push({ k: "section", v: [g.obj_name + (String(g.obj_id).startsWith("wh:") ? "" : " · Поставка №" + g.no) + " от " + dt(g.date)] });
+      g.items.forEach((it, i) => rows.push({ k: "row", v: [i + 1, it.name, Number(it.qty) || 0, it.unit || "", Number(it.cost) || 0, round2((it.qty || 0) * (it.cost || 0))] }));
+      rows.push({ k: "sum", v: ["", "Сумма накладной", "", "", "", round2(g.sum)] });
     });
     if (!batches.length) rows.push({ k: "info", v: ["Поступлений нет"] });
     rows.push({ k: "total", v: ["Итого получено", round2(totalReceived)] }, { k: "blank" });
@@ -3186,7 +3195,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
           <button className="btn" onClick={() => setOpenId(null)}>← Поставщики</button>
           <div style={{ marginRight: "auto" }}>
             <h2>{cur.name} {cur.status === "inactive" && <Badge c="#9a9a9a">неактивен</Badge>}</h2>
-            <div className="sm mut">{[cur.contact, cur.phone, cur.terms, "товаров: " + (prodCnt[cur.id] || 0)].filter(Boolean).join(" · ")}</div>
+            <div className="sm mut">{[cur.contact, cur.phone, "товаров: " + (prodCnt[cur.id] || 0)].filter(Boolean).join(" · ")}</div>
           </div>
           {fin && <button className="btn dng" onClick={() => { setDelErr(""); setDel(cur); }}>Удалить</button>}
           <button className="btn" onClick={() => setEdit(cur)}>Редактировать</button>
@@ -3219,13 +3228,12 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
       )}
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
-          <thead><tr><th>Поставщик</th><th>Контакт</th><th>Условия</th><th style={{textAlign:"right"}}>Закупки</th><th style={{textAlign:"right"}}>Оплачено</th><th style={{textAlign:"right"}}>Возвраты</th><th style={{textAlign:"right"}}>Долг</th><th style={{textAlign:"right"}}>Товаров</th></tr></thead>
+          <thead><tr><th>Поставщик</th><th>Контакт</th><th style={{textAlign:"right"}}>Закупки</th><th style={{textAlign:"right"}}>Оплачено</th><th style={{textAlign:"right"}}>Возвраты</th><th style={{textAlign:"right"}}>Долг</th><th style={{textAlign:"right"}}>Товаров</th></tr></thead>
           <tbody>
             {shown.map(({ s, st }) => (
               <tr key={s.id} className="clk" title="Открыть: оплата и акт-сверка" onClick={() => setOpenId(s.id)} style={{ opacity: s.status === "inactive" ? 0.55 : 1 }}>
                 <td style={{ fontWeight: 700 }}>{s.name}{s.status === "inactive" && <> <Badge c="#9a9a9a">неактивен</Badge></>}</td>
                 <td className="sm">{s.contact}<div className="xs mut mono">{s.phone}</div></td>
-                <td className="sm mut">{s.terms}</td>
                 <td className="num">{fmt(st.purchases)}</td>
                 <td className="num" style={{ color: "var(--ok)" }}>{fmt(st.paid)}</td>
                 <td className="num">{fmt(st.returns)}</td>
@@ -3233,10 +3241,10 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
                 <td className="num">{prodCnt[s.id] || 0}</td>
               </tr>
             ))}
-            {!shown.length && <tr><td colSpan={8} className="mut" style={{ textAlign: "center", padding: 24 }}>{suppliers.length ? "Ничего не найдено" : "Поставщиков пока нет — добавьте через «+ Поставщик»"}</td></tr>}
+            {!shown.length && <tr><td colSpan={7} className="mut" style={{ textAlign: "center", padding: 24 }}>{suppliers.length ? "Ничего не найдено" : "Поставщиков пока нет — добавьте через «+ Поставщик»"}</td></tr>}
             {shown.length > 1 && (
               <tr style={{ background: "var(--panel2)" }}>
-                <td colSpan={3} style={{ fontWeight: 800 }}>Итого{q ? " (по найденным)" : ""}</td>
+                <td colSpan={2} style={{ fontWeight: 800 }}>Итого{q ? " (по найденным)" : ""}</td>
                 <td className="num" style={{ fontWeight: 800 }}>{fmt(tot.purchases)}</td>
                 <td className="num" style={{ fontWeight: 800, color: "var(--ok)" }}>{fmt(tot.paid)}</td>
                 <td className="num" style={{ fontWeight: 800 }}>{fmt(tot.returns)}</td>
@@ -3401,7 +3409,6 @@ function SupplierForm({ s, all = [], hasNote = true, onSave }) {
         <Fld label="Название"><input className="inp" value={v.name || ""} onChange={set("name")} autoFocus /></Fld>
         <Fld label="Контактное лицо"><input className="inp" value={v.contact || ""} onChange={set("contact")} /></Fld>
         <Fld label="Телефон"><input className="inp" value={v.phone || ""} onChange={set("phone")} /></Fld>
-        <Fld label="Условия оплаты"><input className="inp" value={v.terms || ""} onChange={set("terms")} /></Fld>
         <Fld label="Статус"><select className="inp" value={v.status || "active"} onChange={set("status")}><option value="active">активен</option><option value="inactive">неактивен (скрыт из списков выбора)</option></select></Fld>
         {hasNote && <Fld label="Примечание"><input className="inp" value={v.note || ""} onChange={set("note")} /></Fld>}
       </div>
@@ -4218,6 +4225,8 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   if (obj) return <ObjectDetail obj={obj} data={data} reload={reload} toast={toast} fin={fin} back={() => setOpenId(null)} />;
   const ql = q.trim().toLowerCase();
   const shown = objects.filter((o) => (!stF || o.status === stF) && (!ql || [o.name, o.client, o.phone, o.address, o.master, o.manager].join(" ").toLowerCase().includes(ql)));
+  // список по статусам: «Черновик», «Согласовано», «В процессе» и «Оплачено» вместе, старые статусы — в конце
+  const groups = OBJ_GROUPS.map((g) => ({ ...g, list: shown.filter((o) => (g.ids ? g.ids.includes(o.status || "draft") : !OBJ_GROUPS.some((x) => x.ids && x.ids.includes(o.status || "draft")))) })).filter((g) => g.list.length);
   return (
     <div>
       <div className="row sect">
@@ -4233,7 +4242,9 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         <table className="t">
           <thead><tr><th>Объект</th><th>Клиент</th><th>Мастер</th><th>Статус</th><th style={{textAlign:"right"}}>Сумма товара</th><th style={{textAlign:"right"}}>Долг клиента</th><th>Дата</th><th></th></tr></thead>
           <tbody>
-            {shown.map((o) => {
+            {groups.map((g) => <React.Fragment key={g.key}>
+              <tr className="obj-grp"><td colSpan={8}>{g.label} <span className="mut">· {g.list.length}</span></td></tr>
+              {g.list.map((o) => {
               const f = calcObject(o, finance_ops);
               const st = stById(o.status);
               return (
@@ -4245,12 +4256,13 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
                   <td className="num">{fmt(f.saleNet)}</td>
                   {isLive(o)
                     ? <td className="num" style={{ color: f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--ok)" : "var(--mut)" }}>{f.clientDebt < 0 ? "−" + fmt(Math.abs(f.clientDebt)) : fmt(f.clientDebt)}</td>
-                    : <td className="num mut" title="«Черновик» — долг клиента не учитывается">—</td>}
+                    : <td className="num mut" title="«Черновик» / «Согласовано» — долг клиента не учитывается">—</td>}
                   <td className="xs mut mono">{dt(o.created_at)}</td>
                   <td style={{ whiteSpace: "nowrap" }}><button className="btn xs" title="Изменить объект" onClick={(e) => { e.stopPropagation(); setEditO(o); }}>✎</button>{canDelete(o) ? <> <button className="btn xs dng" title="Удалить объект" onClick={(e) => { e.stopPropagation(); setDelObj(o); }}>✕</button></> : null}</td>
                 </tr>
               );
             })}
+            </React.Fragment>)}
             {!shown.length && <tr><td colSpan={8} className="mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? "Ничего не найдено" : "Объектов пока нет — создайте через «Новая заявка»"}</td></tr>}
           </tbody>
         </table>
@@ -4401,7 +4413,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     }
     if (ok) {
       await logAction("Статус объекта: " + stById(s).label, "object:" + obj.name, "было: " + stById(obj.status).label + (note ? "; " + note : ""));
-      toast(will ? (s === "approved" ? "Статус «Согласовано» — учитывается на складе, в долге поставщикам и в долге клиента" : "Статус «" + stById(s).label + "» — учитываются продажа, прибыль, оплаты и долг клиента") + (note ? ". " + note : "") : "Статус «" + stById(s).label + "» — объект не влияет на долги, склад и отчёты" + (note ? ". " + note : ""));
+      toast(will ? "Статус «" + stById(s).label + "» — можно отгружать; учитываются склад, долг клиента и поставщикам, оплаты и прибыль" + (note ? ". " + note : "") : "Статус «" + stById(s).label + "» — только для информации: объект не влияет на долги, склад и отчёты" + (note ? ". " + note : ""));
     }
     await reload();
   };
@@ -4893,9 +4905,9 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         </div>
       </div>
 
-      {obj.status === "approved" && f.paidIgnored > 0 && (
+      {!isLive(obj) && f.paidIgnored > 0 && (
         <div className="card sect" style={{ borderColor: "var(--warn)", padding: "10px 14px" }}>
-          <div className="sm" style={{ color: "var(--warn)" }}>⚠ По объекту уже записано оплат на {fmt2(f.paidIgnored)} — они начнут учитываться после статуса «Оплата».</div>
+          <div className="sm" style={{ color: "var(--warn)" }}>⚠ По объекту уже записано оплат на {fmt2(f.paidIgnored)} — они начнут учитываться после статуса «В процессе».</div>
         </div>
       )}
       <div className="kpis sect">
@@ -5234,7 +5246,7 @@ function ObjectItemRow({ i, late, fin, supName, setItemQty, setItemPrice, setEdi
   return (
     <tr>
       <td style={{ width: 28, paddingRight: 0, verticalAlign: "middle" }}><MarkDot value={mk} onClick={async () => { const nx = nextMark(mk); setMk(nx); if (!(await setItemMark(i.id, nx))) setMk(i.mark || ""); }} /></td>
-      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «Согласовано»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}{late && <div className="xs late-add" style={{ color: "var(--warn)" }} title="Позиция добавлена в эту поставку позже остальных — сумма поставки после этого выросла">добавлено позже: {dt(late)}</div>}</td>
+      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «В процессе»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}{late && <div className="xs late-add" style={{ color: "var(--warn)" }} title="Позиция добавлена в эту поставку позже остальных — сумма поставки после этого выросла">добавлено позже: {dt(late)}</div>}</td>
       <td><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)}
         onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (v !== Number(i.qty)) { if (!(await setItemQty(i.id, v))) setQty(i.qty); } else setQty(i.qty); }} /></td>
       <td className="sm">{i.unit}</td>
@@ -7427,7 +7439,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
         <div className="card">
           <h3 style={{ marginBottom: 8 }}>Долги поставщикам</h3>
           <table className="t"><thead><tr><th>Поставщик</th><th style={{textAlign:"right"}}>Закупки</th><th style={{textAlign:"right"}}>Оплачено</th><th style={{textAlign:"right"}}>Долг</th></tr></thead>
-            <tbody>{supRows.map(({ s, st }) => <tr key={s.id}><td>{s.name}<div className="xs mut">{s.terms}</div></td><td className="num">{fmt(st.purchases)}</td><td className="num">{fmt(st.paid)}</td><td className="num" style={{color:st.balance>0?"var(--bad)":st.balance<0?"var(--ok)":"var(--mut)",fontWeight:700}} title={st.balance<0?"переплата (аванс поставщику)":""}>{st.balance<0?"−"+fmt(-st.balance):fmt(st.balance)}</td></tr>)}
+            <tbody>{supRows.map(({ s, st }) => <tr key={s.id}><td>{s.name}</td><td className="num">{fmt(st.purchases)}</td><td className="num">{fmt(st.paid)}</td><td className="num" style={{color:st.balance>0?"var(--bad)":st.balance<0?"var(--ok)":"var(--mut)",fontWeight:700}} title={st.balance<0?"переплата (аванс поставщику)":""}>{st.balance<0?"−"+fmt(-st.balance):fmt(st.balance)}</td></tr>)}
             {!supRows.length && <tr><td colSpan={4} className="mut sm" style={{padding:14}}>Закупок и оплат поставщикам пока нет</td></tr>}
             {supRows.length > 1 && <tr style={{ background: "var(--panel2)" }}><td style={{ fontWeight: 800 }}>Итого долг</td><td className="num" style={{ fontWeight: 800 }}>{fmt(supRows.reduce((a, r) => a + r.st.purchases, 0))}</td><td className="num" style={{ fontWeight: 800 }}>{fmt(supRows.reduce((a, r) => a + r.st.paid, 0))}</td><td className="num" style={{ fontWeight: 800, color: "var(--bad)" }} title="сумма долгов (переплаты не вычитаются)">{fmt(supRows.reduce((a, r) => a + r.st.debt, 0))}</td></tr>}
             </tbody></table>
@@ -8472,7 +8484,31 @@ function AppInner() {
     }
     return { ok: !failed.length, allFailed: failed.length === tables.length, failed };
   };
-  // «Оплата» ⇄ «Оплачено»: клиент оплатил 100% (долг 0 или переплата) — «Оплачено»; появился долг — снова «Оплата»
+  // «В процессе» ⇄ «Оплачено»: клиент оплатил 100% (долг 0 или переплата) — «Оплачено»; появился долг — снова «В процессе»
+  // переход на новые статусы (один раз для всей базы): старые «Согласовано» учитывались в складе и долгах —
+  // переводим их в «В процессе», чтобы ничего не изменилось. Новые «Согласовано» — только для информации
+  const migrDone = useRef(false);
+  useEffect(() => {
+    if (migrDone.current || !currentUser || !["boss", "manager"].includes(role) || !data.objects.length) return;
+    migrDone.current = true;
+    (async () => {
+      const c = await db.from("requests").select().eq("mode", MIGR_MODE);
+      if (c.error) { migrDone.current = false; return; }
+      const row = (c.data || [])[0];
+      if (row && row.lines && row.lines.approved_to_progress) return;
+      const r = await db.from("objects").select().eq("status", "approved");
+      if (r.error) { migrDone.current = false; return; }
+      const list = r.data || [];
+      let n = 0;
+      for (const o of list) { const u = await db.from("objects").update({ status: "payment" }).eq("id", o.id); if (!u.error) n++; }
+      if (n < list.length) { migrDone.current = false; return; } // не всё перевелось — попробуем при следующей загрузке
+      await cfgSetKey(MIGR_MODE, "approved_to_progress", new Date().toISOString());
+      if (n) {
+        await logAction("Статусы: «Согласовано» → «В процессе»", "objects", "переход на новые статусы, объектов: " + n + " (" + list.map((o) => o.name).join(", ").slice(0, 400) + ")");
+        await reload(); toast("Новые статусы: " + n + " объект(ов) из «Согласовано» переведены в «В процессе» — долги и склад не изменились");
+      }
+    })();
+  }, [currentUser, role, data.objects]);
   const autoPaidBusy = useRef(new Set());
   useEffect(() => {
     if (!currentUser || !["boss", "manager"].includes(role) || !data.objects.length) return;
@@ -8494,7 +8530,7 @@ function AppInner() {
           r = await db.from("objects").update({ status: to, items: itemsInCatalogOrder(fresh.data[0].items || [], data.products) }).eq("id", o.id);
         } finally { BUSY_SILENT = Math.max(0, BUSY_SILENT - 1); }
         if (r && !r.error) {
-          done.push((to === "paid" ? "«Оплачено»: " : "снова «Оплата» (есть долг): ") + o.name);
+          done.push((to === "paid" ? "«Оплачено»: " : "снова «В процессе» (есть долг): ") + o.name);
           await logAction("Статус объекта: " + stById(to).label + " (авто)", "object:" + o.name, to === "paid" ? "клиент оплатил 100%: " + fmt2(f.paidClient) + " из " + fmt2(f.saleNet) : "оплачено не всё — долг " + fmt2(f.clientDebt));
         }
       }
@@ -9180,7 +9216,7 @@ function archiveBook(T, who) {
   const supRows = [...sups].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ru")).map((s) => {
     const st = supplierStats(s, objects, ops, moves);
     sDebt += st.debt; if (st.balance < 0) sAdv -= st.balance;
-    return [s.name || "", s.contact || "", s.phone || "", s.terms || "", st.purchases, st.paid, st.returns, st.balance, s.status === "inactive" ? "неактивен" : ""];
+    return [s.name || "", s.contact || "", s.phone || "", st.purchases, st.paid, st.returns, st.balance, s.status === "inactive" ? "неактивен" : ""];
   });
   let mDebt = 0;
   const mRows = [...masters].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ru")).map((m) => {
@@ -9219,7 +9255,7 @@ function archiveBook(T, who) {
     ...opsNewestFirst(ops).map((o) => [d(o.op_date || o.created_at), opLabel(o.type), oName.get(o.object_id) || "", supName.get(o.supplier_id) || "", mName.get(o.master_id) || "",
       r2(o.amount), o.cost_amount ? r2(o.cost_amount) : "", o.reason || "", o.category || "", o.product_name || o.item_name || "", o.qty == null ? "" : Number(o.qty) || 0, o.note || "",
       o.user || o.user_name || "", o.voided ? "сторно" : ""])]);
-  add("Поставщики", [["Поставщик", "Контакт", "Телефон", "Условия", "Закупки, $", "Оплачено, $", "Возвраты, $", "Долг (+) / аванс (−), $", "Статус"], ...supRows]);
+  add("Поставщики", [["Поставщик", "Контакт", "Телефон", "Закупки, $", "Оплачено, $", "Возвраты, $", "Долг (+) / аванс (−), $", "Статус"], ...supRows]);
   add("Мастера", [["Мастер", "Телефон", "Специальность", "Бонус, %", "Объектов", "Начислено, $", "Выплачено, $", "Долг мастеру, $", "Долги клиентов по его объектам, $", "Статус"], ...mRows]);
   add("Склад Thermo", [["Товар", "Размер", "Кол-во", "Ед.", "Себест., $", "Цена, $", "Сумма по закупу, $", "Поставщик"],
     ...[...wh].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ru")).map((w) => [w.name || "", w.size || "", Number(w.qty) || 0, w.unit || "", r2(w.cost), r2(w.price), r2((Number(w.qty) || 0) * (Number(w.cost) || 0)), supName.get(w.supplier_id) || ""])]);
