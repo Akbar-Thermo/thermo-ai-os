@@ -6874,7 +6874,6 @@ function Dashboard({ data }) {
     return { cdebt, overpay, sdebt, whCost, whQty, active, cut, clientRows, supRows };
   }, [objects, finance_ops, suppliers, warehouse, mgr, data.wh_moves, to]);
 
-  const lowMargin = ranks.prod.filter((r) => r.rev > 0 && r.margin < 10).sort((a, b) => a.margin - b.margin).slice(0, 8);
 
   const periodTitle = compare ? (from === to ? dt(from) : dt(from) + " — " + dt(to)) : "весь период";
   const prevTitle = compare ? (pFrom === pTo ? dt(pFrom) : dt(pFrom) + " — " + dt(pTo)) : "";
@@ -7004,14 +7003,6 @@ function Dashboard({ data }) {
           <DashRank key={peopleView} rows={peopleRows} cols={peopleCols[peopleView]} />
         </div>
       </div>
-
-      {lowMargin.length > 0 && (
-        <div className="card sect">
-          <h3 style={{ marginBottom: 8 }}>⚠ Низкая маржа (меньше 10%) за период</h3>
-          <table className="t"><thead><tr><th>Товар</th><th style={{ textAlign: "right" }}>Выручка</th><th style={{ textAlign: "right" }}>Вал. прибыль</th><th style={{ textAlign: "right" }}>Маржа</th></tr></thead>
-            <tbody>{lowMargin.map((r) => <tr key={r.key}><td className="sm">{r.name}</td><td className="num">{fmt(r.rev)}</td><td className="num" style={{ color: r.gross < 0 ? "var(--bad)" : undefined }}>{fmt(r.gross)}</td><td className="num" style={{ color: r.margin < 0 ? "var(--bad)" : "var(--warn)" }}>{r.margin.toLocaleString("ru-RU", { maximumFractionDigits: 1 })}%</td></tr>)}</tbody></table>
-        </div>
-      )}
 
       {/* долги внизу дашборда: кто должен нам и кому должны мы */}
       <div className="split sect dash-debts" style={{ alignItems: "start" }}>
