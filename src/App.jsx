@@ -6987,24 +6987,7 @@ function Dashboard({ data }) {
         <DashTile label="Объектов в работе" value={bal.active} note="кроме закрытых и отменённых" />
       </div>
 
-      <div className="split sect" style={{ alignItems: "start" }}>
-        <div className="card" style={{ minWidth: 0 }}>
-          <div className="row" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
-            <h3 style={{ marginRight: "auto" }}>Что продаётся</h3>
-            <DashSeg value={prodView} onChange={setProdView} opts={[["prod", "Товары"], ["cat", "Категории"], ["brand", "Бренды"]]} />
-          </div>
-          <DashRank key={prodView} rows={ranks[prodView]} cols={prodCols} />
-        </div>
-        <div className="card" style={{ minWidth: 0 }}>
-          <div className="row" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
-            <h3 style={{ marginRight: "auto" }}>Лучшие</h3>
-            <DashSeg value={peopleView} onChange={setPeopleView} opts={[["mgr", "Менеджеры"], ["master", "Мастера"], ["client", "Клиенты"], ["sup", "Поставщики"]]} />
-          </div>
-          <DashRank key={peopleView} rows={peopleRows} cols={peopleCols[peopleView]} />
-        </div>
-      </div>
-
-      {/* долги внизу дашборда: кто должен нам и кому должны мы */}
+      {/* долги — над «Что продаётся» / «Лучшие»: кто должен нам и кому должны мы */}
       <div className="split sect dash-debts" style={{ alignItems: "start" }}>
         <div className="card" style={{ minWidth: 0 }}>
           <div className="row" style={{ marginBottom: 8 }}><h3 style={{ marginRight: "auto" }}>Нам должны — клиенты</h3><span className="sm" style={{ fontWeight: 800, color: "var(--bad)" }}>{fmt(bal.cdebt)}</span></div>
@@ -7021,6 +7004,23 @@ function Dashboard({ data }) {
               <tbody>{bal.supRows.map((r) => <tr key={r.k}><td className="sm">{r.name}</td><td className="num" style={{ fontWeight: 700 }}>{fmt(r.v)}</td></tr>)}
                 {!bal.supRows.length && <tr><td colSpan={2} className="mut sm" style={{ textAlign: "center", padding: 16 }}>Долгов поставщикам нет</td></tr>}</tbody></table>
           </div>
+        </div>
+      </div>
+
+      <div className="split sect" style={{ alignItems: "start" }}>
+        <div className="card" style={{ minWidth: 0 }}>
+          <div className="row" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+            <h3 style={{ marginRight: "auto" }}>Что продаётся</h3>
+            <DashSeg value={prodView} onChange={setProdView} opts={[["prod", "Товары"], ["cat", "Категории"], ["brand", "Бренды"]]} />
+          </div>
+          <DashRank key={prodView} rows={ranks[prodView]} cols={prodCols} />
+        </div>
+        <div className="card" style={{ minWidth: 0 }}>
+          <div className="row" style={{ marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+            <h3 style={{ marginRight: "auto" }}>Лучшие</h3>
+            <DashSeg value={peopleView} onChange={setPeopleView} opts={[["mgr", "Менеджеры"], ["master", "Мастера"], ["client", "Клиенты"], ["sup", "Поставщики"]]} />
+          </div>
+          <DashRank key={peopleView} rows={peopleRows} cols={peopleCols[peopleView]} />
         </div>
       </div>
     </div>
