@@ -220,7 +220,7 @@ function accessOf(u, roles, uperms) {
 let ROLE_LIST = ROLES; // для подписей ролей вне компонентов (журнал)
 const roleLabel = (r) => (ROLE_LIST.find((x) => x.id === r) || ROLES.find((x) => x.id === r) || {}).label || "—";
 const MANAGER_OP_TYPES = ["client_payment", "return", "discount"];
-const EXPENSE_CATEGORIES = ["Зарплата", "Аренда", "Коммунальные", "Обед / питание", "Доставка", "Заправка транспорта", "Освежения", "Для showroom", "Связь / интернет", "Налоги", "Реклама", "Хозрасходы", "Прочее"];
+const EXPENSE_CATEGORIES = ["Зарплата", "Аренда", "Коммунальные", "Обед", "Доставка", "Заправка транспорта", "Освежения", "Для showroom", "Связь / интернет", "Налоги", "Реклама", "Хозрасходы", "Прочее"];
 // зарплату видит только руководитель
 const SALARY_CAT = "Зарплата";
 const isSalary = (o) => o && o.type === "company_expense" && o.category === SALARY_CAT;
@@ -232,10 +232,13 @@ const isStaff = (u) => !!u && u.role === STAFF_ROLE;
 const SAL_NOTE_RE = /^\[([^·\]]+?)\s*·\s*([^\]]+)\]\s*/;
 // в базе может не быть колонки category у finance_ops (тогда она отбрасывается при записи):
 // статья расхода дублируется в size, а у старых записей зарплата узнаётся по виду выплаты и сотруднику
+// старые названия статей расходов → новые (в базе запись не меняется, только показ)
+const EXP_CAT_RENAME = { "Обед / питание": "Обед" };
 function normFinOp(o) {
+  if (o && o.type === "company_expense" && EXP_CAT_RENAME[o.category]) return { ...o, category: EXP_CAT_RENAME[o.category] };
   if (!o || o.type !== "company_expense" || o.category) return o;
   let cat = "";
-  if (o.size && EXPENSE_CATEGORIES.includes(o.size)) cat = o.size;
+  if (o.size && (EXPENSE_CATEGORIES.includes(o.size) || EXP_CAT_RENAME[o.size])) cat = EXP_CAT_RENAME[o.size] || o.size;
   else if ((SALARY_KINDS.includes(o.item_name) && o.product_name) || SAL_NOTE_RE.test(o.note || "")) cat = SALARY_CAT;
   return cat ? { ...o, category: cat } : o;
 }
