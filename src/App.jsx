@@ -1219,10 +1219,11 @@ function xlSheetXml(rows0, cols, types, opt = {}) {
       cs += cell(r, n - 1, v[1], 29);
       if (n > 4) merges.push("C" + (r + 1) + ":" + xlCol(n - 2) + (r + 1));
     } else if (k === "total") {
-      cs = cell(r, 0, "", 0);
-      for (let c = 1; c < n - 1; c++) cs += cell(r, c, c === 1 ? v[0] : "", 7);
+      // итог («Итого по поставке №…» и т.п.): подпись — одна объединённая ячейка от колонки A до предпоследней
+      cs = "";
+      for (let c = 0; c < n - 1; c++) cs += cell(r, c, c === 0 ? v[0] : "", 7);
       cs += cell(r, n - 1, v[1], 8);
-      if (n > 3) merges.push("B" + (r + 1) + ":" + xlCol(n - 2) + (r + 1));
+      if (n > 2) merges.push("A" + (r + 1) + ":" + xlCol(n - 2) + (r + 1));
     }
     // объединение ячеек внутри строки таблицы: merge: [[с, по], …] (номера колонок с 0)
     if ((k === "head" || k === "row" || k === "sum") && row.merge) row.merge.forEach(([a, b]) => merges.push(xlCol(a) + (r + 1) + ":" + xlCol(b) + (r + 1)));
