@@ -2533,7 +2533,7 @@ function ProductsTab({ data, reload, toast }) {
           </div>
         </Modal>
       )}
-      {imp && <ImportModal products={products} suppliers={suppliers} onClose={() => setImp(false)} onDone={async (n) => { setImp(false); await logAction("Импорт товаров", "products", "позиций: " + n); await reload("all"); toast("Импортировано позиций: " + n); }} />}
+      {imp && <ImportModal products={products} suppliers={suppliers} onClose={() => setImp(false)} onDone={async (msg) => { setImp(false); await reload("all"); toast(msg); }} />}
       {confirmDel && (
         <Modal title="Подтверждение удаления" onClose={() => setConfirmDel(false)} w={440}>
           <p style={{ marginBottom: 6 }}>Удалить <b style={{ color: "var(--bad)" }}>{sel.length}</b> {sel.length === 1 ? "товар" : sel.length < 5 ? "товара" : "товаров"} из базы?</p>
@@ -2650,72 +2650,146 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
   const header = rows ? (hasHeader ? rows[0] : Array.from({ length: cols }, (_, i) => "Колонка " + (i + 1))) : [];
   const cell = (row, fid) => (map[fid] == null ? "" : row[map[fid]]);
 
-  const runExcel = async () => {
-    if (map.name == null) { setErr("Укажите колонку «Название»"); return; }
+  /* Импорт не добавляет «сам по себе»: сначала проверка, что будет сделано, потом «Применить».
+     Товар, который уже есть в базе (по артикулу, иначе по названию у того же поставщика), второй раз не добавляется —
+     у него меняется только себестоимость (если в файле она другая). Новые товары добавляются, старые остаются. */
+  const [review, setReview] = useState(null);
+  const [doNew, setDoNew] = useState(true);
+  const [doCost, setDoCost] = useState(true);
+  const normKey = (x) => String(x == null ? "" : x).toLowerCase().replace(/ё/g, "е").replace(/[«»"“”„'`]/g, "").replace(/\s+/g, " ").trim();
+  const itemsFromExcel = () => dataRows.map((row) => ({
+    sku: String(cell(row, "code") || "").trim(), name: String(cell(row, "name") || "").trim(),
+    category: String(cell(row, "category") || "").trim(), size: String(cell(row, "size") || "").trim(), unit: String(cell(row, "unit") || "").trim() || "шт",
+    cost: num(cell(row, "cost")), price: num(cell(row, "price")), stock: num(cell(row, "stock")), brand: String(cell(row, "brand") || "").trim(),
+    supName: String(cell(row, "supplier") || "").trim(),
+  })).filter((x) => x.name);
+  const itemsFromPaste = () => txt.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
+    const c = l.split(/\t|;/).map((x) => x.trim());
+    if (/^(эконом|комфорт|стандарт|премиум)$/i.test(c[5] || "")) c.splice(5, 1); // старый формат со столбцом «сегмент»
+    if (c.length < 4 || !c[1]) return null;
+    return { sku: c[0] || "", name: c[1], category: c[2] || "", size: c[3] || "", unit: c[4] || "шт", cost: num(c[5]), price: num(c[6]), stock: num(c[7]), brand: c[8] || "", supName: "" };
+  }).filter(Boolean);
+  const analyze = (items) => {
+    const supByName = {};
+    suppliers.forEach((x) => { supByName[normKey(x.name)] = x.id; });
+    const bySku = new Map(), byName = new Map();
+    const push = (m, k, p) => { if (!k) return; if (!m.has(k)) m.set(k, []); m.get(k).push(p); };
+    prodList.forEach((p) => { push(bySku, normKey(p.sku), p); push(byName, normKey(p.name), p); });
+    const r = { fresh: [], changed: [], same: [], ambiguous: [], dups: [], newSups: new Set() };
+    const seen = new Set();
+    items.forEach((it) => {
+      const sk = it.supName ? normKey(it.supName) : "";
+      const supId = sk ? supByName[sk] || null : sid || null;
+      if (sk && !supByName[sk]) r.newSups.add(it.supName);
+      let cands = it.sku ? bySku.get(normKey(it.sku)) || [] : [];
+      if (!cands.length) {
+        cands = byName.get(normKey(it.name)) || [];
+        // по названию — только у того же поставщика (или у товара без поставщика)
+        if (sk || sid) cands = cands.filter((p) => !p.supplier_id || p.supplier_id === supId);
+      }
+      if (cands.length > 1) { const exact = cands.filter((p) => supId && p.supplier_id === supId); if (exact.length === 1) cands = exact; }
+      const key = cands.length === 1 ? "p:" + cands[0].id : "n:" + normKey(it.name) + "|" + (sk || sid || "");
+      if (seen.has(key)) { r.dups.push(it); return; }
+      seen.add(key);
+      if (cands.length > 1) { r.ambiguous.push({ it, n: cands.length }); return; }
+      if (cands.length === 1) {
+        const p = cands[0], old = Number(p.cost) || 0;
+        if (it.cost > 0 && Math.abs(it.cost - old) > 0.00001) r.changed.push({ it, p, old, big: old > 0 && Math.abs(it.cost - old) / old > 0.3 });
+        else r.same.push({ it, p });
+        return;
+      }
+      r.fresh.push({ ...it, supplier_id: supId });
+    });
+    return r;
+  };
+  const check = (items) => {
+    if (!items.length) { setErr(rows ? "В файле нет строк с названием" : "Не найдено ни одной строки: нужно минимум 4 колонки через TAB или «;» (артикул, название, категория…)"); return; }
+    setErr(""); setDoNew(true); setDoCost(true); setReview(analyze(items));
+  };
+  const runExcel = () => { if (map.name == null) { setErr("Укажите колонку «Название»"); return; } check(itemsFromExcel()); };
+  const runPaste = () => check(itemsFromPaste());
+  const apply = async () => {
+    const rv = review;
     setBusy(true); setErr("");
     try {
-      const supCache = {};
-      suppliers.forEach((s) => { supCache[String(s.name || "").toLowerCase().trim()] = s.id; });
-      const products = [];
-      let newSups = 0, code = nextProductCode(prodList);
-      for (const row of dataRows) {
-        const name = String(cell(row, "name") || "").trim();
-        if (!name) continue;
-        let supplier_id = sid || null;
-        const supName = String(cell(row, "supplier") || "").trim();
-        if (supName) {
-          const key = supName.toLowerCase();
-          if (!supCache[key]) {
-            const { data: ins, error: sErr } = await db.from("suppliers").insert({ name: supName, status: "active", terms: "", contact: "", phone: "" });
-            if (sErr || !ins || !ins[0]) throw new Error("не удалось добавить поставщика «" + supName + "»" + (sErr ? ": " + sErr.message : ""));
-            supCache[key] = ins[0].id; newSups++;
+      let added = 0, upd = 0, newSups = 0;
+      if (doNew && rv.fresh.length) {
+        const supCache = {};
+        suppliers.forEach((x) => { supCache[normKey(x.name)] = x.id; });
+        const out = [];
+        let code = nextProductCode(prodList);
+        for (const it of rv.fresh) {
+          let supplier_id = it.supplier_id || null;
+          if (it.supName && !supplier_id) {
+            const k = normKey(it.supName);
+            if (!supCache[k]) {
+              const { data: ins, error: sErr } = await db.from("suppliers").insert({ name: it.supName, status: "active", contact: "", phone: "" });
+              if (sErr || !ins || !ins[0]) throw new Error("не удалось добавить поставщика «" + it.supName + "»" + (sErr ? ": " + sErr.message : ""));
+              supCache[k] = ins[0].id; newSups++;
+            }
+            supplier_id = supCache[k];
           }
-          supplier_id = supCache[key];
+          out.push({ code: String(code++), sku: it.sku || null, name: it.name, category: it.category, size: it.size, unit: it.unit, cost: it.cost, price: it.price, stock: it.stock,
+            brand: it.brand, supplier_id, status: "active", min_stock: 0, price_updated: new Date().toISOString() });
         }
-        products.push({
-          code: String(code++), // порядковый номер; код из файла (артикул) сохраняется в sku
-          sku: String(cell(row, "code") || "").trim() || null,
-          name, category: String(cell(row, "category") || "").trim(), size: String(cell(row, "size") || "").trim(),
-          unit: String(cell(row, "unit") || "").trim() || "шт",
-          cost: num(cell(row, "cost")), price: num(cell(row, "price")), stock: num(cell(row, "stock")),
-          brand: String(cell(row, "brand") || "").trim(), supplier_id,
-          status: "active", min_stock: 0, price_updated: new Date().toISOString(),
-        });
+        await batchInsert("products", out, 500, (d, n) => setProg("новые: " + d + " / " + n));
+        added = out.length;
       }
-      if (products.length) await batchInsert("products", products, 500, (d, n) => setProg(d + " / " + n));
-      onDone(products.length + (newSups ? " (+ новых поставщиков: " + newSups + ")" : ""));
+      if (doCost && rv.changed.length) {
+        const now = new Date().toISOString();
+        for (let i = 0; i < rv.changed.length; i += 10) {
+          const part = rv.changed.slice(i, i + 10);
+          const res = await Promise.all(part.map((c) => db.from("products").update({ cost: c.it.cost, price_updated: now }).eq("id", c.p.id)));
+          const bad = res.find((x) => x.error);
+          if (bad) throw new Error("себестоимость обновлена у " + (upd + res.filter((x) => !x.error).length) + " из " + rv.changed.length + ": " + (bad.error.message || bad.error));
+          upd += part.length;
+          setProg("себестоимость: " + upd + " / " + rv.changed.length);
+        }
+      }
+      const det = rv.changed.slice(0, 25).map((c) => c.p.name + " " + fmt2(c.old) + " → " + fmt2(c.it.cost)).join("; ");
+      await logAction("Импорт товаров", "products", "новых: " + added + ", себестоимость обновлена: " + upd + (newSups ? ", новых поставщиков: " + newSups : "") + (doCost && det ? " · " + det + (rv.changed.length > 25 ? "…" : "") : ""));
+      onDone("Импорт: добавлено новых — " + added + ", себестоимость обновлена — " + upd + (newSups ? ", новых поставщиков — " + newSups : ""));
     } catch (e) { setErr("Ошибка импорта: " + e.message); }
     setBusy(false);
   };
-
-  const runPaste = async () => {
-    const lines = txt.split("\n").map((l) => l.trim()).filter(Boolean);
-    const out = [];
-    let code = nextProductCode(prodList);
-    for (const l of lines) {
-      const c = l.split(/\t|;/).map((x) => x.trim());
-      // старый формат со столбцом «сегмент» (6-й) — убираем его
-      if (/^(эконом|комфорт|стандарт|премиум)$/i.test(c[5] || "")) c.splice(5, 1);
-      if (c.length < 4 || !c[1]) continue;
-      out.push({
-        code: String(code++), sku: c[0] || null,
-        name: c[1], category: c[2] || "", size: c[3] || "", unit: c[4] || "шт",
-        cost: num(c[5]), price: num(c[6]), stock: num(c[7]),
-        brand: c[8] || "", supplier_id: sid || null, status: "active", min_stock: 0,
-        price_updated: new Date().toISOString(),
-      });
-    }
-    if (!out.length) { setErr("Не найдено ни одной строки: нужно минимум 4 колонки через TAB или «;» (артикул, название, категория…)"); return; }
-    setBusy(true); setErr("");
-    try { await batchInsert("products", out, 500, (d, n) => setProg(d + " / " + n)); onDone(out.length); }
-    catch (e) { setErr("Ошибка импорта: " + e.message); }
-    setBusy(false);
-  };
+  const RvList = ({ list, render }) => (
+    <div style={{ maxHeight: 220, overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, marginTop: 6 }}>
+      <table className="t"><tbody>{list.slice(0, 300).map(render)}</tbody></table>
+      {list.length > 300 && <div className="xs mut" style={{ padding: 8 }}>…и ещё {list.length - 300}</div>}
+    </div>
+  );
 
   return (
     <Modal title="Импорт товаров из Excel" onClose={onClose} w={900}>
       {err && <div className="card sect" style={{ borderColor: "var(--bad)", color: "var(--bad)", padding: 10 }}>{err}</div>}
-      {!rows && (
+      {review && (() => { const rv = review; const big = rv.changed.filter((c) => c.big).length; return (
+        <div className="imp-review">
+          <h3 style={{ marginBottom: 10 }}>Проверка перед импортом — ничего ещё не изменено</h3>
+          <div className="card imp-grp" style={{ padding: "10px 12px", marginBottom: 8 }}>
+            <label className="row clk" style={{ gap: 8 }}><input type="checkbox" checked={doNew} disabled={!rv.fresh.length} onChange={(e) => setDoNew(e.target.checked)} /><b>Новые товары: {rv.fresh.length}</b><span className="sm mut">— будут добавлены в базу, старые остаются</span></label>
+            {rv.newSups.size > 0 && <div className="sm" style={{ color: "var(--warn)", marginTop: 4 }}>⚠ Новые поставщики будут созданы: {[...rv.newSups].slice(0, 10).join(", ")}{rv.newSups.size > 10 ? "…" : ""}</div>}
+            {rv.fresh.length > 0 && <details><summary className="xs mut clk">показать</summary><RvList list={rv.fresh} render={(it, i) => <tr key={i}><td className="sm">{it.name}</td><td className="xs mut">{it.supName || ""}</td><td className="num">{fmt2(it.cost)}</td></tr>} /></details>}
+          </div>
+          <div className="card imp-grp" style={{ padding: "10px 12px", marginBottom: 8 }}>
+            <label className="row clk" style={{ gap: 8 }}><input type="checkbox" checked={doCost} disabled={!rv.changed.length} onChange={(e) => setDoCost(e.target.checked)} /><b>Уже есть в базе, себестоимость другая: {rv.changed.length}</b><span className="sm mut">— изменится только себестоимость, второй раз не добавятся</span></label>
+            {big > 0 && <div className="sm" style={{ color: "var(--warn)", marginTop: 4 }}>⚠ У {big} поз. себестоимость меняется больше чем на 30% — проверьте (отмечены ⚠)</div>}
+            {rv.changed.length > 0 && <details open={big > 0}><summary className="xs mut clk">показать</summary><RvList list={rv.changed} render={(c, i) => <tr key={i} style={c.big ? { color: "var(--warn)" } : null}><td className="sm">{c.big ? "⚠ " : ""}{c.p.name}</td><td className="num mut">{fmt2(c.old)}</td><td className="num" style={{ fontWeight: 700 }}>→ {fmt2(c.it.cost)}</td></tr>} /></details>}
+          </div>
+          <div className="sm mut" style={{ margin: "6px 2px" }}>Уже есть в базе, себестоимость та же (или не указана): <b>{rv.same.length}</b> — не меняются</div>
+          {rv.ambiguous.length > 0 && <div className="card imp-grp" style={{ padding: "10px 12px", marginBottom: 8, borderColor: "var(--warn)" }}>
+            <div className="sm" style={{ color: "var(--warn)", fontWeight: 700 }}>⚠ Непонятно, какой товар: {rv.ambiguous.length} — в базе несколько товаров с таким названием, эти строки не тронуты</div>
+            <details><summary className="xs mut clk">показать</summary><RvList list={rv.ambiguous} render={(a, i) => <tr key={i}><td className="sm">{a.it.name}</td><td className="xs mut">в базе: {a.n}</td></tr>} /></details>
+          </div>}
+          {rv.dups.length > 0 && <div className="sm" style={{ color: "var(--warn)", margin: "6px 2px" }}>⚠ Повторы в файле: {rv.dups.length} — взята первая строка, повторы пропущены</div>}
+          <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
+            <button className="btn" disabled={busy} onClick={() => setReview(null)}>Назад</button>
+            <button className="btn pri imp-apply" disabled={busy || !((doNew && rv.fresh.length) || (doCost && rv.changed.length))} onClick={apply}>
+              {busy ? <span><span className="spin" /> Применяю… {prog}</span> : "Применить: добавить " + (doNew ? rv.fresh.length : 0) + ", обновить себестоимость " + (doCost ? rv.changed.length : 0)}
+            </button>
+          </div>
+        </div>
+      ); })()}
+      {!review && !rows && (
         <div>
           <div className="card clk" style={{ borderStyle: "dashed", textAlign: "center", padding: 34, marginBottom: 14 }} onClick={() => fRef.current.click()}>
             <div style={{ fontSize: 26, marginBottom: 6 }}>📊</div>
@@ -2730,12 +2804,12 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
             </Fld>
             <textarea className="inp" style={{ marginTop: 10, minHeight: 140 }} value={txt} onChange={(e) => setTxt(e.target.value)} placeholder={"TRB-040\tТруба PPR Ø40\tТрубы PPR\t40 мм\tм\t30000\t45000\t500\tValtec"} />
             <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-              <button className="btn pri" disabled={!txt.trim() || busy} onClick={runPaste}>{busy ? <span><span className="spin" /> Импортирую… {prog}</span> : "Импортировать текст"}</button>
+              <button className="btn pri" disabled={!txt.trim() || busy} onClick={runPaste}>Проверить текст →</button>
             </div>
           </details>
         </div>
       )}
-      {rows && (
+      {!review && rows && (
         <div>
           <div className="row" style={{ marginBottom: 12 }}>
             <Badge c="#fff">{fname}</Badge>
@@ -2783,7 +2857,7 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
           </div>
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
             <button className="btn pri" disabled={busy || map.name == null} onClick={runExcel}>
-              {busy ? <span><span className="spin" /> Импортирую… {prog}</span> : "Импортировать " + dataRows.length + " строк →"}
+              {"Проверить " + dataRows.length + " строк →"}
             </button>
           </div>
         </div>
