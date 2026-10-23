@@ -7558,9 +7558,10 @@ function VozvratSection({ objects, finance_ops, suppliers, whMoves }) {
 
 /* ============ КАССА ЗА ДЕНЬ → ЗАМЕТКА ============
    Отчёт в виде, как его пишут в Telegram: остаток со вчера, приход, конвертация, расход, остаток.
-   Берутся все движения денег за день (оплаты клиентов, приходы компании, оплаты поставщикам, расходы, бонусы),
-   по умолчанию — только наличные. Остаток на конец дня запоминается в заметке (lines.kassa) и
-   подставляется «остатком со вчера» в следующий отчёт. */
+   Берутся все движения денег за день (наличные, карта, перечисление): оплаты клиентов, приходы компании,
+   оплаты поставщикам, расходы компании и по объектам, выплаты бонусов — в строке сначала вид операции, потом кому / комментарий.
+   Остаток на конец дня запоминается в заметке (lines.kassa) и подставляется «остатком со вчера» в следующий отчёт
+   (если между отчётами были дни без отчёта — их операции тоже учитываются). */
 const KASSA_IN = ["client_payment", "company_income"];
 const KASSA_OUT = ["company_expense", "expense", "supplier_payment", "bonus_payment"];
 // 85000 → «85.000», 2450.5 → «2.450,5»
@@ -7570,35 +7571,40 @@ const fmtDot = (n) => {
   return (Number(n) < 0 && r ? "-" : "") + i.replace(/\B(?=(\d{3})+(?!\d))/g, ".") + (d === "00" ? "" : "," + d.replace(/0$/, ""));
 };
 const kassaMoney = (uzs, usd) => fmtDot(uzs) + " sum va " + fmtDot(usd) + " $";
-function kassaLines(data, ops, date, cashOnly) {
+const isoAddDays = (iso, n) => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + n); return localIso(d); };
+// движения денег с from по to (включительно), по порядку записи
+function kassaLines(data, ops, from, to = from) {
   const objById = {};
   (data.objects || []).forEach((o) => { objById[o.id] = o; });
   const supName = (id) => ((data.suppliers || []).find((s) => s.id === id) || {}).name || "";
   const mName = (id) => ((data.masters || []).find((s) => s.id === id) || {}).name || "";
   const inc = [], out = [];
-  ops.filter((x) => !x.voided && (KASSA_IN.includes(x.type) || KASSA_OUT.includes(x.type)) && String(x.op_date || x.created_at || "").slice(0, 10) === date)
-    .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")))
+  ops.filter((x) => { if (x.voided || !(KASSA_IN.includes(x.type) || KASSA_OUT.includes(x.type))) return false; const d = String(x.op_date || x.created_at || "").slice(0, 10); return d >= from && d <= to; })
+    .sort((a, b) => String(a.op_date || "").localeCompare(String(b.op_date || "")) || String(a.created_at || "").localeCompare(String(b.created_at || "")))
     .forEach((x) => {
       const o = x.object_id ? objById[x.object_id] : null;
+      // как в «Деньги по способам оплаты»: объекты «Черновик» / «Согласовано» / отменённые не считаются
       if (x.object_id && (!o || !isLive(o) || (x.type === "client_payment" && !payLive(o)))) return;
       const i = payInfo(x);
-      if (cashOnly && i.id && !["usd", "uzs"].includes(i.id)) return; // карта / перечисление — не через кассу
       const uzs = i.cur === "uzs" ? Number(i.uzs) || 0 : 0;
       const usd = i.cur === "uzs" ? 0 : Number(x.amount) || 0;
       if (!uzs && !usd) return;
       const s = salaryInfo(x);
-      let what = "";
-      if (x.type === "client_payment") what = [o && o.name, x.note].filter(Boolean).join(", ");
-      else if (x.type === "supplier_payment") what = [supName(x.supplier_id), x.note].filter(Boolean).join(", ");
-      else if (x.type === "bonus_payment") what = ["Bonus", mName(x.master_id) || x.product_name, x.note].filter(Boolean).join(" ");
-      else if (s) what = [x.category, s.emp, s.note].filter(Boolean).join(" ");
-      else what = [x.category || opLabel(x.type), x.note].filter(Boolean).join(", "); // сначала вид (статья / источник), потом комментарий
-      if (x.type === "expense" && o) what += " (" + o.name + ")";
-      if (!cashOnly && i.id && !["usd", "uzs"].includes(i.id)) what += " (" + (i.id === "card" ? "karta" : "perechisleniye") + ")";
+      // сначала вид операции, потом кому / за что
+      let what;
+      if (x.type === "client_payment") what = ["Оплата клиента", o && o.name, x.note];
+      else if (x.type === "supplier_payment") what = ["Оплата поставщику", supName(x.supplier_id) || "поставщик не указан", x.note];
+      else if (x.type === "bonus_payment") what = ["Бонус мастеру", mName(x.master_id) || x.product_name, x.note];
+      else if (x.type === "expense") what = ["Доп. расход", o && o.name, x.note];
+      else if (s) what = [[x.category, s.kind && s.kind !== x.category ? s.kind.toLowerCase() : ""].filter(Boolean).join(" "), s.emp, s.note];
+      else what = [x.category || opLabel(x.type), x.note];
+      what = what.filter(Boolean).join(", ");
+      if (i.id && !["usd", "uzs"].includes(i.id)) what += " (" + (i.id === "card" ? "karta" : "perechisleniye") + ")";
       (KASSA_IN.includes(x.type) ? inc : out).push({ uzs, usd, what });
     });
   return { inc, out };
 }
+const kassaNet = ({ inc, out }) => ({ uzs: inc.reduce((a, r) => a + r.uzs, 0) - out.reduce((a, r) => a + r.uzs, 0), usd: inc.reduce((a, r) => a + r.usd, 0) - out.reduce((a, r) => a + r.usd, 0) });
 function kassaText({ open, inc, out, conv }) {
   const line = (r) => (r.uzs ? fmtDot(r.uzs) + " sum" : fmtDot(r.usd) + " $") + (r.what ? " - " + r.what : "");
   const cv = conv.filter((c) => parseNum(c.usd) > 0 && parseNum(c.uzs) > 0);
@@ -7619,18 +7625,32 @@ function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
   const date = date0 || today(); // день — из «Период» в «Финансах»
   const prev = notes.filter((r) => r.lines.kassa.date < date).sort((a, b) => b.lines.kassa.date.localeCompare(a.lines.kassa.date))[0];
   const same = notes.find((r) => r.lines.kassa.date === date && r.lines.user_id === user.id);
-  const [open, setOpen] = useState(null); // null — взять из прошлого отчёта
-  const [conv, setConv] = useState([]);
+  // остаток со вчера: остаток прошлого отчёта + движения за дни между отчётами (если отчёт делали не каждый день)
+  const chain = useMemo(() => {
+    if (!prev) return null;
+    const pk = prev.lines.kassa, gapFrom = isoAddDays(pk.date, 1), gapTo = isoAddDays(date, -1);
+    const g = gapFrom <= gapTo ? kassaNet(kassaLines(data, ops, gapFrom, gapTo)) : { uzs: 0, usd: 0 };
+    return { uzs: round2((Number(pk.close && pk.close.uzs) || 0) + g.uzs), usd: round2((Number(pk.close && pk.close.usd) || 0) + g.usd), from: pk.date, gap: gapFrom <= gapTo ? [gapFrom, gapTo] : null };
+  }, [prev, data, ops, date]);
+  const saved = same && same.lines.kassa;
+  // null — не меняли в этом окне: при повторном сохранении дня берётся то, что сохранили (вписанное вручную не теряется)
+  const [open, setOpen] = useState(null);
+  const [convEd, setConvEd] = useState(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { setOpen(null); setConv(same && same.lines.kassa.conv ? same.lines.kassa.conv : []); }, [date]);
-  const op = open || (prev ? { uzs: String(prev.lines.kassa.close.uzs || 0), usd: String(prev.lines.kassa.close.usd || 0) } : { uzs: "", usd: "" });
-  const { inc, out } = useMemo(() => kassaLines(data, ops, date, false), [data, ops, date]); // все оплаты: наличные, карта, перечисление
+  const autoOpen = saved && saved.open && (saved.openManual || !chain) ? { uzs: String(saved.open.uzs || 0), usd: String(saved.open.usd || 0), manual: !!saved.openManual }
+    : chain ? { uzs: String(chain.uzs), usd: String(chain.usd) } : { uzs: "", usd: "" };
+  const op = open || autoOpen;
+  const conv = convEd || (saved && Array.isArray(saved.conv) ? saved.conv : []);
+  const setConv = (c) => setConvEd(c);
+  const { inc, out } = useMemo(() => kassaLines(data, ops, date), [data, ops, date]); // все оплаты: наличные, карта, перечисление
   const rep = kassaText({ open: op, inc, out, conv });
+  const openSrc = open ? "" : autoOpen.manual ? " (вписано вручную)" : chain && !(saved && saved.openManual) ? " (из отчёта " + dt(chain.from) + (chain.gap ? " + операции " + dt(chain.gap[0]) + (chain.gap[1] !== chain.gap[0] ? "–" + dt(chain.gap[1]) : "") : "") + ")" : "";
   const save = async () => {
     setBusy(true);
+    const manual = open ? !(chain && parseNum(open.uzs) === chain.uzs && parseNum(open.usd) === chain.usd) : !!(saved && saved.openManual) || (!chain && (parseNum(op.uzs) !== 0 || parseNum(op.usd) !== 0));
     const lines = { title: "Kassa " + dt(date), text: rep.text, color: "#3ddc7d", pinned: false, shared: same ? !!same.lines.shared : false,
       user_id: user.id, author: user.name || user.username, updated_at: new Date().toISOString(),
-      kassa: { date, open: { uzs: parseNum(op.uzs), usd: parseNum(op.usd) }, close: rep.close, conv } };
+      kassa: { date, open: { uzs: parseNum(op.uzs), usd: parseNum(op.usd) }, openManual: manual, close: rep.close, conv } };
     const r = same ? await db.from("requests").update({ lines: { ...same.lines, ...lines, color: same.lines.color || lines.color, pinned: !!same.lines.pinned } }).eq("id", same.id)
       : await db.from("requests").insert({ mode: NOTE_MODE, source: "note", lines });
     setBusy(false);
@@ -7651,11 +7671,12 @@ function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
     return { ...c, uzs: parseNum(c.usd) ? String(Math.round(parseNum(c.usd) * rate)) : "" };
   };
   const setC = (k, patch) => setConv(conv.map((c, j) => (j === k ? calcC({ ...c, ...patch }) : c)));
+  const neg = rep.close.uzs < -0.004 || rep.close.usd < -0.004;
   return (
     <Modal title={"Касса за " + dt(date) + " → в заметки"} onClose={onClose} w={640}>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        <Fld label={"Остаток со вчера, сум" + (prev && !open ? " (из отчёта " + dt(prev.lines.kassa.date) + ")" : "")}><input className="inp" inputMode="decimal" value={op.uzs} onChange={(e) => setOpen({ ...op, uzs: e.target.value })} /></Fld>
-        <Fld label="Остаток со вчера, $"><input className="inp" inputMode="decimal" value={op.usd} onChange={(e) => setOpen({ ...op, usd: e.target.value })} /></Fld>
+        <Fld label={"Остаток со вчера, сум" + openSrc}><input className="inp" inputMode="decimal" placeholder="впишите остаток" value={op.uzs} onChange={(e) => setOpen({ ...op, uzs: e.target.value })} /></Fld>
+        <Fld label="Остаток со вчера, $"><input className="inp" inputMode="decimal" placeholder="впишите остаток" value={op.usd} onChange={(e) => setOpen({ ...op, usd: e.target.value })} /></Fld>
       </div>
       {conv.map((c, k) => (
         <div key={k} className="row kassa-conv" style={{ gap: 6, marginTop: 6, flexWrap: "nowrap" }}>
@@ -7670,6 +7691,7 @@ function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
       ))}
       <button type="button" className="btn xs" style={{ marginTop: 6 }} onClick={() => setConv([...conv, { dir: "usd2uzs", usd: "", uzs: "", rate: sysRate ? String(sysRate) : "", src: "usd" }])}>+ Конвертация</button>
       <pre className="kassa-pre">{rep.text}</pre>
+      {neg && <div className="xs kassa-neg" style={{ color: "var(--bad)", marginTop: 6 }}>⚠ Остаток на конец дня меньше нуля — проверьте «Остаток со вчера» и конвертацию.</div>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12, gap: 8 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
         <button className="btn pri" disabled={busy} onClick={save}>{busy ? "Сохраняю…" : same ? "Обновить заметку" : "Сохранить в заметки"}</button>
