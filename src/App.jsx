@@ -516,15 +516,15 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .brand-fly{position:absolute;top:0;left:calc(100% + 6px);width:240px;background:var(--panel);border:1px solid var(--line2);border-radius:10px;box-shadow:0 16px 44px rgba(0,0,0,.2);padding:8px;z-index:1003}
 .pick-sup.hov{outline:1px solid var(--acc);outline-offset:-1px}
 @media(max-width:600px){.brand-fly{position:static;width:auto;margin-top:8px;box-shadow:none}}
-.npanel{position:fixed;right:18px;top:120px;z-index:900;width:340px;max-height:calc(100vh - 140px);display:flex;flex-direction:column;padding:12px;border-radius:16px;background:var(--panel);border:1px solid var(--acc);box-shadow:0 0 0 3px var(--acc-ring),0 24px 60px rgba(0,0,0,.35)}
-.npanel.shift{right:310px}
-.npanel textarea.npanel-new{min-height:84px;resize:vertical;font-family:inherit;font-size:13px}
-.npanel-list{overflow:auto;flex:1;min-height:0;display:flex;flex-direction:column;gap:6px}
-.pnote{border:1px solid var(--line);border-left:4px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--panel2)}
+.npanel-bg{position:fixed;inset:0;z-index:950;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:24px}
+.npanel{width:min(760px,100%);height:min(82vh,820px);display:flex;flex-direction:column;padding:18px;border-radius:18px;background:var(--panel);border:1px solid var(--acc);box-shadow:0 0 0 3px var(--acc-ring),0 30px 80px rgba(0,0,0,.45)}
+.npanel textarea.npanel-new{min-height:120px;resize:vertical;font-family:inherit;font-size:15px;line-height:1.45}
+.npanel-list{overflow:auto;flex:1;min-height:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;align-content:start}
+.pnote{border:1px solid var(--line);border-left:4px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--panel2)}
 .pnote:hover,.pnote:focus-visible{border-color:var(--mut);outline:none}
 .pnote-title{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.pnote-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;margin:2px 0}
-@media(max-width:820px){.npanel,.npanel.shift{right:8px;left:8px;width:auto;top:70px;max-height:calc(100vh - 90px)}}
+.pnote-text{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;margin:2px 0}
+@media(max-width:820px){.npanel-bg{padding:8px}.npanel{height:92vh}}
 .notes-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;align-items:start}
 .card.note{--nc:var(--mut);border-top:4px solid var(--nc);padding:12px 14px;min-height:96px}
 .card.note:not(.colored){border-top-color:var(--line)}
@@ -7926,9 +7926,10 @@ function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
    Видны автору; «видна всем» — всем сотрудникам (менять и удалять может только автор). */
 const NOTE_MODE = "te_note";
 const NOTE_COLORS = ["", "#ff1f30", "#ffb020", "#3ddc7d", "#3d9bff", "#a46bff"];
-// окно заметок — как калькулятор: справа поверх страницы; Alt+Z — открыть / закрыть; курсор сразу в новой заметке
+// окно заметок: большое окно по центру; левый + правый Alt — открыть / закрыть; курсор сразу в новой заметке;
+// Enter — сохранить, Shift+Enter — новая строка
 const noteDraftKey = (uid) => "te:notedraft:" + uid;
-function NotesPanel({ data, reload, toast, user, onClose, shift = false }) {
+function NotesPanel({ data, reload, toast, user, onClose }) {
   const boxRef = useRef(null), taRef = useRef(null);
   const [q, setQ] = useState("");
   const [ed, setEd] = useState(null);
@@ -7985,13 +7986,14 @@ function NotesPanel({ data, reload, toast, user, onClose, shift = false }) {
   };
   const when = (iso) => (iso ? new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "");
   return (
-    <div className={"npanel" + (shift ? " shift" : "")} role="dialog" aria-label="Заметки" ref={boxRef}>
-      <div className="row" style={{ justifyContent: "space-between", marginBottom: 8, flexWrap: "nowrap" }}>
-        <b style={{ fontSize: 13 }}>📝 Заметки <span className="mut">({notes.length})</span></b>
-        <button type="button" className="btn xs" title="Закрыть (Esc, Alt+Z)" onClick={onClose}>✕</button>
+    <div className="npanel-bg" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="npanel" role="dialog" aria-label="Заметки" ref={boxRef}>
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: 10, flexWrap: "nowrap" }}>
+        <b style={{ fontSize: 16 }}>📝 Заметки <span className="mut">({notes.length})</span></b>
+        <button type="button" className="btn xs" title="Закрыть (Esc, левый Alt + правый Alt)" onClick={onClose}>✕</button>
       </div>
-      <textarea ref={taRef} className="inp npanel-new" value={draft} placeholder="Новая заметка… (Ctrl+Enter — сохранить)" onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); quick(); } }} />
+      <textarea ref={taRef} className="inp npanel-new" value={draft} placeholder="Новая заметка… Enter — сохранить, Shift+Enter — новая строка" onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.nativeEvent.isComposing) { e.preventDefault(); quick(); } }} />
       <div className="row" style={{ gap: 6, margin: "6px 0 10px", flexWrap: "nowrap" }}>
         <input className="inp" style={{ flex: 1, minWidth: 0 }} placeholder="Поиск…" value={q} onChange={(e) => setQ(e.target.value)} />
         <button type="button" className="btn pri" disabled={!draft.trim() || busy} onClick={quick}>{busy ? "…" : "Сохранить"}</button>
@@ -8011,6 +8013,7 @@ function NotesPanel({ data, reload, toast, user, onClose, shift = false }) {
         {!shown.length && <div className="mut sm" style={{ textAlign: "center", padding: 18 }}>{notes.length ? "Ничего не найдено" : "Заметок пока нет"}</div>}
       </div>
       {ed && <NoteModal n={ed} mine={!ed.id || ed.user_id === user.id} onClose={() => setEd(null)} onSave={async (n) => { if (await save(n)) setEd(null); }} onDelete={async () => { if (await del(ed)) setEd(null); }} />}
+    </div>
     </div>
   );
 }
@@ -8636,7 +8639,7 @@ function KeysHelp({ tabs, onClose }) {
         <Row k="Ctrl+Enter" t="В окне — главная кнопка (Сохранить / Добавить)" />
         <Row k="Tab / Shift+Tab" t="Следующее / предыдущее поле" />
         <Row k="Alt+X" t="Калькулятор" />
-        <Row k="Alt+Z" t="Заметки (курсор сразу в новой заметке)" />
+        <Row k="Alt + Alt" t="Заметки: левый и правый Alt вместе (курсор сразу в новой заметке, Enter — сохранить)" />
         <Row k="?" t="Эта подсказка" />
         {here.map((a) => <Row key={a.label} k={a.keys} t={a.label + " (на этом экране)"} />)}
       </tbody></table>
@@ -9108,15 +9111,25 @@ function AppInner() {
   const [backupOpen, setBackupOpen] = useState(false);
   const [calcOpen, setCalcOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
-  // Alt+X — открыть / закрыть калькулятор, Alt+Z — заметки (работает и когда курсор в поле ввода)
+  // Alt+X — открыть / закрыть калькулятор; левый Alt + правый Alt вместе — заметки (работает и когда курсор в поле ввода)
   useEffect(() => {
+    const down = new Set();
     const h = (e) => {
+      if (e.code === "AltLeft" || e.code === "AltRight") {
+        if (e.repeat) return;
+        down.add(e.code);
+        if (down.has("AltLeft") && down.has("AltRight")) { e.preventDefault(); down.clear(); setNotesOpen((v) => !v); }
+        return;
+      }
       if (!e.altKey || e.ctrlKey || e.metaKey) return;
       if (e.code === "KeyX" || String(e.key).toLowerCase() === "x" || e.key === "ч") { e.preventDefault(); setCalcOpen((v) => !v); }
-      else if (e.code === "KeyZ" || String(e.key).toLowerCase() === "z" || e.key === "я") { e.preventDefault(); setNotesOpen((v) => !v); }
     };
+    const up = (e) => { if (e.code === "AltLeft" || e.code === "AltRight") { down.delete(e.code); e.preventDefault(); } }; // Alt не уводит в меню окна
+    const blur = () => down.clear();
     window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", blur);
+    return () => { window.removeEventListener("keydown", h); window.removeEventListener("keyup", up); window.removeEventListener("blur", blur); };
   }, []);
   const [wipeOpen, setWipeOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -9289,7 +9302,7 @@ function AppInner() {
           }} title={"Alt+" + (allTabs.indexOf(t) === 9 ? 0 : allTabs.indexOf(t) + 1)}>{t.label}</button>)}
         </div>
         <button className="burger" onClick={() => setMobileMenuOpen((v) => !v)} title="Меню">{mobileMenuOpen ? "✕" : "☰"}</button>
-        <button className={"btn xs npanel-btn" + (notesOpen ? " pri" : "")} title="Заметки (Alt+Z)" onClick={() => setNotesOpen((v) => !v)}>📝 Заметки</button>
+        <button className={"btn xs npanel-btn" + (notesOpen ? " pri" : "")} title="Заметки (левый Alt + правый Alt)" onClick={() => setNotesOpen((v) => !v)}>📝 Заметки</button>
         {role !== "driver" && <button className={"btn xs" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => setCalcOpen((v) => !v)}>🧮 Калькулятор</button>}
         <input ref={restoreRef} type="file" accept=".json,.gz,application/json,application/gzip" style={{ display: "none" }} onChange={onRestore} />
       </div>
@@ -9332,7 +9345,7 @@ function AppInner() {
         await reload("all"); setWipeOpen(false); setOpenId(null); toast("База очищена. Товары, поставщики и мастера сохранены.");
       }} />}
       {calcOpen && <Calculator onClose={() => setCalcOpen(false)} />}
-      {notesOpen && currentUser && <NotesPanel data={data} reload={reload} toast={toast} user={currentUser} shift={calcOpen} onClose={() => setNotesOpen(false)} />}
+      {notesOpen && currentUser && <NotesPanel data={data} reload={reload} toast={toast} user={currentUser} onClose={() => setNotesOpen(false)} />}
       <ConfirmHost />
       <SheetPickHost />
       <SelectPopupHost />
