@@ -535,7 +535,8 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .pct-row.on span{color:var(--txt)}
 .obj-act{display:flex;gap:4px;justify-content:flex-end;margin-top:6px}
 .batch-del{float:right;margin-left:8px;letter-spacing:0;font-size:11px}
-.kassa-pre{white-space:pre-wrap;font:13px/1.45 inherit;font-family:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:12px 0 0;max-height:300px;overflow:auto}
+.kassa-sup{color:var(--mut)}
+.kassa-pre{white-space:pre-wrap;font:13px/1.45 inherit;font-family:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:12px 0 0;max-height:440px;overflow:auto}
 .pick-name{font-weight:600;font-size:13px;line-height:17px;color:var(--txt);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
 .cq-hint{margin:0 0 8px;padding:8px 12px;border:1px dashed var(--acc);border-radius:10px;background:var(--acc-tint);color:var(--txt);line-height:1.5}
 .inp.cq-inp{width:118px;text-align:right;margin:0 auto;display:block;font-weight:700}
@@ -7559,11 +7560,13 @@ function VozvratSection({ objects, finance_ops, suppliers, whMoves }) {
 /* ============ КАССА ЗА ДЕНЬ → ЗАМЕТКА ============
    Отчёт в виде, как его пишут в Telegram: остаток со вчера, приход, конвертация, расход, остаток.
    Берутся все движения денег за день (наличные, карта, перечисление): оплаты клиентов, приходы компании,
-   оплаты поставщикам, расходы компании и по объектам, выплаты бонусов — в строке сначала вид операции, потом кому / комментарий.
+   расходы компании и по объектам, выплаты бонусов — в строке сначала вид операции, потом кому / комментарий.
+   Оплаты поставщикам в остаток кассы не входят: они показаны в заметке отдельным списком после «Ostatka».
    Остаток на конец дня запоминается в заметке (lines.kassa) и подставляется «остатком со вчера» в следующий отчёт
    (если между отчётами были дни без отчёта — их операции тоже учитываются). */
 const KASSA_IN = ["client_payment", "company_income"];
-const KASSA_OUT = ["company_expense", "expense", "supplier_payment", "bonus_payment"];
+const KASSA_OUT = ["company_expense", "expense", "bonus_payment"];
+const KASSA_SUP = ["supplier_payment"]; // только для сведения — остаток кассы не меняют
 // 85000 → «85.000», 2450.5 → «2.450,5»
 const fmtDot = (n) => {
   const r = Math.round(Math.abs(Number(n) || 0) * 100) / 100;
@@ -7578,8 +7581,8 @@ function kassaLines(data, ops, from, to = from) {
   (data.objects || []).forEach((o) => { objById[o.id] = o; });
   const supName = (id) => ((data.suppliers || []).find((s) => s.id === id) || {}).name || "";
   const mName = (id) => ((data.masters || []).find((s) => s.id === id) || {}).name || "";
-  const inc = [], out = [];
-  ops.filter((x) => { if (x.voided || !(KASSA_IN.includes(x.type) || KASSA_OUT.includes(x.type))) return false; const d = String(x.op_date || x.created_at || "").slice(0, 10); return d >= from && d <= to; })
+  const inc = [], out = [], sup = [];
+  ops.filter((x) => { if (x.voided || !(KASSA_IN.includes(x.type) || KASSA_OUT.includes(x.type) || KASSA_SUP.includes(x.type))) return false; const d = String(x.op_date || x.created_at || "").slice(0, 10); return d >= from && d <= to; })
     .sort((a, b) => String(a.op_date || "").localeCompare(String(b.op_date || "")) || String(a.created_at || "").localeCompare(String(b.created_at || "")))
     .forEach((x) => {
       const o = x.object_id ? objById[x.object_id] : null;
@@ -7593,19 +7596,19 @@ function kassaLines(data, ops, from, to = from) {
       // сначала вид операции, потом кому / за что
       let what;
       if (x.type === "client_payment") what = ["Оплата клиента", o && o.name, x.note];
-      else if (x.type === "supplier_payment") what = ["Оплата поставщику", supName(x.supplier_id) || "поставщик не указан", x.note];
+      else if (x.type === "supplier_payment") what = [supName(x.supplier_id) || "поставщик не указан", x.note]; // свой список «Postavshiklarga to'lov»
       else if (x.type === "bonus_payment") what = ["Бонус мастеру", mName(x.master_id) || x.product_name, x.note];
       else if (x.type === "expense") what = ["Доп. расход", o && o.name, x.note];
       else if (s) what = [[x.category, s.kind && s.kind !== x.category ? s.kind.toLowerCase() : ""].filter(Boolean).join(" "), s.emp, s.note];
       else what = [x.category || opLabel(x.type), x.note];
       what = what.filter(Boolean).join(", ");
       if (i.id && !["usd", "uzs"].includes(i.id)) what += " (" + (i.id === "card" ? "karta" : "perechisleniye") + ")";
-      (KASSA_IN.includes(x.type) ? inc : out).push({ uzs, usd, what });
+      (KASSA_SUP.includes(x.type) ? sup : KASSA_IN.includes(x.type) ? inc : out).push({ uzs, usd, what });
     });
-  return { inc, out };
+  return { inc, out, sup };
 }
 const kassaNet = ({ inc, out }) => ({ uzs: inc.reduce((a, r) => a + r.uzs, 0) - out.reduce((a, r) => a + r.uzs, 0), usd: inc.reduce((a, r) => a + r.usd, 0) - out.reduce((a, r) => a + r.usd, 0) });
-function kassaText({ open, inc, out, conv }) {
+function kassaText({ open, inc, out, conv, sup = [] }) {
   const line = (r) => (r.uzs ? fmtDot(r.uzs) + " sum" : fmtDot(r.usd) + " $") + (r.what ? " - " + r.what : "");
   const cv = conv.filter((c) => parseNum(c.usd) > 0 && parseNum(c.uzs) > 0);
   let uzs = parseNum(open.uzs), usd = parseNum(open.usd);
@@ -7617,7 +7620,9 @@ function kassaText({ open, inc, out, conv }) {
   if (cv.length) parts.push("Konvertatsiya :\n" + cv.map((c) => (c.dir === "uzs2usd" ? fmtDot(parseNum(c.uzs)) + " sum - " + fmtDot(parseNum(c.usd)) + "$" : fmtDot(parseNum(c.usd)) + "$ - " + fmtDot(parseNum(c.uzs)) + " sum")).join("\n"));
   if (out.length) parts.push("Rasxod :\n" + out.map(line).join("\n"));
   parts.push("Ostatka : " + kassaMoney(uzs, usd));
-  return { text: parts.join("\n\n"), close: { uzs: round2(uzs), usd: round2(usd) } };
+  // оплаты поставщикам — для сведения, после остатка (в остаток не входят)
+  const main = parts.join("\n\n"), supText = sup.length ? "Postavshiklarga to'lov :\n" + sup.map(line).join("\n") : "";
+  return { text: main + (supText ? "\n\n" + supText : ""), main, supText, close: { uzs: round2(uzs), usd: round2(usd) } };
 }
 function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
   const user = CURRENT_USER || {};
@@ -7642,8 +7647,8 @@ function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
   const op = open || autoOpen;
   const conv = convEd || (saved && Array.isArray(saved.conv) ? saved.conv : []);
   const setConv = (c) => setConvEd(c);
-  const { inc, out } = useMemo(() => kassaLines(data, ops, date), [data, ops, date]); // все оплаты: наличные, карта, перечисление
-  const rep = kassaText({ open: op, inc, out, conv });
+  const { inc, out, sup } = useMemo(() => kassaLines(data, ops, date), [data, ops, date]); // все оплаты: наличные, карта, перечисление
+  const rep = kassaText({ open: op, inc, out, conv, sup });
   const openSrc = open ? "" : autoOpen.manual ? " (вписано вручную)" : chain && !(saved && saved.openManual) ? " (из отчёта " + dt(chain.from) + (chain.gap ? " + операции " + dt(chain.gap[0]) + (chain.gap[1] !== chain.gap[0] ? "–" + dt(chain.gap[1]) : "") : "") + ")" : "";
   const save = async () => {
     setBusy(true);
@@ -7690,7 +7695,7 @@ function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
         </div>
       ))}
       <button type="button" className="btn xs" style={{ marginTop: 6 }} onClick={() => setConv([...conv, { dir: "usd2uzs", usd: "", uzs: "", rate: sysRate ? String(sysRate) : "", src: "usd" }])}>+ Конвертация</button>
-      <pre className="kassa-pre">{rep.text}</pre>
+      <pre className="kassa-pre">{rep.main}{rep.supText && <span className="kassa-sup" title="Оплаты поставщикам — в заметке для сведения, в остаток кассы не входят">{"\n\n" + rep.supText}</span>}</pre>
       {neg && <div className="xs kassa-neg" style={{ color: "var(--bad)", marginTop: 6 }}>⚠ Остаток на конец дня меньше нуля — проверьте «Остаток со вчера» и конвертацию.</div>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 12, gap: 8 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
