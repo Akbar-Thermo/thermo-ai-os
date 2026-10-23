@@ -220,7 +220,7 @@ function accessOf(u, roles, uperms) {
   const perms = r.base === "boss" ? ALL_PERMS : (own ? own.perms || {} : r.perms || {});
   // «Аккаунты»: руководителю — всегда; другим — если дано право управлять аккаунтами
   const tabs1 = r.base !== "boss" && perms.accounts && !tabs0.includes("admin") ? [...tabs0, "admin"] : tabs0;
-  const tabs = tabs1.includes("notes") ? tabs1 : [...tabs1, "notes"]; // «Заметки» — у всех
+  const tabs = tabs1.filter((t) => t !== "notes"); // «Заметки» — не раздел, а окно как калькулятор (кнопка в шапке, Alt+Z)
   return { id: r.id, label: r.label, base: r.base, tabs, perms };
 }
 let ROLE_LIST = ROLES; // для подписей ролей вне компонентов (журнал)
@@ -516,6 +516,15 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .brand-fly{position:absolute;top:0;left:calc(100% + 6px);width:240px;background:var(--panel);border:1px solid var(--line2);border-radius:10px;box-shadow:0 16px 44px rgba(0,0,0,.2);padding:8px;z-index:1003}
 .pick-sup.hov{outline:1px solid var(--acc);outline-offset:-1px}
 @media(max-width:600px){.brand-fly{position:static;width:auto;margin-top:8px;box-shadow:none}}
+.npanel{position:fixed;right:18px;top:120px;z-index:900;width:340px;max-height:calc(100vh - 140px);display:flex;flex-direction:column;padding:12px;border-radius:16px;background:var(--panel);border:1px solid var(--acc);box-shadow:0 0 0 3px var(--acc-ring),0 24px 60px rgba(0,0,0,.35)}
+.npanel.shift{right:310px}
+.npanel textarea.npanel-new{min-height:84px;resize:vertical;font-family:inherit;font-size:13px}
+.npanel-list{overflow:auto;flex:1;min-height:0;display:flex;flex-direction:column;gap:6px}
+.pnote{border:1px solid var(--line);border-left:4px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--panel2)}
+.pnote:hover,.pnote:focus-visible{border-color:var(--mut);outline:none}
+.pnote-title{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pnote-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;margin:2px 0}
+@media(max-width:820px){.npanel,.npanel.shift{right:8px;left:8px;width:auto;top:70px;max-height:calc(100vh - 90px)}}
 .notes-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;align-items:start}
 .card.note{--nc:var(--mut);border-top:4px solid var(--nc);padding:12px 14px;min-height:96px}
 .card.note:not(.colored){border-top-color:var(--line)}
@@ -7867,16 +7876,39 @@ function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
    Видны автору; «видна всем» — всем сотрудникам (менять и удалять может только автор). */
 const NOTE_MODE = "te_note";
 const NOTE_COLORS = ["", "#ff1f30", "#ffb020", "#3ddc7d", "#3d9bff", "#a46bff"];
-function NotesTab({ data, reload, toast, user }) {
-  useEffect(() => { reload(["requests"]); }, []);
+// окно заметок — как калькулятор: справа поверх страницы; Alt+Z — открыть / закрыть; курсор сразу в новой заметке
+const noteDraftKey = (uid) => "te:notedraft:" + uid;
+function NotesPanel({ data, reload, toast, user, onClose, shift = false }) {
+  const boxRef = useRef(null), taRef = useRef(null);
   const [q, setQ] = useState("");
   const [ed, setEd] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState(() => { try { return localStorage.getItem(noteDraftKey(user.id)) || ""; } catch (e) { return ""; } });
+  useEffect(() => { try { if (draft) localStorage.setItem(noteDraftKey(user.id), draft); else localStorage.removeItem(noteDraftKey(user.id)); } catch (e) {} }, [draft, user.id]);
+  // открыли — курсор в новой заметке; закрыли — обратно туда, где был
+  useEffect(() => {
+    const prev = document.activeElement;
+    reload(["requests"]);
+    if (taRef.current) { taRef.current.focus({ preventScroll: true }); const l = taRef.current.value.length; taRef.current.setSelectionRange(l, l); }
+    return () => {
+      const a = document.activeElement;
+      if (prev && prev !== document.body && document.contains(prev) && (!a || a === document.body || (boxRef.current && boxRef.current.contains(a)))) { try { prev.focus({ preventScroll: true }); } catch (e) {} }
+    };
+  }, []);
+  // Esc — закрыть (черновик сохраняется)
+  useEffect(() => {
+    const h = (e) => {
+      if (e.key !== "Escape" || topModal() || !boxRef.current || !boxRef.current.contains(document.activeElement)) return;
+      e.preventDefault(); e.stopPropagation(); onClose();
+    };
+    window.addEventListener("keydown", h, true);
+    return () => window.removeEventListener("keydown", h, true);
+  }, [onClose]);
   const notes = useMemo(() => (data.requests || []).filter((r) => r.mode === NOTE_MODE && r.lines && (r.lines.user_id === user.id || r.lines.shared))
     .map((r) => ({ id: r.id, ...r.lines })), [data.requests, user.id]);
   const words = searchWords(q);
   const shown = notes.filter((n) => !words.length || words.every((w) => (String(n.title || "") + " " + String(n.text || "") + " " + String(n.author || "")).toLowerCase().replace(/ё/g, "е").includes(w)))
     .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
-  useHotActions(() => [{ label: "+ Заметка", keys: "Alt+N", code: "KeyN", run: () => setEd({}) }]);
   const save = async (n) => {
     const lines = { title: String(n.title || "").trim(), text: n.text || "", color: n.color || "", pinned: !!n.pinned, shared: !!n.shared,
       user_id: n.user_id || user.id, author: n.author || user.name || user.username, updated_at: new Date().toISOString() };
@@ -7885,35 +7917,48 @@ function NotesTab({ data, reload, toast, user }) {
     if (r.error) { toast("Заметка не сохранена: " + (r.error.message || r.error)); return false; }
     await reload(["requests"]); return true;
   };
+  // быстрая заметка: первая строка — заголовок, остальное — текст
+  const quick = async () => {
+    const t = draft.trim();
+    if (!t || busy) return;
+    const [first, ...rest] = t.split("\n");
+    setBusy(true);
+    const ok = await save({ title: first.trim().slice(0, 80), text: (first.trim().length > 80 ? first.trim().slice(80) + "\n" : "") + rest.join("\n").trim() });
+    setBusy(false);
+    if (ok) { setDraft(""); toast("Заметка сохранена"); if (taRef.current) taRef.current.focus(); }
+  };
   const del = async (n) => {
     if (!(await askConfirm({ title: "Удалить заметку?", text: "«" + (n.title || String(n.text || "").slice(0, 40) || "без названия") + "»", ok: "Да, удалить", cancel: "Нет" }))) return false;
     const r = await db.from("requests").delete().eq("id", n.id);
     if (r.error) return false;
     await reload(["requests"]); toast("Заметка удалена"); return true;
   };
+  const when = (iso) => (iso ? new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "");
   return (
-    <div>
-      <div className="row sect">
-        <h2 style={{ marginRight: "auto" }}>Заметки <span className="mut sm">({notes.length})</span></h2>
-        <input className="inp" data-kbnav="1" style={{ maxWidth: 240 }} placeholder="Поиск по заметкам…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <button className="btn pri" onClick={() => setEd({})}>+ Заметка</button>
+    <div className={"npanel" + (shift ? " shift" : "")} role="dialog" aria-label="Заметки" ref={boxRef}>
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: 8, flexWrap: "nowrap" }}>
+        <b style={{ fontSize: 13 }}>📝 Заметки <span className="mut">({notes.length})</span></b>
+        <button type="button" className="btn xs" title="Закрыть (Esc, Alt+Z)" onClick={onClose}>✕</button>
       </div>
-      <div className="notes-grid">
-        {shown.map((n) => {
-          const mine = n.user_id === user.id;
-          return (
-            <div key={n.id} className={"card note clk" + (n.color ? " colored" : "")} style={n.color ? { "--nc": n.color } : undefined} onClick={() => setEd(n)} tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setEd(n); }}>
-              <div className="row" style={{ gap: 6, flexWrap: "nowrap", marginBottom: 4 }}>
-                <b className="note-title" style={{ marginRight: "auto" }}>{n.title || "Без названия"}</b>
-                {n.pinned && <span title="Закреплена">📌</span>}
-                {n.shared && <span className="xs mut" title="Видна всем">👥</span>}
-              </div>
-              <div className="sm note-text">{n.text}</div>
-              <div className="xs mut" style={{ marginTop: 8 }}>{mine ? "" : (n.author || "") + " · "}{n.updated_at ? new Date(n.updated_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</div>
+      <textarea ref={taRef} className="inp npanel-new" value={draft} placeholder="Новая заметка… (Ctrl+Enter — сохранить)" onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); quick(); } }} />
+      <div className="row" style={{ gap: 6, margin: "6px 0 10px", flexWrap: "nowrap" }}>
+        <input className="inp" style={{ flex: 1, minWidth: 0 }} placeholder="Поиск…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button type="button" className="btn pri" disabled={!draft.trim() || busy} onClick={quick}>{busy ? "…" : "Сохранить"}</button>
+      </div>
+      <div className="npanel-list">
+        {shown.map((n) => (
+          <div key={n.id} className="pnote clk" style={n.color ? { borderLeftColor: n.color } : undefined} tabIndex={0} onClick={() => setEd(n)} onKeyDown={(e) => { if (e.key === "Enter") setEd(n); }}>
+            <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
+              <b className="pnote-title" style={{ marginRight: "auto" }}>{n.title || String(n.text || "").split("\n")[0] || "Без названия"}</b>
+              {n.pinned && <span title="Закреплена">📌</span>}
+              {n.shared && <span className="xs mut" title="Видна всем">👥</span>}
             </div>
-          );
-        })}
-        {!shown.length && <div className="card mut sm" style={{ textAlign: "center", padding: 24 }}>{notes.length ? "Ничего не найдено" : "Заметок пока нет — «+ Заметка»"}</div>}
+            {n.title && n.text ? <div className="xs pnote-text">{n.text}</div> : null}
+            <div className="xs mut">{n.user_id === user.id ? "" : (n.author || "") + " · "}{when(n.updated_at)}</div>
+          </div>
+        ))}
+        {!shown.length && <div className="mut sm" style={{ textAlign: "center", padding: 18 }}>{notes.length ? "Ничего не найдено" : "Заметок пока нет"}</div>}
       </div>
       {ed && <NoteModal n={ed} mine={!ed.id || ed.user_id === user.id} onClose={() => setEd(null)} onSave={async (n) => { if (await save(n)) setEd(null); }} onDelete={async () => { if (await del(ed)) setEd(null); }} />}
     </div>
@@ -8541,6 +8586,7 @@ function KeysHelp({ tabs, onClose }) {
         <Row k="Ctrl+Enter" t="В окне — главная кнопка (Сохранить / Добавить)" />
         <Row k="Tab / Shift+Tab" t="Следующее / предыдущее поле" />
         <Row k="Alt+X" t="Калькулятор" />
+        <Row k="Alt+Z" t="Заметки (курсор сразу в новой заметке)" />
         <Row k="?" t="Эта подсказка" />
         {here.map((a) => <Row key={a.label} k={a.keys} t={a.label + " (на этом экране)"} />)}
       </tbody></table>
@@ -9011,9 +9057,14 @@ function AppInner() {
   const L = (ru, uz) => lang === "uz" ? uz : ru;
   const [backupOpen, setBackupOpen] = useState(false);
   const [calcOpen, setCalcOpen] = useState(false);
-  // Alt+X — открыть / закрыть калькулятор (работает и когда курсор в поле ввода)
+  const [notesOpen, setNotesOpen] = useState(false);
+  // Alt+X — открыть / закрыть калькулятор, Alt+Z — заметки (работает и когда курсор в поле ввода)
   useEffect(() => {
-    const h = (e) => { if (e.altKey && !e.ctrlKey && !e.metaKey && (e.code === "KeyX" || String(e.key).toLowerCase() === "x" || e.key === "ч")) { e.preventDefault(); setCalcOpen((v) => !v); } };
+    const h = (e) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.code === "KeyX" || String(e.key).toLowerCase() === "x" || e.key === "ч") { e.preventDefault(); setCalcOpen((v) => !v); }
+      else if (e.code === "KeyZ" || String(e.key).toLowerCase() === "z" || e.key === "я") { e.preventDefault(); setNotesOpen((v) => !v); }
+    };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, []);
@@ -9188,6 +9239,7 @@ function AppInner() {
           }} title={"Alt+" + (allTabs.indexOf(t) === 9 ? 0 : allTabs.indexOf(t) + 1)}>{t.label}</button>)}
         </div>
         <button className="burger" onClick={() => setMobileMenuOpen((v) => !v)} title="Меню">{mobileMenuOpen ? "✕" : "☰"}</button>
+        <button className={"btn xs npanel-btn" + (notesOpen ? " pri" : "")} title="Заметки (Alt+Z)" onClick={() => setNotesOpen((v) => !v)}>📝 Заметки</button>
         {role !== "driver" && <button className={"btn xs" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => setCalcOpen((v) => !v)}>🧮 Калькулятор</button>}
         <input ref={restoreRef} type="file" accept=".json,.gz,application/json,application/gzip" style={{ display: "none" }} onChange={onRestore} />
       </div>
@@ -9216,7 +9268,6 @@ function AppInner() {
         {tab === "masters" && <MastersTab data={data} reload={reload} toast={toast} fin={true} canDel={!!acc.perms.del} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "wh" && <WarehouseTab data={data} reload={reload} toast={toast} readOnly={role === "driver"} openObject={(id) => { if (role === "driver") { setTab("delivery"); setOpenId(id); } else { setOpenId(id); setTab("objects"); } }} />}
         {tab === "delivery" && <DeliveryTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} />}
-        {tab === "notes" && <NotesTab data={data} reload={reload} toast={toast} user={currentUser} />}
         {tab === "log" && <LogTab data={data} reload={reload} onBackup={acc.perms.backup ? () => setBackupOpen(true) : null} />}
         {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} isBoss={role === "boss"} />}
         {tab === "finance" && <FinanceTab data={data} reload={reload} toast={toast} boss={!!acc.perms.salary} />}
@@ -9231,6 +9282,7 @@ function AppInner() {
         await reload("all"); setWipeOpen(false); setOpenId(null); toast("База очищена. Товары, поставщики и мастера сохранены.");
       }} />}
       {calcOpen && <Calculator onClose={() => setCalcOpen(false)} />}
+      {notesOpen && currentUser && <NotesPanel data={data} reload={reload} toast={toast} user={currentUser} shift={calcOpen} onClose={() => setNotesOpen(false)} />}
       <ConfirmHost />
       <SheetPickHost />
       <SelectPopupHost />
