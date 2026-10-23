@@ -5150,7 +5150,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       {shipForm && <ShipModal obj={obj} batches={batches} fin={fin} supName={supName} onClose={() => setShipForm(false)}
         onShip={async (ids, date) => { if (await shipItems(ids, date, true)) setShipForm(false); }}
         onUnship={async (ids) => { await shipItems(ids, null, false); }} />}
-      {addItems && <AddItemsModal products={products} suppliers={suppliers} whQty={wh.qty} whSim={wh.sim} whStock={wh.stock} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} batches={batches} onSave={async (rows, t) => { if (await addManualItems(rows, t && typeof t === "object" ? t : { newBatch: addItems === "newbatch", date: t })) setAddItems(false); }} />}
+      {addItems && <AddItemsModal onProductsAdded={() => reload(["products"])} products={products} suppliers={suppliers} whQty={wh.qty} whSim={wh.sim} whStock={wh.stock} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} batches={batches} onSave={async (rows, t) => { if (await addManualItems(rows, t && typeof t === "object" ? t : { newBatch: addItems === "newbatch", date: t })) setAddItems(false); }} />}
       {impItems && <ObjectExcelImport products={products} suppliers={suppliers} onClose={() => setImpItems(false)} onSave={async (rows) => { if (batches.length) { setImpPick(rows); return; } if (await addManualItems(rows, false)) setImpItems(false); }} />}
       {impPick && <BatchPickDialog batches={batches} count={impPick.length} total={impPick.reduce((a, r) => a + parseNum(r.qty) * parseNum(r.price), 0)} busy={impBusy} onBack={() => setImpPick(null)}
         onPick={async (t) => { setImpBusy(true); const ok = await addManualItems(impPick, t); setImpBusy(false); setImpPick(null); if (ok) setImpItems(false); }} />}
@@ -5596,7 +5596,7 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
     </>
   );
 }
-function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty = {}, whSim = {}, whStock = null, batches = [] }) {
+function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty = {}, whSim = {}, whStock = null, batches = [], onProductsAdded = null }) {
   const [rows, setRows] = useState([]);
   // новая строка — сверху списка; в объект строки сохраняются в порядке добавления
   const addRow = (r) => setRows((prev) => [{ ...r, _k: uuid() }, ...prev]);
@@ -5604,8 +5604,39 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
   const upd = (i, k, val) => setRows(rows.map((r, j) => (j === i ? { ...r, [k]: val } : r)));
   const del = (i) => setRows(rows.filter((_, j) => j !== i));
   const total = rows.reduce((a, r) => a + parseNum(r.qty) * parseNum(r.price), 0);
-  const valid = rows.filter((r) => String(r.name || "").trim() && parseNum(r.qty) > 0).reverse().map(({ _k, ...r }) => r);
+  const validK = rows.filter((r) => String(r.name || "").trim() && parseNum(r.qty) > 0).reverse();
+  const valid = validK.map(({ _k, ...r }) => r);
   const [busy, setBusy] = useState(false);
+  // строки не из базы — спросить: добавить ли их и в «Товары»
+  const [askBase, setAskBase] = useState(null); // { list: [{ _k, name, …, on, same }] }
+  const [pending, setPending] = useState(null); // список строк, который сохраняем (после вопроса про базу)
+  const normN = (x) => String(x || "").toLowerCase().replace(/ё/g, "е").replace(/[«»"“”„'`]/g, "").replace(/\s+/g, " ").trim();
+  const sameInBase = (r) => products.find((p) => normN(p.name) === normN(r.name) && (!r.supplier_id || !p.supplier_id || p.supplier_id === r.supplier_id));
+  const proceed = async (list) => {
+    setPending(list);
+    if (!newBatch && batches.length) { setPickBatch(lastBatch); return; } // сначала — вопрос «в какую поставку»
+    setBusy(true); await onSave(list, newBatch ? { newBatch: true, date: bDate } : null); setBusy(false);
+  };
+  const addToBase = async (sel) => {
+    setBusy(true);
+    const ids = {}; // _k → product_id
+    const fresh = [];
+    let code = nextProductCode(products);
+    sel.forEach((r) => {
+      if (r.same) { ids[r._k] = r.same.id; return; } // такой товар уже есть — только связываем, не дублируем
+      const id = uuid(); ids[r._k] = id;
+      fresh.push({ id, code: String(code++), sku: null, name: String(r.name).trim(), category: "", size: r.size || "", unit: r.unit || "шт",
+        cost: parseNum(r.cost), price: parseNum(r.price), stock: 0, brand: "", supplier_id: r.supplier_id || null, status: "active", min_stock: 0, price_updated: new Date().toISOString() });
+    });
+    if (fresh.length) {
+      const res = await db.from("products").insert(fresh.map(cleanUuids));
+      if (res.error) { setBusy(false); return; }
+      await logAction("Добавлен товар (из объекта)", "products", fresh.map((x) => x.name).join(", ").slice(0, 400));
+      if (onProductsAdded) await onProductsAdded();
+    }
+    setBusy(false); setAskBase(null);
+    await proceed(validK.map(({ _k, ...r }) => (ids[_k] ? { ...r, product_id: ids[_k] } : r)));
+  };
   const [bDate, setBDate] = useState(today()); // дата накладной для новой поставки
   // «+ Список вручную»: перед добавлением — в какую поставку (или новая)
   const [pickBatch, setPickBatch] = useState(null); // null — окно выбора закрыто; иначе выбранный вариант: номер поставки или "new"
@@ -5653,14 +5684,33 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
           <button className="btn" onClick={tryClose}>Отмена</button>
           <button className="btn pri" disabled={!valid.length || busy} onClick={async () => {
             if (!(await confirmLowPrice(valid.map((r) => ({ name: r.name, price: parseNum(r.price), cost: parseNum(r.cost) }))))) return;
-            if (!newBatch && batches.length) { setPickBatch(lastBatch); return; } // сначала — вопрос «в какую поставку»
-            setBusy(true); await onSave(valid, newBatch ? { newBatch: true, date: bDate } : null); setBusy(false);
+            const manual = validK.filter((r) => !r.product_id);
+            if (manual.length) { setAskBase({ list: manual.map((r) => ({ ...r, on: true, same: sameInBase(r) || null })) }); return; }
+            await proceed(valid);
           }}>{busy ? "Сохраняю…" : newBatch ? "Создать новую поставку" : batches.length ? "Добавить в поставку…" : "Добавить в объект"}</button>
         </div>
       </div>
     </Modal>
-    {pickBatch != null && <BatchPickDialog batches={batches} count={valid.length} total={total} initial={pickBatch} busy={busy} onBack={() => setPickBatch(null)}
-      onPick={async (t) => { setBusy(true); const ok = await onSave(valid, t); setBusy(false); if (ok === false) setPickBatch(null); }} />}
+    {askBase && (
+      <Modal title="Добавить и в базу «Товары»?" onClose={() => setAskBase(null)} w={560}>
+        <p className="sm" style={{ marginBottom: 8 }}>Этих товаров нет в базе ({askBase.list.length}). Отмеченные добавятся и в «Товары» — потом их можно будет найти поиском.</p>
+        <div className="base-ask" style={{ maxHeight: 280, overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, padding: "4px 10px" }}>
+          {askBase.list.map((r, i) => (
+            <label key={r._k} className="row clk sm" style={{ gap: 8, padding: "5px 0", borderTop: i ? "1px solid var(--line)" : 0, flexWrap: "nowrap" }}>
+              <input type="checkbox" checked={r.on} onChange={(e) => setAskBase({ list: askBase.list.map((x, j) => (j === i ? { ...x, on: e.target.checked } : x)) })} />
+              <span style={{ flex: 1, minWidth: 0 }}>{r.name}{r.same && <span className="xs" style={{ color: "var(--warn)" }}> · уже есть в базе — будет связан, не дублируется</span>}</span>
+              <span className="xs mut" style={{ whiteSpace: "nowrap" }}>{fmt(parseNum(r.price))}</span>
+            </label>
+          ))}
+        </div>
+        <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
+          <button className="btn" disabled={busy} onClick={async () => { setAskBase(null); await proceed(valid); }}>Нет, только в объект</button>
+          <button className="btn pri" disabled={busy || !askBase.list.some((r) => r.on)} onClick={() => addToBase(askBase.list.filter((r) => r.on))}>{busy ? "Добавляю…" : "Да, добавить в базу (" + askBase.list.filter((r) => r.on).length + ")"}</button>
+        </div>
+      </Modal>
+    )}
+    {pickBatch != null && <BatchPickDialog batches={batches} count={(pending || valid).length} total={total} initial={pickBatch} busy={busy} onBack={() => setPickBatch(null)}
+      onPick={async (t) => { setBusy(true); const ok = await onSave(pending || valid, t); setBusy(false); if (ok === false) setPickBatch(null); }} />}
     {askCancel && <DiscardConfirm
       text={rows.length ? "Добавленные строки (" + rows.length + ") не будут сохранены в объект." : "Окно будет закрыто, в объект ничего не добавится."}
       onStay={() => setAskCancel(false)} onDiscard={onClose} />}
