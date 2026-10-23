@@ -7247,7 +7247,11 @@ function FinanceTab({ data, reload, toast, boss = false }) {
   const [incForm, setIncForm] = useState(false);
   const [finView, setFinView] = useState("exp"); // «Расходы» / «Приходы» компании
   const [kassa, setKassa] = useState(false);
-  const openKassa = async () => { setKassa(true); await reload(["requests"]); }; // заметки нужны для «остатка со вчера»
+  // касса — за день, выбранный в «Период» (по умолчанию «Сегодня»); заметки нужны для «остатка со вчера»
+  const openKassa = async () => {
+    if (!(from && from === to)) { toast("Касса — за один день: выберите в «Период» «Сегодня», «Вчера» или одну дату"); return; }
+    setKassa(true); await reload(["requests"]);
+  };
   useHotActions(() => [{ label: "📝 Касса в заметки", keys: "Alt+K", code: "KeyK", run: openKassa }]);
   const [delExp, setDelExp] = useState(null);
   const monthStart = () => { const d = new Date(); return localIso(new Date(d.getFullYear(), d.getMonth(), 1)); };
@@ -7613,16 +7617,15 @@ function kassaText({ open, inc, out, conv }) {
 function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
   const user = CURRENT_USER || {};
   const notes = (data.requests || []).filter((r) => r.mode === NOTE_MODE && r.lines && r.lines.kassa && (r.lines.user_id === user.id || r.lines.shared));
-  const [date, setDate] = useState(date0 || today());
+  const date = date0 || today(); // день — из «Период» в «Финансах»
   const prev = notes.filter((r) => r.lines.kassa.date < date).sort((a, b) => b.lines.kassa.date.localeCompare(a.lines.kassa.date))[0];
   const same = notes.find((r) => r.lines.kassa.date === date && r.lines.user_id === user.id);
   const [open, setOpen] = useState(null); // null — взять из прошлого отчёта
   const [conv, setConv] = useState([]);
-  const [cashOnly, setCashOnly] = useState(true);
   const [busy, setBusy] = useState(false);
   useEffect(() => { setOpen(null); setConv(same && same.lines.kassa.conv ? same.lines.kassa.conv : []); }, [date]);
   const op = open || (prev ? { uzs: String(prev.lines.kassa.close.uzs || 0), usd: String(prev.lines.kassa.close.usd || 0) } : { uzs: "", usd: "" });
-  const { inc, out } = useMemo(() => kassaLines(data, ops, date, cashOnly), [data, ops, date, cashOnly]);
+  const { inc, out } = useMemo(() => kassaLines(data, ops, date, false), [data, ops, date]); // все оплаты: наличные, карта, перечисление
   const rep = kassaText({ open: op, inc, out, conv });
   const save = async () => {
     setBusy(true);
@@ -7650,10 +7653,8 @@ function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
   };
   const setC = (k, patch) => setConv(conv.map((c, j) => (j === k ? calcC({ ...c, ...patch }) : c)));
   return (
-    <Modal title="Касса за день → в заметки" onClose={onClose} w={640}>
+    <Modal title={"Касса за " + dt(date) + " → в заметки"} onClose={onClose} w={640}>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        <Fld label="Дата"><input type="date" className="inp" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} /></Fld>
-        <Fld label=" "><label className="clk sm row" style={{ gap: 6, minHeight: 36 }}><input type="checkbox" checked={cashOnly} onChange={(e) => setCashOnly(e.target.checked)} /> только наличные</label></Fld>
         <Fld label={"Остаток со вчера, сум" + (prev && !open ? " (из отчёта " + dt(prev.lines.kassa.date) + ")" : "")}><input className="inp" inputMode="decimal" value={op.uzs} onChange={(e) => setOpen({ ...op, uzs: e.target.value })} /></Fld>
         <Fld label="Остаток со вчера, $"><input className="inp" inputMode="decimal" value={op.usd} onChange={(e) => setOpen({ ...op, usd: e.target.value })} /></Fld>
       </div>
