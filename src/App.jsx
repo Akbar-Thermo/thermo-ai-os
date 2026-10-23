@@ -7990,7 +7990,7 @@ function NotesPanel({ data, reload, toast, user, onClose }) {
     <div className="npanel" role="dialog" aria-label="Заметки" ref={boxRef}>
       <div className="row" style={{ justifyContent: "space-between", marginBottom: 10, flexWrap: "nowrap" }}>
         <b style={{ fontSize: 16 }}>📝 Заметки <span className="mut">({notes.length})</span></b>
-        <button type="button" className="btn xs" title="Закрыть (Esc, левый Alt + правый Alt)" onClick={onClose}>✕</button>
+        <button type="button" className="btn xs" title="Закрыть (Esc, Alt два раза)" onClick={onClose}>✕</button>
       </div>
       <textarea ref={taRef} className="inp npanel-new" value={draft} placeholder="Новая заметка… Enter — сохранить, Shift+Enter — новая строка" onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.nativeEvent.isComposing) { e.preventDefault(); quick(); } }} />
@@ -8639,7 +8639,7 @@ function KeysHelp({ tabs, onClose }) {
         <Row k="Ctrl+Enter" t="В окне — главная кнопка (Сохранить / Добавить)" />
         <Row k="Tab / Shift+Tab" t="Следующее / предыдущее поле" />
         <Row k="Alt+X" t="Калькулятор" />
-        <Row k="Alt + Alt" t="Заметки: левый и правый Alt вместе (курсор сразу в новой заметке, Enter — сохранить)" />
+        <Row k="Alt, Alt" t="Заметки: Alt два раза подряд или левый + правый Alt вместе (Enter — сохранить)" />
         <Row k="?" t="Эта подсказка" />
         {here.map((a) => <Row key={a.label} k={a.keys} t={a.label + " (на этом экране)"} />)}
       </tbody></table>
@@ -9111,25 +9111,38 @@ function AppInner() {
   const [backupOpen, setBackupOpen] = useState(false);
   const [calcOpen, setCalcOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
-  // Alt+X — открыть / закрыть калькулятор; левый Alt + правый Alt вместе — заметки (работает и когда курсор в поле ввода)
+  // Alt+X — открыть / закрыть калькулятор. Заметки: левый + правый Alt вместе ИЛИ двойное нажатие Alt (любого)
+  // (правый Alt на многих клавиатурах — AltGr: браузер шлёт ещё и Ctrl, поэтому Ctrl/Shift не сбрасывают счёт)
   useEffect(() => {
     const down = new Set();
+    let pure = false, lastTap = 0;
+    const isAlt = (e) => e.code === "AltLeft" || e.code === "AltRight" || e.key === "Alt" || e.key === "AltGraph";
+    const toggleNotes = () => { down.clear(); pure = false; lastTap = 0; setNotesOpen((v) => !v); };
     const h = (e) => {
-      if (e.code === "AltLeft" || e.code === "AltRight") {
+      if (isAlt(e)) {
         if (e.repeat) return;
-        down.add(e.code);
-        if (down.has("AltLeft") && down.has("AltRight")) { e.preventDefault(); down.clear(); setNotesOpen((v) => !v); }
+        down.add(e.code || e.key); pure = true;
+        if (down.size >= 2) { e.preventDefault(); toggleNotes(); }
         return;
       }
+      if (e.key !== "Control" && e.key !== "Shift") { pure = false; lastTap = 0; } // Alt+буква — не «нажатие Alt»
       if (!e.altKey || e.ctrlKey || e.metaKey) return;
       if (e.code === "KeyX" || String(e.key).toLowerCase() === "x" || e.key === "ч") { e.preventDefault(); setCalcOpen((v) => !v); }
     };
-    const up = (e) => { if (e.code === "AltLeft" || e.code === "AltRight") { down.delete(e.code); e.preventDefault(); } }; // Alt не уводит в меню окна
-    const blur = () => down.clear();
-    window.addEventListener("keydown", h);
-    window.addEventListener("keyup", up);
+    const up = (e) => {
+      if (!isAlt(e)) return;
+      e.preventDefault(); // Alt не уводит в меню окна
+      down.delete(e.code || e.key);
+      if (!pure) return;
+      pure = false;
+      const now = Date.now();
+      if (now - lastTap < 500) toggleNotes(); else lastTap = now;
+    };
+    const blur = () => { down.clear(); pure = false; };
+    window.addEventListener("keydown", h, true);
+    window.addEventListener("keyup", up, true);
     window.addEventListener("blur", blur);
-    return () => { window.removeEventListener("keydown", h); window.removeEventListener("keyup", up); window.removeEventListener("blur", blur); };
+    return () => { window.removeEventListener("keydown", h, true); window.removeEventListener("keyup", up, true); window.removeEventListener("blur", blur); };
   }, []);
   const [wipeOpen, setWipeOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -9302,7 +9315,7 @@ function AppInner() {
           }} title={"Alt+" + (allTabs.indexOf(t) === 9 ? 0 : allTabs.indexOf(t) + 1)}>{t.label}</button>)}
         </div>
         <button className="burger" onClick={() => setMobileMenuOpen((v) => !v)} title="Меню">{mobileMenuOpen ? "✕" : "☰"}</button>
-        <button className={"btn xs npanel-btn" + (notesOpen ? " pri" : "")} title="Заметки (левый Alt + правый Alt)" onClick={() => setNotesOpen((v) => !v)}>📝 Заметки</button>
+        <button className={"btn xs npanel-btn" + (notesOpen ? " pri" : "")} title="Заметки: Alt два раза подряд (или левый + правый Alt)" onClick={() => setNotesOpen((v) => !v)}>📝 Заметки</button>
         {role !== "driver" && <button className={"btn xs" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => setCalcOpen((v) => !v)}>🧮 Калькулятор</button>}
         <input ref={restoreRef} type="file" accept=".json,.gz,application/json,application/gzip" style={{ display: "none" }} onChange={onRestore} />
       </div>
