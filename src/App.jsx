@@ -555,6 +555,10 @@ body.cq-on .totop{display:none}
 .calc-scr{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;text-align:right;min-height:64px}
 .calc-sub{min-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .calc-main{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;word-break:break-all;line-height:1.2}
+.calc:focus{outline:none}
+.calc.on{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-ring),0 24px 60px rgba(0,0,0,.35)}
+.calc-caret{display:inline-block;width:2px;height:.9em;margin-left:3px;vertical-align:-2px;background:var(--acc);animation:calcBlink 1s steps(1) infinite}
+@keyframes calcBlink{50%{opacity:0}}
 .calc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .calc-k{height:44px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);font:600 18px var(--sans);cursor:pointer}
 .calc-k:hover{border-color:var(--line2);background:var(--hover)}
@@ -8078,7 +8082,9 @@ function LoginScreen({ users, onLogin, bootErr, onRetry, secure = false, seed = 
    Корень и процент: кнопки «√» и «%» (клавиши R и %), скобки ( ).
    «%» — как на обычном калькуляторе: 200 + 10% = 220, 200 − 10% = 180, 200 × 10% = 20, 50% = 0,5.
    «√» ставится перед числом: 16 → √16 = 4; √(9+16) = 5.
-   Если курсор стоит в поле ввода программы, клавиши идут в поле, а не в калькулятор. */
+   При открытии курсор сразу в калькуляторе (мигает на экране): цифры идут в него, даже если до этого печатали в поле.
+   Щёлкнули в поле программы — клавиши идут в поле; щёлкнули по калькулятору — снова в калькулятор.
+   После закрытия курсор возвращается туда, где был. */
 const CALC_OPS = { "+": 1, "-": 1, "*": 2, "/": 2 };
 function calcEval(expr) {
   const toks = String(expr).replace(/,/g, ".").match(/\d+\.?\d*|\.\d+|[-+*/()√%]/g) || [];
@@ -8117,6 +8123,17 @@ function calcEval(expr) {
 const calcShow = (e) => String(e).replace(/\*/g, " × ").replace(/\//g, " ÷ ").replace(/([\d%)])\+/g, "$1 + ").replace(/([\d%)])-/g, "$1 − ").replace(/\./g, ",");
 const calcNum = (n) => (n == null ? "" : n.toLocaleString("ru-RU", { maximumFractionDigits: 10 }));
 function Calculator({ onClose }) {
+  const boxRef = useRef(null);
+  const [focused, setFocused] = useState(false);
+  // открыли — курсор в калькуляторе; закрыли — обратно в то поле, где был
+  useEffect(() => {
+    const prev = document.activeElement;
+    if (boxRef.current) boxRef.current.focus({ preventScroll: true });
+    return () => {
+      const a = document.activeElement;
+      if (prev && prev !== document.body && document.contains(prev) && (!a || a === document.body || (boxRef.current && boxRef.current.contains(a)))) { try { prev.focus({ preventScroll: true }); } catch (e) {} }
+    };
+  }, []);
   const [expr, setExpr] = useState("");
   const [last, setLast] = useState(null); // { expr, res } — после «=»
   const live = useMemo(() => (expr && /[-+*/√%]/.test(expr.replace(/^-/, "")) ? calcEval(expr) : null), [expr]);
@@ -8166,7 +8183,7 @@ function Calculator({ onClose }) {
       else if (e.key === "Enter" || e.key === "=") k = "=";
       else if (e.key === "Backspace") k = "⌫";
       else if (e.key === "Delete") k = "C";
-      else if (e.key === "Escape") { if (expr || last) k = "C"; else { e.preventDefault(); onClose(); return; } }
+      else if (e.key === "Escape") { if (expr || last) k = "C"; else { e.preventDefault(); e.stopPropagation(); onClose(); return; } }
       if (k == null) return;
       e.preventDefault(); e.stopPropagation();
       pressRef.current(k);
@@ -8178,7 +8195,9 @@ function Calculator({ onClose }) {
   const K = ({ k, label, cls = "", span }) => <button type="button" className={"calc-k " + cls} style={span ? { gridColumn: "span " + span } : null} onMouseDown={(e) => e.preventDefault()} onClick={() => press(k)}>{label || k}</button>;
   const main = last && expr === String(last.res) ? calcNum(last.res) : expr ? calcShow(expr) : "0";
   return (
-    <div className="calc" role="dialog" aria-label="Калькулятор">
+    <div className={"calc" + (focused ? " on" : "")} role="dialog" aria-label="Калькулятор" tabIndex={-1} ref={boxRef}
+      onFocus={() => setFocused(true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false); }}
+      onMouseDown={(e) => { if (!isTyping(e.target)) { e.preventDefault(); boxRef.current.focus({ preventScroll: true }); } }}>
       <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
         <b style={{ fontSize: 13 }}>🧮 Калькулятор</b>
         <span className="row" style={{ gap: 4 }}>
@@ -8188,7 +8207,7 @@ function Calculator({ onClose }) {
       </div>
       <div className="calc-scr">
         <div className="xs mut calc-sub">{last && expr === String(last.res) ? calcShow(last.expr) + " =" : live != null ? "= " + calcNum(live) : " "}</div>
-        <div className="calc-main">{main}</div>
+        <div className="calc-main">{main}{focused && <span className="calc-caret" />}</div>
       </div>
       <div className="calc-grid">
         <K k="√" cls="op" /><K k="%" cls="op" /><K k="(" cls="fn" /><K k=")" cls="fn" />
