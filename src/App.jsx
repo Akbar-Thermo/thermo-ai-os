@@ -7179,16 +7179,16 @@ function Dashboard({ data }) {
 
 /* ============ FINANCE TAB ============ */
 const INCOME_CATEGORIES = ["Инвестиция / вложение", "Займ", "Возврат долга", "Аренда (доход)", "Продажа имущества", "Прочее"];
-function CompanyIncomeForm({ onClose, onSave }) {
-  const [v, setV] = useState({ category: INCOME_CATEGORIES[0], op_date: today(), note: "" });
+// дата — день, выбранный в «Период» «Финансов» (поля даты в окне нет)
+function CompanyIncomeForm({ onClose, onSave, day = today() }) {
+  const [v, setV] = useState({ category: INCOME_CATEGORIES[0], op_date: day, note: "" });
   const [pay, setPay] = useState(() => { const p = payInit(null); return p.method === "usd" ? { ...p, method: "uzs", cur: "uzs" } : p; });
   const [busy, setBusy] = useState(false);
   return (
-    <Modal title="Приход компании" onClose={onClose} w={560}>
+    <Modal title={"Приход компании · " + dt(v.op_date)} onClose={onClose} w={560}>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         <div style={{ gridColumn: "1/-1" }}><Fld label="Источник"><select className="inp" value={v.category} onChange={(e) => setV({ ...v, category: e.target.value })}>{INCOME_CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></Fld></div>
         <PayFields p={pay} setP={setPay} methods={PAY_METHODS} usdLabel={payUsdLabel("company_income")} />
-        <Fld label="Дата"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
         <div style={{ gridColumn: "1/-1" }}><Fld label="Комментарий"><input className="inp" value={v.note} placeholder="от кого / за что…" onChange={(e) => setV({ ...v, note: e.target.value })} /></Fld></div>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
@@ -7202,15 +7202,15 @@ function CompanyIncomeForm({ onClose, onSave }) {
     </Modal>
   );
 }
-function CompanyExpenseForm({ onClose, onSave, boss = false, employees = [], onEmployeeAdded, data = {} }) {
+function CompanyExpenseForm({ onClose, onSave, boss = false, employees = [], onEmployeeAdded, data = {}, day = today() }) {
   const cats = boss ? EXPENSE_CATEGORIES : EXPENSE_CATEGORIES.filter((c) => c !== SALARY_CAT);
-  const [v, setV] = useState({ category: cats[0], op_date: today(), note: "", user: curUserName(), kind: "Зарплата", emp: "" });
+  const [v, setV] = useState({ category: cats[0], op_date: day, note: "", user: curUserName(), kind: "Зарплата", emp: "" });
   const sal = v.category === SALARY_CAT;
   // расходы компании обычно в сумах — валюта «сум» выбрана сразу
   const [pay, setPay] = useState(() => { const p = payInit(null); return p.method === "usd" ? { ...p, method: "uzs", cur: "uzs" } : p; });
   const [busy, setBusy] = useState(false);
   return (
-    <Modal title="Расход компании" onClose={onClose} w={560}>
+    <Modal title={"Расход компании · " + dt(v.op_date)} onClose={onClose} w={560}>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         <div style={{ gridColumn: "1/-1" }}><Fld label="Категория"><select className="inp" value={v.category} onChange={(e) => setV({ ...v, category: e.target.value })}>{cats.map((c) => <option key={c}>{c}</option>)}</select></Fld></div>
         {sal && <Fld label="Вид выплаты">
@@ -7218,7 +7218,6 @@ function CompanyExpenseForm({ onClose, onSave, boss = false, employees = [], onE
         </Fld>}
         {sal && <Fld label="Сотрудник"><EmployeeSelect value={v.emp} onChange={(emp) => setV({ ...v, emp })} employees={employees} onAdded={onEmployeeAdded} data={data} /></Fld>}
         <PayFields p={pay} setP={setPay} methods={OUT_METHODS} usdLabel={payUsdLabel("company_expense")} />
-        <Fld label="Дата"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
         <div style={{ gridColumn: "1/-1" }}><Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} placeholder="за июнь / Шерзоду / свет+вода…" /></Fld></div>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
@@ -7393,7 +7392,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
       </>}
       {kassa && <KassaNoteModal data={data} ops={finance_ops} date0={from && from === to ? from : today()} toast={toast} onClose={() => setKassa(false)}
         onSaved={async (msg) => { setKassa(false); await reload(["requests"]); toast(msg); }} />}
-      {incForm && <CompanyIncomeForm onClose={() => setIncForm(false)} onSave={async (op) => {
+      {incForm && <CompanyIncomeForm day={from && from === to ? from : today()} onClose={() => setIncForm(false)} onSave={async (op) => {
         const r = await db.from("finance_ops").insert(cleanUuids(op));
         if (r.error) return;
         await logAction("Приход компании: " + op.category, "company", fmt(op.amount) + " · " + payText(op) + (op.note ? " · " + op.note : ""));
@@ -7455,7 +7454,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
           )}
         </div>
       )}
-      {expForm && <CompanyExpenseForm boss={boss} employees={employees} data={data} onEmployeeAdded={() => reload()} onClose={() => setExpForm(false)} onSave={async (op) => {
+      {expForm && <CompanyExpenseForm day={from && from === to ? from : today()} boss={boss} employees={employees} data={data} onEmployeeAdded={() => reload()} onClose={() => setExpForm(false)} onSave={async (op) => {
         const r = await db.from("finance_ops").insert(cleanUuids(op));
         if (r.error) return; // ошибка показана, окно остаётся открытым
         // в базе нет колонок для вида выплаты / сотрудника — сохраняем их в начале комментария
