@@ -542,6 +542,9 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .kassa-op.off{opacity:.55}
 .kassa-amt{white-space:nowrap;font-weight:700;min-width:150px}
 .kassa-what{flex:1;min-width:0}
+.kassa-man{gap:6px;flex-wrap:nowrap;padding:5px 0;border-top:1px solid var(--line)}
+.kassa-man.off{opacity:.6}
+.kassa-man input[type=checkbox]{margin-left:4px}
 .kassa-pre{white-space:pre-wrap;font:13px/1.45 inherit;font-family:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:12px 0 0;max-height:440px;overflow:auto}
 .pick-name{font-weight:600;font-size:13px;line-height:17px;color:var(--txt);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
 .cq-hint{margin:0 0 8px;padding:8px 12px;border:1px dashed var(--acc);border-radius:10px;background:var(--acc-tint);color:var(--txt);line-height:1.5}
@@ -7573,7 +7576,8 @@ function VozvratSection({ objects, finance_ops, suppliers, whMoves }) {
    • Операции дня берутся из системы; у каждой галочка «в кассе». Приходы и расходы компании, доп. расходы по объектам,
      выплаты бонусов — в кассе сразу; оплаты клиентов и поставщикам — только для сведения (галочку можно поставить,
      если деньги прошли через кассу). Перечисление (банк) по умолчанию не в кассе.
-   • «+ Своя строка» — приход / расход только в заметке (например, «хозяин дал 500 $»), в системе её нет.
+   • «+ Ручной ввод» — приход / расход только в заметке (например, «хозяин дал 500 $»), в системе его нет;
+     у ручной строки тоже галочка «в кассе» (снята — строка в заметке для сведения, в остаток не входит).
    • Конвертация $ ⇄ сум — по курсу системы.
    • Остаток на конец дня запоминается в заметке (lines.kassa) и подставляется «остатком со вчера» в следующий отчёт
      (если между отчётами были дни без отчёта — их операции тоже учитываются, по галочкам по умолчанию).
@@ -7638,8 +7642,8 @@ function kassaBal(open, lines, conv) {
 function kassaText({ open, sys, manual, conv }) {
   const line = (r, what) => kLineAmt(r) + (what ? " - " + what : "");
   const on = sys.filter((r) => r.on);
-  const man = (manual || []).filter((m) => parseNum(m.amt) > 0).map((m) => ({ dir: m.dir, bucket: m.bucket, amt: parseNum(m.amt), label: String(m.note || "").trim() }));
-  const counted = [...on, ...man];
+  const man = (manual || []).filter((m) => parseNum(m.amt) > 0).map((m) => ({ dir: m.dir, bucket: m.bucket, amt: parseNum(m.amt), label: String(m.note || "").trim(), on: m.on !== false }));
+  const counted = [...on, ...man.filter((m) => m.on)];
   const bal = kassaBal(open, counted, conv);
   const o = {}; KASSA_KEYS.forEach((k) => { o[k] = parseNum(open[k]); });
   const showCard = KASSA_KEYS.slice(2).some((k) => o[k] || bal[k]) || counted.some((r) => r.bucket === "card" || r.bucket === "cardUsd");
@@ -7656,7 +7660,9 @@ function kassaText({ open, sys, manual, conv }) {
   const cli = off.filter((r) => r.t === "client_payment"), sup = off.filter((r) => r.t === "supplier_payment"), other = off.filter((r) => r.t !== "client_payment" && r.t !== "supplier_payment");
   if (cli.length) info.push("Klient to'lovlari :\n" + cli.map((r) => line(r, r.short)).join("\n"));
   if (sup.length) info.push("Postavshiklarga to'lov :\n" + sup.map((r) => line(r, r.short)).join("\n"));
-  if (other.length) info.push("Kassaga kirmagan :\n" + other.map((r) => line(r, r.label)).join("\n"));
+  // прочие не отмеченные (и ручные без галочки): знак + / − — приход или расход
+  const rest = [...other, ...man.filter((m) => !m.on)];
+  if (rest.length) info.push("Kassaga kirmagan :\n" + rest.map((r) => (r.dir === "in" ? "+" : "−") + line(r, r.label)).join("\n"));
   const main = parts.join("\n\n"), supText = info.join("\n\n");
   return { text: main + (supText ? "\n\n" + supText : ""), main, supText, close: bal, showCard };
 }
@@ -7735,8 +7741,8 @@ function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
         <Fld label="Остаток со вчера, карта (сум)"><input className="inp" inputMode="decimal" placeholder="0" value={op.card} onChange={(e) => setOpen({ ...op, card: e.target.value })} /></Fld>
         {showCardUsd && <Fld label="Остаток со вчера, карта ($)"><input className="inp" inputMode="decimal" placeholder="0" value={op.cardUsd} onChange={(e) => setOpen({ ...op, cardUsd: e.target.value })} /></Fld>}
       </div>
-      {raw.length > 0 && <div className="kassa-ops">
-        <div className="row xs mut" style={{ justifyContent: "space-between", marginBottom: 4 }}><span>Операции за день из системы</span><span>в кассе</span></div>
+      {(raw.length > 0 || manual.length > 0) && <div className="kassa-ops">
+        <div className="row xs mut" style={{ justifyContent: "space-between", marginBottom: 4 }}><span>Операции за день</span><span>в кассе</span></div>
         {sys.map((r) => (
           <label key={r.id} className={"row kassa-op clk" + (r.on ? "" : " off")} title={r.on ? "Считается в остатке кассы" : "Только для сведения — в остаток не входит"}>
             <span className="mono kassa-amt" style={{ color: r.dir === "in" ? "var(--ok)" : "var(--bad)" }}>{r.dir === "in" ? "+" : "−"}{kLineAmt(r)}</span>
@@ -7744,16 +7750,18 @@ function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
             <input type="checkbox" checked={r.on} onChange={() => toggle(r)} />
           </label>
         ))}
+        {/* ручной ввод — только в заметке; галочка «в кассе» как у операций системы */}
+        {manual.map((m, k) => (
+          <div key={"m" + k} className={"row kassa-man" + (m.on === false ? " off" : "")} title={m.on === false ? "Только для сведения — в остаток не входит" : "Считается в остатке кассы"}>
+            <select className="inp" style={{ maxWidth: 104 }} value={m.dir} onChange={(e) => setM(k, { dir: e.target.value })}><option value="in">Приход</option><option value="out">Расход</option></select>
+            <input className="inp" inputMode="decimal" placeholder="сумма" style={{ maxWidth: 120 }} value={m.amt} onChange={(e) => setM(k, { amt: e.target.value })} />
+            <select className="inp" style={{ maxWidth: 112 }} value={m.bucket} onChange={(e) => setM(k, { bucket: e.target.value })}>{BUCKETS.map(([b, l]) => <option key={b} value={b}>{l}</option>)}</select>
+            <input className="inp" placeholder="за что / от кого" value={m.note} onChange={(e) => setM(k, { note: e.target.value })} />
+            <button type="button" className="btn xs dng" title="Убрать" onClick={() => setManEd(manual.filter((_, j) => j !== k))}>✕</button>
+            <input type="checkbox" title="в кассе" checked={m.on !== false} onChange={(e) => setM(k, { on: e.target.checked })} />
+          </div>
+        ))}
       </div>}
-      {manual.map((m, k) => (
-        <div key={"m" + k} className="row kassa-man" style={{ gap: 6, marginTop: 6, flexWrap: "nowrap" }}>
-          <select className="inp" style={{ maxWidth: 110 }} value={m.dir} onChange={(e) => setM(k, { dir: e.target.value })}><option value="in">Приход</option><option value="out">Расход</option></select>
-          <input className="inp" inputMode="decimal" placeholder="сумма" style={{ maxWidth: 130 }} value={m.amt} onChange={(e) => setM(k, { amt: e.target.value })} />
-          <select className="inp" style={{ maxWidth: 120 }} value={m.bucket} onChange={(e) => setM(k, { bucket: e.target.value })}>{BUCKETS.map(([b, l]) => <option key={b} value={b}>{l}</option>)}</select>
-          <input className="inp" placeholder="за что / от кого" value={m.note} onChange={(e) => setM(k, { note: e.target.value })} />
-          <button type="button" className="btn xs dng" title="Убрать" onClick={() => setManEd(manual.filter((_, j) => j !== k))}>✕</button>
-        </div>
-      ))}
       {conv.map((c, k) => (
         <div key={k} className="row kassa-conv" style={{ gap: 6, marginTop: 6, flexWrap: "nowrap" }}>
           <select className="inp" style={{ maxWidth: 120 }} value={c.dir} onChange={(e) => setC(k, { dir: e.target.value })}><option value="usd2uzs">$ → сум</option><option value="uzs2usd">сум → $</option></select>
@@ -7766,7 +7774,7 @@ function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
         </div>
       ))}
       <div className="row" style={{ gap: 6, marginTop: 6 }}>
-        <button type="button" className="btn xs" title="Приход или расход только в заметке — в системе не появится" onClick={() => setManEd([...manual, { dir: "in", amt: "", bucket: "usd", note: "" }])}>+ Своя строка</button>
+        <button type="button" className="btn xs kassa-add" title="Приход или расход только в заметке — в системе не появится" onClick={() => { setManEd([...manual, { dir: "in", amt: "", bucket: "uzs", note: "", on: true }]); setTimeout(() => { const a = document.querySelectorAll(".kassa-man input[inputmode=decimal]"); if (a.length) a[a.length - 1].focus(); }, 30); }}>+ Ручной ввод</button>
         <button type="button" className="btn xs" onClick={() => setConv([...conv, { dir: "usd2uzs", usd: "", uzs: "", rate: sysRate ? String(sysRate) : "", src: "usd" }])}>+ Конвертация</button>
       </div>
       <pre className="kassa-pre">{rep.main}{rep.supText && <span className="kassa-sup" title="Для сведения — в остаток кассы не входит">{"\n\n" + rep.supText}</span>}</pre>
