@@ -121,8 +121,7 @@ const OBJ_STATUSES = [
 ];
 const IDLE_STATUSES = ["draft", "approved", "tender", "cancelled"];
 const OBJ_GROUPS = [
-  { key: "draft", label: "Черновик", ids: ["draft"] },
-  { key: "approved", label: "Согласовано", ids: ["approved"] },
+  { key: "plan", label: "Черновик и Согласовано", ids: ["draft", "approved"] },
   { key: "work", label: "В процессе и Оплачено", ids: ["payment", "paid"] },
   { key: "old", label: "Старые статусы" },
 ];
@@ -4232,7 +4231,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   if (obj) return <ObjectDetail obj={obj} data={data} reload={reload} toast={toast} fin={fin} back={() => setOpenId(null)} />;
   const ql = q.trim().toLowerCase();
   const shown = objects.filter((o) => (!stF || o.status === stF) && (!ql || [o.name, o.client, o.phone, o.address, o.master, o.manager].join(" ").toLowerCase().includes(ql)));
-  // список по статусам: «Черновик», «Согласовано», «В процессе» и «Оплачено» вместе, старые статусы — в конце
+  // список по статусам: «Черновик» и «Согласовано» вместе, «В процессе» и «Оплачено» вместе, старые статусы — в конце
   const groups = OBJ_GROUPS.map((g) => ({ ...g, list: shown.filter((o) => (g.ids ? g.ids.includes(o.status || "draft") : !OBJ_GROUPS.some((x) => x.ids && x.ids.includes(o.status || "draft")))) }))
     .filter((g) => g.list.length || (g.ids && !stF)); // три основные колонки — всегда (если не выбран статус), «старые статусы» — только если есть
   return (
@@ -4246,7 +4245,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         </select>
         <button className="btn pri" onClick={goRequest}>+ Новая заявка</button>
       </div>
-      {/* статусы — колонками рядом: Черновик · Согласовано · В процессе и Оплачено (· старые статусы) */}
+      {/* статусы — колонками рядом: Черновик и Согласовано · В процессе и Оплачено (· старые статусы) */}
       {!shown.length ? <div className="card mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? "Ничего не найдено" : "Объектов пока нет — создайте через «Новая заявка»"}</div> : (
       <div className="obj-cols">
         {groups.map((g) => {
@@ -4262,7 +4261,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
                   <tr key={o.id} className="clk" onClick={() => setOpenId(o.id)}>
                     <td>
                       <div style={{ fontWeight: 700 }}>{o.name}</div>
-                      {g.key !== "draft" && g.key !== "approved" && <div style={{ margin: "3px 0" }}><Badge c={st.c}>{st.label.replace(" (старый статус)", "")}</Badge></div>}
+                      {<div style={{ margin: "3px 0" }}><Badge c={st.c}>{st.label.replace(" (старый статус)", "")}</Badge></div>}
                       <div className="xs mut">{[o.client, o.phone, o.master].filter(Boolean).join(" · ")}</div>
                       {o.address && <div className="xs mut">{o.address}</div>}
                     </td>
