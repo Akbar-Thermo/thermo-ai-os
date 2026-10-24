@@ -2424,6 +2424,8 @@ function ProductsTab({ data, reload, toast }) {
   const [edit, setEdit] = useState(null);
   const [imp, setImp] = useState(false);
   const [fromObj, setFromObj] = useState(false);
+  // кнопки нет — окно открывается через Ctrl+K «Себестоимость из объектов»
+  useHotActions(() => [{ label: "Себестоимость из объектов → в «Товары»", run: () => setFromObj(true) }]);
   const [sel, setSel] = useState([]);
   const [confirmDel, setConfirmDel] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -2510,7 +2512,6 @@ function ProductsTab({ data, reload, toast }) {
         </select>
         {sel.length > 0 && <button className="btn dng" onClick={() => setConfirmDel(true)}>🗑 Удалить ({sel.length})</button>}
         {needRenum && products.length > 0 && <button className="btn" onClick={() => setRenum({ busy: false, done: 0, total: 0, err: "" })} title="Коды станут 1, 2, 3 … по порядку">№ Пронумеровать коды</button>}
-        <button className="btn" title="Себестоимость, изменённая в объектах, но не попавшая в базу" onClick={() => setFromObj(true)}>↻ Себестоимость из объектов</button>
         <button className="btn" onClick={() => setImp(true)}>Импорт Excel/CSV</button>
         <button className="btn pri" onClick={() => setEdit({ unit: "шт", status: "active", stock: 0, cost: 0, price: 0, code: String(nextProductCode(products)) })}>+ Товар</button>
       </div>
