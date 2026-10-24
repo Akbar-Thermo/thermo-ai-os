@@ -969,6 +969,7 @@ function splitByWarehouse(rows, warehouse, mk, rowsFor) {
     if (r.product_id && r.fromWh !== false) {
       for (const w of find(r.product_id)) {
         if (!(q > 0)) break;
+        if (w.product_id && w.product_id !== r.product_id && !r.alt) continue; // аналог другого поставщика — только если согласились
         if (left[w.id] == null) left[w.id] = Number(w.qty) || 0;
         const take = round2(Math.min(q, left[w.id]));
         if (!(take > 0)) continue;
@@ -2052,14 +2053,43 @@ const whSigSame = (a, b) => {
   for (const t of x) if (!y.has(t)) return false;
   return true;
 };
-// { qty: {товар → сколько можно отдать со склада}, sim: {товар → {name, qty} такого же у другого поставщика}, rowsFor(товар) → строки склада }
-function whAvailIndex(warehouse, products, suppliers) {
+// { qty: {товар → сколько можно отдать со склада}, exact: {товар → свой товар на складе (без аналогов)},
+//   sim: {товар → {name, qty} такого же у другого поставщика}, res: {товар → {qty, objs} в брони}, age: {товар → дней с последнего прихода},
+//   rowsFor(товар) → строки склада (количество — свободное, без брони) }
+// Бронь: товар со склада в объектах «Черновик» / «Согласовано» (wh_pending) — со склада ещё не списан, но уже обещан.
+function whAvailIndex(warehouse, products, suppliers, objects = [], moves = []) {
   const sup = new Map((suppliers || []).map((x) => [x.id, x.name]));
   const prod = new Map((products || []).map((x) => [x.id, x]));
   const exact = new Map(), byNum = new Map();
   const push = (m, k, v) => { const a = m.get(k); if (a) a.push(v); else m.set(k, [v]); };
+  // бронь по строкам склада
+  const resRow = {}, resObjs = {};
+  const rowByProd = {};
+  (warehouse || []).forEach((w) => { if (w.product_id && !rowByProd[w.product_id]) rowByProd[w.product_id] = w.id; });
+  (objects || []).forEach((o) => {
+    if (o.status === "cancelled") return;
+    (o.items || []).forEach((i) => {
+      if (!i.from_warehouse || !i.wh_pending) return;
+      const rid = i.wh_id || (i.product_id && rowByProd[i.product_id]);
+      if (!rid) return;
+      resRow[rid] = round2((resRow[rid] || 0) + (Number(i.qty) || 0));
+      (resObjs[rid] = resObjs[rid] || new Set()).add(o.name);
+    });
+  });
+  const res = {};
   (warehouse || []).forEach((w) => {
-    if (!(Number(w.qty) > 0)) return;
+    if (!w.product_id || !resRow[w.id]) return;
+    const r = res[w.product_id] || (res[w.product_id] = { qty: 0, objs: new Set() });
+    r.qty = round2(r.qty + Math.min(resRow[w.id], Number(w.qty) || 0));
+    resObjs[w.id].forEach((n) => r.objs.add(n));
+  });
+  Object.values(res).forEach((r) => { r.objs = [...r.objs]; });
+  // свободное количество строки = на складе − бронь
+  const free = (w) => round2(Math.max(0, (Number(w.qty) || 0) - (resRow[w.id] || 0)));
+  (warehouse || []).forEach((w0) => {
+    const fq = free(w0);
+    if (!(fq > 0)) return;
+    const w = fq === Number(w0.qty) ? w0 : { ...w0, qty: fq };
     if (w.product_id) push(exact, w.product_id, w);
     const p = w.product_id ? prod.get(w.product_id) : null;
     const sig = whNameSig(w.name || (p && p.name), [sup.get(w.supplier_id), p && p.brand, p && sup.get(p.supplier_id)]);
@@ -2072,20 +2102,39 @@ function whAvailIndex(warehouse, products, suppliers) {
     const sim = sig ? (byNum.get(sig.n) || []).filter((x) => x.w.product_id !== p.id && whSigSame(sig, x.sig)).map((x) => x.w) : [];
     return sim.length ? [...ex, ...sim] : ex;
   };
-  const qty = {}, sim = {}, rows = {};
+  const qty = {}, sim = {}, rows = {}, ex = {};
   if (exact.size || byNum.size) (products || []).forEach((p) => {
     const r = rowsOf(p);
     if (!r.length) return;
     rows[p.id] = r;
     qty[p.id] = round2(r.reduce((a, w) => a + (Number(w.qty) || 0), 0));
     const alt = r.filter((w) => w.product_id !== p.id);
+    ex[p.id] = round2(qty[p.id] - alt.reduce((a, w) => a + (Number(w.qty) || 0), 0));
     if (alt.length) sim[p.id] = { name: alt[0].name, qty: round2(alt.reduce((a, w) => a + (Number(w.qty) || 0), 0)), n: alt.length };
   });
-  // товары, которые лежат на складе (для поиска: показываются всегда, при любом фильтре поставщиков)
+  // сколько дней товар лежит: с последнего прихода на склад (новые приходы «обновляют» товар)
+  const lastIn = {};
+  (moves || []).forEach((m) => { if (m.dir === "in" && m.product_id) { const d = String(m.op_date || m.created_at || "").slice(0, 10); if (d && (!lastIn[m.product_id] || d > lastIn[m.product_id])) lastIn[m.product_id] = d; } });
+  const age = {};
+  const now = Date.now();
+  (warehouse || []).forEach((w) => {
+    if (!w.product_id || !(Number(w.qty) > 0)) return;
+    const d = lastIn[w.product_id] || String(w.updated_at || w.created_at || "").slice(0, 10);
+    if (d) age[w.product_id] = Math.max(0, Math.floor((now - new Date(d + "T12:00:00").getTime()) / 864e5));
+  });
+  // товары, которые лежат на складе свободными (в поиске — первыми)
   const stock = [];
   exact.forEach((list, pid) => { const p = prod.get(pid); if (p) stock.push(p); });
-  return { qty, sim, stock, rowsFor: (pid) => rows[pid] || [] };
+  return { qty, exact: ex, sim, res, age, stock, rowsFor: (pid) => rows[pid] || [] };
 }
+const WH_OLD_DAYS = 30; // «⏳ лежит давно» — со скольки дней
+// аналог другого поставщика на складе: не подставляем сами — спрашиваем
+const askWhAlt = (p, exQ, sim, want) => askConfirm({
+  title: "Аналог на Складе Thermo",
+  text: (exQ > 0 ? "«" + p.name + "» на складе: " + fmt(exQ) + " — не хватает " + fmt(round2(want - exQ)) + ". " : "«" + p.name + "» на складе нет. ")
+    + "Есть такой же товар другого поставщика: «" + sim.name + "» — " + fmt(sim.qty) + " " + (p.unit || "шт") + ". Взять его со склада?",
+  ok: "Да, со склада", cancel: "Нет, у поставщика",
+});
 const whQtyMap = (warehouse) => { const m = {}; (warehouse || []).forEach((w) => { if (w.product_id && Number(w.qty) > 0) m[w.product_id] = (m[w.product_id] || 0) + Number(w.qty); }); return m; };
 /* Фильтр «поставщики → бренды» (поиск товара в заявке/объекте/складе и «Товары»):
    галочки поставщиков; наведение или стрелки на поставщика — справа его бренды (→ — в бренды, ↑↓, Enter, ← — назад) */
@@ -2194,7 +2243,7 @@ function SupBrandFilter({ suppliers, products, sfs, setSfs, sbr, setSbr, onChang
           </div>
   );
 }
-function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnPick = false, whQty = null, whSim = null, whStock = null, askQty = false, persistKey = null }) {
+function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnPick = false, whQty = null, whSim = null, whStock = null, whRes = null, whAge = null, whExact = null, askQty = false, persistKey = null }) {
   // askQty: после выбора товара сразу спрашиваем количество (Enter — добавить и вернуться к поиску)
   const [pend, setPend] = useState(() => { if (!persistKey) return null; try { const id = (JSON.parse(localStorage.getItem(persistKey) || "{}") || {}).pend; return id ? products.find((p) => p.id === id) || null : null; } catch (e) { return null; } });
   const [pq, setPq] = useState(() => { if (!persistKey) return "1"; try { return (JSON.parse(localStorage.getItem(persistKey) || "{}") || {}).pq || "1"; } catch (e) { return "1"; } });
@@ -2235,13 +2284,25 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
   }, [open]);
   // список виден, пока поиск «открыт» (клик мимо — закрывает, текст поиска остаётся; клик в поле — снова открывает)
   const active = open && (q.trim().length >= 2 || sf);
-  // товары со Склада Thermo — первыми и при любом фильтре поставщиков (склад нужно распродавать)
+  // товары со Склада Thermo — первыми (склад нужно распродавать); выбран поставщик / бренд — только его товары со склада
+  // (аналоги других поставщиков видны в строке товара: «такой же у другого поставщика»)
   const whSet = useMemo(() => new Set((whStock || []).map((p) => p.id)), [whStock]);
+  const whLabel = (p) => {
+    if (!whQty || !whQty[p.id]) return null;
+    const ex = whExact && whExact[p.id] != null ? whExact[p.id] : whQty[p.id], sm = whSim && whSim[p.id];
+    if (ex > 0) return (whSet.has(p.id) ? "Склад Thermo" : "есть на Складе Thermo") + ": " + fmt(ex) + (sm ? " (+ аналог другого поставщика: " + fmt(sm.qty) + ")" : "");
+    return sm ? "на складе аналог другого поставщика: " + fmt(sm.qty) : null;
+  };
   const hits = useMemo(() => {
     const words = searchWords(q);
     if (!active) return [];
     const wh = [], out = [];
-    (whStock || []).forEach((p) => { const s = prodSearchText(p, supName[p.supplier_id]); if (words.every((w) => s.includes(w))) wh.push(p); });
+    (whStock || []).forEach((p) => {
+      if (sf && !sfSet.has(p.supplier_id)) return;
+      const bf = sbr[p.supplier_id];
+      if (bf && bf.length && !bf.includes(String(p.brand || "").trim())) return;
+      const s = prodSearchText(p, supName[p.supplier_id]); if (words.every((w) => s.includes(w))) wh.push(p);
+    });
     for (const i of order) {
       const p = products[i];
       if (p.status === "archive" || whSet.has(p.id)) continue;
@@ -2252,7 +2313,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
       if (words.every((w) => s.includes(w))) out.push(p);
     }
     return wh.length ? [...wh, ...out] : out;
-  }, [q, products, idx, sfSet, sbr, active, order, whStock, whSet, supName]);
+  }, [q, products, idx, sfSet, sf, sbr, active, order, whStock, whSet, supName]);
   useEffect(() => { setTop(0); if (listRef.current) listRef.current.scrollTop = 0; }, [q, sfSet, sbr]);
   // при навигации стрелками держим активную строку в видимой области
   useEffect(() => {
@@ -2332,7 +2393,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
                       style={{ position: "absolute", top: i * ROW, left: 0, right: 0, height: ROW, boxSizing: "border-box", padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === activeIdx ? "var(--acc-tint)" : whSet.has(p.id) ? "var(--wh-tint)" : "var(--panel)", boxShadow: whSet.has(p.id) ? "inset 3px 0 0 var(--ok)" : "none", overflow: "hidden" }}
                       onClick={() => pick(p)}>
                       <div className="pick-name">{p.name}</div>
-                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, brandOf(p, supName[p.supplier_id]), supName[p.supplier_id]].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}{whQty && whQty[p.id] ? <b style={{ color: "var(--ok)" }}> · 🏬 {whSet.has(p.id) ? "Склад Thermo" : "есть на Складе Thermo"}: {fmt(whQty[p.id])}{whSim && whSim[p.id] ? (whSet.has(p.id) ? " (+ такой же у другого поставщика)" : " (такой же у другого поставщика)") : ""}</b> : null}</div>
+                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, brandOf(p, supName[p.supplier_id]), supName[p.supplier_id]].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}{whLabel(p) ? <b style={{ color: "var(--ok)" }}> · 🏬 {whLabel(p)}</b> : null}{whRes && whRes[p.id] ? <span className="wh-res" style={{ color: "var(--warn)", fontWeight: 600 }} title={"В брони: " + whRes[p.id].objs.join(", ")}> · 🔒 бронь {fmt(whRes[p.id].qty)} ({whRes[p.id].objs.slice(0, 2).join(", ")}{whRes[p.id].objs.length > 2 ? "…" : ""})</span> : null}{whAge && whAge[p.id] >= WH_OLD_DAYS && whSet.has(p.id) ? <span className="wh-age" style={{ color: "var(--warn)", fontWeight: 700 }} title="Лежит на складе давно — продать в первую очередь"> · ⏳ {whAge[p.id]} дн.</span> : null}</div>
                     </div>
                   );
                 })}
@@ -3954,16 +4015,22 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   const prodById = (id) => prodMap.get(id);
   const qn = (x) => parseNum(x); // количество в строке хранится так, как его ввели (можно очистить поле)
 
-  const addFromBase = (p, n = 1) => {
+  // свободно на складе для строки: свой товар + аналог (если согласились его брать)
+  const whFor = (l, pid) => round2((wh.exact[pid] || 0) + (l.alt && wh.sim[pid] ? wh.sim[pid].qty : 0));
+  const addFromBase = async (p, n = 1) => {
     const add = Number(n) > 0 ? Number(n) : 1;
-    if (whQty[p.id]) toast(wh.sim[p.id] && wh.sim[p.id].qty >= whQty[p.id]
-      ? "🏬 На Складе Thermo есть такой же товар другого поставщика: «" + wh.sim[p.id].name + "» — " + fmt(whQty[p.id]) + " " + (p.unit || "шт") + ". Будет отдан со склада"
-      : "🏬 «" + p.name + "» есть на Складе Thermo: " + fmt(whQty[p.id]) + " " + (p.unit || "шт") + (wh.sim[p.id] ? " (вместе с таким же другого поставщика)" : "") + " — будет отдано со склада");
+    const exQ = wh.exact[p.id] || 0, sim = wh.sim[p.id];
+    const had = lines.find((l) => l.product_id === p.id);
+    const want = round2((had ? qn(had.qty) : 0) + add);
+    // аналог другого поставщика — только если своего не хватает и согласились
+    let alt = had ? !!had.alt : false;
+    if (!alt && sim && exQ < want) alt = await askWhAlt(p, exQ, sim, want);
+    if (exQ > 0 || alt) toast("🏬 Со Склада Thermo: " + (exQ > 0 ? "«" + p.name + "» — " + fmt(Math.min(exQ, want)) : "") + (alt ? (exQ > 0 ? " + " : "") + "аналог «" + sim.name + "»" : "") + " · " + (p.unit || "шт"));
     setLines((prev) => {
       const ex = prev.find((l) => l.product_id === p.id);
-      if (ex) return prev.map((l) => (l.product_id === p.id ? { ...l, qty: round2(qn(l.qty) + add) } : l));
+      if (ex) return prev.map((l) => (l.product_id === p.id ? { ...l, qty: round2(qn(l.qty) + add), alt } : l));
       // новый товар — в начало списка (сверху)
-      return [{ id: uuid(), product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: add, cost: p.cost, supplier_id: null, manual: false }, ...prev];
+      return [{ id: uuid(), product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: add, cost: p.cost, supplier_id: null, manual: false, alt }, ...prev];
     });
   };
   // строки из Excel: найденные товары складываются с уже выбранными, остальные — ручные позиции
@@ -3985,7 +4052,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   };
   // сколько такого товара лежит на Складе Thermo (возвраты) — можно отгрузить оттуда вместо закупки
   // + такой же товар у другого поставщика (whAvailIndex) — чтобы склад расходовался
-  const wh = useMemo(() => whAvailIndex(data.warehouse, products, suppliers), [data.warehouse, products, suppliers]);
+  const wh = useMemo(() => whAvailIndex(data.warehouse, products, suppliers, data.objects, data.wh_moves), [data.warehouse, products, suppliers, data.objects, data.wh_moves]);
   const whQty = wh.qty;
   const setLine = (id, patch) => setLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   // перетаскивание строк (за «⠿») и цветная пометка строки
@@ -4221,7 +4288,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
           {xlImport && <RequestExcelImport products={filteredProducts} onClose={() => setXlImport(false)} onAdd={addImported} />}
 
           <div className="row" style={{ marginBottom: 12, gap: 10 }}>
-            <ProductPicker askQty persistKey={draftKey + ":pick"} products={filteredProducts} suppliers={suppliers} whQty={whQty} whSim={wh.sim} whStock={wh.stock} placeholder="Поиск товара по названию / коду — начните вводить…" onPick={addFromBase} />
+            <ProductPicker askQty persistKey={draftKey + ":pick"} products={filteredProducts} suppliers={suppliers} whQty={whQty} whSim={wh.sim} whStock={wh.stock} whRes={wh.res} whAge={wh.age} whExact={wh.exact} placeholder="Поиск товара по названию / коду — начните вводить…" onPick={addFromBase} />
           </div>
 
           {lines.length === 0 && (
@@ -4287,13 +4354,15 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                             : <span className="mut">{l.unit}</span>}
                         </td>
                         <td><input type="number" className="inp" style={{ width: 100, textAlign: "right", fontWeight: 700, ...(l.manualPrice != null && l.manualPrice !== "" && parseNum(l.manualPrice) < (p ? Number(p.cost) || 0 : parseNum(l.cost)) ? { color: "var(--bad)", borderColor: "var(--bad)" } : { color: "var(--ok)" }) }} placeholder={l.manual ? "цена" : "авто"} value={l.manualPrice != null ? l.manualPrice : ""} onChange={(e) => setLine(l.id, { manualPrice: e.target.value === "" ? null : e.target.value })} title="Цена продажи (оставьте пустым — рассчитается по прибыли %)" /></td>
-                        <td className="sm">{p && whQty[p.id] ? (
-                          <label className="row" style={{ gap: 5, flexWrap: "nowrap", cursor: "pointer", color: l.fromWh !== false ? "var(--ok)" : "var(--mut)", fontWeight: 700 }} title="Отдать со Склада Thermo (снимите галочку — закупить у поставщика)">
+                        <td className="sm">{p && whQty[p.id] ? (<>
+                          {whFor(l, p.id) > 0 && <label className="row" style={{ gap: 5, flexWrap: "nowrap", cursor: "pointer", color: l.fromWh !== false ? "var(--ok)" : "var(--mut)", fontWeight: 700 }} title="Отдать со Склада Thermo (снимите галочку — закупить у поставщика)">
                             <input type="checkbox" checked={l.fromWh !== false} onChange={(e) => setLine(l.id, { fromWh: e.target.checked })} />
-                            <span>со склада: {fmt(Math.min(qn(l.qty), whQty[p.id]))}{qn(l.qty) > whQty[p.id] ? <span className="xs mut" style={{ fontWeight: 400 }}> (+{fmt(qn(l.qty) - whQty[p.id])} у пост.)</span> : null}
-                              {wh.sim[p.id] && <span className="xs wh-alt" style={{ display: "block", fontWeight: 500 }} title="Такой же товар другого поставщика — в объект запишется он">≈ «{wh.sim[p.id].name}»{wh.sim[p.id].n > 1 ? " и др." : ""}</span>}</span>
-                          </label>
-                        ) : <span className="mut">—</span>}</td>
+                            <span>со склада: {fmt(Math.min(qn(l.qty), whFor(l, p.id)))}{qn(l.qty) > whFor(l, p.id) ? <span className="xs mut" style={{ fontWeight: 400 }}> (+{fmt(round2(qn(l.qty) - whFor(l, p.id)))} у пост.)</span> : null}</span>
+                          </label>}
+                          {wh.sim[p.id] && <label className="row xs wh-alt" style={{ gap: 5, flexWrap: "nowrap", cursor: "pointer", fontWeight: 500, marginTop: 2 }} title="Такой же товар другого поставщика на складе — в объект запишется он">
+                            <input type="checkbox" checked={!!l.alt} onChange={(e) => setLine(l.id, { alt: e.target.checked })} /> аналог «{wh.sim[p.id].name}»{wh.sim[p.id].n > 1 ? " и др." : ""}: {fmt(wh.sim[p.id].qty)}
+                          </label>}
+                        </>) : <span className="mut">—</span>}</td>
                         <td><button className="btn xs dng" onClick={() => setDelLine(l.id)}>✕</button></td>
                       </tr>
                     );
@@ -4531,7 +4600,7 @@ function ObjectEditModal({ obj, data, reload, toast, onClose }) {
 
 function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   const { finance_ops, suppliers, products, masters } = data;
-  const wh = useMemo(() => whAvailIndex(data.warehouse, products, suppliers), [data.warehouse, products, suppliers]);
+  const wh = useMemo(() => whAvailIndex(data.warehouse, products, suppliers, data.objects, data.wh_moves), [data.warehouse, products, suppliers, data.objects, data.wh_moves]);
   const f = calcObject(obj, finance_ops);
   const ops = finance_ops.filter((o) => o.object_id === obj.id);
   const [opForm, setOpForm] = useState(null);
@@ -4977,7 +5046,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       if (t.ids.length) note = " · на Склад Thermo возвращено: " + t.ids.length + " поз." + (t.fail ? " ⚠ не записано: " + t.fail : "");
     }
     const sum = b.items.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0);
-    await logAction("Удалена накладная (поставка №" + b.no + ")", "object:" + obj.name, b.items.length + " поз. на " + fmt2(sum) + " от " + dt(b.date) + note);
+    await logAction("Удалена поставка №" + b.no, "object:" + obj.name, b.items.length + " поз. на " + fmt2(sum) + " от " + dt(b.date) + note);
     setOpenBatches({});
     await reload(); toast("Поставка №" + b.no + " удалена: " + b.items.length + " поз." + note);
     return true;
@@ -5127,7 +5196,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
                       {b.items.some((i) => lateAdded.has(i.id)) && <span className="late-sum" style={{ color: "var(--warn)" }}> · добавлено позже: {b.items.filter((i) => lateAdded.has(i.id)).length} поз. на {fmt2(b.items.filter((i) => lateAdded.has(i.id)).reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0))}</span>}
                       {b.items.some((i) => !isShipped(i)) ? <span style={{ color: "var(--warn)" }}> · не отгружено: {b.items.filter((i) => !isShipped(i)).length}</span> : b.items.some((i) => i.shipped) ? <span style={{ color: "var(--ok)" }}> · отгружено ✓</span> : null}
                       <span className="xs mut" style={{ fontWeight: 500 }}>  — нажмите чтобы {closedBatches[b.no] ? "раскрыть" : "свернуть"}</span>
-                      {!costMode && fin && <button className="btn xs dng batch-del" title="Удалить всю накладную (все позиции этой поставки)" onClick={(e) => { e.stopPropagation(); setDelBatch(b); }}>🗑 Удалить накладную</button>}
+                      {!costMode && fin && <button className="btn xs dng batch-del" title="Удалить всю поставку (все её позиции)" onClick={(e) => { e.stopPropagation(); setDelBatch(b); }}>🗑 Удалить поставку</button>}
                     </td>
                   </tr>
                 ) : null}
@@ -5199,12 +5268,12 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       </div>
       {delBatch && (
         <Modal title={"Удалить поставку №" + delBatch.no + "?"} onClose={() => setDelBatch(null)} w={460}>
-          <p className="sm">Из объекта будут удалены все позиции накладной от <b>{dt(delBatch.date)}</b>: <b>{delBatch.items.length} поз.</b> на <b>{fmt2(delBatch.items.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0))}</b>.</p>
+          <p className="sm">Из объекта будут удалены все позиции поставки от <b>{dt(delBatch.date)}</b>: <b>{delBatch.items.length} поз.</b> на <b>{fmt2(delBatch.items.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0))}</b>.</p>
           {isLive(obj) && delBatch.items.some((i) => i.from_warehouse && !i.wh_pending) && <p className="sm mut" style={{ marginTop: 6 }}>Товар со Склада Thermo вернётся на склад.</p>}
           <p className="sm mut" style={{ marginTop: 6 }}>Долг клиента и долг поставщикам пересчитаются. Это действие нельзя отменить.</p>
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
             <button className="btn" onClick={() => setDelBatch(null)}>Отмена</button>
-            <button className="btn dng" onClick={async () => { const b = delBatch; setDelBatch(null); await deleteBatch(b); }}>Удалить накладную</button>
+            <button className="btn dng" onClick={async () => { const b = delBatch; setDelBatch(null); await deleteBatch(b); }}>Удалить поставку</button>
           </div>
         </Modal>
       )}
@@ -5223,7 +5292,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       {shipForm && <ShipModal obj={obj} batches={batches} fin={fin} supName={supName} onClose={() => setShipForm(false)}
         onShip={async (ids, date) => { if (await shipItems(ids, date, true)) setShipForm(false); }}
         onUnship={async (ids) => { await shipItems(ids, null, false); }} />}
-      {addItems && <AddItemsModal onProductsAdded={() => reload(["products"])} products={products} suppliers={suppliers} whQty={wh.qty} whSim={wh.sim} whStock={wh.stock} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} batches={batches} onSave={async (rows, t) => { if (await addManualItems(rows, t && typeof t === "object" ? t : { newBatch: addItems === "newbatch", date: t })) setAddItems(false); }} />}
+      {addItems && <AddItemsModal onProductsAdded={() => reload(["products"])} products={products} suppliers={suppliers} whQty={wh.qty} whSim={wh.sim} whStock={wh.stock} whRes={wh.res} whAge={wh.age} whExact={wh.exact} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} batches={batches} onSave={async (rows, t) => { if (await addManualItems(rows, t && typeof t === "object" ? t : { newBatch: addItems === "newbatch", date: t })) setAddItems(false); }} />}
       {impItems && <ObjectExcelImport products={products} suppliers={suppliers} onClose={() => setImpItems(false)} onSave={async (rows) => { if (batches.length) { setImpPick(rows); return; } if (await addManualItems(rows, false)) setImpItems(false); }} />}
       {impPick && <BatchPickDialog batches={batches} count={impPick.length} total={impPick.reduce((a, r) => a + parseNum(r.qty) * parseNum(r.price), 0)} busy={impBusy} onBack={() => setImpPick(null)}
         onPick={async (t) => { setImpBusy(true); const ok = await addManualItems(impPick, t); setImpBusy(false); setImpPick(null); if (ok) setImpItems(false); }} />}
@@ -5669,7 +5738,7 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
     </>
   );
 }
-function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty = {}, whSim = {}, whStock = null, batches = [], onProductsAdded = null }) {
+function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty = {}, whSim = {}, whStock = null, whRes = null, whAge = null, whExact = {}, batches = [], onProductsAdded = null }) {
   const [rows, setRows] = useState([]);
   // новая строка — сверху списка; в объект строки сохраняются в порядке добавления
   const addRow = (r) => setRows((prev) => [{ ...r, _k: uuid() }, ...prev]);
@@ -5720,7 +5789,12 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
     <>
     <Modal title={newBatch ? "Новая поставка" : "Добавить позиции вручную"} onClose={tryClose} w={860}>
       <div className="row" style={{ marginBottom: 10 }}>
-        <ProductPicker askQty products={products} suppliers={suppliers} whQty={whQty} whSim={whSim} whStock={whStock} placeholder="найти товар в базе и добавить строку…" onPick={(p, n) => addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: n || 1, cost: p.cost, price: retailOf(p), supplier_id: p.supplier_id })} />
+        <ProductPicker askQty products={products} suppliers={suppliers} whQty={whQty} whSim={whSim} whStock={whStock} placeholder="найти товар в базе и добавить строку…" whRes={whRes} whAge={whAge} whExact={whExact} onPick={async (p, n) => {
+          // аналог другого поставщика на складе — только если своего не хватает и согласились
+          const want = n || 1, exQ = (whExact || {})[p.id] || 0, sim = whSim[p.id];
+          const alt = sim && exQ < want ? await askWhAlt(p, exQ, sim, want) : false;
+          addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: want, cost: p.cost, price: retailOf(p), supplier_id: p.supplier_id, alt });
+        }} />
         <button className="btn" onClick={blank}>+ Пустая строка (товара нет в базе)</button>
       </div>
       {newBatch && <div className="row" style={{ marginBottom: 10, gap: 8 }}>
@@ -5735,11 +5809,18 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
             {rows.map((r, i) => (
               <tr key={r._k || i}>
                 <td><input className="inp" value={r.name} onChange={(e) => upd(i, "name", e.target.value)} />
-                  {r.product_id && whQty[r.product_id] ? <label className="row xs" style={{ gap: 5, marginTop: 3, cursor: "pointer", color: r.fromWh !== false ? "var(--ok)" : "var(--mut)", fontWeight: 700 }}>
-                    <input type="checkbox" checked={r.fromWh !== false} onChange={(e) => upd(i, "fromWh", e.target.checked)} />
-                    🏬 со Склада Thermo (есть {fmt(whQty[r.product_id])}){parseNum(r.qty) > whQty[r.product_id] ? " · остальное у поставщика" : ""}
-                    {whSim[r.product_id] && <span className="wh-alt" style={{ fontWeight: 500 }}> · ≈ «{whSim[r.product_id].name}» (другой поставщик)</span>}
-                  </label> : null}</td>
+                  {r.product_id && whQty[r.product_id] ? (() => {
+                    const pid = r.product_id, exQ = whExact[pid] || 0, sm = whSim[pid], have = round2(exQ + (r.alt && sm ? sm.qty : 0));
+                    return <>
+                      {have > 0 && <label className="row xs" style={{ gap: 5, marginTop: 3, cursor: "pointer", color: r.fromWh !== false ? "var(--ok)" : "var(--mut)", fontWeight: 700 }}>
+                        <input type="checkbox" checked={r.fromWh !== false} onChange={(e) => upd(i, "fromWh", e.target.checked)} />
+                        🏬 со Склада Thermo (есть {fmt(have)}){parseNum(r.qty) > have ? " · остальное у поставщика" : ""}
+                      </label>}
+                      {sm && <label className="row xs wh-alt" style={{ gap: 5, marginTop: 3, cursor: "pointer", fontWeight: 500 }} title="Такой же товар другого поставщика на складе — в объект запишется он">
+                        <input type="checkbox" checked={!!r.alt} onChange={(e) => upd(i, "alt", e.target.checked)} /> аналог «{sm.name}» (другой поставщик): {fmt(sm.qty)}
+                      </label>}
+                    </>;
+                  })() : null}</td>
                 <td><input className="inp" value={r.unit} onChange={(e) => upd(i, "unit", e.target.value)} /></td>
                 <td><input type="number" className="inp" min={0} value={r.qty} onChange={(e) => upd(i, "qty", e.target.value)} style={{ borderColor: parseNum(r.qty) > 0 ? undefined : "var(--bad)" }} /></td>
                 <td><input type="number" className="inp num" value={r.price} onChange={(e) => upd(i, "price", e.target.value)} /></td>
