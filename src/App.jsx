@@ -347,7 +347,6 @@ function EmployeeSelect({ value, onChange, employees, onAdded, data }) {
 }
 
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 /* Премиум-тема: спокойные графитовые нейтральные тона без чистого белого и чёрного + фирменный красный Thermo #ff1f30
    (активная вкладка, главные кнопки, акценты). Цифры — табличные, без моноширинного шрифта. */
 :root{
@@ -613,6 +612,8 @@ table.t td{position:static}
 @media(prefers-reduced-motion:reduce){
   .body,.card,.kpi,.modal{animation:none!important}
 }
+/* телефон: страница и карточки появляются сразу, без «подъезда» (на телефоне это выглядело как дрожание экрана) */
+html.phone-boot .body,html.phone-boot .card,html.phone-boot .kpi{animation:none!important}
 `;
 
 /* ============ DATA LAYER = Supabase (db из ./db.js) ============ */
@@ -9000,6 +9001,14 @@ function AppInner() {
   const [secureSeed, setSecureSeed] = useState(false);
   const [loginNote, setLoginNote] = useState("");
   const EMPTY_DATA = { products: [], suppliers: [], objects: [], finance_ops: [], requests: [], masters: [], warehouse: [], wh_moves: [], users: [], audit_log: [] };
+  // перед показом программы: шрифты (иначе текст сначала другим шрифтом и «прыгает») и сведения о бэкапе
+  // (иначе полоса «Бэкап…» появляется через секунду и сдвигает всю страницу вниз) — не дольше ~1,5 с
+  const beforeShow = async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const fonts = (async () => { try { if (document.fonts && document.fonts.load) await Promise.all(["400 14px Onest", "600 14px Onest", "700 14px Onest", "800 14px Onest"].map((f) => document.fonts.load(f))); } catch (e) {} })();
+    const bak = CURRENT_USER ? lastBackupInfo().then((x) => setAbLast(x)).catch(() => {}) : Promise.resolve();
+    await Promise.race([Promise.all([fonts, bak]), wait(1500)]);
+  };
   // база товаров — следом, в фоне (экран уже открыт)
   const bootRest = () => { lastFull.current = Date.now(); setTimeout(() => { reload(["products"]); }, 0); };
   const boot = async () => {
@@ -9022,6 +9031,7 @@ function AppInner() {
             setCurrentUser(me); CURRENT_USER = me;
             const r = await reload(BOOT_TABLES);
             if (r.allFailed) setBootErr(r.failed.join(", "));
+            await beforeShow();
             bootRest();
           } else { setDbSession(null); try { localStorage.removeItem("te:token"); } catch (e) {} }
         } catch (e) { console.error(e); setBootErr(String(e && (e.message || e))); }
@@ -9038,8 +9048,9 @@ function AppInner() {
       const uid = localStorage.getItem("te:session");
       if (uid && !CURRENT_USER) {
         const { data: users } = await db.from("users").select().eq("id", uid).eq("status", "active");
-        if (users && users.length) { setCurrentUser(users[0]); CURRENT_USER = users[0]; }
+        if (users && users.length) { CURRENT_USER = users[0]; await beforeShow(); setCurrentUser(users[0]); }
       }
+      if (!CURRENT_USER) await beforeShow(); // экран входа — тоже уже со шрифтом
     } catch (e) {
       console.error(e); setBootErr(String(e && (e.message || e)));
     }
@@ -9108,7 +9119,9 @@ function AppInner() {
     setCurrentUser(u); CURRENT_USER = u;
     if (!token) { try { localStorage.setItem("te:session", u.id); } catch (e) {} }
     await logAction("Вход в систему", "user:" + u.username, "");
-    await reload(BOOT_TABLES); bootRest();
+    await reload(BOOT_TABLES);
+    await beforeShow();
+    bootRest();
   };
   // выход: в защищённом режиме сессия закрывается и на сервере, данные стираются из памяти страницы
   const endSession = (note) => {
@@ -9277,7 +9290,7 @@ function AppInner() {
   };
   const abCur = abCfg();
   const abDays = abLast ? daysSince(abLast.ts || abLast.created_at) : null;
-  const abShow = isBoss && !abHide && (abNeed !== "" || (abLast !== undefined && !abCur && (abLast === null || abDays >= 3)));
+  const abShow = isBoss && !abHide && !isPhone() && (abNeed !== "" || (abLast !== undefined && !abCur && (abLast === null || abDays >= 3)));
   const lastScrollY = useRef(0);
   useEffect(() => {
     const onScroll = () => {
