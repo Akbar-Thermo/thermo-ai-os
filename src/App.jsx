@@ -2369,6 +2369,18 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
 const PROD_ROW_H = 46;
 // коды товаров — порядковые номера 1, 2, 3…; новый товар получает «самый большой номер + 1»
 const isSeqCode = (c) => /^\d+$/.test(String(c == null ? "" : c).trim());
+const normPName = (x) => String(x || "").toLowerCase().replace(/ё/g, "е").replace(/[«»"“”„'`]/g, "").replace(/\s+/g, " ").trim();
+// товар базы для позиции объекта: по product_id; если связи нет (товар добавлен вручную, базу перезагружали) —
+// по названию у того же поставщика, только если такой товар один
+function prodForItem(i, products) {
+  const list = products || [];
+  if (i.product_id) { const p = list.find((x) => x.id === i.product_id); if (p) return p; }
+  const n = normPName(i.name);
+  if (!n) return null;
+  let c = list.filter((p) => normPName(p.name) === n && (!i.supplier_id || !p.supplier_id || p.supplier_id === i.supplier_id));
+  if (c.length > 1 && i.supplier_id) { const e = c.filter((p) => p.supplier_id === i.supplier_id); if (e.length === 1) c = e; }
+  return c.length === 1 ? c[0] : null;
+}
 const nextProductCode = (products) => (products || []).reduce((m, p) => (isSeqCode(p.code) ? Math.max(m, Number(p.code)) : m), 0) + 1;
 const RU_COLLATOR = new Intl.Collator("ru");
 // порядок для нумерации/сортировки: уже пронумерованные — по номеру, остальные — по дате добавления и названию
@@ -2411,6 +2423,7 @@ function ProductsTab({ data, reload, toast }) {
   const [brandF, setBrandF] = useState("");
   const [edit, setEdit] = useState(null);
   const [imp, setImp] = useState(false);
+  const [fromObj, setFromObj] = useState(false);
   const [sel, setSel] = useState([]);
   const [confirmDel, setConfirmDel] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -2497,6 +2510,7 @@ function ProductsTab({ data, reload, toast }) {
         </select>
         {sel.length > 0 && <button className="btn dng" onClick={() => setConfirmDel(true)}>🗑 Удалить ({sel.length})</button>}
         {needRenum && products.length > 0 && <button className="btn" onClick={() => setRenum({ busy: false, done: 0, total: 0, err: "" })} title="Коды станут 1, 2, 3 … по порядку">№ Пронумеровать коды</button>}
+        <button className="btn" title="Себестоимость, изменённая в объектах, но не попавшая в базу" onClick={() => setFromObj(true)}>↻ Себестоимость из объектов</button>
         <button className="btn" onClick={() => setImp(true)}>Импорт Excel/CSV</button>
         <button className="btn pri" onClick={() => setEdit({ unit: "шт", status: "active", stock: 0, cost: 0, price: 0, code: String(nextProductCode(products)) })}>+ Товар</button>
       </div>
@@ -2543,6 +2557,7 @@ function ProductsTab({ data, reload, toast }) {
           </div>
         </Modal>
       )}
+      {fromObj && <CostFromObjectsModal data={data} onClose={() => setFromObj(false)} onDone={async (msg) => { setFromObj(false); await reload(["products"]); toast(msg); }} />}
       {imp && <ImportModal products={products} suppliers={suppliers} onClose={() => setImp(false)} onDone={async (msg) => { setImp(false); await reload("all"); toast(msg); }} />}
       {confirmDel && (
         <Modal title="Подтверждение удаления" onClose={() => setConfirmDel(false)} w={440}>
@@ -2597,6 +2612,74 @@ function ProductForm({ p, products = [], suppliers, onClose, onSave }) {
 // порядок проверки колонок при автоопределении: «Код / артикул» раньше названия —
 // иначе заголовок «Код товара» принимался за название (в нём есть слово «товар»)
 const fieldsByPriority = (fields) => [...fields].sort((a, b) => (a.id === "code" ? -1 : b.id === "code" ? 1 : 0));
+/* «↻ Себестоимость из объектов»: где в объектах себестоимость товара меняли, а в «Товары» она не попала —
+   по каждому товару берётся последняя (по дате поставки) себестоимость из объектов; применяются только отмеченные. */
+function CostFromObjectsModal({ data, onClose, onDone }) {
+  const products = data.products || [];
+  const list = useMemo(() => {
+    const last = new Map();
+    (data.objects || []).forEach((o) => {
+      if (o.status === "cancelled") return;
+      (o.items || []).forEach((i) => {
+        if (i.from_warehouse || !(Number(i.cost) > 0)) return;
+        const p = prodForItem(i, products);
+        if (!p) return;
+        const d = String(i.batch_date || i.added_at || o.created_at || "").slice(0, 10);
+        const cur = last.get(p.id);
+        if (!cur || d >= cur.d) last.set(p.id, { p, cost: Math.round(Number(i.cost) * 10000) / 10000, d, obj: o.name });
+      });
+    });
+    return [...last.values()].filter((x) => Math.abs((Number(x.p.cost) || 0) - Number(x.cost)) > 0.00001)
+      .map((x) => ({ ...x, big: Number(x.p.cost) > 0 && Math.abs(x.cost - Number(x.p.cost)) / Number(x.p.cost) > 0.3 }))
+      .sort((a, b) => b.d.localeCompare(a.d) || a.p.name.localeCompare(b.p.name, "ru"));
+  }, [data.objects, products]);
+  const [off, setOff] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [prog, setProg] = useState("");
+  const chosen = list.filter((x) => !off[x.p.id]);
+  const apply = async () => {
+    setBusy(true);
+    const now = new Date().toISOString();
+    let n = 0;
+    for (let k = 0; k < chosen.length; k += 10) {
+      const part = chosen.slice(k, k + 10);
+      const res = await Promise.all(part.map((x) => db.from("products").update({ cost: x.cost, price_updated: now }).eq("id", x.p.id)));
+      n += res.filter((r) => !r.error).length;
+      setProg(n + " / " + chosen.length);
+    }
+    await logAction("Себестоимость из объектов → «Товары»", "products", "обновлено: " + n + " · " + chosen.slice(0, 25).map((x) => x.p.name + " " + fmt2(x.p.cost) + " → " + fmt2(x.cost)).join("; ") + (chosen.length > 25 ? "…" : ""));
+    setBusy(false);
+    onDone("Себестоимость в «Товары» обновлена: " + n + " поз.");
+  };
+  return (
+    <Modal title="Себестоимость из объектов → в «Товары»" onClose={onClose} w={820}>
+      {!list.length ? <p className="sm mut">Расхождений нет — себестоимость в «Товары» совпадает с последней себестоимостью в объектах.</p> : <>
+        <p className="sm" style={{ marginBottom: 8 }}>В объектах себестоимость этих товаров другая, чем в базе ({list.length}). По каждому товару — последняя поставка. Отмеченные обновятся в «Товары».</p>
+        <div className="row" style={{ gap: 8, marginBottom: 6 }}>
+          <button className="btn xs" onClick={() => setOff({})}>Отметить все</button>
+          <button className="btn xs" onClick={() => { const o = {}; list.forEach((x) => { o[x.p.id] = true; }); setOff(o); }}>Снять все</button>
+          {list.some((x) => x.big) && <span className="xs" style={{ color: "var(--warn)" }}>⚠ — изменение больше 30%, проверьте</span>}
+        </div>
+        <div style={{ maxHeight: 420, overflow: "auto", border: "1px solid var(--line)", borderRadius: 8 }}>
+          <table className="t cfo-t"><thead><tr><th></th><th>Товар</th><th style={{ textAlign: "right" }}>В базе</th><th style={{ textAlign: "right" }}>В объекте</th><th>Объект · дата</th></tr></thead>
+            <tbody>{list.map((x) => (
+              <tr key={x.p.id} className="clk" style={x.big ? { color: "var(--warn)" } : null} onClick={() => setOff({ ...off, [x.p.id]: !off[x.p.id] })}>
+                <td><input type="checkbox" checked={!off[x.p.id]} readOnly /></td>
+                <td className="sm">{x.big ? "⚠ " : ""}{x.p.name}</td>
+                <td className="num mut">{fmt2(x.p.cost)}</td>
+                <td className="num" style={{ fontWeight: 700 }}>{fmt2(x.cost)}</td>
+                <td className="xs mut">{x.obj} · {dt(x.d)}</td>
+              </tr>
+            ))}</tbody></table>
+        </div>
+      </>}
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
+        <button className="btn" onClick={onClose}>{list.length ? "Отмена" : "Закрыть"}</button>
+        {list.length > 0 && <button className="btn pri" disabled={busy || !chosen.length} onClick={apply}>{busy ? "Обновляю… " + prog : "Обновить в «Товары»: " + chosen.length}</button>}
+      </div>
+    </Modal>
+  );
+}
 function ImportModal({ products = [], suppliers, onClose, onDone }) {
   const prodList = products; // уже существующие товары (для следующего номера кода)
   const FIELDS = [
@@ -4578,9 +4661,13 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     }
     return ok;
   };
-  const saveItem = async (item) => {
+  const saveItem = async (item0) => {
+    let item = item0;
     const it0 = (obj.items || []).find((i) => i.id === item.id) || {};
     const costChanged = Math.abs((Number(item.cost) || 0) - (Number(it0.cost) || 0)) > 0.00001;
+    // позиция без связи с базой — находим товар по названию и связываем, чтобы себестоимость дошла до «Товары»
+    const pLink = costChanged && !item.from_warehouse ? prodForItem(item, products) : null;
+    if (pLink && item.product_id !== pLink.id) item = { ...item, product_id: pLink.id };
     const ok = await saveItems((cur) => cur.map((i) => (i.id === item.id ? { ...i, ...item } : i)));
     if (ok) {
       await logAction("Изменена позиция", "object:" + obj.name, (item.name || "") + " × " + fmt(item.qty) + " по " + fmt2(item.price) + (costChanged ? " · себест. " + fmt2(it0.cost) + " → " + fmt2(item.cost) : ""));
@@ -4588,8 +4675,9 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       // новая себестоимость товара из базы — записываем и в «Товары»: следующие заявки берут её
       // (у товара со Склада Thermo своя себестоимость склада — базу не трогаем)
       let prodNote = "";
+      if (costChanged && !item.from_warehouse && Number(item.cost) > 0 && !pLink) prodNote = " · в «Товары» не найден — себестоимость в базе не изменена";
       if (costChanged && item.product_id && !item.from_warehouse && Number(item.cost) > 0) {
-        const p = (products || []).find((x) => x.id === item.product_id);
+        const p = pLink || (products || []).find((x) => x.id === item.product_id);
         if (p && Math.abs((Number(p.cost) || 0) - Number(item.cost)) > 0.00001) {
           const r = await db.from("products").update({ cost: Number(item.cost), price_updated: new Date().toISOString() }).eq("id", p.id);
           if (!r.error) {
@@ -4639,7 +4727,11 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     if (!(await confirmLowPrice(ch.map(({ i, c }) => ({ name: i.name, price: i.price, cost: c }))))) return;
     setCostBusy(true);
     const m = new Map(ch.map(({ i, c }) => [i.id, c]));
-    const ok = await saveItems((cur) => cur.map((i) => (m.has(i.id) ? { ...i, cost: m.get(i.id) } : i)));
+    // товар базы для каждой изменённой позиции (позиции без связи — связываем по названию)
+    const pOf = new Map();
+    let miss = 0;
+    if (costToProd) ch.forEach(({ i, c }) => { if (i.from_warehouse || !(c > 0)) return; const p = prodForItem(i, products); if (p) pOf.set(i.id, p); else miss++; });
+    const ok = await saveItems((cur) => cur.map((i) => (m.has(i.id) ? { ...i, cost: m.get(i.id), ...(pOf.has(i.id) && i.product_id !== pOf.get(i.id).id ? { product_id: pOf.get(i.id).id } : {}) } : i)));
     if (!ok) { setCostBusy(false); toast("Не удалось сохранить — попробуйте ещё раз"); return; }
     await logAction("Себестоимость: быстрый ввод", "object:" + obj.name, ch.length + " поз.: " + ch.slice(0, 40).map(({ i, c }) => String(i.name || "").slice(0, 50) + " " + fmt2(i.cost) + " → " + fmt2(c)).join("; ") + (ch.length > 40 ? "; …" : ""));
     const n = await syncReturns((obj.items || []).map((i) => (m.has(i.id) ? { ...i, cost: m.get(i.id) } : i)));
@@ -4647,7 +4739,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     let np = 0;
     if (costToProd) {
       const byProd = new Map();
-      ch.forEach(({ i, c }) => { if (i.product_id && !i.from_warehouse && c > 0) byProd.set(i.product_id, c); });
+      ch.forEach(({ i, c }) => { if (pOf.has(i.id)) byProd.set(pOf.get(i.id).id, c); });
       for (const [pid, c] of byProd) {
         const p = (products || []).find((x) => x.id === pid);
         if (!p || Math.abs((Number(p.cost) || 0) - c) <= 0.00001) continue;
@@ -4661,7 +4753,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     if (n) await reload();
     setCostBusy(false);
     exitCost();
-    toast("Себестоимость обновлена: " + ch.length + " поз. — долг поставщику и прибыль пересчитаны" + (np ? " · в «Товары» тоже: " + np : "") + (n ? " · возвраты пересчитаны" : ""));
+    toast("Себестоимость обновлена: " + ch.length + " поз. — долг поставщику и прибыль пересчитаны" + (np ? " · в «Товары» тоже: " + np : "") + (miss ? " · в «Товары» не найдено: " + miss + " поз." : "") + (n ? " · возвраты пересчитаны" : ""));
   };
   // «Наценка от себестоимости»: цена каждой позиции = себестоимость × (1 + %/100) (всего объекта или одной поставки);
   // позиции без себестоимости не меняются; возвраты по изменённым позициям пересчитываются по новой цене
