@@ -17,7 +17,18 @@
   </head>
   <body>
     <!-- пока загружается программа — сразу чёрный экран со знаком (раньше секунду-две был белый фон) -->
-    <div id="boot" style="position:fixed;inset:0;z-index:9999;background:#000"></div>
+    <div id="boot" style="position:fixed;inset:0;z-index:9999;background:#000;display:flex;align-items:center;justify-content:center;flex-direction:column"></div>
+    <script>
+      // телефон: знак рисуется сразу — Android убирает свою заставку (значок на сером фоне) при первой отрисовке, не дожидаясь программы
+      (function () {
+        try {
+          var ua = navigator.userAgent || "";
+          if (!(/Android|iPhone|iPad|iPod|Mobile/i.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1))) return;
+          document.documentElement.classList.add("phone-boot");
+          document.getElementById("boot").innerHTML = '<svg viewBox="0 0 300 300" width="170" height="170" aria-hidden="true"><g transform="translate(150 150) scale(0.96) translate(-143 -126.5)"><path d="M39 26H240A28 28 0 0 1 268 54V56H124V193L95 227V56H18Z" fill="#fff"/><path d="M145 85H263L244 115H175V154H262L244 181H145Z" fill="#fff"/></g></svg><div style="width:120px;height:3px;margin-top:22px;background:#ff1f30"></div>';
+        } catch (e) {}
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
     <script>

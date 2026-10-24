@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useDeferredValue, memo, useCallback, createContext, useContext } from "react";
-import * as XLSX from "xlsx";
+// SheetJS (чтение Excel-файлов) — только когда загружают файл: программа открывается быстрее (особенно на телефоне)
+let XLSX_MOD = null;
+const loadXLSX = async () => XLSX_MOD || (XLSX_MOD = await import("xlsx"));
 import * as dbModule from "./db.js";
 // «сырой» клиент Supabase (db.js экспортирует его рядом с db) — нужен для постраничной загрузки (.range) и массового удаления (.in)
 const sb = dbModule.supabase || null;
@@ -615,6 +617,9 @@ table.t td{position:static}
 
 /* ============ DATA LAYER = Supabase (db из ./db.js) ============ */
 const TABLES = ["products", "suppliers", "objects", "finance_ops", "requests", "masters", "warehouse", "wh_moves", "users", "audit_log"];
+// при открытии программы: сначала всё, кроме базы товаров (большая) и журнала (грузится при открытии «Журнала»);
+// товары подгружаются сразу следом, программа уже на экране
+const BOOT_TABLES = TABLES.filter((t) => t !== "products" && t !== "audit_log");
 const TABLE_JSON = new WeakMap(); // массив таблицы → его JSON (сравнить с новой загрузкой без повторной сериализации)
 // id записи всегда в формате UUID: колонки id в базе имеют тип uuid, другой формат база не примет
 // (crypto.randomUUID есть не во всех браузерах — например, в старых Safari)
@@ -1075,37 +1080,6 @@ async function updateObjectItems(objId, change, extra = {}) {
   const u = await db.from("objects").update({ ...extra, items }).eq("id", objId);
   if (u.error) return { error: u.error };
   return { obj: { ...cur, ...extra, items } };
-}
-/* Лист Excel с нормальной вёрсткой:
-   cols  — ширина колонок в символах (иначе подбирается по содержимому);
-   money — номера колонок с суммами (формат 1 234,50);
-   строка из одной ячейки (заголовок, «Клиент: …») растягивается на всю ширину таблицы. */
-function makeSheet(rows, opts = {}) {
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  const nCols = opts.cols ? opts.cols.length : Math.max(1, ...rows.map((r) => r.length));
-  const widths = opts.cols || Array.from({ length: nCols }, (_, c) =>
-    Math.min(70, Math.max(6, ...rows.filter((r) => r.length > 1).map((r) => String(r[c] == null ? "" : r[c]).length + 2))));
-  ws["!cols"] = widths.map((wch) => ({ wch }));
-  const merges = [];
-  rows.forEach((r, i) => { if (r.length === 1 && r[0] !== "" && r[0] != null && nCols > 1) merges.push({ s: { r: i, c: 0 }, e: { r: i, c: nCols - 1 } }); });
-  (opts.merges || []).forEach((m) => merges.push(m));
-  if (merges.length) ws["!merges"] = merges;
-  (opts.money || []).forEach((c) => rows.forEach((r, i) => {
-    const cell = ws[XLSX.utils.encode_cell({ r: i, c })];
-    if (cell && cell.t === "n") cell.z = "#,##0.00";
-  }));
-  return ws;
-}
-function downloadXLSX(filename, rows, sheetName, opts) {
-  try {
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, makeSheet(rows, opts), sheetName || "Лист1");
-    XLSX.writeFile(wb, filename);
-    return "xlsx";
-  } catch (e) {
-    console.error(e);
-    try { downloadCSV(filename.replace(/\.xlsx$/i, ".csv"), rows); return "csv"; } catch (e2) { console.error(e2); return false; }
-  }
 }
 function downloadCSV(filename, rows) {
   const csv = rows.map((r) => r.map((c) => '"' + String(c == null ? "" : c).replace(/"/g, '""') + '"').join(";")).join("\n");
@@ -1753,7 +1727,7 @@ function PayFields({ p, setP, methods = PAY_METHODS, usdLabel = "В долг к�
 /* Выбор листа Excel: если в файле несколько непустых листов — спрашиваем, какой загрузить.
    const name = await pickSheet(wb, fileName) → имя листа или null (отмена) */
 let _sheetSet = null;
-const sheetRows = (ws) => XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }).filter((row) => row.some((c) => String(c).trim() !== ""));
+const sheetRows = (ws) => XLSX_MOD.utils.sheet_to_json(ws, { header: 1, defval: "" }).filter((row) => row.some((c) => String(c).trim() !== ""));
 function pickSheet(wb, fileName) {
   const list = wb.SheetNames.map((n) => {
     const data = sheetRows(wb.Sheets[n]);
@@ -2731,7 +2705,7 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
     const r = new FileReader();
     r.onload = async () => {
       try {
-        const wb = XLSX.read(new Uint8Array(r.result), { type: "array" });
+        const wb = (await loadXLSX()).read(new Uint8Array(r.result), { type: "array" });
         const sh = await pickSheet(wb, f.name);
         if (!sh) { setFname(""); return; }
         const data = sheetRows(wb.Sheets[sh]);
@@ -3807,7 +3781,7 @@ function RequestExcelImport({ products, onClose, onAdd }) {
     const r = new FileReader();
     r.onload = async () => {
       try {
-        const wb = XLSX.read(new Uint8Array(r.result), { type: "array" });
+        const wb = (await loadXLSX()).read(new Uint8Array(r.result), { type: "array" });
         const sh = await pickSheet(wb, f.name);
         if (!sh) { setFname(""); return; }
         const data = sheetRows(wb.Sheets[sh]);
@@ -5580,7 +5554,7 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
     const r = new FileReader();
     r.onload = async () => {
       try {
-        const wb = XLSX.read(new Uint8Array(r.result), { type: "array" });
+        const wb = (await loadXLSX()).read(new Uint8Array(r.result), { type: "array" });
         const sh = await pickSheet(wb, f.name);
         if (!sh) { setFname(""); return; }
         const data = sheetRows(wb.Sheets[sh]);
@@ -8583,6 +8557,7 @@ const INTRO_CSS = `
 .intro-mark .e{animation:introE .5s cubic-bezier(.16,1,.3,1) .18s both}
 .intro-line{width:120px;height:3px;margin-top:22px;background:#ff1f30;transform-origin:center;animation:introLine .45s cubic-bezier(.65,0,.35,1) .4s both}
 .intro.out .intro-mark,.intro.out .intro-line{opacity:0;transition:opacity .35s ease}
+.intro.still .intro-mark,.intro.still .intro-mark .t,.intro.still .intro-mark .e,.intro.still .intro-line{animation:none}
 @keyframes introDrop{from{transform:translateY(-100%)}to{transform:none}}
 @keyframes introLift{from{transform:none}to{transform:translateY(-100%)}}
 @keyframes introMark{from{opacity:0;transform:scale(1.12);filter:blur(10px)}to{opacity:1;transform:none;filter:none}}
@@ -8592,6 +8567,8 @@ const INTRO_CSS = `
 @media(prefers-reduced-motion:reduce){.intro,.intro.out,.intro-mark,.intro-mark .t,.intro-mark .e,.intro-line{animation-duration:.01s;animation-delay:0s}}
 `;
 function Intro({ out = false, onDone }) {
+  // телефон: знак уже нарисован в index.html — без повторной анимации (не мигает)
+  const [still] = useState(() => document.documentElement.classList.contains("phone-boot"));
   // пока идёт заставка, у страницы нет полосы прокрутки (иначе справа видна полоса от страницы под занавесом)
   useEffect(() => {
     // чёрная заставка из index.html (видна, пока грузится программа) — убираем, её место заняла эта
@@ -8603,7 +8580,7 @@ function Intro({ out = false, onDone }) {
     return () => { h.style.overflow = prev[0]; b.style.overflow = prev[1]; };
   }, []);
   return (
-    <div className={"intro" + (out ? " out" : "")} aria-hidden="true" onAnimationEnd={(e) => { if (out && e.target === e.currentTarget && e.animationName === "introLift" && onDone) onDone(); }}>
+    <div className={"intro" + (out ? " out" : "") + (still ? " still" : "")} aria-hidden="true" onAnimationEnd={(e) => { if (out && e.target === e.currentTarget && e.animationName === "introLift" && onDone) onDone(); }}>
       <style>{INTRO_CSS}</style>
       <svg className="intro-mark" viewBox="0 0 300 300">
         <g transform="translate(150 150) scale(0.96) translate(-143 -126.5)">
@@ -8839,6 +8816,7 @@ function AppInner() {
   const [introGone, setIntroGone] = useState(false);
   useEffect(() => {
     if (!ready || introOut) return;
+    if (isPhone()) { setIntroOut(true); setIntroGone(true); return; } // телефон: сразу программа, без заставки
     const t = setTimeout(() => setIntroOut(true), Math.max(0, 1000 - (Date.now() - introStart.current)));
     return () => clearTimeout(t);
   }, [ready]);
@@ -9022,6 +9000,8 @@ function AppInner() {
   const [secureSeed, setSecureSeed] = useState(false);
   const [loginNote, setLoginNote] = useState("");
   const EMPTY_DATA = { products: [], suppliers: [], objects: [], finance_ops: [], requests: [], masters: [], warehouse: [], wh_moves: [], users: [], audit_log: [] };
+  // база товаров — следом, в фоне (экран уже открыт)
+  const bootRest = () => { lastFull.current = Date.now(); setTimeout(() => { reload(["products"]); }, 0); };
   const boot = async () => {
     // защищённый режим: без входа база не читается — сначала вход (или сохранённая сессия), потом данные
     let sec;
@@ -9040,8 +9020,9 @@ function AppInner() {
           if (error && !/te_session_required/.test(String(error.message || ""))) throw new Error(error.message);
           if (me && me.id && !isStaff(me)) {
             setCurrentUser(me); CURRENT_USER = me;
-            const r = await reload("all");
+            const r = await reload(BOOT_TABLES);
             if (r.allFailed) setBootErr(r.failed.join(", "));
+            bootRest();
           } else { setDbSession(null); try { localStorage.removeItem("te:token"); } catch (e) {} }
         } catch (e) { console.error(e); setBootErr(String(e && (e.message || e))); }
       }
@@ -9049,7 +9030,8 @@ function AppInner() {
       return;
     }
     try {
-      const r = await reload("all");
+      const r = await reload(BOOT_TABLES);
+      bootRest();
       if (r.allFailed || (r.failed && r.failed.some((x) => x.startsWith("users")))) setBootErr(r.failed.join(", "));
       else setBootErr("");
       // восстановить сессию из localStorage
@@ -9066,7 +9048,8 @@ function AppInner() {
   useEffect(() => { boot(); }, []);
   // вернулись на вкладку браузера после перерыва — подтягиваем изменения других сотрудников
   useEffect(() => {
-    const h = () => { if (document.visibilityState === "visible" && CURRENT_USER && Date.now() - lastFull.current > 120000) reload("all"); };
+    // журнал не трогаем (он подгружается в «Журнале»)
+    const h = () => { if (document.visibilityState === "visible" && CURRENT_USER && Date.now() - lastFull.current > 120000) { lastFull.current = Date.now(); reload(TABLES.filter((t) => t !== "audit_log")); } };
     document.addEventListener("visibilitychange", h);
     return () => document.removeEventListener("visibilitychange", h);
   }, []);
@@ -9125,7 +9108,7 @@ function AppInner() {
     setCurrentUser(u); CURRENT_USER = u;
     if (!token) { try { localStorage.setItem("te:session", u.id); } catch (e) {} }
     await logAction("Вход в систему", "user:" + u.username, "");
-    await reload("all");
+    await reload(BOOT_TABLES); bootRest();
   };
   // выход: в защищённом режиме сессия закрывается и на сервере, данные стираются из памяти страницы
   const endSession = (note) => {
