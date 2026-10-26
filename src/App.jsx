@@ -6669,7 +6669,63 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
     toast("Приход на склад: " + (done === 1 ? list[0].name + " × " + fmt(parseNum(list[0].qty)) : done + " поз.") + (debt ? " · долг поставщикам +" + fmt2(debt) : "") + warn);
     return true;
   };
-  const moves = wh_moves.slice().reverse();
+  // история — по дате (новые сверху); в один день — по времени записи
+  const mvKey = (mv) => String(mv.op_date || mv.created_at || "").slice(0, 10) + String(mv.created_at || "");
+  const moves = wh_moves.map((mv, i) => [mv, i]).sort((a, b) => mvKey(b[0]).localeCompare(mvKey(a[0])) || b[1] - a[1]).map((x) => x[0]);
+  // для каждой строки склада: откуда пришёл товар, когда, кто; бронь; история движений этой позиции
+  const supName = useMemo(() => new Map(suppliers.map((x) => [x.id, x.name])), [suppliers]);
+  const info = useMemo(() => {
+    const byProd = {}, byName = {};
+    wh_moves.forEach((mv) => {
+      if (mv.product_id) (byProd[mv.product_id] = byProd[mv.product_id] || []).push(mv);
+      const k = normPName(mv.name); if (k) (byName[k] = byName[k] || []).push(mv);
+    });
+    const rowByProd = {};
+    warehouse.forEach((w) => { if (w.product_id && !rowByProd[w.product_id]) rowByProd[w.product_id] = w.id; });
+    const res = {};
+    objects.forEach((o) => {
+      if (o.status === "cancelled") return;
+      (o.items || []).forEach((i) => {
+        if (!i.from_warehouse || !i.wh_pending) return;
+        const rid = i.wh_id || (i.product_id && rowByProd[i.product_id]);
+        if (!rid) return;
+        const r = res[rid] || (res[rid] = { qty: 0, objs: [] });
+        r.qty = round2(r.qty + (Number(i.qty) || 0)); if (!r.objs.includes(o.name)) r.objs.push(o.name);
+      });
+    });
+    const key = (mv) => String(mv.op_date || mv.created_at || "").slice(0, 10) + String(mv.created_at || "");
+    const out = {};
+    warehouse.forEach((w) => {
+      const list = (w.product_id && byProd[w.product_id]) || byName[normPName(w.name)] || [];
+      const hist = list.slice().sort((a, b) => key(b).localeCompare(key(a)));
+      const ins = hist.filter((m) => m.dir === "in");
+      const last = ins[0] || null;
+      const date = last ? String(last.op_date || last.created_at || "").slice(0, 10) : String(w.created_at || "").slice(0, 10);
+      const days = date ? Math.max(0, Math.floor((Date.now() - new Date(date + "T12:00:00").getTime()) / 864e5)) : null;
+      const srcOf = (m) => m.object_name ? "↩ возврат с объекта «" + m.object_name + "»" : /вручную/.test(m.note || "") ? "＋ приход вручную" : /корректир/.test(m.note || "") ? "✎ корректировка" : (m.note || "—");
+      const srcs = [...new Set(ins.map(srcOf))];
+      out[w.id] = { hist, last, date, days, src: last ? srcOf(last) : "—", more: Math.max(0, srcs.length - 1), objId: last && last.object_id, res: res[w.id] || null };
+    });
+    return out;
+  }, [warehouse, wh_moves, objects]);
+  const [q, setQ] = useState("");
+  const [sort, setSort] = useState("new");
+  const [open, setOpen] = useState(null);
+  const [mvDir, setMvDir] = useState("all");
+  const [mq, setMq] = useState("");
+  const toks = normPName(q).split(" ").filter(Boolean);
+  const rowText = (w) => normPName([w.name, supName.get(w.supplier_id), info[w.id] && info[w.id].src].join(" "));
+  const shownStock = stock.filter((w) => !toks.length || toks.every((t) => rowText(w).includes(t))).sort((a, b) => {
+    const A = info[a.id] || {}, B = info[b.id] || {};
+    if (sort === "name") return String(a.name).localeCompare(String(b.name), "ru");
+    if (sort === "sup") return String(supName.get(a.supplier_id) || "я").localeCompare(String(supName.get(b.supplier_id) || "я"), "ru") || String(a.name).localeCompare(String(b.name), "ru");
+    if (sort === "old") return String(A.date || "9").localeCompare(String(B.date || "9"));
+    return String(B.date || "").localeCompare(String(A.date || ""));
+  });
+  const oldCnt = stock.filter((w) => (info[w.id] || {}).days >= WH_OLD_DAYS).length;
+  const mtoks = normPName(mq).split(" ").filter(Boolean);
+  const shownMoves = moves.filter((mv) => (mvDir === "all" || mv.dir === mvDir) && (!mtoks.length || mtoks.every((t) => normPName([mv.name, mv.object_name, mv.note, mv.user].join(" ")).includes(t))));
+  const mvWhere = (mv) => mv.object_name ? (mv.dir === "in" ? "с объекта «" + mv.object_name + "»" : "на объект «" + mv.object_name + "»") : (mv.note || "—");
   const totalCost = stock.reduce((a, w) => a + w.qty * (w.cost || 0), 0);
   const totalSale = stock.reduce((a, w) => a + w.qty * (w.price || 0), 0);
   const KPI = ({ l, v, c }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}</div></div>;
@@ -6720,50 +6776,80 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
         {!readOnly && <KPI l="Склад по закупу" v={totalCost} />}
         {!readOnly && <KPI l="Склад по продаже" v={totalSale} c="var(--txt)" />}
       </div>
+      <div className="row sect wh-bar" style={{ gap: 8 }}>
+        <input className="inp" type="search" style={{ flex: "1 1 220px", maxWidth: 380 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔎 Товар, поставщик или объект" />
+        <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>{[["new", "Новые сверху"], ["old", "Давно лежат"], ["name", "По названию"], ["sup", "По поставщику"]].map(([k, l]) => <button key={k} className={"btn xs" + (sort === k ? " pri" : "")} onClick={() => setSort(k)}>{l}</button>)}</div>
+        {oldCnt > 0 && <span className="sm" style={{ color: "var(--warn)", fontWeight: 600 }}>⏳ лежат {WH_OLD_DAYS}+ дн.: {oldCnt}</span>}
+      </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
-        <table className="t">
-          <thead><tr><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th>{!readOnly && <><th style={{textAlign:"right"}}>Закуп</th><th style={{textAlign:"right"}}>Продажа</th><th style={{textAlign:"right"}}>Сумма (закуп)</th><th></th></>}</tr></thead>
+        <table className="t wh-t">
+          <thead><tr><th>Товар</th><th>Откуда пришёл</th><th>Дата прихода</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th>{!readOnly && <><th style={{textAlign:"right"}}>Закуп</th><th style={{textAlign:"right"}}>Продажа</th><th style={{textAlign:"right"}}>Сумма (закуп)</th><th></th></>}</tr></thead>
           <tbody>
-            {stock.map((w) => (
-              <tr key={w.id}>
-                <td style={{ fontWeight: 600 }}>{w.name}</td>
-                <td className="num" style={{ fontWeight: 700, color: "var(--acc2)" }}>{w.qty}</td>
+            {shownStock.map((w) => { const I = info[w.id] || {}; const isOpen = open === w.id; const old = I.days >= WH_OLD_DAYS; return (
+              <React.Fragment key={w.id}>
+              <tr className={"clk wh-row" + (isOpen ? " on" : "")} onClick={() => setOpen(isOpen ? null : w.id)} title="Нажмите — история этой позиции">
+                <td style={{ fontWeight: 600 }}><span className="mut" style={{ fontWeight: 400 }}>{isOpen ? "▾" : "▸"} </span>{w.name}
+                  <div className="xs mut" style={{ fontWeight: 400 }}>{supName.get(w.supplier_id) ? "Поставщик: " + supName.get(w.supplier_id) : "поставщик не указан"}</div></td>
+                <td className="sm">{I.objId ? <span className="clk" style={{ color: "var(--acc2)" }} onClick={(e) => { e.stopPropagation(); openObject(I.objId); }}>{I.src}</span> : I.src}{I.more ? <span className="xs mut"> + ещё {I.more}</span> : null}
+                  {I.last && I.last.user ? <div className="xs mut">принял: {I.last.user}</div> : null}</td>
+                <td className="sm mono wh-date" style={{ whiteSpace: "nowrap" }}>{I.date ? dt(I.date) : "—"}
+                  {I.days != null && <div className="xs" style={old ? { color: "var(--bad)", fontWeight: 700 } : { color: "var(--mut)" }}>{old ? "⏳ " : ""}{I.days} дн. на складе</div>}</td>
+                <td className="num" style={{ fontWeight: 700, color: "var(--acc2)" }}>{w.qty}
+                  {I.res ? <div className="xs wh-res" style={{ color: "var(--warn)", fontWeight: 600, whiteSpace: "nowrap" }} title={"В брони: " + I.res.objs.join(", ")}>🔒 бронь {fmt(Math.min(I.res.qty, w.qty))}</div> : null}</td>
                 <td className="sm">{w.unit}</td>
                 {!readOnly && <>
                 <td className="num">{fmt(w.cost)}</td>
                 <td className="num">{fmt(w.price)}</td>
                 <td className="num">{fmt(w.qty * (w.cost || 0))}</td>
-                <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
+                <td onClick={(e) => e.stopPropagation()}><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
                   <button className="btn xs" onClick={() => setEditRow(w)}>ред.</button>
                   <button className="btn xs" onClick={() => setRetForm(w)}>↩ поставщику</button>
                   <button className="btn xs dng" onClick={() => setDelRow(w)}>✕</button>
                 </div></td>
                 </>}
               </tr>
-            ))}
-            {!stock.length && <tr><td colSpan={8} className="mut" style={{ textAlign: "center", padding: 26 }}>Склад пуст — товары появляются автоматически при возвратах с объектов</td></tr>}
+              {isOpen && <tr className="wh-hist"><td colSpan={readOnly ? 5 : 9} style={{ background: "var(--panel2)", padding: "8px 14px 12px" }}>
+                <div className="xs mut" style={{ fontWeight: 700, marginBottom: 4 }}>История позиции</div>
+                {I.hist && I.hist.length ? <table className="t" style={{ fontSize: 12 }}><tbody>
+                  {I.hist.map((mv) => <tr key={mv.id}>
+                    <td className="mono mut" style={{ whiteSpace: "nowrap" }}>{dt(mv.op_date || mv.created_at)}</td>
+                    <td style={{ color: mv.dir === "in" ? "var(--ok)" : "var(--bad)", fontWeight: 700, whiteSpace: "nowrap" }}>{mv.dir === "in" ? "⬇ +" : "⬆ −"}{fmt(mv.qty)}</td>
+                    <td>{mv.object_id ? <span className="clk" style={{ color: "var(--acc2)" }} onClick={() => openObject(mv.object_id)}>{mvWhere(mv)}</span> : mvWhere(mv)}{mv.object_name && mv.note && !/^(отгрузка на объект|возврат с объекта)/.test(mv.note) ? <span className="mut"> · {mv.note}</span> : null}</td>
+                    <td className="mut">{mv.user}</td></tr>)}
+                </tbody></table> : <div className="xs mut">Движений по позиции нет</div>}
+              </td></tr>}
+              </React.Fragment>
+            ); })}
+            {!stock.length && <tr><td colSpan={9} className="mut" style={{ textAlign: "center", padding: 26 }}>Склад пуст — товары появляются автоматически при возвратах с объектов</td></tr>}
+            {stock.length > 0 && !shownStock.length && <tr><td colSpan={9} className="mut" style={{ textAlign: "center", padding: 20 }}>Ничего не найдено</td></tr>}
           </tbody>
         </table>
       </div>
-      <h3 className="sect">История движений</h3>
+      <div className="row sect" style={{ gap: 8, marginTop: 8 }}>
+        <h3 style={{ marginRight: "auto" }}>История движений</h3>
+        <input className="inp" type="search" style={{ flex: "0 1 260px" }} value={mq} onChange={(e) => setMq(e.target.value)} placeholder="🔎 Товар, объект, кто" />
+        <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>{[["all", "Все"], ["in", "⬇ Приход"], ["out", "⬆ Отгрузка"]].map(([k, l]) => <button key={k} className={"btn xs" + (mvDir === k ? " pri" : "")} onClick={() => setMvDir(k)}>{l}</button>)}</div>
+      </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
-          <thead><tr><th>Дата</th><th>Направление</th><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th>Объект</th><th>Кто</th></tr></thead>
+          <thead><tr><th>Дата</th><th>Направление</th><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th>Откуда / куда</th><th>Кто</th></tr></thead>
           <tbody>
-            {(allMoves ? moves : moves.slice(0, 200)).map((mv) => (
+            {(allMoves ? shownMoves : shownMoves.slice(0, 200)).map((mv) => (
               <tr key={mv.id}>
                 <td className="xs mono mut">{dt(mv.op_date || mv.created_at)}</td>
-                <td><Badge c={mv.dir === "in" ? "#3ddc7d" : "#ff707b"}>{mv.dir === "in" ? "⬇ Приход" : "⬆ Отгрузка"}</Badge><div className="xs mut">{mv.note}</div></td>
+                <td><Badge c={mv.dir === "in" ? "#3ddc7d" : "#ff707b"}>{mv.dir === "in" ? "⬇ Приход" : "⬆ Отгрузка"}</Badge></td>
                 <td className="sm">{mv.name}</td>
                 <td className="num" style={{ fontWeight: 700 }}>{mv.qty}</td>
-                <td className="sm clk" style={{ color: "var(--acc2)" }} onClick={() => mv.object_id && openObject(mv.object_id)}>{mv.object_name || "—"}</td>
+                <td className="sm">{mv.object_id ? <span className="clk" style={{ color: "var(--acc2)" }} onClick={() => openObject(mv.object_id)}>{mvWhere(mv)}</span> : mvWhere(mv)}
+                  {mv.object_name && mv.note && !/^(отгрузка на объект|возврат с объекта)/.test(mv.note) ? <div className="xs mut">{mv.note}</div> : null}</td>
                 <td className="xs mut">{mv.user}</td>
               </tr>
             ))}
             {!wh_moves.length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 20 }}>Движений нет</td></tr>}
+            {wh_moves.length > 0 && !shownMoves.length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 20 }}>Ничего не найдено</td></tr>}
           </tbody>
         </table>
-        {moves.length > 200 && <div style={{ padding: 10 }}><button className="btn xs" onClick={() => setAllMoves(!allMoves)}>{allMoves ? "Показать последние 200" : "Показать все (" + moves.length + ")"}</button></div>}
+        {shownMoves.length > 200 && <div style={{ padding: 10 }}><button className="btn xs" onClick={() => setAllMoves(!allMoves)}>{allMoves ? "Показать последние 200" : "Показать все (" + shownMoves.length + ")"}</button></div>}
       </div>
       {inForm && <WhInForm products={data.products || []} suppliers={suppliers} warehouse={warehouse} onClose={() => setInForm(false)} onSave={submitIn} />}
       {issue && <IssueForm stock={stock} objects={objects} onClose={() => setIssue(false)} onSave={async (lines, targetObj, user) => {
