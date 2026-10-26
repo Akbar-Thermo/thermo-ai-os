@@ -3140,6 +3140,23 @@ function aktData(s, objects, ops, whMoves) {
   const retByKey = {}; retGroups.forEach((g) => { retByKey[g.key] = g.sum; });
   return { received, returns, toWh, toWhCost, payments, totalReceived, totalReturns, totalPaid, balance, batches, retGroups, retByKey };
 }
+/* Срок долга поставщику: оплаты и возвраты гасят поставки по порядку (сначала самые старые);
+   первая поставка, которая погашена не полностью, — с неё долг и считается. month — закуплено / оплачено в этом месяце. */
+function supplierDebtInfo(s, objects, ops, whMoves) {
+  const d = aktData(s, objects, ops, whMoves);
+  let credit = round2(d.totalPaid + d.totalReturns), since = null;
+  for (const g of d.batches) {
+    const sum = round2(g.sum);
+    if (credit + 0.004 >= sum) { credit = round2(credit - sum); continue; }
+    since = String(g.date || "").slice(0, 10); break;
+  }
+  const days = d.balance > 0.004 && since ? Math.max(0, Math.floor((Date.now() - new Date(since + "T12:00:00").getTime()) / 864e5)) : null;
+  const m0 = today().slice(0, 7);
+  const monthPurch = round2(d.batches.filter((g) => String(g.date || "").slice(0, 7) === m0).reduce((a, g) => a + g.sum, 0));
+  const monthPaid = round2(d.payments.filter((o) => String(o.op_date || o.created_at || "").slice(0, 7) === m0).reduce((a, o) => a + (o.amount || 0), 0));
+  return { days, since, monthPurch, monthPaid };
+}
+const SUP_DEBT_DAYS = 30; // долг старше — красным «30+ дн.»
 /* «История (Excel)»: все расчёты с поставщиком по датам — поставки (с товарами), возвраты, оплаты и долг после каждой операции */
 function supplierHistorySheet(s, objects, ops, whMoves) {
   const d = aktData(s, objects, ops, whMoves);
@@ -3358,7 +3375,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
   const [openId, setOpenId] = useState(null); // страница поставщика (как у объекта): оплата и акт-сверка — внутри
   const [q, setQ] = useState("");
   const prodCnt = useMemo(() => { const m = {}; products.forEach((p) => { if (p.supplier_id) m[p.supplier_id] = (m[p.supplier_id] || 0) + 1; }); return m; }, [products]);
-  const rows = useMemo(() => suppliers.map((s) => ({ s, st: supplierStats(s, objects, finance_ops, wh_moves) }))
+  const rows = useMemo(() => suppliers.map((s) => ({ s, st: supplierStats(s, objects, finance_ops, wh_moves), di: supplierDebtInfo(s, objects, finance_ops, wh_moves) }))
     .sort((a, b) => ((a.s.status === "inactive") - (b.s.status === "inactive")) || String(a.s.name || "").localeCompare(String(b.s.name || ""), "ru")),
     [suppliers, objects, finance_ops, wh_moves]);
   const shown = rows.filter(({ s }) => !q || (String(s.name || "") + " " + (s.contact || "") + " " + (s.phone || "")).toLowerCase().includes(q.toLowerCase()));
@@ -3424,7 +3441,8 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
           <button className="btn" onClick={() => setOpenId(null)}>← Поставщики</button>
           <div style={{ marginRight: "auto" }}>
             <h2>{cur.name} {cur.status === "inactive" && <Badge c="#9a9a9a">неактивен</Badge>}</h2>
-            <div className="sm mut">{[cur.contact, cur.phone, "товаров: " + (prodCnt[cur.id] || 0)].filter(Boolean).join(" · ")}</div>
+            <div className="sm mut">{[cur.contact, cur.phone, "товаров: " + (prodCnt[cur.id] || 0)].filter(Boolean).join(" · ")}
+              {(() => { const r = rows.find((x) => x.s.id === cur.id); const di = r && r.di; return di && di.days != null ? <span className="sup-age" style={di.days > SUP_DEBT_DAYS ? { color: "var(--bad)", fontWeight: 800 } : null}> · долг не оплачен {di.days > SUP_DEBT_DAYS ? SUP_DEBT_DAYS + "+" : di.days} дн. (с {dt(di.since)})</span> : null; })()}</div>
           </div>
           {fin && <button className="btn dng" onClick={() => { setDelErr(""); setDel(cur); }}>Удалить</button>}
           <button className="btn" onClick={() => setEdit(cur)}>Редактировать</button>
@@ -3439,6 +3457,21 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
         <button className="btn" title="Все расчёты со всеми поставщиками: сводка + лист на каждого" onClick={() => history(shown.map((x) => x.s), "История_поставщики_" + today() + ".xlsx")}>⬇ История (Excel)</button>
         <button className="btn pri" onClick={() => setEdit({ status: "active" })}>+ Поставщик</button>
       </div>
+      {(() => {
+        const all = rows;
+        const debt = round2(all.reduce((a, { st }) => a + Math.max(0, st.balance), 0));
+        const mp = round2(all.reduce((a, { di }) => a + di.monthPurch, 0)), mpaid = round2(all.reduce((a, { di }) => a + di.monthPaid, 0));
+        const top = all.filter(({ st }) => st.balance > 0.004).sort((a, b) => b.st.balance - a.st.balance)[0];
+        const old = all.filter(({ di }) => di.days != null && di.days > SUP_DEBT_DAYS).length;
+        return (
+          <div className="kpis sect sup-kpis">
+            <div className="kpi"><div className="l">Долг поставщикам</div><div className="v" style={{ color: debt > 0 ? "var(--bad)" : "var(--mut)" }}>{fmt(debt)}</div>{old > 0 && <div className="xs" style={{ color: "var(--bad)", marginTop: 4 }}>старше {SUP_DEBT_DAYS} дней: {old} поставщ.</div>}</div>
+            <div className="kpi"><div className="l">Закуплено в этом месяце</div><div className="v">{fmt(mp)}</div></div>
+            <div className="kpi"><div className="l">Оплачено в этом месяце</div><div className="v" style={{ color: "var(--ok)" }}>{fmt(mpaid)}</div></div>
+            <div className="kpi clk" title={top ? "Открыть" : ""} onClick={() => top && setOpenId(top.s.id)}><div className="l">Самый большой долг</div><div className="v" style={{ color: top ? "var(--bad)" : "var(--mut)" }}>{top ? fmt(top.st.balance) : "—"}</div>{top && <div className="xs mut" style={{ marginTop: 4 }}>{top.s.name}{top.di.days != null ? " · " + (top.di.days > SUP_DEBT_DAYS ? SUP_DEBT_DAYS + "+" : top.di.days) + " дн." : ""}</div>}</div>
+          </div>
+        );
+      })()}
       {orphan.length > 0 && (
         <div className="card sect" style={{ borderColor: "var(--warn)" }}>
           <div style={{ fontWeight: 800, color: "var(--warn)", marginBottom: 4 }}>⚠ Оплаты поставщикам без указанного поставщика: {orphan.length} на {fmt(orphan.reduce((a, o) => a + (o.amount || 0), 0))}</div>
@@ -3457,9 +3490,9 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
       )}
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
-          <thead><tr><th>Поставщик</th><th>Контакт</th><th style={{textAlign:"right"}}>Закупки</th><th style={{textAlign:"right"}}>Оплачено</th><th style={{textAlign:"right"}}>Возвраты</th><th style={{textAlign:"right"}}>Долг</th><th style={{textAlign:"right"}}>Товаров</th></tr></thead>
+          <thead><tr><th>Поставщик</th><th>Контакт</th><th style={{textAlign:"right"}}>Закупки</th><th style={{textAlign:"right"}}>Оплачено</th><th style={{textAlign:"right"}}>Возвраты</th><th style={{textAlign:"right"}}>Долг</th><th style={{textAlign:"right"}} title="Сколько дней не оплачена самая старая неоплаченная поставка">Срок долга</th><th style={{textAlign:"right"}}>Товаров</th></tr></thead>
           <tbody>
-            {shown.map(({ s, st }) => (
+            {shown.map(({ s, st, di }) => (
               <tr key={s.id} className="clk" title="Открыть: оплата и акт-сверка" onClick={() => setOpenId(s.id)} style={{ opacity: s.status === "inactive" ? 0.55 : 1 }}>
                 <td style={{ fontWeight: 700 }}>{s.name}{s.status === "inactive" && <> <Badge c="#9a9a9a">неактивен</Badge></>}</td>
                 <td className="sm">{s.contact}<div className="xs mut mono">{s.phone}</div></td>
@@ -3467,10 +3500,11 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
                 <td className="num" style={{ color: "var(--ok)" }}>{fmt(st.paid)}</td>
                 <td className="num">{fmt(st.returns)}</td>
                 <td className="num" style={{ color: balColor(st.balance), fontWeight: 700 }} title={st.balance < 0 ? "переплата (аванс поставщику)" : ""}>{signedMoney(st.balance)}</td>
+                <td className="num sup-age" title={di.since ? "не оплачено с " + dt(di.since) + " — " + di.days + " дн." : ""} style={di.days != null && di.days > SUP_DEBT_DAYS ? { color: "var(--bad)", fontWeight: 800 } : { color: "var(--mut)" }}>{di.days == null ? "" : di.days > SUP_DEBT_DAYS ? "⚠ " + SUP_DEBT_DAYS + "+ дн." : di.days + " дн."}</td>
                 <td className="num">{prodCnt[s.id] || 0}</td>
               </tr>
             ))}
-            {!shown.length && <tr><td colSpan={7} className="mut" style={{ textAlign: "center", padding: 24 }}>{suppliers.length ? "Ничего не найдено" : "Поставщиков пока нет — добавьте через «+ Поставщик»"}</td></tr>}
+            {!shown.length && <tr><td colSpan={8} className="mut" style={{ textAlign: "center", padding: 24 }}>{suppliers.length ? "Ничего не найдено" : "Поставщиков пока нет — добавьте через «+ Поставщик»"}</td></tr>}
             {shown.length > 1 && (
               <tr style={{ background: "var(--panel2)" }}>
                 <td colSpan={2} style={{ fontWeight: 800 }}>Итого{q ? " (по найденным)" : ""}</td>
@@ -3478,7 +3512,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
                 <td className="num" style={{ fontWeight: 800, color: "var(--ok)" }}>{fmt(tot.paid)}</td>
                 <td className="num" style={{ fontWeight: 800 }}>{fmt(tot.returns)}</td>
                 <td className="num" style={{ fontWeight: 800, color: tot.debt > 0 ? "var(--bad)" : "var(--mut)" }} title="сумма долгов (переплаты не вычитаются)">{fmt(tot.debt)}</td>
-                <td></td>
+                <td></td><td></td>
               </tr>
             )}
           </tbody>
