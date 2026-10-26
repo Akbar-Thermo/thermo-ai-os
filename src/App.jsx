@@ -435,6 +435,31 @@ table.t tr:hover td{background:var(--hover)}
 .modal-bg{position:fixed;inset:0;background:rgba(18,24,27,.45);display:flex;align-items:flex-start;justify-content:center;z-index:100;padding:30px 14px;overflow:auto;backdrop-filter:blur(2px)}
 .modal{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px;width:100%;box-shadow:0 24px 60px rgba(18,24,27,.22)}
 .te.dark .modal{box-shadow:0 24px 60px rgba(0,0,0,.5)}
+.ret-find{display:flex;gap:6px;align-items:center;margin-bottom:10px}.ret-find .inp{flex:1}
+.ret-box{overflow:auto;border:1px solid var(--line);border-radius:8px;margin-bottom:14px;max-height:340px}
+.ret-step{display:flex;gap:4px;align-items:center}.ret-step .inp{width:64px;text-align:center;padding-left:4px;padding-right:4px}
+.ret-ph{display:none}.ret-more{display:block;margin:8px auto}
+@media(max-width:700px){
+.modal-bg:has(.m-ret){padding:0}
+.modal.m-ret{max-width:none!important;min-height:100dvh;border-radius:0;border:0;padding:14px 12px calc(14px + env(safe-area-inset-bottom,0px))}
+.m-ret .ret-find .inp{font-size:16px;height:44px}
+.m-ret .ret-box{max-height:none;border:0;overflow:visible}
+.m-ret .ret-t thead,.m-ret .ret-t .ret-dk,.m-ret .ret-dk2{display:none}
+.m-ret .ret-t tr{display:grid;grid-template-columns:1fr auto;gap:8px 10px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--line)}
+.m-ret .ret-t td{border:0;padding:0;background:transparent!important}
+.m-ret .ret-t td.ret-name{grid-column:1/-1;font-size:14px}
+.m-ret .ret-ph{display:inline}
+.m-ret .ret-step .btn{min-width:44px;height:44px;font-size:20px;font-weight:700}
+.m-ret .ret-step .btn.ret-all{font-size:13px;min-width:52px}
+.m-ret .ret-step .inp{width:72px;height:44px;font-size:18px;font-weight:700}
+.m-ret .ret-sum{font-size:15px}
+.m-ret .ret-meta{grid-template-columns:1fr!important}
+.m-ret .ret-meta .inp{font-size:16px;height:44px}
+.m-ret .ret-foot{position:sticky;bottom:0;background:var(--panel);margin:12px -12px 0!important;padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);flex-wrap:wrap;gap:8px;z-index:2}
+.m-ret .ret-foot .btn{height:46px;font-size:15px}
+.m-ret .ret-foot .btn.pri{flex:1}
+.m-ret .ret-foot>.row{flex:1}
+}
 .steps{display:flex;gap:6px;margin:10px 0 18px;flex-wrap:wrap}
 .step{padding:6px 12px;border-radius:20px;font-size:12px;font-weight:600;border:1px solid var(--line);color:var(--mut)}
 .step.on{border-color:var(--acc);color:#fff;background:var(--acc)}
@@ -1375,7 +1400,7 @@ function useTopKeys(ref, keys) {
   }, []);
 }
 // окно: фокус сразу в первое поле; Esc — закрыть (если в поле не набран текст); Ctrl+Enter — главная кнопка окна
-function Modal({ title, onClose, children, w = 640 }) {
+function Modal({ title, onClose, children, w = 640, cls = "" }) {
   const bgRef = useRef(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -1384,7 +1409,7 @@ function Modal({ title, onClose, children, w = 640 }) {
     const t = setTimeout(() => {
       if (!bg || bg.contains(document.activeElement)) return;
       const f = bg.querySelector(".modal input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([disabled]), .modal textarea:not([disabled]), .modal select:not([disabled])");
-      if (f) f.focus();
+      if (f && !(isPhone() && f.hasAttribute("data-phone-nofocus"))) f.focus(); // телефон: клавиатура не выскакивает сама
     }, 0);
     const h = (e) => {
       if (e.defaultPrevented || topModal() !== bg) return;
@@ -1411,7 +1436,7 @@ function Modal({ title, onClose, children, w = 640 }) {
   }, []);
   return (
     <div ref={bgRef} className="modal-bg" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal" style={{ maxWidth: w }}>
+      <div className={"modal" + (cls ? " " + cls : "")} style={{ maxWidth: w }}>
         <div className="row" style={{ justifyContent: "space-between", marginBottom: 14 }}>
           <h3>{title}</h3>
           <button className="btn xs" onClick={onClose}>✕</button>
@@ -5970,14 +5995,33 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
     const done = returned[i.id] || returned[i.product_id] || 0;
     // неотгруженный товар клиенту не выдан — вернуть его нельзя (товар со склада, ещё не списанный, — тоже)
     const given = isShipped(i) && !i.wh_pending;
-    return { item: i, done, avail: given ? Math.max(0, i.qty - done) : 0, ret: 0, notShipped: !given };
+    return { item: i, done, avail: given ? round2(Math.max(0, i.qty - done)) : 0, ret: 0, txt: "", notShipped: !given };
   }));
   const [reason, setReason] = useState("");
   const [opDate, setOpDate] = useState(today());
   const [user] = useState(curUserName()); // возврат оформляет тот, кто вошёл в систему
   // куда уходит товар: на Склад Thermo (долг поставщику не меняется) или сразу поставщику (долг уменьшается)
   const [dest, setDest] = useState("wh");
-  const setRet = (idx, val) => setRows(rows.map((r, j) => (j === idx ? { ...r, ret: Math.max(0, Math.min(Number(val) || 0, r.avail)) } : r)));
+  // поле «Вернуть» пустое (не «0»): удобно вводить с телефона; больше доступного — не даёт
+  const setRet = (idx, val) => setRows((rs) => rs.map((r, j) => {
+    if (j !== idx) return r;
+    const t = String(val ?? "").replace(",", ".");
+    const n = parseNum(t);
+    if (t.trim() === "" || !(n > 0)) return { ...r, ret: 0, txt: t.trim() === "" ? "" : t };
+    if (n > r.avail) return { ...r, ret: r.avail, txt: String(r.avail) };
+    return { ...r, ret: round2(n), txt: t };
+  }));
+  const step = (idx, d) => { const r = rows[idx]; setRet(idx, String(Math.max(0, Math.min(r.avail, round2((r.ret || 0) + d))))); };
+  // поиск по названию; отгруженное (можно вернуть) — сверху, неотгруженное — свёрнуто
+  const [q, setQ] = useState("");
+  const anyAvail = rows.some((r) => r.avail > 0);
+  const [showAll, setShowAll] = useState(false);
+  const toks = normPName(q).split(" ").filter(Boolean);
+  const view = rows.map((r, idx) => ({ r, idx }))
+    .filter(({ r }) => !toks.length || toks.every((t) => normPName(r.item.name + " " + (r.item.code || "")).includes(t)))
+    .sort((x, y) => (y.r.avail > 0) - (x.r.avail > 0));
+  const hiddenCnt = anyAvail && !showAll ? view.filter(({ r }) => r.avail === 0 && r.ret === 0).length : 0;
+  const shown = hiddenCnt ? view.filter(({ r }) => r.avail > 0 || r.ret > 0) : view;
   const totalSum = rows.reduce((a, r) => a + r.ret * (r.item.price || 0), 0);
   const totalCnt = rows.filter((r) => r.ret > 0).length;
   const batch = uuid();
@@ -6001,25 +6045,35 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
     setBusy(false);
   };
   return (
-    <Modal title="Возврат товара (можно несколько позиций сразу)" onClose={onClose} w={780}>
-      <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 14, maxHeight: 340 }}>
-        <table className="t">
-          <thead><tr><th>Товар</th><th style={{textAlign:"right"}}>В объекте</th><th style={{textAlign:"right"}}>Уже возвр.</th><th style={{textAlign:"right"}}>Доступно</th><th style={{width:100}}>Вернуть</th><th style={{textAlign:"right"}}>Сумма</th></tr></thead>
+    <Modal title="Возврат товара" onClose={onClose} w={780} cls="m-ret">
+      <div className="ret-find"><input className="inp" type="search" data-esc="1" data-phone-nofocus="1" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape" && q) { e.preventDefault(); setQ(""); } }} placeholder="🔎 Найти товар по названию" />
+        {q && <button className="btn xs" onClick={() => setQ("")}>✕</button>}</div>
+      {!anyAvail && rows.length > 0 && <div className="sm" style={{ color: "var(--warn)", margin: "0 0 10px" }}>Товар ещё не отгружен клиенту — вернуть нечего. Сначала «🚚 Отгрузить товар».</div>}
+      <div className="ret-box">
+        <table className="t ret-t">
+          <thead><tr><th>Товар</th><th style={{textAlign:"right"}}>В объекте</th><th style={{textAlign:"right"}}>Уже возвр.</th><th style={{textAlign:"right"}}>Доступно</th><th style={{width:150}}>Вернуть</th><th style={{textAlign:"right"}}>Сумма</th></tr></thead>
           <tbody>
-            {rows.map((r, i) => (
-              <tr key={r.item.id} style={{ background: r.ret > 0 ? "var(--acc-tint)" : "none", opacity: r.avail === 0 ? 0.45 : 1 }}>
-                <td className="sm" style={{ fontWeight: 600 }}>{r.item.name}<div className="xs mut">{fmt(r.item.price)} / {r.item.unit}{r.notShipped && <span style={{ color: "var(--warn)" }}> · не отгружено</span>}</div></td>
-                <td className="num">{r.item.qty}</td>
-                <td className="num mut">{r.done}</td>
-                <td className="num">{r.avail}</td>
-                <td><input type="number" className="inp" min={0} max={r.avail} value={r.ret} disabled={r.avail === 0}
-                  onChange={(e) => setRet(i, e.target.value)} /></td>
-                <td className="num" style={{ fontWeight: 700 }}>{fmt(r.ret * (r.item.price || 0))}</td>
+            {shown.map(({ r, idx: i }) => (
+              <tr key={r.item.id} className={r.ret > 0 ? "on" : ""} style={{ background: r.ret > 0 ? "var(--acc-tint)" : "none", opacity: r.avail === 0 ? 0.45 : 1 }}>
+                <td className="sm ret-name" style={{ fontWeight: 600 }}>{r.item.name}<div className="xs mut">{fmt(r.item.price)} / {r.item.unit}{r.notShipped && <span style={{ color: "var(--warn)" }}> · не отгружено</span>}<span className="ret-ph"> · в объекте {fmt(r.item.qty)}{r.done ? ", уже возвр. " + fmt(r.done) : ""} · можно вернуть <b>{fmt(r.avail)}</b></span></div></td>
+                <td className="num ret-dk">{r.item.qty}</td>
+                <td className="num mut ret-dk">{r.done}</td>
+                <td className="num ret-dk">{r.avail}</td>
+                <td className="ret-q"><div className="ret-step">
+                  <button type="button" className="btn xs" tabIndex={-1} disabled={r.avail === 0 || !r.ret} onClick={() => step(i, -1)}>−</button>
+                  <input type="number" inputMode="decimal" className="inp" min={0} max={r.avail} step="any" value={r.txt} placeholder="0" disabled={r.avail === 0}
+                    onFocus={(e) => e.target.select()} onChange={(e) => setRet(i, e.target.value)} />
+                  <button type="button" className="btn xs" tabIndex={-1} disabled={r.avail === 0 || r.ret >= r.avail} onClick={() => step(i, 1)}>+</button>
+                  {r.avail > 0 && <button type="button" className="btn xs ret-all" tabIndex={-1} disabled={r.ret >= r.avail} onClick={() => setRet(i, String(r.avail))}>все</button>}
+                </div></td>
+                <td className="num ret-sum" style={{ fontWeight: 700 }}>{fmt(r.ret * (r.item.price || 0))}</td>
               </tr>
             ))}
             {!rows.length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 20 }}>В объекте нет материалов</td></tr>}
+            {rows.length > 0 && !view.length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 20 }}>Ничего не найдено</td></tr>}
           </tbody>
         </table>
+        {hiddenCnt > 0 && <button type="button" className="btn xs ret-more" onClick={() => setShowAll(true)}>показать не отгруженные ({hiddenCnt})</button>}
       </div>
       <div className="card sect" style={{ padding: 10, marginBottom: 12 }}>
         <div className="sm" style={{ fontWeight: 700, marginBottom: 6 }}>Куда вернуть товар?</div>
@@ -6027,13 +6081,13 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
         <label className="clk sm" style={{ display: "block", marginTop: 4 }}><input type="radio" name="retdest" checked={dest === "sup"} onChange={() => setDest("sup")} /> <b>Сразу поставщику</b> <span className="mut">— товар уходит поставщику, его долг уменьшится на себестоимость</span></label>
         {dest === "sup" && noSup > 0 && <div className="xs" style={{ color: "var(--warn)", marginTop: 6 }}>У {noSup} поз. не указан поставщик — они будут оприходованы на склад.</div>}
       </div>
-      <div className="grid" style={{ gridTemplateColumns: "2fr 1fr 1fr" }}>
+      <div className="grid ret-meta" style={{ gridTemplateColumns: "2fr 1fr 1fr" }}>
         <Fld label="Причина (общая)"><input className="inp" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="брак / не подошло / излишек" /></Fld>
         <Fld label="Дата возврата"><input type="date" className="inp" value={opDate} onChange={(e) => setOpDate(e.target.value)} /></Fld>
       </div>
-      <div className="row" style={{ justifyContent: "space-between", marginTop: 16 }}>
+      <div className="row ret-foot" style={{ justifyContent: "space-between", marginTop: 16 }}>
         <div className="mono" style={{ fontWeight: 700 }}>Позиций: {totalCnt} · Итого возврат: <span style={{ color: "var(--bad)" }}>{money(totalSum)}</span>
-          <div className="xs mut" style={{ fontWeight: 400 }}>по цене, по которой товар выдан клиенту · себестоимость и цена товара в базе и на складе не меняются</div></div>
+          <div className="xs mut ret-dk2" style={{ fontWeight: 400 }}>по цене, по которой товар выдан клиенту · себестоимость и цена товара в базе и на складе не меняются</div></div>
         <div className="row">
           <button className="btn" onClick={onClose}>Отмена</button>
           <button className="btn pri" disabled={!totalCnt || busy} onClick={submit}>{busy ? "Оформляю…" : "Оформить возврат"}</button>
