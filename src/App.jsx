@@ -2363,7 +2363,7 @@ function SupBrandFilter({ suppliers, products, sfs, setSfs, sbr, setSbr, onChang
                     } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setSupOpen(false); setBrAct(-1); if (onDone) onDone(); }
                   };
                   return <>
-                    <input className="inp" autoFocus placeholder="Найти поставщика…  (↑↓ · → бренды · Enter — отметить)" value={supQ} onChange={(e) => { setSupQ(e.target.value); setSupAct(-1); setBrAct(-1); }} onKeyDown={onKey} style={{ marginBottom: 6 }} />
+                    <input className="inp" autoFocus placeholder={isPhone() ? "Найти поставщика…" : "Найти поставщика…  (↑↓ · → бренды · Enter — отметить)"} value={supQ} onChange={(e) => { setSupQ(e.target.value); setSupAct(-1); setBrAct(-1); }} onKeyDown={onKey} style={{ marginBottom: 6 }} />
                     <div className="sup-list" style={{ maxHeight: 300, overflow: "auto" }}>
                       {list.map((x, i) => (
                         <label key={x.id} className={"row clk pick-sup" + (hs === x.id ? " hov" : "")} data-on={supAct === i ? "1" : undefined} onMouseEnter={() => { setHov(x.id); setSupAct(i); setBrAct(-1); }}
@@ -2374,6 +2374,7 @@ function SupBrandFilter({ suppliers, products, sfs, setSfs, sbr, setSbr, onChang
                           {(supBrands[x.id] || []).length > 1 && <span className="xs mut">›</span>}
                         </label>
                       ))}
+                      {!list.length && <div className="xs mut" style={{ padding: "8px 6px" }}>{supQ.trim() ? "Не найдено" : "Нет поставщиков с товарами в базе"}</div>}
                     </div>
                     {hs && brands.length > 1 && (
                       <div className="brand-fly">
