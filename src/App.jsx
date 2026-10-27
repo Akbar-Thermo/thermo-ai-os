@@ -509,6 +509,8 @@ table.vt td{padding:4px 10px;white-space:nowrap;overflow:hidden;text-overflow:el
 table.vt td div{overflow:hidden;text-overflow:ellipsis}
 table.t tr:hover td{background:var(--hover)}
 .num{font-variant-numeric:tabular-nums;font-size:var(--fs-sm);text-align:right;white-space:nowrap}
+.ic{flex:none;vertical-align:-.17em;display:inline-block}
+.bdg .ic,.xs .ic{vertical-align:-.15em}
 .bdg{display:inline-block;padding:2px 9px;border-radius:var(--r-pill);font-size:var(--fs-xs);font-weight:600;border:1px solid}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
 .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:14px 16px;box-shadow:var(--shadow)}
@@ -1496,6 +1498,9 @@ function NoAutofillGuard() {
 }
 // бейдж: старые яркие hex-цвета переводятся в спокойные тона темы (читаются и в светлой, и в тёмной теме)
 const BADGE_TONE = { "#fff": "--t-strong", "#ffffff": "--t-strong", "#9a9a9a": "--t-neutral", "#d6d6d6": "--t-neutral", "#ffb020": "--t-warn", "#ff707b": "--t-bad", "#ff4d5e": "--t-bad", "#3ddc7d": "--t-ok", "#4db8ff": "--t-info" };
+/* Иконки — один набор (контурные, в стиле Lucide), вместо эмодзи. <Ic n="truck" /> — размер по тексту (1.1em) или s={20} */
+const IC = {"truck": "<path d=\"M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2\"/><path d=\"M15 18H9\"/><path d=\"M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14\"/><circle cx=\"17\" cy=\"18\" r=\"2\"/><circle cx=\"7\" cy=\"18\" r=\"2\"/>", "sheet": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h2\"/><path d=\"M14 13h2\"/><path d=\"M8 17h2\"/><path d=\"M14 17h2\"/>", "download": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" x2=\"12\" y1=\"15\" y2=\"3\"/>", "upload": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"17 8 12 3 7 8\"/><line x1=\"12\" x2=\"12\" y1=\"3\" y2=\"15\"/>", "down": "<path d=\"M12 5v14\"/><path d=\"m19 12-7 7-7-7\"/>", "up": "<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>", "save": "<path d=\"M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z\"/><path d=\"M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7\"/><path d=\"M7 3v4a1 1 0 0 0 1 1h7\"/>", "note": "<path d=\"M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z\"/><path d=\"M15 3v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h8\"/><path d=\"M8 17h5\"/>", "calc": "<rect width=\"16\" height=\"20\" x=\"4\" y=\"2\" rx=\"2\"/><line x1=\"8\" x2=\"16\" y1=\"6\" y2=\"6\"/><line x1=\"16\" x2=\"16\" y1=\"14\" y2=\"18\"/><path d=\"M16 10h.01\"/><path d=\"M12 10h.01\"/><path d=\"M8 10h.01\"/><path d=\"M12 14h.01\"/><path d=\"M8 14h.01\"/><path d=\"M12 18h.01\"/><path d=\"M8 18h.01\"/>", "warehouse": "<path d=\"M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z\"/><path d=\"M6 18h12\"/><path d=\"M6 14h12\"/><rect width=\"12\" height=\"12\" x=\"6\" y=\"10\"/>", "search": "<circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/>", "lock": "<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\"/><path d=\"M7 11V7a5 5 0 0 1 10 0v4\"/>", "pin": "<path d=\"M12 17v5\"/><path d=\"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z\"/>", "eye": "<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>", "eyeoff": "<path d=\"M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49\"/><path d=\"M14.084 14.158a3 3 0 0 1-4.242-4.242\"/><path d=\"M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143\"/><path d=\"m2 2 20 20\"/>", "file": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/>", "trash": "<path d=\"M3 6h18\"/><path d=\"M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6\"/><path d=\"M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2\"/>", "cash": "<rect width=\"20\" height=\"12\" x=\"2\" y=\"6\" rx=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/><path d=\"M6 12h.01M18 12h.01\"/>", "pencil": "<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>", "users": "<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/>", "sun": "<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2\"/><path d=\"M12 20v2\"/><path d=\"m4.93 4.93 1.41 1.41\"/><path d=\"m17.66 17.66 1.41 1.41\"/><path d=\"M2 12h2\"/><path d=\"M20 12h2\"/><path d=\"m6.34 17.66-1.41 1.41\"/><path d=\"m19.07 4.93-1.41 1.41\"/>", "moon": "<path d=\"M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z\"/>", "package": "<path d=\"M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z\"/><path d=\"M12 22V12\"/><path d=\"m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7\"/><path d=\"m7.5 4.27 9 5.15\"/>", "wrench": "<path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z\"/>", "cloud": "<path d=\"M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z\"/>", "link": "<path d=\"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71\"/><path d=\"M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71\"/>", "clipboard": "<rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/>", "folder": "<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "eraser": "<path d=\"m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21\"/><path d=\"M22 21H7\"/><path d=\"m5 11 9 9\"/>", "hourglass": "<path d=\"M5 22h14\"/><path d=\"M5 2h14\"/><path d=\"M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22\"/><path d=\"M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2\"/>", "undo": "<path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"/>", "menu": "<line x1=\"4\" x2=\"20\" y1=\"12\" y2=\"12\"/><line x1=\"4\" x2=\"20\" y1=\"6\" y2=\"6\"/><line x1=\"4\" x2=\"20\" y1=\"18\" y2=\"18\"/>", "copy": "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>"};
+const Ic = ({ n, s, style, title, className = "" }) => <svg className={"ic " + className} width={s || "1.1em"} height={s || "1.1em"} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden={title ? undefined : "true"} role={title ? "img" : undefined} style={style} dangerouslySetInnerHTML={{ __html: (title ? "<title>" + title + "</title>" : "") + (IC[n] || "") }} />;
 const Badge = ({ c, children }) => {
   const col = String(c || "").startsWith("var(") ? c : BADGE_TONE[String(c || "").toLowerCase()] ? "var(" + BADGE_TONE[String(c).toLowerCase()] + ")" : c;
   return <span className="bdg" style={{ color: col, borderColor: "color-mix(in srgb, " + col + " 35%, transparent)", background: "color-mix(in srgb, " + col + " 9%, transparent)" }}>{children}</span>;
@@ -1913,7 +1918,7 @@ function SheetPickHost() {
             <button key={x.name} className="card clk sheet-pick" disabled={!x.rows} autoFocus={i === c.list.findIndex((y) => y.rows > 0)}
               style={{ textAlign: "left", padding: "10px 14px", cursor: x.rows ? "pointer" : "default", opacity: x.rows ? 1 : 0.5, border: "1px solid var(--line)", background: "var(--panel)", color: "var(--txt)" }}
               onClick={() => x.rows && done(x.name)}>
-              <div className="row" style={{ gap: 8 }}><b style={{ fontSize: 14 }}>📄 {x.name}</b><span className="xs mut" style={{ marginLeft: "auto" }}>{x.rows ? "строк: " + x.rows : "пустой лист"}</span></div>
+              <div className="row" style={{ gap: 8 }}><b style={{ fontSize: 14 }}><Ic n="file" /> {x.name}</b><span className="xs mut" style={{ marginLeft: "auto" }}>{x.rows ? "строк: " + x.rows : "пустой лист"}</span></div>
               {x.sample && <div className="xs mut" style={{ marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.sample}</div>}
             </button>
           ))}
@@ -2549,7 +2554,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
                       style={{ position: "absolute", top: i * ROW, left: 0, right: 0, height: ROW, boxSizing: "border-box", padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === activeIdx ? "var(--acc-tint)" : whSet.has(p.id) ? "var(--wh-tint)" : "var(--panel)", boxShadow: whSet.has(p.id) ? "inset 3px 0 0 var(--ok)" : "none", overflow: "hidden" }}
                       onClick={() => pick(p)}>
                       <div className="pick-name">{p.name}</div>
-                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, brandOf(p, supName[p.supplier_id]), supName[p.supplier_id]].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}{whLabel(p) ? <b style={{ color: "var(--ok)" }}> · 🏬 {whLabel(p)}</b> : null}{whRes && whRes[p.id] ? <span className="wh-res" style={{ color: "var(--warn)", fontWeight: 600 }} title={"В брони: " + whRes[p.id].objs.join(", ")}> · 🔒 бронь {fmt(whRes[p.id].qty)} ({whRes[p.id].objs.slice(0, 2).join(", ")}{whRes[p.id].objs.length > 2 ? "…" : ""})</span> : null}{whAge && whAge[p.id] >= WH_OLD_DAYS && whSet.has(p.id) ? <span className="wh-age" style={{ color: "var(--warn)", fontWeight: 700 }} title="Лежит на складе давно — продать в первую очередь"> · ⏳ {whAge[p.id]} дн.</span> : null}</div>
+                      <div className="xs mono" style={{ color: "var(--mut)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[p.code, brandOf(p, supName[p.supplier_id]), supName[p.supplier_id]].filter(Boolean).join(" · ")} · {Number(p.price) > 0 ? money(p.price) : "≈" + money(retailOf(p))}{Number(p.stock) > 0 ? " · ост. " + fmt(p.stock) : ""}{whLabel(p) ? <b style={{ color: "var(--ok)" }}> · <Ic n="warehouse" /> {whLabel(p)}</b> : null}{whRes && whRes[p.id] ? <span className="wh-res" style={{ color: "var(--warn)", fontWeight: 600 }} title={"В брони: " + whRes[p.id].objs.join(", ")}> · <Ic n="lock" /> бронь {fmt(whRes[p.id].qty)} ({whRes[p.id].objs.slice(0, 2).join(", ")}{whRes[p.id].objs.length > 2 ? "…" : ""})</span> : null}{whAge && whAge[p.id] >= WH_OLD_DAYS && whSet.has(p.id) ? <span className="wh-age" style={{ color: "var(--warn)", fontWeight: 700 }} title="Лежит на складе давно — продать в первую очередь"> · <Ic n="hourglass" /> {whAge[p.id]} дн.</span> : null}</div>
                     </div>
                   );
                 })}
@@ -2707,7 +2712,7 @@ function ProductsTab({ data, reload, toast }) {
           <option value="">Все бренды</option>
           {brands.map((b) => <option key={b} value={b}>{b}</option>)}
         </select>
-        {sel.length > 0 && <button className="btn dng" onClick={() => setConfirmDel(true)}>🗑 Удалить ({sel.length})</button>}
+        {sel.length > 0 && <button className="btn dng" onClick={() => setConfirmDel(true)}><Ic n="trash" /> Удалить ({sel.length})</button>}
         {needRenum && products.length > 0 && <button className="btn" onClick={() => setRenum({ busy: false, done: 0, total: 0, err: "" })} title="Коды станут 1, 2, 3 … по порядку">№ Пронумеровать коды</button>}
         <button className="btn" onClick={() => setImp(true)}>Импорт Excel/CSV</button>
         <button className="btn pri" onClick={() => setEdit({ unit: "шт", status: "active", stock: 0, cost: 0, price: 0, code: String(nextProductCode(products)) })}>+ Товар</button>
@@ -3083,7 +3088,7 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
       {!review && !rows && (
         <div>
           <div className="card clk" style={{ borderStyle: "dashed", textAlign: "center", padding: 34, marginBottom: 14 }} onClick={() => fRef.current.click()}>
-            <div style={{ fontSize: 26, marginBottom: 6 }}>📊</div>
+            <div style={{ marginBottom: 6, color: "var(--mut)" }}><Ic n="sheet" s={30} /></div>
             <div style={{ fontWeight: 800 }}>Выбрать файл Excel (.xlsx / .xls / .csv)</div>
             <div className="xs mut" style={{ marginTop: 4 }}>Один лист: наименования, цены, поставщики — колонки определятся автоматически</div>
           </div>
@@ -3422,8 +3427,8 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
   return (
     <AktWrap inline={inline} title={"Акт-сверка: " + s.name} onClose={onClose}>
       {inline
-        ? <div className="row" style={{ marginBottom: 10 }}><h3 style={{ marginRight: "auto" }}>Акт-сверка</h3><button className="btn xs" onClick={exportAkt}>⬇ Акт сверки Excel</button></div>
-        : <div className="row" style={{ justifyContent: "flex-end", marginTop: -6, marginBottom: 10 }}><button className="btn xs" onClick={exportAkt}>⬇ Excel</button></div>}
+        ? <div className="row" style={{ marginBottom: 10 }}><h3 style={{ marginRight: "auto" }}>Акт-сверка</h3><button className="btn xs" onClick={exportAkt}><Ic n="download" /> Акт сверки Excel</button></div>
+        : <div className="row" style={{ justifyContent: "flex-end", marginTop: -6, marginBottom: 10 }}><button className="btn xs" onClick={exportAkt}><Ic n="download" /> Excel</button></div>}
       <div className="kpis" style={{ marginBottom: 16 }}>
         <div className="kpi"><div className="l">Получено товаров</div><div className="v">{fmt(totalReceived)}</div></div>
         <div className="kpi"><div className="l">Возвраты</div><div className="v" style={{ color: "var(--warn)" }}>{fmt(totalReturns)}</div></div>
@@ -3443,7 +3448,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
                   <tr className="clk akt-grp" onClick={() => setOpened((c) => ({ ...c, [g.key]: !c[g.key] }))} style={{ background: "var(--acc-tint)" }}>
                     <td colSpan={4} style={{ fontWeight: 700 }}>
                       <span className="mut" style={{ display: "inline-block", width: 14 }}>{closed[g.key] ? "▸" : "▾"}</span>
-                      🚚 {g.obj_name} · Поставка №{g.no} · {canEdit
+                      <Ic n="truck" /> {g.obj_name} · Поставка №{g.no} · {canEdit
                         ? <input type="date" className="inp batch-date" title="Дата накладной — нажмите, чтобы изменить" value={String(g.date || "").slice(0, 10)}
                           onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => setGroupDate(g, e.target.value)} />
                         : <span className="mono">{dt(g.date)}</span>}
@@ -3602,15 +3607,15 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
           </div>
           {fin && <button className="btn dng" onClick={() => { setDelErr(""); setDel(cur); }}>Удалить</button>}
           <button className="btn" onClick={() => setEdit(cur)}>Редактировать</button>
-          <button className="btn" onClick={() => history([cur], "История_" + fileSafe(cur.name) + ".xlsx")}>⬇ История (Excel)</button>
-          <button className="btn pri sup-pay" onClick={() => setPay(cur)}>💵 Оплата{curSt && curSt.debt > 0 ? " · долг " + fmt(curSt.debt) : ""}</button>
+          <button className="btn" onClick={() => history([cur], "История_" + fileSafe(cur.name) + ".xlsx")}><Ic n="download" /> История (Excel)</button>
+          <button className="btn pri sup-pay" onClick={() => setPay(cur)}><Ic n="cash" /> Оплата{curSt && curSt.debt > 0 ? " · долг " + fmt(curSt.debt) : ""}</button>
         </div>
         <AktSverkaModal inline s={cur} objects={objects} ops={finance_ops} whMoves={wh_moves} products={products} toast={toast} reload={reload} canEdit={fin} onClose={() => setOpenId(null)} />
       </> : <>
       <div className="row sect">
         <h2 style={{ marginRight: "auto" }}>Поставщики <span className="mut sm">({suppliers.length})</span></h2>
         <input className="inp" style={{ maxWidth: 220 }} placeholder="Поиск поставщика…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <button className="btn" title="Все расчёты со всеми поставщиками: сводка + лист на каждого" onClick={() => history(shown.map((x) => x.s), "История_поставщики_" + today() + ".xlsx")}>⬇ История (Excel)</button>
+        <button className="btn" title="Все расчёты со всеми поставщиками: сводка + лист на каждого" onClick={() => history(shown.map((x) => x.s), "История_поставщики_" + today() + ".xlsx")}><Ic n="download" /> История (Excel)</button>
         <button className="btn pri" onClick={() => setEdit({ status: "active" })}>+ Поставщик</button>
       </div>
       {(() => {
@@ -4099,7 +4104,7 @@ function RequestExcelImport({ products, onClose, onAdd }) {
       {!rows && (
         <div>
           <div className="card clk" style={{ borderStyle: "dashed", textAlign: "center", padding: 34 }} onClick={() => fRef.current.click()}>
-            <div style={{ fontSize: 26, marginBottom: 6 }}>📊</div>
+            <div style={{ marginBottom: 6, color: "var(--mut)" }}><Ic n="sheet" s={30} /></div>
             <div style={{ fontWeight: 700 }}>Выбрать файл Excel (.xlsx / .xls / .csv)</div>
             <div className="xs mut" style={{ marginTop: 4 }}>Список материалов: наименование и количество (единица, код — если есть). Каждая строка найдётся в базе товаров; спорные совпадения можно поправить перед добавлением.</div>
           </div>
@@ -4215,7 +4220,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
     // аналог другого поставщика — только если своего не хватает и согласились
     let alt = had ? !!had.alt : false;
     if (!alt && sim && exQ < want) alt = await askWhAlt(p, exQ, sim, want);
-    if (exQ > 0 || alt) toast("🏬 Со Склада Thermo: " + (exQ > 0 ? "«" + p.name + "» — " + fmt(Math.min(exQ, want)) : "") + (alt ? (exQ > 0 ? " + " : "") + "аналог «" + sim.name + "»" : "") + " · " + (p.unit || "шт"));
+    if (exQ > 0 || alt) toast("Со Склада Thermo: " + (exQ > 0 ? "«" + p.name + "» — " + fmt(Math.min(exQ, want)) : "") + (alt ? (exQ > 0 ? " + " : "") + "аналог «" + sim.name + "»" : "") + " · " + (p.unit || "шт"));
     setLines((prev) => {
       const ex = prev.find((l) => l.product_id === p.id);
       if (ex) return prev.map((l) => (l.product_id === p.id ? { ...l, qty: round2(qn(l.qty) + add), alt } : l));
@@ -4473,7 +4478,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
         <div className="card">
           <div className="row" style={{ marginBottom: 12 }}>
             <h3 style={{ marginRight: "auto" }}>Подбор товаров</h3>
-            <button className="btn" onClick={() => setXlImport(true)}>📊 Загрузить из Excel</button>
+            <button className="btn" onClick={() => setXlImport(true)}><Ic n="sheet" /> Загрузить из Excel</button>
           </div>
           {xlImport && <RequestExcelImport products={filteredProducts} onClose={() => setXlImport(false)} onAdd={addImported} />}
 
@@ -4690,7 +4695,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
                       <div>{fmt(f.saleNet)}</div>
                       {isLive(o) && Math.abs(f.clientDebt) > 0.004 && <div className="xs" style={{ color: f.clientDebt > 0 ? "var(--bad)" : "var(--ok)", fontWeight: 700 }} title={f.clientDebt > 0 ? "долг клиента" : "переплата клиента"}>{f.clientDebt > 0 ? "долг " + fmt(f.clientDebt) : "переплата " + fmt(-f.clientDebt)}</div>}
                       <div className="xs mut mono">{dt(o.created_at)}</div>
-                      <div className="obj-act"><button className="btn xs" title="Изменить объект" onClick={(e) => { e.stopPropagation(); setEditO(o); }}>✎</button>{canDelete(o) ? <button className="btn xs dng" title="Удалить объект" onClick={(e) => { e.stopPropagation(); setDelObj(o); }}>✕</button> : null}</div>
+                      <div className="obj-act"><button className="btn xs" title="Изменить объект" onClick={(e) => { e.stopPropagation(); setEditO(o); }} aria-label="Изменить"><Ic n="pencil" /></button>{canDelete(o) ? <button className="btn xs dng" title="Удалить объект" onClick={(e) => { e.stopPropagation(); setDelObj(o); }}>✕</button> : null}</div>
                     </td>
                   </tr>
                 );
@@ -5356,9 +5361,9 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         </select>
         {/* выгрузки Excel — вместе, в одном ряду и всегда в этом порядке */}
         <div className="xl-group">
-          <button className="btn" onClick={exportClient}>⬇ Excel клиенту</button>
-          <button className="btn" onClick={exportDelivery}>🚚 Лист доставки</button>
-          <button className="btn" onClick={exportCost} title="Внутренний: себестоимость, цена и прибыль по каждой позиции">📊 Excel себестоимость</button>
+          <button className="btn" onClick={exportClient}><Ic n="download" /> Excel клиенту</button>
+          <button className="btn" onClick={exportDelivery}><Ic n="truck" /> Лист доставки</button>
+          <button className="btn" onClick={exportCost} title="Внутренний: себестоимость, цена и прибыль по каждой позиции"><Ic n="sheet" /> Excel себестоимость</button>
         </div>
       </div>
 
@@ -5377,11 +5382,11 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
 
       <div className="row sect" style={{ marginBottom: 8 }}>
         <h3 style={{ marginRight: "auto" }}>Материалы объекта</h3>
-        {costMode ? <span className="sm" style={{ fontWeight: 700, color: "var(--acc)" }}>✏️ Себестоимость подряд</span> : <>
-          {isLive(obj) && (obj.items || []).some((i) => !i.from_warehouse) && <button className="btn" style={unshippedCnt ? { borderColor: "var(--warn)", color: "var(--warn)", fontWeight: 700 } : undefined} onClick={() => setShipForm(true)}>🚚 Отгрузить товар{unshippedCnt ? " (" + unshippedCnt + ")" : " ✓"}</button>}
+        {costMode ? <span className="sm" style={{ fontWeight: 700, color: "var(--acc)" }}><Ic n="pencil" /> Себестоимость подряд</span> : <>
+          {isLive(obj) && (obj.items || []).some((i) => !i.from_warehouse) && <button className="btn" style={unshippedCnt ? { borderColor: "var(--warn)", color: "var(--warn)", fontWeight: 700 } : undefined} onClick={() => setShipForm(true)}><Ic n="truck" /> Отгрузить товар{unshippedCnt ? " (" + unshippedCnt + ")" : " ✓"}</button>}
           <button className="btn" onClick={() => setAddItems(true)}>+ Список вручную</button>
-          <button className="btn pri" onClick={() => setAddItems("newbatch")}>📦 Новая поставка</button>
-          <button className="btn" onClick={() => setImpItems(true)}>📊 Импорт Excel</button>
+          <button className="btn pri" onClick={() => setAddItems("newbatch")}><Ic n="package" /> Новая поставка</button>
+          <button className="btn" onClick={() => setImpItems(true)}><Ic n="sheet" /> Импорт Excel</button>
         </>}
       </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
@@ -5395,12 +5400,12 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
                 {batchHead ? (
                   <tr className="clk batch-head" onClick={() => toggleBatch(b.no)}>
                     <td colSpan={costMode ? 6 : 7} style={{ background: "var(--acc-tint)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
-                      {closedBatches[b.no] ? "▸" : "▾"} 🚚 ПОСТАВКА №{b.no} · <input type="date" className="inp batch-date" title="Дата накладной — нажмите, чтобы изменить" value={String(b.date || "").slice(0, 10)}
+                      {closedBatches[b.no] ? "▸" : "▾"} <Ic n="truck" /> ПОСТАВКА №{b.no} · <input type="date" className="inp batch-date" title="Дата накладной — нажмите, чтобы изменить" value={String(b.date || "").slice(0, 10)}
                         onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => setBatchDate(b.no, e.target.value)} /> · позиций: {b.items.length} · на сумму {fmt(b.items.reduce((a, i) => a + i.qty * i.price, 0))}
                       {b.items.some((i) => lateAdded.has(i.id)) && <span className="late-sum" style={{ color: "var(--warn)" }}> · добавлено позже: {b.items.filter((i) => lateAdded.has(i.id)).length} поз. на {fmt2(b.items.filter((i) => lateAdded.has(i.id)).reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0))}</span>}
                       {b.items.some((i) => !isShipped(i)) ? <span style={{ color: "var(--warn)" }}> · не отгружено: {b.items.filter((i) => !isShipped(i)).length}</span> : b.items.some((i) => i.shipped) ? <span style={{ color: "var(--ok)" }}> · отгружено ✓</span> : null}
                       <span className="xs mut" style={{ fontWeight: 500 }}>  — нажмите чтобы {closedBatches[b.no] ? "раскрыть" : "свернуть"}</span>
-                      {!costMode && fin && <button className="btn xs dng batch-del" title="Удалить всю поставку (все её позиции)" onClick={(e) => { e.stopPropagation(); setDelBatch(b); }}>🗑 Удалить поставку</button>}
+                      {!costMode && fin && <button className="btn xs dng batch-del" title="Удалить всю поставку (все её позиции)" onClick={(e) => { e.stopPropagation(); setDelBatch(b); }}><Ic n="trash" /> Удалить поставку</button>}
                     </td>
                   </tr>
                 ) : null}
@@ -5442,7 +5447,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
           <button className="btn xs" onClick={() => setOpForm({ type: t.id })}>+ {t.label}</button>
           {t.id === "discount" && (obj.items || []).length > 0 && <button className="btn xs" onClick={() => setPctForm(true)} title="Цена продажи = себестоимость ÷ (1 − %)">+ Прибыль от себестоимости</button>}
         </React.Fragment>)}
-        {(obj.items || []).length > 0 && !costMode && <button className="btn xs cq-start" onClick={startCost} title="Себестоимость всех позиций — в таблице одна за другой: ввели, Enter — следующая (Alt+S)">✏️ Себестоимость подряд</button>}
+        {(obj.items || []).length > 0 && !costMode && <button className="btn xs cq-start" onClick={startCost} title="Себестоимость всех позиций — в таблице одна за другой: ввели, Enter — следующая (Alt+S)"><Ic n="pencil" /> Себестоимость подряд</button>}
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
@@ -5455,7 +5460,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
                 <td className="num" style={{ fontWeight: 700, color: o.type === "client_payment" ? "var(--ok)" : "inherit" }}>{fmt(o.amount)}</td>
                 <td className="xs mut">{opDetails(o, [o.supplier_id ? supName(o.supplier_id) : ""])}{!o.voided && (fin || MANAGER_OP_TYPES.includes(o.type)) && <RateRepairLine op={o} where={"object:" + obj.name} onDone={async (usd) => { await reload(); toast("Исправлено: " + fmt(usd) + " $"); }} />}</td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
-                  {!o.voided && (fin || MANAGER_OP_TYPES.includes(o.type)) && <button className="btn xs" onClick={() => setEditOp(o)}>✎</button>}
+                  {!o.voided && (fin || MANAGER_OP_TYPES.includes(o.type)) && <button className="btn xs" title="Изменить" aria-label="Изменить" onClick={() => setEditOp(o)}><Ic n="pencil" /></button>}
                   {fin && (delAsk === o.id ? (
                     <>
                       <span className="xs" style={{ color: "var(--bad)", textDecoration: "none" }}>Удалить?</span>
@@ -5550,7 +5555,7 @@ function BatchPickDialog({ batches, count, total, initial, busy, onBack, onPick 
           {batches.map((b) => (
             <label key={b.no} className="row clk" style={{ gap: 10, flexWrap: "nowrap", padding: "8px 10px", border: "1px solid " + (sel === b.no ? "var(--acc)" : "var(--line)"), borderRadius: 10, background: sel === b.no ? "var(--acc-tint)" : "none" }}>
               <input type="radio" name="pick-batch" checked={sel === b.no} onChange={() => setSel(b.no)} />
-              <span style={{ fontWeight: 700 }}>🚚 Поставка №{b.no}</span>
+              <span style={{ fontWeight: 700 }}><Ic n="truck" /> Поставка №{b.no}</span>
               <span className="sm mut">от {dt(b.date)} · позиций: {b.items.length} · {fmt2(b.items.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0))}{b.items.some((x) => !isShipped(x)) ? "" : " · отгружено ✓"}</span>
             </label>
           ))}
@@ -5685,7 +5690,7 @@ function ShipModal({ obj, batches, fin, supName, onClose, onShip, onUnship }) {
         {fin && sel.size > 0 && <div className="xs mut" style={{ marginTop: 8 }}>Долг поставщикам увеличится: {Object.entries(bySup).map(([k, v]) => k + " — " + fmt2(v)).join(" · ")} · всего <b>{fmt2(selSum)}</b></div>}
         <div className="row" style={{ justifyContent: "flex-end", marginTop: 12, gap: 8 }}>
           <button className="btn" onClick={onClose}>Отмена</button>
-          <button className="btn pri" disabled={!sel.size || busy} onClick={async () => { setBusy(true); await onShip([...sel], date); setBusy(false); }}>{busy ? "Отгружаю…" : "🚚 Отгрузить (" + sel.size + ")"}</button>
+          <button className="btn pri" disabled={!sel.size || busy} onClick={async () => { setBusy(true); await onShip([...sel], date); setBusy(false); }}>{busy ? "Отгружаю…" : <><Ic n="truck" />{" Отгрузить (" + sel.size + ")"}</>}</button>
         </div>
       </>) : <p className="sm" style={{ color: "var(--ok)", marginBottom: 8 }}>✓ Все позиции отгружены</p>}
       {done.length > 0 && (
@@ -5882,7 +5887,7 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
       {!rows && (
         <div>
           <div className="card clk" style={{ borderStyle: "dashed", textAlign: "center", padding: 34 }} onClick={() => fRef.current.click()}>
-            <div style={{ fontSize: 26, marginBottom: 6 }}>📊</div>
+            <div style={{ marginBottom: 6, color: "var(--mut)" }}><Ic n="sheet" s={30} /></div>
             <div style={{ fontWeight: 800 }}>Выбрать файл Excel (.xlsx / .xls / .csv)</div>
             <div className="xs mut" style={{ marginTop: 4 }}>Список материалов по объекту. Совпавшие по названию товары подтянут цены из базы; цена/себестоимость из файла, если есть, имеют приоритет.</div>
           </div>
@@ -6018,7 +6023,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
                     return <>
                       {have > 0 && <label className="row xs" style={{ gap: 5, marginTop: 3, cursor: "pointer", color: r.fromWh !== false ? "var(--ok)" : "var(--mut)", fontWeight: 700 }}>
                         <input type="checkbox" checked={r.fromWh !== false} onChange={(e) => upd(i, "fromWh", e.target.checked)} />
-                        🏬 со Склада Thermo (есть {fmt(have)}){parseNum(r.qty) > have ? " · остальное у поставщика" : ""}
+                        <Ic n="warehouse" /> со Склада Thermo (есть {fmt(have)}){parseNum(r.qty) > have ? " · остальное у поставщика" : ""}
                       </label>}
                       {sm && <label className="row xs wh-alt" style={{ gap: 5, marginTop: 3, cursor: "pointer", fontWeight: 500 }} title="Такой же товар другого поставщика на складе — в объект запишется он">
                         <input type="checkbox" checked={!!r.alt} onChange={(e) => upd(i, "alt", e.target.checked)} /> аналог «{sm.name}» (другой поставщик): {fmt(sm.qty)}
@@ -6202,7 +6207,7 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
     <Modal title="Возврат товара" onClose={onClose} w={780} cls="m-ret">
       <div className="ret-find"><input className="inp" type="search" data-esc="1" data-phone-nofocus="1" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape" && q) { e.preventDefault(); setQ(""); } }} placeholder="🔎 Найти товар по названию" />
         {q && <button className="btn xs" onClick={() => setQ("")}>✕</button>}</div>
-      {!anyAvail && rows.length > 0 && <div className="sm" style={{ color: "var(--warn)", margin: "0 0 10px" }}>Товар ещё не отгружен клиенту — вернуть нечего. Сначала «🚚 Отгрузить товар».</div>}
+      {!anyAvail && rows.length > 0 && <div className="sm" style={{ color: "var(--warn)", margin: "0 0 10px" }}>Товар ещё не отгружен клиенту — вернуть нечего. Сначала «Отгрузить товар».</div>}
       <div className="ret-box">
         <table className="t ret-t">
           <thead><tr><th>Товар</th><th style={{textAlign:"right"}}>В объекте</th><th style={{textAlign:"right"}}>Уже возвр.</th><th style={{textAlign:"right"}}>Доступно</th><th style={{width:150}}>Вернуть</th><th style={{textAlign:"right"}}>Сумма</th></tr></thead>
@@ -6531,8 +6536,8 @@ function BonusAccrueForm({ objects, onSave, products = [], suppliers = [] }) {
   return (
     <div>
       <div className="row" style={{ marginBottom: 12 }}>
-        <button className={"btn " + (kind === "money" ? "pri" : "")} onClick={() => setKind("money")}>💵 Деньгами</button>
-        <button className={"btn " + (kind === "item" ? "pri" : "")} onClick={() => setKind("item")}>🛠 Инструмент / предмет</button>
+        <button className={"btn " + (kind === "money" ? "pri" : "")} onClick={() => setKind("money")}><Ic n="cash" /> Деньгами</button>
+        <button className={"btn " + (kind === "item" ? "pri" : "")} onClick={() => setKind("item")}><Ic n="wrench" /> Инструмент / предмет</button>
       </div>
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         {kind === "item" && <div style={{ gridColumn: "1/-1" }}><Fld label="Найти в товарах поставщиков (необязательно)">
@@ -6727,7 +6732,7 @@ function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
           <button className="btn" onClick={() => setOpenId(null)}>← Доставка</button>
           <h2 style={{ marginRight: "auto" }}>{obj.name}</h2>
           <button className="btn" onClick={() => { const r = downloadDeliverySheet(obj, suppliers); toast(r === "xlsx" ? "Лист доставки скачан" : "Скачивание заблокировано браузером"); }}>📄 Лист доставки</button>
-          {(obj.items || []).some((i) => !i.from_warehouse) && <button className="btn pri" onClick={() => setShip(true)}>🚚 Отгрузить / Доставлено{pending(obj) ? " (" + pending(obj) + ")" : " ✓"}</button>}
+          {(obj.items || []).some((i) => !i.from_warehouse) && <button className="btn pri" onClick={() => setShip(true)}><Ic n="truck" /> Отгрузить / Доставлено{pending(obj) ? " (" + pending(obj) + ")" : " ✓"}</button>}
         </div>
         <div className="card sect">
           <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
@@ -6739,10 +6744,10 @@ function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
         </div>
         {batches.map((b) => {
           const g = {};
-          b.items.forEach((i) => { const k = i.from_warehouse ? "🏬 Склад Thermo" : supName(i.supplier_id); (g[k] = g[k] || []).push(i); });
+          b.items.forEach((i) => { const k = i.from_warehouse ? "Склад Thermo" : supName(i.supplier_id); (g[k] = g[k] || []).push(i); });
           return (
             <div key={b.no} className="card sect" style={{ padding: 0, overflow: "auto" }}>
-              <div style={{ padding: "10px 12px", fontWeight: 800, background: "var(--acc-tint)" }}>🚚 ПОСТАВКА №{b.no} · {dt(b.date)}</div>
+              <div style={{ padding: "10px 12px", fontWeight: 800, background: "var(--acc-tint)" }}><Ic n="truck" /> ПОСТАВКА №{b.no} · {dt(b.date)}</div>
               <table className="t">
                 <thead><tr><th>Товар</th><th style={{ textAlign: "right" }}>Кол-во</th><th>Ед.</th><th>Откуда</th><th>Статус</th></tr></thead>
                 <tbody>{Object.entries(g).map(([src, items]) => items.map((i) => (
@@ -6783,7 +6788,7 @@ function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
                 <td>{p ? <Badge c="var(--t-warn)">не отгружено: {p}</Badge> : <Badge c="var(--t-ok)">✓ доставлено</Badge>}</td>
               </tr>
             ); })}
-            {!list.length && <tr><td colSpan={5} className="mut" style={{ textAlign: "center", padding: 24 }}>{showAll ? "Объектов нет" : "Всё доставлено 🎉"}</td></tr>}
+            {!list.length && <tr><td colSpan={5} className="mut" style={{ textAlign: "center", padding: 24 }}>{showAll ? "Объектов нет" : "Всё доставлено"}</td></tr>}
           </tbody>
         </table>
       </div>
@@ -6940,9 +6945,9 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
         {!readOnly && <KPI l="Склад по продаже" v={totalSale} c="var(--txt)" />}
       </div>
       <div className="row sect wh-bar" style={{ gap: 8 }}>
-        <input className="inp" type="search" style={{ flex: "1 1 220px", maxWidth: 380 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔎 Товар, поставщик или объект" />
+        <input className="inp" type="search" style={{ flex: "1 1 220px", maxWidth: 380 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск: товар, поставщик или объект" />
         <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>{[["new", "Новые сверху"], ["old", "Давно лежат"], ["name", "По названию"], ["sup", "По поставщику"]].map(([k, l]) => <button key={k} className={"btn xs" + (sort === k ? " pri" : "")} onClick={() => setSort(k)}>{l}</button>)}</div>
-        {oldCnt > 0 && <span className="sm" style={{ color: "var(--warn)", fontWeight: 600 }}>⏳ лежат {WH_OLD_DAYS}+ дн.: {oldCnt}</span>}
+        {oldCnt > 0 && <span className="sm" style={{ color: "var(--warn)", fontWeight: 600 }}><Ic n="hourglass" /> лежат {WH_OLD_DAYS}+ дн.: {oldCnt}</span>}
       </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
         <table className="t wh-t">
@@ -6956,9 +6961,9 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
                 <td className="sm">{I.objId ? <span className="clk" style={{ color: "var(--acc2)" }} onClick={(e) => { e.stopPropagation(); openObject(I.objId); }}>{I.src}</span> : I.src}{I.more ? <span className="xs mut"> + ещё {I.more}</span> : null}
                   {I.last && I.last.user ? <div className="xs mut">принял: {I.last.user}</div> : null}</td>
                 <td className="sm mono wh-date" style={{ whiteSpace: "nowrap" }}>{I.date ? dt(I.date) : "—"}
-                  {I.days != null && <div className="xs" style={old ? { color: "var(--bad)", fontWeight: 700 } : { color: "var(--mut)" }}>{old ? "⏳ " : ""}{I.days} дн. на складе</div>}</td>
+                  {I.days != null && <div className="xs" style={old ? { color: "var(--bad)", fontWeight: 700 } : { color: "var(--mut)" }}>{old ? <><Ic n="hourglass" /> </> : ""}{I.days} дн. на складе</div>}</td>
                 <td className="num" style={{ fontWeight: 700, color: "var(--acc2)" }}>{w.qty}
-                  {I.res ? <div className="xs wh-res" style={{ color: "var(--warn)", fontWeight: 600, whiteSpace: "nowrap" }} title={"В брони: " + I.res.objs.join(", ")}>🔒 бронь {fmt(Math.min(I.res.qty, w.qty))}</div> : null}</td>
+                  {I.res ? <div className="xs wh-res" style={{ color: "var(--warn)", fontWeight: 600, whiteSpace: "nowrap" }} title={"В брони: " + I.res.objs.join(", ")}><Ic n="lock" /> бронь {fmt(Math.min(I.res.qty, w.qty))}</div> : null}</td>
                 <td className="sm">{w.unit}</td>
                 {!readOnly && <>
                 <td className="num">{fmt(w.cost)}</td>
@@ -6966,7 +6971,7 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
                 <td className="num">{fmt(w.qty * (w.cost || 0))}</td>
                 <td onClick={(e) => e.stopPropagation()}><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
                   <button className="btn xs" onClick={() => setEditRow(w)}>ред.</button>
-                  <button className="btn xs" onClick={() => setRetForm(w)}>↩ поставщику</button>
+                  <button className="btn xs" onClick={() => setRetForm(w)}><Ic n="undo" /> поставщику</button>
                   <button className="btn xs dng" onClick={() => setDelRow(w)}>✕</button>
                 </div></td>
                 </>}
@@ -6976,7 +6981,7 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
                 {I.hist && I.hist.length ? <table className="t" style={{ fontSize: 12 }}><tbody>
                   {I.hist.map((mv) => <tr key={mv.id}>
                     <td className="mono mut" style={{ whiteSpace: "nowrap" }}>{dt(mv.op_date || mv.created_at)}</td>
-                    <td style={{ color: mv.dir === "in" ? "var(--ok)" : "var(--bad)", fontWeight: 700, whiteSpace: "nowrap" }}>{mv.dir === "in" ? "⬇ +" : "⬆ −"}{fmt(mv.qty)}</td>
+                    <td style={{ color: mv.dir === "in" ? "var(--ok)" : "var(--bad)", fontWeight: 700, whiteSpace: "nowrap" }}>{mv.dir === "in" ? <><Ic n="down" /> +</> : <><Ic n="up" /> −</>}{fmt(mv.qty)}</td>
                     <td>{mv.object_id ? <span className="clk" style={{ color: "var(--acc2)" }} onClick={() => openObject(mv.object_id)}>{mvWhere(mv)}</span> : mvWhere(mv)}{mv.object_name && mv.note && !/^(отгрузка на объект|возврат с объекта)/.test(mv.note) ? <span className="mut"> · {mv.note}</span> : null}</td>
                     <td className="mut">{mv.user}</td></tr>)}
                 </tbody></table> : <div className="xs mut">Движений по позиции нет</div>}
@@ -6990,8 +6995,8 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
       </div>
       <div className="row sect" style={{ gap: 8, marginTop: 8 }}>
         <h3 style={{ marginRight: "auto" }}>История движений</h3>
-        <input className="inp" type="search" style={{ flex: "0 1 260px" }} value={mq} onChange={(e) => setMq(e.target.value)} placeholder="🔎 Товар, объект, кто" />
-        <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>{[["all", "Все"], ["in", "⬇ Приход"], ["out", "⬆ Отгрузка"]].map(([k, l]) => <button key={k} className={"btn xs" + (mvDir === k ? " pri" : "")} onClick={() => setMvDir(k)}>{l}</button>)}</div>
+        <input className="inp" type="search" style={{ flex: "0 1 260px" }} value={mq} onChange={(e) => setMq(e.target.value)} placeholder="Поиск: товар, объект, кто" />
+        <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>{[["all", "Все"], ["in", <><Ic n="down" /> Приход</>], ["out", <><Ic n="up" /> Отгрузка</>]].map(([k, l]) => <button key={k} className={"btn xs" + (mvDir === k ? " pri" : "")} onClick={() => setMvDir(k)}>{l}</button>)}</div>
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
@@ -7000,7 +7005,7 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
             {(allMoves ? shownMoves : shownMoves.slice(0, 200)).map((mv) => (
               <tr key={mv.id}>
                 <td className="xs mono mut">{dt(mv.op_date || mv.created_at)}</td>
-                <td><Badge c={mv.dir === "in" ? "#3ddc7d" : "#ff707b"}>{mv.dir === "in" ? "⬇ Приход" : "⬆ Отгрузка"}</Badge></td>
+                <td><Badge c={mv.dir === "in" ? "#3ddc7d" : "#ff707b"}>{mv.dir === "in" ? <><Ic n="down" /> Приход</> : <><Ic n="up" /> Отгрузка</>}</Badge></td>
                 <td className="sm">{mv.name}</td>
                 <td className="num" style={{ fontWeight: 700 }}>{mv.qty}</td>
                 <td className="sm">{mv.object_id ? <span className="clk" style={{ color: "var(--acc2)" }} onClick={() => openObject(mv.object_id)}>{mvWhere(mv)}</span> : mvWhere(mv)}
@@ -7710,7 +7715,7 @@ function Dashboard({ data }) {
     <div className="dash">
       <div className="row sect" style={{ alignItems: "baseline" }}>
         <h2 style={{ marginRight: "auto" }}>Дашборд <span className="sm mut" style={{ fontWeight: 500 }}>· {periodTitle}{mgr ? " · " + mgr : ""}</span></h2>
-        <button className="btn" onClick={exportXlsx}>⬇ Excel</button>
+        <button className="btn" onClick={exportXlsx}><Ic n="download" /> Excel</button>
       </div>
 
       {/* фильтры — одна строка над всеми показателями */}
@@ -7890,7 +7895,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
     if (!(from && from === to)) { toast("Касса — за один день: выберите в «Период» «Сегодня», «Вчера» или одну дату"); return; }
     setKassa(true); await reload(["requests"]);
   };
-  useHotActions(() => [{ label: "📝 Касса в заметки", keys: "Alt+K", code: "KeyK", run: openKassa }]);
+  useHotActions(() => [{ label: "Касса в заметки", keys: "Alt+K", code: "KeyK", run: openKassa }]);
   const [delExp, setDelExp] = useState(null);
   const monthStart = () => { const d = new Date(); return localIso(new Date(d.getFullYear(), d.getMonth(), 1)); };
   const [opsAll, setOpsAll] = useState(false);
@@ -7963,7 +7968,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
           <button type="button" className={"btn" + (finView === "exp" ? " pri" : "")} onClick={() => setFinView("exp")}>Расходы компании · {fmt(totalExp)}</button>
           <button type="button" className={"btn" + (finView === "inc" ? " pri" : "")} onClick={() => setFinView("inc")}>Приходы компании · {fmt(totalInc)}</button>
         </span>
-        <button className="btn" title="Приход и расход за день — в заметки (Alt+K)" onClick={openKassa}>📝 Касса в заметки</button>
+        <button className="btn" title="Приход и расход за день — в заметки (Alt+K)" onClick={openKassa}><Ic n="note" /> Касса в заметки</button>
         <button className="btn" onClick={() => { setFinView("inc"); setIncForm(true); }}>+ Добавить приход</button>
         <button className="btn pri" onClick={() => { setFinView("exp"); setExpForm(true); }}>+ Добавить расход</button>
       </div>
@@ -8069,7 +8074,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
               {/* внизу — «Изменить»: переименование, удаление и добавление сотрудника */}
               {!staffEdit ? (
                 <div className="row" style={{ justifyContent: "flex-end", marginTop: 10 }}>
-                  <button className="btn" onClick={() => { setStaffEdit(true); setRenames({}); setNewEmp(""); }}>✎ Изменить</button>
+                  <button className="btn" onClick={() => { setStaffEdit(true); setRenames({}); setNewEmp(""); }}><Ic n="pencil" /> Изменить</button>
                 </div>
               ) : (
                 <div className="card" style={{ marginTop: 10, padding: 10 }}>
@@ -8107,7 +8112,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
           <h3 style={{ marginBottom: 8 }}>Долги клиентов</h3>
           <table className="t"><thead><tr><th>Объект</th><th>Клиент</th><th style={{textAlign:"right"}}>Продажа</th><th style={{textAlign:"right"}}>Оплачено</th><th style={{textAlign:"right"}}>Долг</th></tr></thead>
             <tbody>{clientDebts.map(({ o, f }) => <tr key={o.id}><td className="sm">{o.name}</td><td className="sm">{o.client}<div className="xs mut mono">{o.phone}</div></td><td className="num">{fmt(f.saleNet)}</td><td className="num">{fmt(f.paidClient)}</td><td className="num" style={{color:"var(--bad)",fontWeight:700}}>{fmt(f.clientDebt)}</td></tr>)}
-            {!clientDebts.length && <tr><td colSpan={5} className="mut sm" style={{padding:14}}>Долгов нет 🎉</td></tr>}
+            {!clientDebts.length && <tr><td colSpan={5} className="mut sm" style={{padding:14}}>Долгов нет</td></tr>}
             {clientDebts.length > 1 && <tr style={{ background: "var(--panel2)" }}><td colSpan={4} style={{ fontWeight: 800 }}>Итого долг</td><td className="num" style={{ fontWeight: 800, color: "var(--bad)" }}>{fmt(round2(clientDebts.reduce((a, x) => a + x.f.clientDebt, 0)))}</td></tr>}</tbody></table>
         </div>
         <div className="card">
@@ -8485,7 +8490,7 @@ function NotesPanel({ data, reload, toast, user, boss = false, onClose }) {
     <div className="npanel-bg" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
     <div className="npanel" role="dialog" aria-label="Заметки" ref={boxRef}>
       <div className="npanel-head">
-        <b>📝 Заметки <span className="npanel-cnt">{notes.length}</span></b>
+        <b><Ic n="note" /> Заметки <span className="npanel-cnt">{notes.length}</span></b>
         <button type="button" className="npanel-x" title="Закрыть (Esc, Alt два раза)" onClick={onClose}>✕</button>
       </div>
       <div className="npanel-comp">
@@ -8495,14 +8500,14 @@ function NotesPanel({ data, reload, toast, user, boss = false, onClose }) {
           <button type="button" className="btn pri xs" title="Enter — сохранить, Shift+Enter — новая строка" disabled={!draft.trim() || busy} onClick={quick}>{busy ? "…" : "Сохранить"}</button>
         </div>
       </div>
-      <div className="npanel-search"><span>🔎</span><input className="inp" placeholder="Поиск по заметкам" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      <div className="npanel-search"><span><Ic n="search" /></span><input className="inp" placeholder="Поиск по заметкам" value={q} onChange={(e) => setQ(e.target.value)} /></div>
       <div className="npanel-list">
         {shown.map((n) => (
           <div key={n.id} className="pnote clk" style={n.color ? { "--pc": n.color } : undefined} tabIndex={0} onClick={() => setEd(n)} onKeyDown={(e) => { if (e.key === "Enter") setEd(n); }}>
             <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
               <b className="pnote-title" style={{ marginRight: "auto" }}>{n.title || String(n.text || "").split("\n")[0] || "Без названия"}</b>
-              {n.pinned && <span title="Закреплена">📌</span>}
-              {n.shared && <span className="xs mut" title="Видна всем">👥</span>}
+              {n.pinned && <span title="Закреплена" className="mut"><Ic n="pin" s={14} /></span>}
+              {n.shared && <span className="mut" title="Видна всем"><Ic n="users" s={14} /></span>}
             </div>
             {n.title && n.text ? <div className="xs pnote-text">{n.text}</div> : null}
             <div className="xs mut pnote-when">{n.user_id === user.id ? "" : (n.author || "") + " · "}{when(n.updated_at)}</div>
@@ -8525,8 +8530,8 @@ function NoteModal({ n, mine, canDel = false, onClose, onSave, onDelete, onHide 
       <Fld label="Текст"><textarea className="inp note-area" value={v.text} readOnly={ro} autoFocus={!!n.id && !ro} onChange={(e) => setV({ ...v, text: e.target.value })} placeholder="Текст заметки…" /></Fld>
       {!ro && <div className="row" style={{ gap: 12, marginTop: 6 }}>
         <span className="row" style={{ gap: 6 }}>{NOTE_COLORS.map((c) => <button key={c || "none"} type="button" className={"note-color" + (v.color === c ? " on" : "")} style={{ background: c || "var(--panel2)" }} title={c ? "Цвет" : "Без цвета"} onClick={() => setV({ ...v, color: c })} />)}</span>
-        <label className="clk sm row" style={{ gap: 6 }}><input type="checkbox" checked={v.pinned} onChange={(e) => setV({ ...v, pinned: e.target.checked })} /> 📌 закрепить</label>
-        <label className="clk sm row" style={{ gap: 6 }}><input type="checkbox" checked={v.shared} onChange={(e) => setV({ ...v, shared: e.target.checked })} /> 👥 видна всем</label>
+        <label className="clk sm row" style={{ gap: 6 }}><input type="checkbox" checked={v.pinned} onChange={(e) => setV({ ...v, pinned: e.target.checked })} /> <Ic n="pin" /> закрепить</label>
+        <label className="clk sm row" style={{ gap: 6 }}><input type="checkbox" checked={v.shared} onChange={(e) => setV({ ...v, shared: e.target.checked })} /> <Ic n="users" /> видна всем</label>
       </div>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
         {n.id && !ro && <button className="btn dng" style={{ marginRight: "auto" }} onClick={onDelete}>Удалить</button>}
@@ -8560,7 +8565,7 @@ function LogTab({ data, reload, onBackup }) {
     <div>
       <div className="row sect">
         <h2 style={{ marginRight: "auto" }}>Журнал действий <span className="mut sm">({audit_log.length})</span></h2>
-        {onBackup && <button className="btn" title="Бэкап и восстановление базы" onClick={onBackup}>💾 Бэкап</button>}
+        {onBackup && <button className="btn" title="Бэкап и восстановление базы" onClick={onBackup}><Ic n="save" /> Бэкап</button>}
         <input className="inp" style={{ maxWidth: 220 }} placeholder="Поиск по журналу…" value={q} onChange={(e) => setQ(e.target.value)} />
         <select className="inp" style={{ maxWidth: 180 }} value={usr} onChange={(e) => setUsr(e.target.value)}>
           <option value="">Все сотрудники</option>{users.map((u) => <option key={u}>{u}</option>)}
@@ -8733,12 +8738,12 @@ function UserForm({ u, users, self, onClose, onSave, data = null, uperms = {}, h
           <div style={{ position: "relative" }}>
             <input type={show ? "text" : "password"} className="inp mono" style={{ paddingRight: 38 }} value={pw} onChange={(e) => setPw(e.target.value)} placeholder="••••••" />
             <button type="button" onClick={() => setShow(!show)} title={show ? "Скрыть" : "Показать"}
-              style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 15, color: "var(--mut)", padding: 4 }}>{show ? "🙈" : "👁"}</button>
+              style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 15, color: "var(--mut)", padding: 4 }}>{show ? <Ic n="eyeoff" s={18} /> : <Ic n="eye" s={18} />}</button>
           </div>
         </Fld></div>
       </div>
       {u.id && <div className="row cloud-row">
-        <span className="sm" style={{ marginRight: "auto", color: cloudHas ? "var(--ok)" : "var(--warn)" }}>☁ {cloudHas ? "Облачный пароль есть" : "Облачного пароля нет — создаст при входе"}</span>
+        <span className="sm" style={{ marginRight: "auto", color: cloudHas ? "var(--ok)" : "var(--warn)" }}><Ic n="cloud" /> {cloudHas ? "Облачный пароль есть" : "Облачного пароля нет — создаст при входе"}</span>
         {cloudHas && onCloudReset && <button type="button" className="btn xs" onClick={async () => { if (await onCloudReset()) setCloudHas(false); }}>Сбросить</button>}
       </div>}
       <div className="role-perms">
@@ -8818,7 +8823,7 @@ function LoginScreen({ users, onLogin, bootErr, onRetry, secure = false, seed = 
           <Fld label="Пароль"><div style={{ position: "relative" }}>
             <input type={show ? "text" : "password"} className="inp mono" style={{ paddingRight: 38 }} value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
             <button type="button" onClick={() => setShow(!show)} title={show ? "Скрыть" : "Показать"}
-              style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 15, color: "var(--mut)", padding: 4 }}>{show ? "🙈" : "👁"}</button>
+              style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 15, color: "var(--mut)", padding: 4 }}>{show ? <Ic n="eyeoff" s={18} /> : <Ic n="eye" s={18} />}</button>
           </div></Fld>
         </div>
         <button className="btn pri" style={{ width: "100%", marginTop: 14 }} disabled={busy} onClick={submit}>{busy ? "Проверка…" : "Войти"}</button>
@@ -8952,8 +8957,8 @@ function Calculator({ onClose }) {
       onFocus={() => setFocused(true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false); }}
       onMouseDown={(e) => { if (!isTyping(e.target)) { e.preventDefault(); boxRef.current.focus({ preventScroll: true }); } }}>
       <div className="calc-head" title="Alt+X — открыть / закрыть. Цифровая клавиатура: цифры, + − * /, Enter = , Backspace, Delete — очистить, Esc — закрыть. √ — клавиша R, % — Shift+5">
-        <b>🧮 Калькулятор</b>
-        <button type="button" className="calc-ib" title="Скопировать результат" onClick={copy}>⧉</button>
+        <b><Ic n="calc" /> Калькулятор</b>
+        <button type="button" className="calc-ib" title="Скопировать результат" onClick={copy}><Ic n="copy" s={15} /></button>
         <button type="button" className="calc-ib" title="Закрыть (Esc)" onClick={onClose}>✕</button>
       </div>
       <div className="calc-scr">
@@ -9185,7 +9190,7 @@ function CloudGate({ user, onOk, onLogout }) {
     <div className="te" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
       <style>{CSS}</style>
       <div className="card cloud-gate" style={{ width: 380, boxShadow: "0 24px 60px rgba(18,24,27,.16)" }}>
-        <div style={{ textAlign: "center", fontSize: 34 }}>☁️🔒</div>
+        <div style={{ textAlign: "center", color: "var(--mut)" }}><Ic n="lock" s={36} /></div>
         <h3 style={{ textAlign: "center", margin: "8px 0 4px" }}>{st.has ? "Облачный пароль" : "Создайте облачный пароль"}</h3>
         <p className="sm mut" style={{ textAlign: "center", marginBottom: 12 }}>{user.name || user.username}{st.has ? "" : " — второй пароль для входа, только ваш (как в Telegram)"}</p>
         {st.load ? <p className="sm mut" style={{ textAlign: "center" }}>Проверка…</p> : st.net ? (
@@ -9194,7 +9199,7 @@ function CloudGate({ user, onOk, onLogout }) {
           {st.err && <p className="sm" style={{ color: "var(--bad)", textAlign: "center", marginBottom: 8 }}>{st.err}</p>}
           <Fld label={st.has ? "Облачный пароль" : "Новый облачный пароль"}><div style={{ position: "relative" }}>
             <input type={show ? "text" : "password"} className="inp mono" autoFocus style={{ paddingRight: 38 }} value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={key} />
-            <button type="button" onClick={() => setShow(!show)} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 15, color: "var(--mut)", padding: 4 }}>{show ? "🙈" : "👁"}</button>
+            <button type="button" onClick={() => setShow(!show)} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 15, color: "var(--mut)", padding: 4 }}>{show ? <Ic n="eyeoff" s={18} /> : <Ic n="eye" s={18} />}</button>
           </div></Fld>
           {!st.has && <Fld label="Повторите"><input type={show ? "text" : "password"} className="inp mono" value={pw2} onChange={(e) => setPw2(e.target.value)} onKeyDown={key} /></Fld>}
           <button className="btn pri" style={{ width: "100%", marginTop: 12 }} disabled={busy || !pw} onClick={submit}>{busy ? "Проверка…" : st.has ? "Войти" : "Сохранить и войти"}</button>
@@ -9772,7 +9777,7 @@ function AppInner() {
       try {
         const r = await runAutoBackup({ who: abWho });
         if (stop) return;
-        if (r.ok) { setAbNeed(""); lastBackupInfo().then(setAbLast); toast("💾 Автобэкап сохранён: " + r.jName + (r.folder ? " → папка «" + r.folder + "»" : "")); }
+        if (r.ok) { setAbNeed(""); lastBackupInfo().then(setAbLast); toast("Автобэкап сохранён: " + r.jName + (r.folder ? " → папка «" + r.folder + "»" : "")); }
         else setAbNeed(r.why === "perm" || r.why === "nodir" ? r.why : "");
       } catch (e) { errAt = Date.now(); console.warn("autobackup", e); setAbNeed("err"); }
       finally { busy = false; BUSY_SILENT = Math.max(0, BUSY_SILENT - 1); }
@@ -9794,7 +9799,7 @@ function AppInner() {
   const abAllow = async () => {
     try {
       const r = await runAutoBackup({ ask: true, who: abWho });
-      if (r.ok) { setAbNeed(""); lastBackupInfo().then(setAbLast); toast("💾 Автобэкап сохранён: " + r.jName); }
+      if (r.ok) { setAbNeed(""); lastBackupInfo().then(setAbLast); toast("Автобэкап сохранён: " + r.jName); }
       else if (r.why === "perm") toast("Без разрешения записать в папку автобэкап не сохранится");
       else if (r.why === "nodir") { setAbNeed("nodir"); setBackupOpen(true); }
     } catch (e) { toast("Автобэкап не удался: " + e.message); }
@@ -9907,7 +9912,7 @@ function AppInner() {
     <PeopleCtx.Provider value={peopleCtx}>
     <div className={"te" + (darkMode ? " dark" : "") + (isPhone() && !finePtr ? " phone" : "") + (finePtr ? " fine" : " touch") + (hdrOff ? " hdr-off" : "") + (hdrSide ? " side" : "")}>
       <style>{CSS}</style>
-      {!finePtr && <button type="button" className={"mnav" + (hdrHidden && !hdrPeek ? " hide-on-scroll" : "")} title="Меню" aria-label="Меню" onClick={() => setHdrPeek(true)}>☰</button>}
+      {!finePtr && <button type="button" className={"mnav" + (hdrHidden && !hdrPeek ? " hide-on-scroll" : "")} title="Меню" aria-label="Меню" onClick={() => setHdrPeek(true)}><Ic n="menu" s={22} /></button>}
       {!finePtr && <div className={"mnav-bg" + (hdrPeek ? " on" : "")} onClick={() => setHdrPeek(false)} />}
       <div className={"hdr" + (hdrHidden && finePtr && !hdrOff ? " hide-on-scroll" : "") + (hdrPeek ? " peek" : "")} onMouseLeave={hdrLeave} onMouseEnter={hdrEnter}>
         <div className="logo">THERMO<span>•</span>ENGINEERING</div>
@@ -9917,7 +9922,7 @@ function AppInner() {
             <div className="xs mut">{lang === "uz" && ({ boss: "Rahbar", manager: "Menejer", driver: "Yetkazuvchi" })[acc.id] || acc.label}</div>
           </div>
           <button className="btn xs" onClick={toggleLang} title={lang === "ru" ? "Весь экран — латиницей (узбекская латиница)" : "Kirill yozuviga qaytish"} style={{ fontWeight: 800 }}>{lang === "ru" ? "UZ" : "RU"}</button>
-          <button className="btn xs" onClick={toggleDark} title={darkMode ? "Светлая тема" : "Тёмная тема"}>{darkMode ? "☀️" : "🌙"}</button>
+          <button className="btn xs" onClick={toggleDark} title={darkMode ? "Светлая тема" : "Тёмная тема"}>{darkMode ? <Ic n="sun" s={15} /> : <Ic n="moon" s={15} />}</button>
           <button className="btn xs" onClick={doLogout} title={lang === "uz" ? "Chiqish" : "Выйти"}>{lang === "uz" ? "Chiqish" : "Выйти"}</button>
         </div>
         <div className={"tabs" + (mobileMenuOpen ? " open" : "")}>
@@ -9929,26 +9934,26 @@ function AppInner() {
           <div className="menu-extra">
             <div style={{ marginRight: "auto" }}><b className="sm">{currentUser.name || currentUser.username}</b> <span className="xs mut">{lang === "uz" && ({ boss: "Rahbar", manager: "Menejer", driver: "Yetkazuvchi" })[acc.id] || acc.label}</span></div>
             <button className="btn xs" onClick={toggleLang} style={{ fontWeight: 800 }}>{lang === "ru" ? "UZ" : "RU"}</button>
-            <button className="btn xs" onClick={toggleDark}>{darkMode ? "☀️" : "🌙"}</button>
+            <button className="btn xs" onClick={toggleDark}>{darkMode ? <Ic n="sun" s={15} /> : <Ic n="moon" s={15} />}</button>
             <button className="btn xs" onClick={doLogout}>{lang === "uz" ? "Chiqish" : "Выйти"}</button>
             <label className="hdr-chk clk"><input type="checkbox" checked={!hdrOff} onChange={(e) => { setHdrOffSave(!e.target.checked); setMobileMenuOpen(false); }} /> Верхняя панель</label>
           </div>
         </div>
-        <button className="burger" onClick={() => setMobileMenuOpen((v) => !v)} title="Меню">{mobileMenuOpen ? "✕" : "☰"}</button>
-        <button className={"btn xs npanel-btn" + (notesOpen ? " pri" : "")} title="Заметки: Alt два раза подряд (или левый + правый Alt)" onClick={() => { setNotesOpen((v) => !v); if (!finePtr) setHdrPeek(false); }}>📝<span className="hdr-lbl"> Заметки</span></button>
-        {role !== "driver" && <button className={"btn xs hdr-calc" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => { setCalcOpen((v) => !v); if (!finePtr) setHdrPeek(false); }}>🧮<span className="hdr-lbl"> Калькулятор</span></button>}
+        <button className="burger" onClick={() => setMobileMenuOpen((v) => !v)} title="Меню">{mobileMenuOpen ? "✕" : <Ic n="menu" s={20} />}</button>
+        <button className={"btn xs npanel-btn" + (notesOpen ? " pri" : "")} title="Заметки: Alt два раза подряд (или левый + правый Alt)" onClick={() => { setNotesOpen((v) => !v); if (!finePtr) setHdrPeek(false); }}><Ic n="note" /><span className="hdr-lbl"> Заметки</span></button>
+        {role !== "driver" && <button className={"btn xs hdr-calc" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => { setCalcOpen((v) => !v); if (!finePtr) setHdrPeek(false); }}><Ic n="calc" /><span className="hdr-lbl"> Калькулятор</span></button>}
         <button className="btn xs hdr-hide" title="Скрыть панель — будет выезжать, когда мышь у края экрана" onClick={() => { setHdrOffSave(true); setMobileMenuOpen(false); }}>⌃</button>
         <span className="hdr-side" title="Откуда выезжает панель, когда она скрыта">
           <button type="button" className={!hdrSide ? "on" : ""} onClick={() => setHdrSideSave(false)}>Сверху</button>
           <button type="button" className={hdrSide ? "on" : ""} onClick={() => setHdrSideSave(true)}>Справа</button>
         </span>
-        <button className="btn xs hdr-pin" title="Закрепить панель (всегда видна)" onClick={() => setHdrOffSave(false)}>📌<span className="hdr-pin-l"> Закрепить панель</span></button>
+        <button className="btn xs hdr-pin" title="Закрепить панель (всегда видна)" onClick={() => setHdrOffSave(false)}><Ic n="pin" /><span className="hdr-pin-l"> Закрепить панель</span></button>
         <input ref={restoreRef} type="file" accept=".json,.gz,application/json,application/gzip" style={{ display: "none" }} onChange={onRestore} />
       </div>
       <div className="body" key={tab + ":" + tabNonce}>
         {bootErr && <div className="card sect" style={{ borderColor: "var(--warn)", color: "var(--warn)" }}>Ошибка подключения к Supabase: {bootErr}</div>}
         {abShow && <div className="card sect abwarn" role="status">
-          <span className="sm">💾 {abNeed === "perm" ? "Автобэкап ждёт разрешения на запись в папку «" + ((abCur && abCur.folder) || "") + "» — браузер спрашивает один раз после перезапуска."
+          <span className="sm"><Ic n="save" /> {abNeed === "perm" ? "Автобэкап ждёт разрешения на запись в папку «" + ((abCur && abCur.folder) || "") + "» — браузер спрашивает один раз после перезапуска."
             : abNeed === "nodir" ? "Автобэкап: папка не найдена — выберите её заново."
             : abNeed === "err" ? "Автобэкап сегодня пока не сохранился (нет связи?) — система повторит сама."
             : abLast ? <>Бэкап базы не сохранялся <b>{abDays} дн.</b> Включите автобэкап — система будет сохранять копию каждый день сама.</>
@@ -9991,7 +9996,7 @@ function AppInner() {
       <BusyIndicator />
       {newVer && (
         <div className="busypill" style={{ bottom: 64, pointerEvents: "auto" }}>
-          ✨ Вышла новая версия — обновится автоматически, как только закроете окно
+          Вышла новая версия — обновится автоматически, как только закроете окно
           <button className="btn xs pri" onClick={() => window.location.reload()}>Обновить сейчас</button>
         </div>
       )}
@@ -10152,7 +10157,7 @@ function RelinkSuppliers({ data, reload, toast }) {
           : <>У всех товаров указан поставщик ✓</>}
       </p>
       {err && <p className="sm" style={{ color: "var(--bad)", marginBottom: 6 }}>{err}</p>}
-      {noSup > 0 && !plan && <button className="btn" disabled={busy} onClick={() => fRef.current.click()}>🔗 Восстановить из файла бэкапа…</button>}
+      {noSup > 0 && !plan && <button className="btn" disabled={busy} onClick={() => fRef.current.click()}><Ic n="link" /> Восстановить из файла бэкапа…</button>}
       <input ref={fRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={onFile} />
       {plan && (
         <div className="card" style={{ padding: 10 }}>
@@ -10397,7 +10402,7 @@ function BackupModal({ data, reload, onClose, toast, onFilePick, onRestoreText, 
     setAbBusy(true); setErr("");
     try {
       const r = await runAutoBackup({ ask, who, manual: true });
-      if (r.ok) toast("💾 Сохранено: " + r.jName + " и " + r.xName + (r.folder ? " → папка «" + r.folder + "»" : " → «Загрузки»"));
+      if (r.ok) toast("Сохранено: " + r.jName + " и " + r.xName + (r.folder ? " → папка «" + r.folder + "»" : " → «Загрузки»"));
       else if (r.why === "perm") setErr("Нет разрешения на запись в папку — нажмите «Сохранить сейчас» и выберите «Разрешить».");
       else if (r.why === "nodir") setErr("Папка не найдена — выберите её заново.");
     } catch (e) { setErr("Автобэкап не удался: " + e.message); }
@@ -10425,9 +10430,9 @@ function BackupModal({ data, reload, onClose, toast, onFilePick, onRestoreText, 
       <h3 style={{ marginBottom: 6 }}>Сохранить</h3>
       <p className="xs mut" style={{ marginBottom: 8 }}>Скачайте файл бэкапа (рекомендуется) или скопируйте его текст. В бэкап входит вся база: {totalRows.toLocaleString("ru-RU")} записей, из них товаров {(data.products || []).length.toLocaleString("ru-RU")}.</p>
       <div className="row" style={{ marginTop: 8, marginBottom: manualJson ? 8 : 18 }}>
-        <button className="btn pri" disabled={packing} onClick={download}>{packing ? <span><span className="spin" /> Собираю…</span> : "⬇ Скачать файлом"}</button>
-        <button className="btn" disabled={packing} onClick={copy}>📋 Копировать бэкап</button>
-        <button className="btn" disabled={xlBusy} onClick={xlArchive} title="Вся база в одном Excel: объекты с долгами, позиции, операции, поставщики, мастера, склад, товары — открывается без системы">{xlBusy ? <span><span className="spin" /> Собираю…</span> : "📊 Excel-архив"}</button>
+        <button className="btn pri" disabled={packing} onClick={download}>{packing ? <span><span className="spin" /> Собираю…</span> : <><Ic n="download" /> Скачать файлом</>}</button>
+        <button className="btn" disabled={packing} onClick={copy}><Ic n="clipboard" /> Копировать бэкап</button>
+        <button className="btn" disabled={xlBusy} onClick={xlArchive} title="Вся база в одном Excel: объекты с долгами, позиции, операции, поставщики, мастера, склад, товары — открывается без системы">{xlBusy ? <span><span className="spin" /> Собираю…</span> : <><Ic n="sheet" /> Excel-архив</>}</button>
       </div>
       <div className="abbox">
         <h3 style={{ marginBottom: 4 }}>Автобэкап каждый день</h3>
@@ -10442,9 +10447,9 @@ function BackupModal({ data, reload, onClose, toast, onFilePick, onRestoreText, 
           {ab && ab.last ? <span className="mut"> · последний {dt(ab.last)}</span> : null}
         </div>
         <div className="row" style={{ flexWrap: "wrap" }}>
-          {abFsOk() && <button className="btn pri" disabled={abBusy} onClick={pickFolder}>📁 {ab && ab.mode === "folder" ? "Сменить папку" : "Выбрать папку и включить"}</button>}
-          {!abFsOk() && !ab && <button className="btn pri" disabled={abBusy} onClick={enableDownload}>⬇ Включить: скачивать раз в день</button>}
-          {ab && <button className="btn" disabled={abBusy} onClick={() => runNow(true)}>{abBusy ? <span><span className="spin" /> Сохраняю…</span> : "💾 Сохранить сейчас"}</button>}
+          {abFsOk() && <button className="btn pri" disabled={abBusy} onClick={pickFolder}><Ic n="folder" /> {ab && ab.mode === "folder" ? "Сменить папку" : "Выбрать папку и включить"}</button>}
+          {!abFsOk() && !ab && <button className="btn pri" disabled={abBusy} onClick={enableDownload}><Ic n="download" /> Включить: скачивать раз в день</button>}
+          {ab && <button className="btn" disabled={abBusy} onClick={() => runNow(true)}>{abBusy ? <span><span className="spin" /> Сохраняю…</span> : <><Ic n="save" /> Сохранить сейчас</>}</button>}
           {ab && <button className="btn" disabled={abBusy} onClick={disableAb}>Выключить</button>}
         </div>
         {!abFsOk() && <p className="xs mut" style={{ marginTop: 6 }}>Выбор папки работает в Chrome и Edge на компьютере. В этом браузере файлы будут скачиваться в папку «Загрузки».</p>}
@@ -10456,7 +10461,7 @@ function BackupModal({ data, reload, onClose, toast, onFilePick, onRestoreText, 
       <div className="row" style={{ marginTop: 8 }}>
         <button className="btn pri" disabled={!restoreTxt.trim()} onClick={async () => {
           try { setErr(""); await onRestoreText(restoreTxt); } catch (e) { setErr("Ошибка: " + e.message); }
-        }}>⬆ Восстановить из текста</button>
+        }}><Ic n="upload" /> Восстановить из текста</button>
         <button className="btn" onClick={onFilePick}>…или выбрать файл .json / .json.gz</button>
       </div>
       <p className="xs mut" style={{ marginTop: 10 }}>Восстановление полностью заменяет текущую базу содержимым бэкапа.</p>
@@ -10465,7 +10470,7 @@ function BackupModal({ data, reload, onClose, toast, onFilePick, onRestoreText, 
         <div style={{ marginTop: 22, paddingTop: 14, borderTop: "1px dashed var(--bad)" }}>
           <h3 style={{ marginBottom: 6, color: "var(--bad)" }}>Опасная зона</h3>
           <p className="xs mut" style={{ marginBottom: 8 }}>Очистка базы: удаляются объекты, оплаты и все долги клиентов и поставщикам. Товары (названия и цены), поставщики, мастера и аккаунты сохраняются.</p>
-          <button className="btn dng" onClick={onWipe}>🧹 Очистить базу…</button>
+          <button className="btn dng" onClick={onWipe}><Ic n="eraser" /> Очистить базу…</button>
         </div>
       )}
     </Modal>
