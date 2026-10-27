@@ -886,6 +886,7 @@ const opsOf = (ops, objId) => {
   if (!m) { m = new Map(); ops.forEach((x) => { if (x.object_id) { let a = m.get(x.object_id); if (!a) m.set(x.object_id, (a = [])); a.push(x); } }); _opsIdx.set(ops, m); }
   return m.get(objId) || [];
 };
+const EXP_CLIENT = "client"; // finance_ops.size у доп. расхода, который оплачивает клиент
 function calcObject(obj, ops) {
   const items = obj.items || [];
   let sale = 0, cost = 0;
@@ -894,14 +895,16 @@ function calcObject(obj, ops) {
   const sum = (t, f = "amount") => o.filter((x) => x.type === t).reduce((a, x) => a + (x[f] || 0), 0);
   const retSale = sum("return"), retCost = sum("return", "cost_amount");
   const discount = sum("discount"), expense = sum("expense"), bonus = sum("bonus");
+  // доп. расход «клиенту» (size = EXP_CLIENT): показывается в Excel клиенту и добавляется к его долгу (как выручка)
+  const clientExp = round2(o.filter((x) => x.type === "expense" && x.size === EXP_CLIENT).reduce((a, x) => a + (x.amount || 0), 0));
   const paidAll = sum("client_payment"), paidSup = sum("supplier_payment");
   const paidClient = payLive(obj) ? paidAll : 0; // до статуса «Оплата» оплаты не учитываются
-  const saleNet = sale - retSale - discount;
+  const saleNet = sale - retSale - discount + clientExp;
   const costNet = cost - retCost;
   const gross = saleNet - costNet;
   const net = gross - expense - bonus;
   return {
-    sale, cost, retSale, retCost, discount, expense, bonus, paidClient, paidSup, paidIgnored: round2(paidAll - paidClient),
+    sale, cost, retSale, retCost, discount, expense, clientExp, bonus, paidClient, paidSup, paidIgnored: round2(paidAll - paidClient),
     saleNet, costNet, gross, net,
     margin: saleNet > 0 ? (gross / saleNet) * 100 : 0,
     clientDebt: round2(saleNet - paidClient), // округление: без «долга» 0,0000001 от сложения дробных сумм
@@ -4980,7 +4983,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
      ПОСТАВКА №N от дата → № | Наименование | Кол-во | Ед. | Цена | Сумма → «Итого по поставке №N»
      возвраты по датам: «Дата: …» (красным) → ВОЗВРАТЫ → та же шапка, строки красным → «Итого возвратов :» (минусом)
      оплаты по датам: «Дата: …» → ОПЛАТЫ → № | Способ оплаты | Кол-во (сумма в валюте) | Курс | Сумма $ → «Итого оплачено :»
-     итог (без рамок, подпись по центру, сумма справа): Сумма выданного товара: / Скидка: / Возвраты: (красным) / Оплачено: / Долг клиента : или Баланс : (переплата) (или «Переплата клиента :»);
+     доп. расходы клиенту (по просьбе руководителя, 27.10.2026): «Дата: …» → ДОП. РАСХОДЫ → № | Наименование (за что) | Сумма → «Итого доп. расходов :»
+     итог (без рамок, подпись по центру, сумма справа): Сумма выданного товара: / Скидка: / Возвраты: (красным) / Доп. расходы: / Оплачено: / Долг клиента : или Баланс : (переплата) (или «Переплата клиента :»);
      клиент должен — «Долг клиента :» (красным, остаток к оплате); переплатил — «Баланс :» (сумма переплаты); ровно — «Баланс : 0»
      шрифты: текст — Baskerville Old Face, числа — Times New Roman */
   const exportClient = () => {
@@ -5010,6 +5014,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     batches.forEach((b) => ev.push({ day: String(b.date || "").slice(0, 10), kind: 0, b }));
     byDay(ops.filter((o) => o.type === "return" && !o.voided)).forEach((g) => ev.push({ ...g, kind: 1 }));
     byDay(ops.filter((o) => o.type === "client_payment" && !o.voided && payLive(obj))).forEach((g) => ev.push({ ...g, kind: 2 }));
+    byDay(ops.filter((o) => o.type === "expense" && !o.voided && o.size === EXP_CLIENT)).forEach((g) => ev.push({ ...g, kind: 1.5 }));
     ev.sort((a, b) => a.day.localeCompare(b.day) || a.kind - b.kind || (a.b && b.b ? a.b.no - b.b.no : 0));
     ev.forEach((e) => {
       if (e.kind === 0) {
@@ -5036,6 +5041,16 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         });
         tot("Итого возвратов :", -round2(sub), true);
         rows.push({ k: "blank" });
+      } else if (e.kind === 1.5) {
+        // доп. расходы, которые оплачивает клиент (при записи ответили «Да — в Excel клиенту»)
+        rows.push({ k: "section", v: ["Дата: " + dt(e.day)] });
+        rows.push({ k: "blank" });
+        rows.push({ k: "section", v: ["ДОП. РАСХОДЫ"] });
+        rows.push({ k: "head", v: ["№", "Наименование", "", "", "", "Сумма"] });
+        let sub = 0;
+        e.ops.forEach((o, k) => { const amt = round2(o.amount || 0); sub += amt; rows.push({ k: "row", v: [k + 1, o.note || "Доп. расход", "", "", "", amt] }); });
+        tot("Итого доп. расходов :", round2(sub));
+        rows.push({ k: "blank" });
       } else {
         // оплаты клиента: способ, сумма в валюте оплаты, курс, сумма в $
         rows.push({ k: "section", v: ["Дата: " + dt(e.day)] });
@@ -5058,6 +5073,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     ftot("Сумма выданного товара:", round2(f.sale));
     if (f.discount) ftot("Скидка:", -round2(f.discount));
     if (f.retSale) ftot("Возвраты:", -round2(f.retSale), true);
+    if (f.clientExp) ftot("Доп. расходы:", round2(f.clientExp));
     ftot("Оплачено:", round2(f.paidClient));
     // по просьбе руководителя: клиент должен — «Долг клиента :» (красным) и сколько осталось оплатить;
     // «Баланс :» — только когда клиент переплатил (сумма переплаты) или всё ровно (0)
@@ -5099,6 +5115,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     rows.push({ k: "sum", v: ["", "Товар выдан", "", "", "", "", "", pct(tc, ts), round2(tc), round2(ts), round2(ts - tc)], merge: [[1, 6]] });
     if (f.retSale) rows.push({ k: "sum", v: ["", "Возвраты", "", "", "", "", "", "", -round2(f.retCost), -round2(f.retSale), -round2(f.retSale - f.retCost)], merge: [[1, 6]], red: true });
     if (f.discount) rows.push({ k: "sum", v: ["", "Скидка клиенту", "", "", "", "", "", "", "", -round2(f.discount), -round2(f.discount)], merge: [[1, 6]] });
+    if (f.clientExp) rows.push({ k: "sum", v: ["", "Доп. расходы, которые оплачивает клиент", "", "", "", "", "", "", "", round2(f.clientExp), round2(f.clientExp)], merge: [[1, 6]] });
     rows.push({ k: "sum", v: ["", "Валовая прибыль", "", "", "", "", "", pct(f.costNet, f.saleNet), round2(f.costNet), round2(f.saleNet), round2(f.gross)], merge: [[1, 6]] });
     if (fin) {
       if (f.expense) rows.push({ k: "sum", v: ["", "Доп. расходы", "", "", "", "", "", "", "", "", -round2(f.expense)], merge: [[1, 6]] });
@@ -5251,7 +5268,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         </div>
       )}
       <div className="kpis sect">
-        <KPI l="Сумма товара (нетто)" v={f.saleNet} sub={f.retSale > 0.004 || Math.abs(f.discount) > 0.004 ? "выдано товара " + fmt2(f.sale) + (f.retSale > 0.004 ? " − возвраты " + fmt2(f.retSale) : "") + (Math.abs(f.discount) > 0.004 ? " − скидка " + fmt2(f.discount) : "") : null} />
+        <KPI l={f.clientExp > 0.004 ? "Сумма для клиента (нетто)" : "Сумма товара (нетто)"} v={f.saleNet} sub={f.retSale > 0.004 || Math.abs(f.discount) > 0.004 || f.clientExp > 0.004 ? "выдано товара " + fmt2(f.sale) + (f.retSale > 0.004 ? " − возвраты " + fmt2(f.retSale) : "") + (Math.abs(f.discount) > 0.004 ? " − скидка " + fmt2(f.discount) : "") + (f.clientExp > 0.004 ? " + доп. расходы клиенту " + fmt2(f.clientExp) : "") : null} />
         <KPI l="Оплачено клиентом" v={f.paidClient} c="var(--ok)" />
         {isLive(obj)
           ? <KPI l={f.clientDebt < 0 ? "Переплата клиента" : "Долг клиента"} v={Math.abs(f.clientDebt)} c={f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--txt)" : "var(--mut)"} />
@@ -5334,7 +5351,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
             {shownOps.map((o) => (
               <tr key={o.id} style={{ opacity: o.voided ? 0.4 : 1, textDecoration: o.voided ? "line-through" : "none" }}>
                 <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
-                <td>{opLabel(o.type)}{o.type === "return" && o.product_name ? <div className="xs mut">{o.product_name} × {o.qty}</div> : null}{o.edited && <div className="xs" style={{ color: "var(--warn)" }}>изменено</div>}</td>
+                <td>{opLabel(o.type)}{o.type === "expense" ? <div className="xs exp-cl" style={{ color: o.size === EXP_CLIENT ? "var(--acc2)" : "var(--mut)", fontWeight: o.size === EXP_CLIENT ? 700 : 400 }}>{o.size === EXP_CLIENT ? "в Excel клиенту · в долг клиента" : "только наш расход"}</div> : null}{o.type === "return" && o.product_name ? <div className="xs mut">{o.product_name} × {o.qty}</div> : null}{o.edited && <div className="xs" style={{ color: "var(--warn)" }}>изменено</div>}</td>
                 <td className="num" style={{ fontWeight: 700, color: o.type === "client_payment" ? "var(--ok)" : "inherit" }}>{fmt(o.amount)}</td>
                 <td className="xs mut">{opDetails(o, [o.supplier_id ? supName(o.supplier_id) : ""])}{!o.voided && (fin || MANAGER_OP_TYPES.includes(o.type)) && <RateRepairLine op={o} where={"object:" + obj.name} onDone={async (usd) => { await reload(); toast("Исправлено: " + fmt(usd) + " $"); }} />}</td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
@@ -5970,6 +5987,7 @@ function EditOpModal({ op, suppliers, isReturn, onClose, onSave, products = null
     note: op.note || "", reason: op.reason || "", supplier_id: op.supplier_id || "", item_name: op.item_name || "", user: op.user || "",
     object_id: op.object_id || "",
   });
+  const [toClient, setToClient] = useState(op.size === EXP_CLIENT);
   return (
     <Modal title={"Редактировать: " + opLabel(op.type)} onClose={onClose} w={520}>
       {isReturn && <p className="sm" style={{ color: "var(--warn)", marginBottom: 10 }}>⚠ У возврата можно изменить только дату, причину и комментарий. Количество/сумму меняйте так: удалите возврат и оформите новый — иначе разойдётся склад.</p>}
@@ -5990,6 +6008,13 @@ function EditOpModal({ op, suppliers, isReturn, onClose, onSave, products = null
         {bonusItem && !products && <Fld label="Предмет"><input className="inp" autoComplete="off" value={v.item_name} onChange={(e) => setV({ ...v, item_name: e.target.value })} /></Fld>}
         {!usesPay && (isReturn || op.reason != null) && <Fld label="Причина"><input className="inp" value={v.reason} onChange={(e) => setV({ ...v, reason: e.target.value })} /></Fld>}
         <Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} /></Fld>
+        {op.type === "expense" && op.object_id && <div className="exp-ask" style={{ gridColumn: "1/-1" }}>
+          <div className="sm" style={{ fontWeight: 700, marginBottom: 6 }}>Показать этот расход клиенту в Excel?</div>
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className={"btn" + (toClient ? " pri" : "")} onClick={() => setToClient(true)}>Да — в Excel и в долг клиента</button>
+            <button type="button" className={"btn" + (!toClient ? " pri" : "")} onClick={() => setToClient(false)}>Нет — только наш расход</button>
+          </div>
+        </div>}
       </div>
       {op.edit_log && op.edit_log.length > 0 && (
         <div className="xs mut" style={{ marginTop: 10 }}>
@@ -6002,6 +6027,7 @@ function EditOpModal({ op, suppliers, isReturn, onClose, onSave, products = null
           const patch = { op_date: v.op_date, note: v.note, reason: v.reason, user: v.user };
           if (!isReturn) patch.amount = parseNum(v.amount);
           if (op.type === "supplier_payment") patch.supplier_id = v.supplier_id || null;
+          if (op.type === "expense" && op.object_id) patch.size = toClient ? EXP_CLIENT : null;
           if (bonusItem) patch.item_name = v.item_name.trim() || op.item_name;
           if (objects && (op.type === "bonus" || op.type === "bonus_payment")) patch.object_id = v.object_id || null;
           if (usesPay) Object.assign(patch, payPatch(pay, op.type, false));
@@ -6133,6 +6159,8 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
   const isReturn = type === "return";
   const isSupPay = type === "supplier_payment";
   const isBonus = type === "bonus";
+  const isExp = type === "expense";
+  const [toClient, setToClient] = useState(null); // доп. расход: показать клиенту в Excel (и в его долг) — спрашиваем каждый раз
   const usesPay = isPayType(type); // клиент платит / оплата поставщику / доп. расход — со способом оплаты
   const [pay, setPay] = useState(() => payInit(null));
   const [busy, setBusy] = useState(false);
@@ -6144,7 +6172,7 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
     if (isReturn && item) {
       await onSave({ ...base, amount: retAmount, cost_amount: v.qty * item.cost, qty: v.qty, product_id: item.product_id, product_name: item.name, supplier_id: item.supplier_id });
     } else if (usesPay) {
-      await onSave({ ...base, ...payPatch(pay, type), supplier_id: isSupPay ? v.supplier_id || null : null });
+      await onSave({ ...base, ...payPatch(pay, type), supplier_id: isSupPay ? v.supplier_id || null : null, ...(isExp ? { size: toClient ? EXP_CLIENT : null } : {}) });
     } else {
       await onSave({ ...base, amount: parseNum(v.amount), supplier_id: isSupPay ? v.supplier_id || null : null, item_name: isBonus && v.item_name ? v.item_name : null });
     }
@@ -6167,14 +6195,21 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
             {usesPay ? <PayFields p={pay} setP={setPay} methods={payMethodsFor(type)} usdLabel={payUsdLabel(type)} /> : <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: e.target.value })} /></Fld>}
             {isSupPay && <Fld label="Поставщик (обязательно)"><select className="inp" value={v.supplier_id} onChange={(e) => setV({ ...v, supplier_id: e.target.value })} style={{ borderColor: v.supplier_id ? undefined : "var(--bad)" }}><option value="">— выберите поставщика —</option>{supOpts.map((s) => <option key={s.id} value={s.id}>{s.name}{objSupIds.includes(s.id) ? " · в этом объекте" : ""}</option>)}</select></Fld>}
             {isBonus && <Fld label="Предмет (если бонус вещью)"><input className="inp" value={v.item_name} onChange={(e) => setV({ ...v, item_name: e.target.value })} placeholder="инструмент / предмет — опц." /></Fld>}
-            <div style={{ gridColumn: "1/-1" }}><Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} /></Fld></div>
+            <div style={{ gridColumn: "1/-1" }}><Fld label={isExp ? "За что расход (видно клиенту, если «Да»)" : "Комментарий"}><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} placeholder={isExp ? "доставка / такси / работа мастера…" : undefined} /></Fld></div>
+            {isExp && <div className="exp-ask" style={{ gridColumn: "1/-1", border: "1px solid " + (toClient === null ? "var(--warn)" : "var(--line)"), borderRadius: 10, padding: "10px 12px" }}>
+              <div className="sm" style={{ fontWeight: 700, marginBottom: 8 }}>Показать этот расход клиенту в Excel?</div>
+              <div className="row" style={{ gap: 8 }}>
+                <button type="button" className={"btn" + (toClient === true ? " pri" : "")} onClick={() => setToClient(true)}>Да — в Excel и в долг клиента</button>
+                <button type="button" className={"btn" + (toClient === false ? " pri" : "")} onClick={() => setToClient(false)}>Нет — только наш расход</button>
+              </div>
+            </div>}
           </>
         )}
         <Fld label="Дата операции"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
       </div>
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
-        <button className="btn pri" onClick={submit} disabled={busy || (isReturn ? !item || !v.qty : usesPay ? !(payUsd(pay) > 0) || (isSupPay && !v.supplier_id) : !(parseNum(v.amount) > 0))} title={isSupPay && !v.supplier_id ? "Выберите поставщика — иначе оплата не уменьшит его долг" : ""}>{busy ? "Сохраняю…" : "Сохранить"}</button>
+        <button className="btn pri" onClick={submit} disabled={busy || (isExp && toClient === null) || (isReturn ? !item || !v.qty : usesPay ? !(payUsd(pay) > 0) || (isSupPay && !v.supplier_id) : !(parseNum(v.amount) > 0))} title={isSupPay && !v.supplier_id ? "Выберите поставщика — иначе оплата не уменьшит его долг" : ""}>{busy ? "Сохраняю…" : "Сохранить"}</button>
       </div>
     </Modal>
   );
@@ -7107,7 +7142,7 @@ function dashTotals(ev, from, to) {
     const a = x.amount || 0;
     if (x.type === "return") { ret += a; retCost += x.cost_amount || 0; retN++; }
     else if (x.type === "discount") disc += a;
-    else if (x.type === "expense") exp += a;
+    else if (x.type === "expense") { exp += a; if (x.size === EXP_CLIENT) rev += a; } // расход клиенту — клиент его оплачивает
     else if (x.type === "bonus") bonus += a;
     else if (x.type === "client_payment") paid += a;
   });
