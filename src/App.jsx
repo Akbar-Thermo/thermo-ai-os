@@ -392,7 +392,8 @@ html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::
 }
 .menu-extra{display:none}
 .hdr-chk{display:flex;align-items:center;gap:6px;flex-basis:100%;font-size:13px;color:var(--hdr-txt);padding:8px 2px 2px}
-.hdr-hide{order:10}
+.hdr-hide{position:absolute;right:6px;bottom:4px;width:22px;height:18px;min-width:0!important;padding:0!important;font-size:11px!important;line-height:1;opacity:.55;border-radius:6px}
+.hdr-hide:hover{opacity:1}
 .te.phone .hdr-hide{display:none}
 @media(max-width:820px){.hdr-hide{display:none}}
 /* компьютер (мышь): панель спрятана; сверху — выезжает целиком, как обычно, когда мышь у верхнего края;
@@ -620,15 +621,29 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .brand-fly{position:absolute;top:0;left:calc(100% + 6px);width:240px;background:var(--panel);border:1px solid var(--line2);border-radius:10px;box-shadow:0 16px 44px rgba(0,0,0,.2);padding:8px;z-index:1003}
 .pick-sup.hov{outline:1px solid var(--acc);outline-offset:-1px}
 @media(max-width:600px){.brand-fly{position:static;width:auto;margin-top:8px;box-shadow:none}}
-.npanel-bg{position:fixed;inset:0;z-index:950;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:24px}
-.npanel{width:min(760px,100%);height:min(82vh,820px);display:flex;flex-direction:column;padding:18px;border-radius:18px;background:var(--panel);border:1px solid var(--acc);box-shadow:0 0 0 3px var(--acc-ring),0 30px 80px rgba(0,0,0,.45)}
-.npanel textarea.npanel-new{min-height:120px;resize:vertical;font-family:inherit;font-size:15px;line-height:1.45}
-.npanel-list{overflow:auto;flex:1;min-height:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;align-content:start}
-.pnote{border:1px solid var(--line);border-left:4px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--panel2)}
-.pnote:hover,.pnote:focus-visible{border-color:var(--mut);outline:none}
-.pnote-title{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.pnote-text{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;margin:2px 0}
-@media(max-width:820px){.npanel-bg{padding:8px}.npanel{height:92vh}}
+.npanel-bg{position:fixed;inset:0;z-index:950;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(3px)}
+.npanel{width:min(760px,100%);max-height:min(84vh,820px);min-height:min(420px,84vh);display:flex;flex-direction:column;gap:12px;padding:18px 18px 16px;border-radius:20px;background:var(--panel);border:1px solid var(--line2);box-shadow:0 30px 80px rgba(0,0,0,.45)}
+.npanel-head{display:flex;align-items:center;gap:8px}
+.npanel-head b{font-size:17px;margin-right:auto;display:flex;align-items:center;gap:8px}
+.npanel-cnt{font-size:12px;font-weight:700;color:var(--mut);background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:1px 8px}
+.npanel-x{width:34px;height:34px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--mut);font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.npanel-x:hover{color:var(--txt);border-color:var(--line2)}
+.npanel-comp{border:1px solid var(--line);border-radius:14px;background:var(--panel2);padding:4px 4px 6px;transition:border-color .15s}
+.npanel-comp:focus-within{border-color:var(--line2)}
+.npanel textarea.npanel-new{display:block;width:100%;min-height:76px;resize:none;border:0;background:transparent;box-shadow:none!important;outline:none;font-family:inherit;font-size:15px;line-height:1.45;padding:8px 10px;color:var(--txt)}
+.npanel-comp-foot{display:flex;justify-content:flex-end;padding:0 4px}
+.npanel-comp-foot .btn{border-radius:10px}
+.npanel-search{position:relative}
+.npanel-search .inp{width:100%;padding-left:32px;border-radius:10px;height:36px}
+.npanel-search span{position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:13px;opacity:.6;pointer-events:none}
+.npanel-list{overflow:auto;flex:1;min-height:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;align-content:start;padding:2px}
+.pnote{position:relative;display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:12px;padding:11px 13px 10px;background:var(--panel2);transition:border-color .15s,transform .15s}
+.pnote::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:0 3px 3px 0;background:var(--pc,transparent)}
+.pnote:hover,.pnote:focus-visible{border-color:var(--line2);outline:none;transform:translateY(-1px)}
+.pnote-title{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pnote-text{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;color:var(--txt);opacity:.85;line-height:1.4}
+.pnote-when{margin-top:auto;padding-top:2px}
+@media(max-width:820px){.npanel-bg{padding:0;align-items:stretch}.npanel{width:100%;max-height:none;min-height:0;height:100%;border-radius:0;border:0;padding:calc(14px + env(safe-area-inset-top,0px)) 14px calc(14px + env(safe-area-inset-bottom,0px))}.npanel-list{grid-template-columns:1fr}}
 .notes-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;align-items:start}
 .card.note{--nc:var(--mut);border-top:4px solid var(--nc);padding:12px 14px;min-height:96px}
 .card.note:not(.colored){border-top-color:var(--line)}
@@ -673,21 +688,27 @@ body.cq-on .totop{display:none}
 .cq-pm{display:none;font-weight:500}
 @media(max-width:600px){table.cq-t .cq-hm{display:none}table.cq-t .cq-pm{display:block}table.cq-t th,table.cq-t td{padding-left:6px;padding-right:6px}.inp.cq-inp{width:86px}table.cq-t th{width:auto!important}.cq-bar{gap:8px 12px;padding:8px 10px}.cq-sum{min-width:0}.cq-sum div+div{display:none}}
 .inp.batch-date{width:138px;padding:2px 6px;font-size:12px;font-weight:800;display:inline-block;vertical-align:middle;background:var(--panel);cursor:pointer}
-.calc{position:fixed;right:18px;top:120px;z-index:900;width:280px;padding:12px;border-radius:16px;background:var(--panel);border:1px solid var(--line2);box-shadow:0 24px 60px rgba(0,0,0,.35)}
-.calc-scr{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px;text-align:right;min-height:64px}
+.calc{position:fixed;right:18px;top:120px;z-index:900;width:288px;padding:14px;border-radius:20px;background:var(--panel);border:1px solid var(--line2);box-shadow:0 24px 60px rgba(0,0,0,.4)}
+.calc-head{display:flex;align-items:center;gap:6px;margin-bottom:10px}
+.calc-head b{font-size:14px;margin-right:auto}
+.calc-ib{width:32px;height:32px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);color:var(--mut);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.calc-ib:hover{color:var(--txt);border-color:var(--line2)}
+.calc-scr{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin-bottom:12px;text-align:right;min-height:70px}
 .calc-sub{min-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .calc-main{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;word-break:break-all;line-height:1.2}
 .calc:focus{outline:none}
-.calc.on{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-ring),0 24px 60px rgba(0,0,0,.35)}
+.calc.on{border-color:var(--line2)}
 .calc-caret{display:inline-block;width:2px;height:.9em;margin-left:3px;vertical-align:-2px;background:var(--acc);animation:calcBlink 1s steps(1) infinite}
 @keyframes calcBlink{50%{opacity:0}}
-.calc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
-.calc-k{height:44px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);font:600 18px var(--sans);cursor:pointer}
-.calc-k:hover{border-color:var(--line2);background:var(--hover)}
-.calc-k.op{color:var(--acc)}
+.calc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+.calc-k{height:46px;border-radius:12px;border:0;background:var(--panel2);color:var(--txt);font:600 19px var(--sans);cursor:pointer;transition:background .12s,transform .08s}
+.calc-k:active{transform:scale(.96)}
+.calc-k:hover{background:var(--line)}
+.calc-k.op{color:var(--acc);background:var(--acc-tint)}
 .calc-k.fn{color:var(--mut);font-size:15px}
-.calc-k.eq{grid-row:span 2;height:auto;background:var(--acc);border-color:var(--acc);color:#fff}
-@media(max-width:820px){.calc{right:8px;left:8px;width:auto;top:auto;bottom:12px}}
+.calc-k.eq{grid-row:span 2;height:auto;background:var(--acc);color:#fff;font-size:24px}
+.calc-k.eq:hover{background:var(--acc);filter:brightness(1.08)}
+@media(max-width:820px){.calc{right:0;left:0;width:auto;top:auto;bottom:0;border-radius:22px 22px 0 0;border-width:1px 0 0;padding:16px 14px calc(16px + env(safe-area-inset-bottom,0px))}.calc-k{height:54px;font-size:21px}}
 .busypill{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:5000;display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;background:var(--panel);border:1px solid var(--acc);box-shadow:0 10px 30px rgba(0,0,0,.25);font-size:13px;font-weight:600;color:var(--txt);pointer-events:none}
 @media(prefers-reduced-motion:reduce){.hdr,.btn,.inp{transition:none}.spin{animation-duration:2s}}
 .conf{font-variant-numeric:tabular-nums;font-weight:700;font-size:12px}
@@ -8453,26 +8474,28 @@ function NotesPanel({ data, reload, toast, user, boss = false, onClose }) {
   return (
     <div className="npanel-bg" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
     <div className="npanel" role="dialog" aria-label="Заметки" ref={boxRef}>
-      <div className="row" style={{ justifyContent: "space-between", marginBottom: 10, flexWrap: "nowrap" }}>
-        <b style={{ fontSize: 16 }}>📝 Заметки <span className="mut">({notes.length})</span></b>
-        <button type="button" className="btn xs" title="Закрыть (Esc, Alt два раза)" onClick={onClose}>✕</button>
+      <div className="npanel-head">
+        <b>📝 Заметки <span className="npanel-cnt">{notes.length}</span></b>
+        <button type="button" className="npanel-x" title="Закрыть (Esc, Alt два раза)" onClick={onClose}>✕</button>
       </div>
-      <textarea ref={taRef} className="inp npanel-new" value={draft} placeholder="Новая заметка… Enter — сохранить, Shift+Enter — новая строка" onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.nativeEvent.isComposing) { e.preventDefault(); quick(); } }} />
-      <div className="row" style={{ gap: 6, margin: "6px 0 10px", flexWrap: "nowrap" }}>
-        <input className="inp" style={{ flex: 1, minWidth: 0 }} placeholder="Поиск…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <button type="button" className="btn pri" disabled={!draft.trim() || busy} onClick={quick}>{busy ? "…" : "Сохранить"}</button>
+      <div className="npanel-comp">
+        <textarea ref={taRef} className="npanel-new" value={draft} placeholder="Новая заметка…" onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.nativeEvent.isComposing) { e.preventDefault(); quick(); } }} />
+        <div className="npanel-comp-foot">
+          <button type="button" className="btn pri xs" title="Enter — сохранить, Shift+Enter — новая строка" disabled={!draft.trim() || busy} onClick={quick}>{busy ? "…" : "Сохранить"}</button>
+        </div>
       </div>
+      <div className="npanel-search"><span>🔎</span><input className="inp" placeholder="Поиск по заметкам" value={q} onChange={(e) => setQ(e.target.value)} /></div>
       <div className="npanel-list">
         {shown.map((n) => (
-          <div key={n.id} className="pnote clk" style={n.color ? { borderLeftColor: n.color } : undefined} tabIndex={0} onClick={() => setEd(n)} onKeyDown={(e) => { if (e.key === "Enter") setEd(n); }}>
+          <div key={n.id} className="pnote clk" style={n.color ? { "--pc": n.color } : undefined} tabIndex={0} onClick={() => setEd(n)} onKeyDown={(e) => { if (e.key === "Enter") setEd(n); }}>
             <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
               <b className="pnote-title" style={{ marginRight: "auto" }}>{n.title || String(n.text || "").split("\n")[0] || "Без названия"}</b>
               {n.pinned && <span title="Закреплена">📌</span>}
               {n.shared && <span className="xs mut" title="Видна всем">👥</span>}
             </div>
             {n.title && n.text ? <div className="xs pnote-text">{n.text}</div> : null}
-            <div className="xs mut">{n.user_id === user.id ? "" : (n.author || "") + " · "}{when(n.updated_at)}</div>
+            <div className="xs mut pnote-when">{n.user_id === user.id ? "" : (n.author || "") + " · "}{when(n.updated_at)}</div>
           </div>
         ))}
         {!shown.length && <div className="mut sm" style={{ textAlign: "center", padding: 18 }}>{notes.length ? "Ничего не найдено" : "Заметок пока нет"}</div>}
@@ -8918,12 +8941,10 @@ function Calculator({ onClose }) {
     <div className={"calc" + (focused ? " on" : "")} role="dialog" aria-label="Калькулятор" tabIndex={-1} ref={boxRef}
       onFocus={() => setFocused(true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false); }}
       onMouseDown={(e) => { if (!isTyping(e.target)) { e.preventDefault(); boxRef.current.focus({ preventScroll: true }); } }}>
-      <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
-        <b style={{ fontSize: 13 }}>🧮 Калькулятор</b>
-        <span className="row" style={{ gap: 4 }}>
-          <button type="button" className="btn xs" title="Скопировать результат" onClick={copy}>копировать</button>
-          <button type="button" className="btn xs" title="Закрыть (Esc)" onClick={onClose}>✕</button>
-        </span>
+      <div className="calc-head" title="Alt+X — открыть / закрыть. Цифровая клавиатура: цифры, + − * /, Enter = , Backspace, Delete — очистить, Esc — закрыть. √ — клавиша R, % — Shift+5">
+        <b>🧮 Калькулятор</b>
+        <button type="button" className="calc-ib" title="Скопировать результат" onClick={copy}>⧉</button>
+        <button type="button" className="calc-ib" title="Закрыть (Esc)" onClick={onClose}>✕</button>
       </div>
       <div className="calc-scr">
         <div className="xs mut calc-sub">{last && expr === String(last.res) ? calcShow(last.expr) + " =" : live != null ? "= " + calcNum(live) : " "}</div>
@@ -8937,7 +8958,6 @@ function Calculator({ onClose }) {
         <K k="1" /><K k="2" /><K k="3" /><K k="=" cls="eq" />
         <K k="0" span={2} /><K k="." label="," />
       </div>
-      <div className="xs mut" style={{ marginTop: 8, lineHeight: 1.4 }}>Alt+X — открыть / закрыть. Цифровая клавиатура: цифры, + − * /, Enter = , Backspace, Delete — очистить, Esc — закрыть. √ — клавиша R, % — Shift+5: 200 + 10% = 220</div>
     </div>
   );
 }
@@ -9693,6 +9713,34 @@ function AppInner() {
     document.addEventListener("touchstart", ts, { passive: true });
     document.addEventListener("touchend", te, { passive: true });
     return () => { document.removeEventListener("touchstart", ts); document.removeEventListener("touchend", te); };
+  }, [finePtr]);
+  // телефон: кнопка «Назад» не выходит сразу. Открыто меню / окно / заметки / калькулятор — закрывает их;
+  // иначе спрашивает «Выйти из программы?». Лишняя запись истории ставится после касания экрана
+  // (браузер пропускает записи, добавленные без действия пользователя).
+  useEffect(() => {
+    if (finePtr) return;
+    let armed = false, leaving = false;
+    const arm = () => { if (armed || leaving) return; try { history.pushState({ teBack: 1 }, ""); armed = true; } catch (e) {} };
+    const onPop = async () => {
+      if (leaving) return;
+      armed = false;
+      if (peekRef.current) { setHdrPeek(false); arm(); return; }
+      if (document.querySelector(".modal-bg, .npanel-bg, .calc")) {
+        if (document.querySelector(".modal-bg")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+        else { const n = document.querySelector(".npanel-x"); if (n) n.click(); else { const c = document.querySelector(".calc .calc-ib[title^='Закрыть']"); if (c) c.click(); } }
+        arm(); return;
+      }
+      arm();
+      const ok = await askConfirm({ title: "Выйти из программы?", text: "", ok: "Да, выйти", cancel: "Нет, остаться" });
+      if (!ok) return;
+      leaving = true;
+      try { window.close(); } catch (e) {}
+      history.go(armed ? -2 : -1);
+      setTimeout(() => { leaving = false; armed = false; }, 800);
+    };
+    document.addEventListener("pointerdown", arm, { passive: true });
+    window.addEventListener("popstate", onPop);
+    return () => { document.removeEventListener("pointerdown", arm); window.removeEventListener("popstate", onPop); };
   }, [finePtr]);
   const [showTop, setShowTop] = useState(false); // кнопка «наверх»: полосы прокрутки у края окна нет
   // автобэкап (у руководителя): раз в день, пока система открыта на этом компьютере; напоминание, если бэкапа давно не было
