@@ -410,18 +410,35 @@ html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::
 /* компьютер (мышь): панель спрятана; сверху — выезжает целиком, как обычно, когда мышь у верхнего края;
    с галочкой «справа» — выезжает сбоку, когда мышь у правого края */
 .hdr-pin,.hdr-side{display:none}
-.hdr-pin-l{display:none}.te.hdr-off.fine.side .hdr-pin-l{display:inline}
-.te.hdr-off.fine .hdr{position:fixed;top:0;left:0;right:0;z-index:70;transform:translateY(-105%);transition:transform .22s ease;box-shadow:none}
-.te.hdr-off.fine .hdr.peek{transform:none;box-shadow:0 14px 40px rgba(0,0,0,.35)}
+.hdr-pin-l{display:none}
+.te.hdr-off.fine .hdr{position:fixed;top:0;left:0;right:0;z-index:70;transform:translateY(-105%);transition:none;box-shadow:none;border:0}
+.te.hdr-off.fine .hdr.peek{transform:none;box-shadow:0 14px 40px rgba(0,0,0,.35);transition:transform .45s cubic-bezier(.2,.8,.2,1)}
 .te.hdr-off.fine .hdr-hide{display:none}
 .te.hdr-off.fine .hdr-pin,.te.hdr-off.fine .hdr-side{display:inline-flex}
-.hdr-side{align-items:center;gap:6px;font-size:12px;color:var(--hdr-txt);white-space:nowrap}
-.te.hdr-off.fine.side .hdr{left:auto;right:0;bottom:0;width:270px;flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:10px;padding:16px 14px;overflow:auto;border-bottom:0;border-left:2px solid var(--acc);transform:translateX(105%)}
-.te.hdr-off.fine.side .hdr.peek{transform:none}
-.te.hdr-off.fine.side .hdr .tabs{flex-direction:column;margin:0;gap:2px}
-.te.hdr-off.fine.side .hdr .tab{width:100%;text-align:left;padding:10px 12px}
-.te.hdr-off.fine.side .hdr-user{justify-content:flex-start;flex-wrap:wrap}
-.te.hdr-off.fine.side .hdr-user>div{text-align:left!important;flex-basis:100%}
+/* переключатель «Сверху / Справа» */
+.hdr-side{align-items:center;gap:2px;padding:3px;border-radius:9px;background:var(--hdr-panel2);border:1px solid var(--hdr-line)}
+.hdr-side button{border:0;background:none;color:var(--hdr-mut);font:600 12px var(--sans);padding:5px 10px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.hdr-side button:hover{color:var(--hdr-txt)}
+.hdr-side button.on{background:var(--hdr-line);color:#fff}
+.te.hdr-off.fine:not(.side) .hdr-side{margin-left:auto}
+/* панель справа */
+.te.hdr-off.fine.side .hdr{left:auto;right:0;bottom:0;width:280px;display:grid;grid-template-columns:1fr 1fr;align-content:start;gap:8px;padding:20px 16px;overflow:auto;transform:translateX(105%);box-shadow:none}
+.te.hdr-off.fine.side .hdr.peek{transform:none;box-shadow:-18px 0 50px rgba(0,0,0,.4)}
+.te.hdr-off.fine.side .hdr>*{grid-column:1/-1}
+.te.hdr-off.fine.side .hdr .logo{font-size:16px;padding:0 4px 6px}
+.te.hdr-off.fine.side .hdr-user{display:grid;grid-template-columns:auto auto 1fr;gap:6px;padding:12px;border-radius:12px;background:var(--hdr-panel2)}
+.te.hdr-off.fine.side .hdr-user>div{grid-column:1/-1;text-align:left!important;margin-bottom:4px}
+.te.hdr-off.fine.side .hdr-user .btn.xs{height:30px;background:var(--hdr-bg)}
+.te.hdr-off.fine.side .hdr-user .btn.xs:last-child{justify-self:end}
+.te.hdr-off.fine.side .hdr .tabs{display:flex;flex-direction:column;margin:6px 0;gap:2px}
+.te.hdr-off.fine.side .hdr .tab{width:100%;text-align:left;padding:9px 12px;border-radius:10px;font-size:13.5px}
+.te.hdr-off.fine.side .hdr .npanel-btn,.te.hdr-off.fine.side .hdr .hdr-calc{grid-column:auto;height:40px;border-radius:10px;font-size:13px;font-weight:600;justify-content:center}
+.te.hdr-off.fine.side .hdr .npanel-btn{grid-column:1}
+.te.hdr-off.fine.side .hdr-side{justify-content:stretch;margin-top:4px}
+.te.hdr-off.fine.side .hdr-side button{flex:1;padding:7px 10px}
+.te.hdr-off.fine.side .hdr-pin{height:36px;border-radius:10px;justify-content:center;background:none;border:1px dashed var(--hdr-line);color:var(--hdr-mut);font-size:12.5px}
+.te.hdr-off.fine.side .hdr-pin:hover{color:var(--hdr-txt);border-color:var(--hdr-mut)}
+.te.hdr-off.fine.side .hdr-pin-l{display:inline}
 @media(max-width:820px){
 .te .hdr{padding:8px 12px;gap:8px;flex-wrap:nowrap}
 .te .hdr .logo{font-size:14px;white-space:nowrap;margin-right:auto}
@@ -9614,7 +9631,7 @@ function AppInner() {
       const edge = hdrSide ? e.clientX >= window.innerWidth - 6 : e.clientY <= 6;
       const inside = e.target && e.target.closest && e.target.closest(".hdr");
       if (edge || inside) { clearTimeout(peekT.current); peekT.current = null; if (edge) setHdrPeek(true); }
-      else if (!peekT.current) peekT.current = setTimeout(() => { peekT.current = null; setHdrPeek(false); }, 350);
+      else setHdrPeek(false); // мышь ушла с панели — закрывается сразу
     };
     document.addEventListener("mousemove", mv);
     return () => document.removeEventListener("mousemove", mv);
@@ -9777,7 +9794,7 @@ function AppInner() {
     <div className={"te" + (darkMode ? " dark" : "") + (isPhone() && !finePtr ? " phone" : "") + (finePtr ? " fine" : " touch") + (hdrOff ? " hdr-off" : "") + (hdrSide ? " side" : "")}>
       <style>{CSS}</style>
       <div className={"hdr" + (hdrHidden && !(hdrOff && finePtr) ? " hide-on-scroll" : "") + (hdrPeek ? " peek" : "")} onMouseLeave={hdrLeave} onMouseEnter={hdrEnter}>
-        <div className="logo">THERMO<span>•</span>ENGINEERING<small>procurement & finance OS</small></div>
+        <div className="logo">THERMO<span>•</span>ENGINEERING</div>
         <div className="row hdr-user" style={{ gap: 8 }}>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontWeight: 700, fontSize: 13 }}>{currentUser.name || currentUser.username}</div>
@@ -9803,9 +9820,12 @@ function AppInner() {
         </div>
         <button className="burger" onClick={() => setMobileMenuOpen((v) => !v)} title="Меню">{mobileMenuOpen ? "✕" : "☰"}</button>
         <button className={"btn xs npanel-btn" + (notesOpen ? " pri" : "")} title="Заметки: Alt два раза подряд (или левый + правый Alt)" onClick={() => setNotesOpen((v) => !v)}>📝<span className="hdr-lbl"> Заметки</span></button>
-        {role !== "driver" && <button className={"btn xs" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => setCalcOpen((v) => !v)}>🧮<span className="hdr-lbl"> Калькулятор</span></button>}
+        {role !== "driver" && <button className={"btn xs hdr-calc" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => setCalcOpen((v) => !v)}>🧮<span className="hdr-lbl"> Калькулятор</span></button>}
         <button className="btn xs hdr-hide" title="Скрыть панель — будет выезжать, когда мышь у края экрана" onClick={() => { setHdrOffSave(true); setMobileMenuOpen(false); }}>⌃</button>
-        <label className="hdr-side clk" title="Панель выезжает справа, когда мышь у правого края экрана"><input type="checkbox" checked={hdrSide} onChange={(e) => setHdrSideSave(e.target.checked)} /> справа</label>
+        <span className="hdr-side" title="Откуда выезжает панель, когда она скрыта">
+          <button type="button" className={!hdrSide ? "on" : ""} onClick={() => setHdrSideSave(false)}>Сверху</button>
+          <button type="button" className={hdrSide ? "on" : ""} onClick={() => setHdrSideSave(true)}>Справа</button>
+        </span>
         <button className="btn xs hdr-pin" title="Закрепить панель (всегда видна)" onClick={() => setHdrOffSave(false)}>📌<span className="hdr-pin-l"> Закрепить панель</span></button>
         <input ref={restoreRef} type="file" accept=".json,.gz,application/json,application/gzip" style={{ display: "none" }} onChange={onRestore} />
       </div>
