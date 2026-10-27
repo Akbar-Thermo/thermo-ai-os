@@ -28,6 +28,7 @@ let _lastDbErr = { m: "", at: 0 };
 function dbErrText(t, e) {
   const m = String((e && e.message) || e || "");
   if ((e && e.code === "23503") || /foreign key/i.test(m)) return "Запись в «" + t + "» не изменена: на неё ссылаются другие данные.";
+  if (/te_forbidden:/.test(m)) return "Нельзя: " + m.replace(/^.*te_forbidden:\s*/, "") + ".";
   if (/row-level security|permission denied/i.test(m) || (e && e.code === "42501")) return "Нет прав на запись в таблицу «" + t + "» (проверьте RLS в Supabase).";
   if (e && e.code === "NO_COLUMNS") return "Не сохранено: " + m + ".";
   return "Ошибка базы («" + t + "»): " + m;

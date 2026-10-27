@@ -5,6 +5,25 @@
 begin;
 set local client_min_messages = warning;
 
+-- правила «кто» (02_actor.sql)
+do $$
+declare t text;
+begin
+  foreach t in array array['finance_ops', 'wh_moves', 'audit_log'] loop
+    if to_regclass('public.' || t) is not null then execute format('drop trigger if exists te_actor_guard on public.%I', t); end if;
+  end loop;
+  if to_regclass('public.requests') is not null then drop trigger if exists te_requests_guard on public.requests; end if;
+  for t in select tablename from pg_tables where schemaname = 'public' loop
+    execute format('drop trigger if exists te_driver_guard on public.%I', t);
+  end loop;
+end $$;
+drop function if exists public.te_driver_guard();
+drop function if exists public.te_session_driver_only();
+drop function if exists public.te_actor_guard();
+drop function if exists public.te_requests_guard();
+drop function if exists public.te_session_accounts();
+drop function if exists public.te_session_name();
+
 drop trigger if exists te_users_guard on public.users;
 drop trigger if exists te_users_gone on public.users;
 

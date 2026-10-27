@@ -55,7 +55,8 @@ case "$step" in
   apply)
     say "Включаю защиту…"
     q -f supabase/secure/01_sessions.sql
-    if check_api_closed; then say "Защита включена: без входа база закрыта, вход — через сервер"
+    q -f supabase/secure/02_actor.sql
+    if check_api_closed; then say "Защита включена: без входа база закрыта, вход — через сервер; «кто» в записях ставит сама база"
     else
       echo "::error::Проверка после включения не прошла — откатываю"
       q -f supabase/secure/rollback.sql
@@ -71,6 +72,8 @@ case "$step" in
     on=$(q -c "select to_regproc('public.te_status') is not null")
     if [ "$on" = "t" ]; then
       say "Защита: ВКЛЮЧЕНА · активных сессий: $(q -c "select count(*) from public.te_sessions where expires_at > now()")"
+      if [ "$(q -c "select to_regproc('public.te_actor_guard') is not null")" = "t" ]; then say "«Никто от имени другого» (02): ВКЛЮЧЕНО"
+      else say "«Никто от имени другого» (02): выключено — запустите ВКЛЮЧИТЬ"; fi
     else say "Защита: выключена (старый режим)"; fi
     ;;
   *) fail "неизвестный шаг: $step" ;;
