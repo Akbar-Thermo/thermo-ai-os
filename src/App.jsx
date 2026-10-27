@@ -391,6 +391,22 @@ html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::
   .burger{display:flex}
 }
 .menu-extra{display:none}
+.hdr-chk{display:flex;align-items:center;gap:6px;flex-basis:100%;font-size:13px;color:var(--hdr-txt);padding:8px 2px 2px}
+.hdr-hide{order:10}
+.te.phone .hdr-hide{display:none}
+@media(max-width:820px){.hdr-hide{display:none}}
+/* верхняя панель скрыта: остаются только 📝 🧮 ☰ в правом верхнем углу, без полосы и фона */
+.te.hdr-off .hdr{position:fixed;top:8px;right:10px;left:auto;width:auto;padding:0;gap:6px;background:transparent;border:0;box-shadow:none;flex-wrap:nowrap;z-index:50}
+.te.hdr-off .hdr.hide-on-scroll{transform:translateY(-160%)}
+.te.hdr-off .hdr .logo,.te.hdr-off .hdr-user,.te.hdr-off .hdr-lbl,.te.hdr-off .hdr-hide{display:none}
+.te.hdr-off .hdr .btn.xs{min-width:38px;height:38px;font-size:17px;padding:0 8px;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+.te.hdr-off .burger{display:flex;margin-left:0;flex:none;order:9;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+.te.hdr-off .tabs{display:none;position:absolute;top:calc(100% + 6px);right:0;left:auto;width:min(340px,calc(100vw - 20px));flex-direction:column;flex-wrap:nowrap;gap:0;margin:0;background:var(--hdr-bg);border:1px solid var(--hdr-line);border-top:2px solid var(--acc);border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,.4);padding:6px;z-index:60;max-height:calc(100dvh - 70px);overflow:auto}
+.te.hdr-off .tabs.open{display:flex}
+.te.hdr-off .tab{width:100%;text-align:left;padding:11px 14px;border-radius:6px}
+.te.hdr-off .menu-extra{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:10px 8px 4px;margin-top:4px;border-top:1px solid var(--hdr-line)}
+.te.hdr-off .menu-extra .btn.xs{font-size:13px;height:32px}
+@media(max-width:1560px){.te.hdr-off .body{padding-top:58px!important}}
 @media(max-width:820px){
 .te .hdr{padding:8px 12px;gap:8px;flex-wrap:nowrap}
 .te .hdr .logo{font-size:14px;white-space:nowrap;margin-right:auto}
@@ -400,7 +416,7 @@ html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::
 .te .tabs{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;flex-wrap:nowrap;gap:0;margin:0;background:var(--hdr-bg);border-bottom:2px solid var(--acc);box-shadow:0 16px 30px rgba(0,0,0,.35);padding:6px;z-index:60;max-height:calc(100dvh - 60px);overflow:auto}
 .te .tabs.open{display:flex}
 .te .tab{width:100%;text-align:left;padding:12px 14px;border-radius:6px}
-.te .menu-extra{display:flex;align-items:center;gap:6px;padding:10px 8px 4px;margin-top:4px;border-top:1px solid var(--hdr-line)}
+.te .menu-extra{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:10px 8px 4px;margin-top:4px;border-top:1px solid var(--hdr-line)}
 .te .menu-extra .btn.xs{font-size:13px}
 .te .hdr.hide-on-scroll{transform:translateY(-100%)}
 .te .body{padding:14px 14px 32px}
@@ -413,7 +429,7 @@ html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::
 .te.phone .tabs{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;flex-wrap:nowrap;gap:0;margin:0;background:var(--hdr-bg);border-bottom:2px solid var(--acc);box-shadow:0 16px 30px rgba(0,0,0,.35);padding:6px;z-index:60;max-height:calc(100dvh - 60px);overflow:auto}
 .te.phone .tabs.open{display:flex}
 .te.phone .tab{width:100%;text-align:left;padding:12px 14px;border-radius:6px}
-.te.phone .menu-extra{display:flex;align-items:center;gap:6px;padding:10px 8px 4px;margin-top:4px;border-top:1px solid var(--hdr-line)}
+.te.phone .menu-extra{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:10px 8px 4px;margin-top:4px;border-top:1px solid var(--hdr-line)}
 .te.phone .menu-extra .btn.xs{font-size:13px}
 .te.phone .hdr.hide-on-scroll{transform:translateY(-100%)}
 .te.phone .body{padding:14px 14px 32px}
@@ -9559,6 +9575,9 @@ function AppInner() {
   const [wipeOpen, setWipeOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hdrHidden, setHdrHidden] = useState(false);
+  // верхняя панель: галочка в меню ☰ — показывать её или нет (запоминается на этом устройстве)
+  const [hdrOff, setHdrOff] = useState(() => { try { return localStorage.getItem("te:hdroff") === "1"; } catch (e) { return false; } });
+  const setHdrOffSave = (v) => { setHdrOff(v); try { if (v) localStorage.setItem("te:hdroff", "1"); else localStorage.removeItem("te:hdroff"); } catch (e) {} };
   const [showTop, setShowTop] = useState(false); // кнопка «наверх»: полосы прокрутки у края окна нет
   // автобэкап (у руководителя): раз в день, пока система открыта на этом компьютере; напоминание, если бэкапа давно не было
   const [abTick, setAbTick] = useState(0);
@@ -9625,6 +9644,12 @@ function AppInner() {
   }, []);
   // при открытии мобильного меню шапка всегда видна, чтобы не закрывать список вкладок
   useEffect(() => { if (mobileMenuOpen) setHdrHidden(false); }, [mobileMenuOpen]);
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const h = (e) => { if (!(e.target.closest && e.target.closest(".hdr"))) setMobileMenuOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [mobileMenuOpen]);
   // перед восстановлением: подтверждение + автоматически скачиваем бэкап текущей базы
   const confirmRestore = async () => {
     if (!window.confirm("Восстановить базу из бэкапа?\n\nТекущие данные будут заменены содержимым бэкапа. Перед этим автоматически скачается бэкап текущей базы.")) return false;
@@ -9706,7 +9731,7 @@ function AppInner() {
     onLogout={(note) => { (async () => { if (SECURE && sb) { try { await sb.rpc("te_logout"); } catch (e) {} } endSession(note); })(); }} />}{intro}</>;
   return (<>
     <PeopleCtx.Provider value={peopleCtx}>
-    <div className={"te" + (darkMode ? " dark" : "") + (isPhone() ? " phone" : "")}>
+    <div className={"te" + (darkMode ? " dark" : "") + (isPhone() ? " phone" : "") + (hdrOff ? " hdr-off" : "")}>
       <style>{CSS}</style>
       <div className={"hdr" + (hdrHidden ? " hide-on-scroll" : "")}>
         <div className="logo">THERMO<span>•</span>ENGINEERING<small>procurement & finance OS</small></div>
@@ -9730,11 +9755,13 @@ function AppInner() {
             <button className="btn xs" onClick={toggleLang} style={{ fontWeight: 800 }}>{lang === "ru" ? "UZ" : "RU"}</button>
             <button className="btn xs" onClick={toggleDark}>{darkMode ? "☀️" : "🌙"}</button>
             <button className="btn xs" onClick={doLogout}>{lang === "uz" ? "Chiqish" : "Выйти"}</button>
+            <label className="hdr-chk clk"><input type="checkbox" checked={!hdrOff} onChange={(e) => { setHdrOffSave(!e.target.checked); setMobileMenuOpen(false); }} /> Верхняя панель</label>
           </div>
         </div>
         <button className="burger" onClick={() => setMobileMenuOpen((v) => !v)} title="Меню">{mobileMenuOpen ? "✕" : "☰"}</button>
         <button className={"btn xs npanel-btn" + (notesOpen ? " pri" : "")} title="Заметки: Alt два раза подряд (или левый + правый Alt)" onClick={() => setNotesOpen((v) => !v)}>📝<span className="hdr-lbl"> Заметки</span></button>
         {role !== "driver" && <button className={"btn xs" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => setCalcOpen((v) => !v)}>🧮<span className="hdr-lbl"> Калькулятор</span></button>}
+        <button className="btn xs hdr-hide" title="Скрыть верхнюю панель (вернуть — ☰ → «Верхняя панель»)" onClick={() => { setHdrOffSave(true); setMobileMenuOpen(false); }}>⌃</button>
         <input ref={restoreRef} type="file" accept=".json,.gz,application/json,application/gzip" style={{ display: "none" }} onChange={onRestore} />
       </div>
       <div className="body" key={tab + ":" + tabNonce}>
