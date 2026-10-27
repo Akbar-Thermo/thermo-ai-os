@@ -411,8 +411,8 @@ html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::
    с галочкой «справа» — выезжает сбоку, когда мышь у правого края */
 .hdr-pin,.hdr-side{display:none}
 .hdr-pin-l{display:none}
-.te.hdr-off.fine .hdr{position:fixed;top:0;left:0;right:0;z-index:70;transform:translateY(-105%);transition:none;box-shadow:none;border:0}
-.te.hdr-off.fine .hdr.peek{transform:none;box-shadow:0 14px 40px rgba(0,0,0,.35);transition:transform .45s cubic-bezier(.2,.8,.2,1)}
+.te.hdr-off.fine .hdr{position:fixed;top:0;left:0;right:0;z-index:70;transform:translateY(-105%);transition:transform .45s cubic-bezier(.2,.8,.2,1),box-shadow .45s;box-shadow:none;border:0}
+.te.hdr-off.fine .hdr.peek{transform:none;box-shadow:0 14px 40px rgba(0,0,0,.35)}
 .te.hdr-off.fine .hdr-hide{display:none}
 .te.hdr-off.fine .hdr-pin,.te.hdr-off.fine .hdr-side{display:inline-flex}
 /* переключатель «Сверху / Справа» */
