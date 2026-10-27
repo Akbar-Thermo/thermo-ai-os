@@ -5247,7 +5247,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   const deleteBatch = async (b) => {
     const ids = new Set(b.items.map((i) => i.id));
     const rets = ops.filter((o) => !o.voided && o.type === "return" && o.item_id && ids.has(o.item_id));
-    if (rets.length) { toast("По этой поставке есть возвраты (" + rets.length + ") — сначала удалите их в «Финансовых операциях»"); return false; }
+    if (rets.length) { toast("По этой поставке есть возвраты (" + rets.length + ") — сначала удалите их в «Возвраты»"); return false; }
     const r = await updateObjectItems(obj.id, (cur) => renumberBatches(cur.filter((i) => !ids.has(i.id)), obj.created_at));
     if (r.error) { await reload(); return false; }
     let note = "";
@@ -5325,7 +5325,11 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   }, { c0: 0, c1: 0, s: 0 }) : null;
   const cqN = costMode ? costChanges().length : 0;
   const KPI = ({ l, v, c, sub }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}</div>{sub && <div className="xs mut kpi-sub">{sub}</div>}</div>;
-  const shownOps = opsNewestFirst(ops.filter((o) => !MASTER_ONLY_OPS.includes(o.type) && (fin || MANAGER_OP_TYPES.includes(o.type))));
+  // возвраты товара — не в «Финансовых операциях», а отдельным блоком «Возвраты» в материалах объекта (как поставка)
+  const shownOps = opsNewestFirst(ops.filter((o) => o.type !== "return" && !MASTER_ONLY_OPS.includes(o.type) && (fin || MANAGER_OP_TYPES.includes(o.type))));
+  const retOps = opsNewestFirst(ops.filter((o) => o.type === "return")).reverse();
+  const retLive = retOps.filter((o) => !o.voided);
+  const canReturn = isLive(obj) && (fin || MANAGER_OP_TYPES.includes("return"));
   // клавиатура: Alt+буква — сразу; остальное — через Ctrl+K
   useHotActions(() => [
     { label: "Новая поставка", keys: "Alt+N", code: "KeyN", run: () => setAddItems("newbatch") },
@@ -5388,6 +5392,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
           <button className="btn" onClick={() => setAddItems(true)}>+ Список вручную</button>
           <button className="btn pri" onClick={() => setAddItems("newbatch")}><Ic n="package" /> Новая поставка</button>
           <button className="btn" onClick={() => setImpItems(true)}><Ic n="sheet" /> Импорт Excel</button>
+          {canReturn && <button className="btn" onClick={() => setOpForm({ type: "return" })}>+ Возврат товара</button>}
         </>}
       </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
@@ -5416,6 +5421,38 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
                 ))}
               </React.Fragment>
             ))}
+            {!costMode && retOps.length > 0 && <>
+              <tr className="clk batch-head ret-head" onClick={() => toggleBatch("ret")}>
+                <td colSpan={7} style={{ background: "color-mix(in srgb, var(--bad) 9%, transparent)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
+                  {openBatches.ret ? "▾" : "▸"} <Ic n="undo" /> ВОЗВРАТЫ · позиций: {retLive.length} · на сумму <span style={{ color: "var(--bad)" }}>−{fmt(retLive.reduce((a, o) => a + (Number(o.amount) || 0), 0))}</span>
+                  <span className="xs mut" style={{ fontWeight: 500 }}>  — нажмите чтобы {openBatches.ret ? "свернуть" : "раскрыть"}</span>
+                </td>
+              </tr>
+              {openBatches.ret && retOps.map((o) => {
+                const q = Number(o.qty) || 0, amt = Number(o.amount) || 0;
+                return (
+                  <tr key={o.id} className="ret-row" style={{ opacity: o.voided ? 0.4 : 1, textDecoration: o.voided ? "line-through" : "none" }}>
+                    <td></td>
+                    <td><div style={{ fontWeight: 600 }}>{o.product_name || "—"}</div>
+                      <div className="xs mut">Возврат товара · {dt(o.op_date || o.created_at)} · {o.supplier_id ? "поставщику " + supName(o.supplier_id) : "на Склад Thermo"}{o.reason ? " · " + o.reason : ""}{o.user ? " · " + o.user : ""}{o.edited ? <span style={{ color: "var(--warn)" }}> · изменено</span> : null}</div></td>
+                    <td className="num">{q ? fmt(q) : ""}</td>
+                    <td className="sm">{o.unit || ""}</td>
+                    <td className="num" style={{ textAlign: "center" }}>{q ? fmt2(amt / q) : ""}</td>
+                    <td className="num" style={{ fontWeight: 700, color: "var(--bad)" }}>−{fmt(amt)}</td>
+                    <td><div className="row" style={{ gap: 4, flexWrap: "nowrap", justifyContent: "flex-end" }}>
+                      {!o.voided && <button className="btn xs" title="Изменить" aria-label="Изменить" onClick={() => setEditOp(o)}><Ic n="pencil" /></button>}
+                      {fin && (delAsk === o.id ? (
+                        <>
+                          <span className="xs" style={{ color: "var(--bad)", textDecoration: "none" }}>Удалить?</span>
+                          <button className="btn xs dng" onClick={() => deleteOp(o)}>Да</button>
+                          <button className="btn xs" onClick={() => setDelAsk(null)}>Нет</button>
+                        </>
+                      ) : <button className="btn xs dng" onClick={() => setDelAsk(o.id)}>удалить</button>)}
+                    </div></td>
+                  </tr>
+                );
+              })}
+            </>}
             {!(obj.items || []).length && <tr><td colSpan={7} className="mut" style={{ textAlign: "center", padding: 22 }}>Материалов нет — добавьте через «Новая заявка»</td></tr>}
           </tbody>
         </table>
@@ -5444,7 +5481,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       )}
       <div className="row sect">
         <h3 style={{ marginRight: "auto" }}>Финансовые операции</h3>
-        {OP_TYPES.filter((t) => (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes(t.id) && (t.id !== "client_payment" || payLive(obj)) && (t.id !== "return" || isLive(obj))).map((t) => <React.Fragment key={t.id}>
+        {OP_TYPES.filter((t) => (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes(t.id) && (t.id !== "client_payment" || payLive(obj)) && t.id !== "return").map((t) => <React.Fragment key={t.id}>
           <button className="btn xs" onClick={() => setOpForm({ type: t.id })}>+ {t.label}</button>
           {t.id === "discount" && (obj.items || []).length > 0 && <button className="btn xs" onClick={() => setPctForm(true)} title="Цена продажи = себестоимость ÷ (1 − %)">+ Прибыль от себестоимости</button>}
         </React.Fragment>)}
