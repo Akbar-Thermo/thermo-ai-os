@@ -9660,8 +9660,8 @@ function AppInner() {
   }, [hdrOff, hdrSide, finePtr]);
   const hdrLeave = () => {};
   const hdrEnter = () => { clearTimeout(peekT.current); peekT.current = null; };
-  // телефон: провести пальцем слева направо в любом месте экрана (или от правого края влево) — открыть меню;
-  // меню открыто — провести справа налево или тапнуть мимо — закрыть.
+  // телефон: провести пальцем справа налево в любом месте экрана — открыть меню (оно выезжает справа);
+  // меню открыто — провести слева направо или тапнуть мимо — закрыть.
   // Не мешает прокрутке таблиц вбок и полям ввода: жест, начатый на них, меню не трогает.
   const peekRef = useRef(false);
   peekRef.current = hdrPeek;
@@ -9687,8 +9687,8 @@ function AppInner() {
       const t = e.changedTouches && e.changedTouches[0]; if (!t) return;
       const dx = t.clientX - x0, dy = t.clientY - y0;
       if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.6 || Date.now() - t0 > 900) return;
-      if (peekRef.current) { if (dx < 0) setHdrPeek(false); return; }
-      if (dx > 0 || x0 >= window.innerWidth - 32) setHdrPeek(true);
+      if (peekRef.current) { if (dx > 0) setHdrPeek(false); return; }
+      if (dx < 0) setHdrPeek(true);
     };
     document.addEventListener("touchstart", ts, { passive: true });
     document.addEventListener("touchend", te, { passive: true });
