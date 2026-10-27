@@ -396,17 +396,32 @@ html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::
 .te.phone .hdr-hide{display:none}
 @media(max-width:820px){.hdr-hide{display:none}}
 /* верхняя панель скрыта: остаются только 📝 🧮 ☰ в правом верхнем углу, без полосы и фона */
-.te.hdr-off .hdr{position:fixed;top:8px;right:10px;left:auto;width:auto;padding:0;gap:6px;background:transparent;border:0;box-shadow:none;flex-wrap:nowrap;z-index:50}
-.te.hdr-off .hdr.hide-on-scroll{transform:translateY(-160%)}
-.te.hdr-off .hdr .logo,.te.hdr-off .hdr-user,.te.hdr-off .hdr-lbl,.te.hdr-off .hdr-hide{display:none}
-.te.hdr-off .hdr .btn.xs{min-width:38px;height:38px;font-size:17px;padding:0 8px;box-shadow:0 4px 14px rgba(0,0,0,.25)}
-.te.hdr-off .burger{display:flex;margin-left:0;flex:none;order:9;box-shadow:0 4px 14px rgba(0,0,0,.25)}
-.te.hdr-off .tabs{display:none;position:absolute;top:calc(100% + 6px);right:0;left:auto;width:min(340px,calc(100vw - 20px));flex-direction:column;flex-wrap:nowrap;gap:0;margin:0;background:var(--hdr-bg);border:1px solid var(--hdr-line);border-top:2px solid var(--acc);border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,.4);padding:6px;z-index:60;max-height:calc(100dvh - 70px);overflow:auto}
-.te.hdr-off .tabs.open{display:flex}
-.te.hdr-off .tab{width:100%;text-align:left;padding:11px 14px;border-radius:6px}
-.te.hdr-off .menu-extra{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:10px 8px 4px;margin-top:4px;border-top:1px solid var(--hdr-line)}
-.te.hdr-off .menu-extra .btn.xs{font-size:13px;height:32px}
-@media(max-width:1560px){.te.hdr-off .body{padding-top:58px!important}}
+.te.hdr-off.touch .hdr{position:fixed;top:8px;right:10px;left:auto;width:auto;padding:0;gap:6px;background:transparent;border:0;box-shadow:none;flex-wrap:nowrap;z-index:50}
+.te.hdr-off.touch .hdr.hide-on-scroll{transform:translateY(-160%)}
+.te.hdr-off.touch .hdr .logo,.te.hdr-off.touch .hdr-user,.te.hdr-off.touch .hdr-lbl,.te.hdr-off.touch .hdr-hide{display:none}
+.te.hdr-off.touch .hdr .btn.xs{min-width:38px;height:38px;font-size:17px;padding:0 8px;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+.te.hdr-off.touch .burger{display:flex;margin-left:0;flex:none;order:9;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+.te.hdr-off.touch .tabs{display:none;position:absolute;top:calc(100% + 6px);right:0;left:auto;width:min(340px,calc(100vw - 20px));flex-direction:column;flex-wrap:nowrap;gap:0;margin:0;background:var(--hdr-bg);border:1px solid var(--hdr-line);border-top:2px solid var(--acc);border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,.4);padding:6px;z-index:60;max-height:calc(100dvh - 70px);overflow:auto}
+.te.hdr-off.touch .tabs.open{display:flex}
+.te.hdr-off.touch .tab{width:100%;text-align:left;padding:11px 14px;border-radius:6px}
+.te.hdr-off.touch .menu-extra{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:10px 8px 4px;margin-top:4px;border-top:1px solid var(--hdr-line)}
+.te.hdr-off.touch .menu-extra .btn.xs{font-size:13px;height:32px}
+@media(max-width:1560px){.te.hdr-off.touch .body{padding-top:58px!important}}
+/* компьютер (мышь): панель спрятана; сверху — выезжает целиком, как обычно, когда мышь у верхнего края;
+   с галочкой «справа» — выезжает сбоку, когда мышь у правого края */
+.hdr-pin,.hdr-side{display:none}
+.hdr-pin-l{display:none}.te.hdr-off.fine.side .hdr-pin-l{display:inline}
+.te.hdr-off.fine .hdr{position:fixed;top:0;left:0;right:0;z-index:70;transform:translateY(-105%);transition:transform .22s ease;box-shadow:none}
+.te.hdr-off.fine .hdr.peek{transform:none;box-shadow:0 14px 40px rgba(0,0,0,.35)}
+.te.hdr-off.fine .hdr-hide{display:none}
+.te.hdr-off.fine .hdr-pin,.te.hdr-off.fine .hdr-side{display:inline-flex}
+.hdr-side{align-items:center;gap:6px;font-size:12px;color:var(--hdr-txt);white-space:nowrap}
+.te.hdr-off.fine.side .hdr{left:auto;right:0;bottom:0;width:270px;flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:10px;padding:16px 14px;overflow:auto;border-bottom:0;border-left:2px solid var(--acc);transform:translateX(105%)}
+.te.hdr-off.fine.side .hdr.peek{transform:none}
+.te.hdr-off.fine.side .hdr .tabs{flex-direction:column;margin:0;gap:2px}
+.te.hdr-off.fine.side .hdr .tab{width:100%;text-align:left;padding:10px 12px}
+.te.hdr-off.fine.side .hdr-user{justify-content:flex-start;flex-wrap:wrap}
+.te.hdr-off.fine.side .hdr-user>div{text-align:left!important;flex-basis:100%}
 @media(max-width:820px){
 .te .hdr{padding:8px 12px;gap:8px;flex-wrap:nowrap}
 .te .hdr .logo{font-size:14px;white-space:nowrap;margin-right:auto}
@@ -9577,7 +9592,26 @@ function AppInner() {
   const [hdrHidden, setHdrHidden] = useState(false);
   // верхняя панель: галочка в меню ☰ — показывать её или нет (запоминается на этом устройстве)
   const [hdrOff, setHdrOff] = useState(() => { try { return localStorage.getItem("te:hdroff") === "1"; } catch (e) { return false; } });
-  const setHdrOffSave = (v) => { setHdrOff(v); try { if (v) localStorage.setItem("te:hdroff", "1"); else localStorage.removeItem("te:hdroff"); } catch (e) {} };
+  const setHdrOffSave = (v) => { setHdrOff(v); setHdrPeek(false); try { if (v) localStorage.setItem("te:hdroff", "1"); else localStorage.removeItem("te:hdroff"); } catch (e) {} };
+  const [hdrSide, setHdrSide] = useState(() => { try { return localStorage.getItem("te:hdrside") === "1"; } catch (e) { return false; } });
+  const setHdrSideSave = (v) => { setHdrSide(v); setHdrPeek(false); try { if (v) localStorage.setItem("te:hdrside", "1"); else localStorage.removeItem("te:hdrside"); } catch (e) {} };
+  const [hdrPeek, setHdrPeek] = useState(false);
+  // мышь (компьютер) — панель выезжает от края; на телефоне — кнопки 📝 🧮 ☰
+  const finePtr = useMemo(() => { try { return window.matchMedia("(hover: hover) and (pointer: fine)").matches; } catch (e) { return true; } }, []);
+  const peekT = useRef(null);
+  useEffect(() => {
+    if (!hdrOff || !finePtr) return;
+    const mv = (e) => {
+      const edge = hdrSide ? e.clientX >= window.innerWidth - 6 : e.clientY <= 6;
+      const inside = e.target && e.target.closest && e.target.closest(".hdr");
+      if (edge || inside) { clearTimeout(peekT.current); peekT.current = null; if (edge) setHdrPeek(true); }
+      else if (!peekT.current) peekT.current = setTimeout(() => { peekT.current = null; setHdrPeek(false); }, 350);
+    };
+    document.addEventListener("mousemove", mv);
+    return () => document.removeEventListener("mousemove", mv);
+  }, [hdrOff, hdrSide, finePtr]);
+  const hdrLeave = () => {};
+  const hdrEnter = () => { clearTimeout(peekT.current); peekT.current = null; };
   const [showTop, setShowTop] = useState(false); // кнопка «наверх»: полосы прокрутки у края окна нет
   // автобэкап (у руководителя): раз в день, пока система открыта на этом компьютере; напоминание, если бэкапа давно не было
   const [abTick, setAbTick] = useState(0);
@@ -9731,9 +9765,9 @@ function AppInner() {
     onLogout={(note) => { (async () => { if (SECURE && sb) { try { await sb.rpc("te_logout"); } catch (e) {} } endSession(note); })(); }} />}{intro}</>;
   return (<>
     <PeopleCtx.Provider value={peopleCtx}>
-    <div className={"te" + (darkMode ? " dark" : "") + (isPhone() ? " phone" : "") + (hdrOff ? " hdr-off" : "")}>
+    <div className={"te" + (darkMode ? " dark" : "") + (isPhone() && !finePtr ? " phone" : "") + (finePtr ? " fine" : " touch") + (hdrOff ? " hdr-off" : "") + (hdrSide ? " side" : "")}>
       <style>{CSS}</style>
-      <div className={"hdr" + (hdrHidden ? " hide-on-scroll" : "")}>
+      <div className={"hdr" + (hdrHidden && !(hdrOff && finePtr) ? " hide-on-scroll" : "") + (hdrPeek ? " peek" : "")} onMouseLeave={hdrLeave} onMouseEnter={hdrEnter}>
         <div className="logo">THERMO<span>•</span>ENGINEERING<small>procurement & finance OS</small></div>
         <div className="row hdr-user" style={{ gap: 8 }}>
           <div style={{ textAlign: "right" }}>
@@ -9761,7 +9795,9 @@ function AppInner() {
         <button className="burger" onClick={() => setMobileMenuOpen((v) => !v)} title="Меню">{mobileMenuOpen ? "✕" : "☰"}</button>
         <button className={"btn xs npanel-btn" + (notesOpen ? " pri" : "")} title="Заметки: Alt два раза подряд (или левый + правый Alt)" onClick={() => setNotesOpen((v) => !v)}>📝<span className="hdr-lbl"> Заметки</span></button>
         {role !== "driver" && <button className={"btn xs" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => setCalcOpen((v) => !v)}>🧮<span className="hdr-lbl"> Калькулятор</span></button>}
-        <button className="btn xs hdr-hide" title="Скрыть верхнюю панель (вернуть — ☰ → «Верхняя панель»)" onClick={() => { setHdrOffSave(true); setMobileMenuOpen(false); }}>⌃</button>
+        <button className="btn xs hdr-hide" title="Скрыть панель — будет выезжать, когда мышь у края экрана" onClick={() => { setHdrOffSave(true); setMobileMenuOpen(false); }}>⌃</button>
+        <label className="hdr-side clk" title="Панель выезжает справа, когда мышь у правого края экрана"><input type="checkbox" checked={hdrSide} onChange={(e) => setHdrSideSave(e.target.checked)} /> справа</label>
+        <button className="btn xs hdr-pin" title="Закрепить панель (всегда видна)" onClick={() => setHdrOffSave(false)}>📌<span className="hdr-pin-l"> Закрепить панель</span></button>
         <input ref={restoreRef} type="file" accept=".json,.gz,application/json,application/gzip" style={{ display: "none" }} onChange={onRestore} />
       </div>
       <div className="body" key={tab + ":" + tabNonce}>
