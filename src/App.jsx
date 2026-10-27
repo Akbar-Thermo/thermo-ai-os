@@ -8351,7 +8351,7 @@ const NOTE_COLORS = ["", "#ff1f30", "#ffb020", "#3ddc7d", "#3d9bff", "#a46bff"];
 // окно заметок: большое окно по центру; левый + правый Alt — открыть / закрыть; курсор сразу в новой заметке;
 // Enter — сохранить, Shift+Enter — новая строка
 const noteDraftKey = (uid) => "te:notedraft:" + uid;
-function NotesPanel({ data, reload, toast, user, onClose }) {
+function NotesPanel({ data, reload, toast, user, boss = false, onClose }) {
   const boxRef = useRef(null), taRef = useRef(null);
   const [q, setQ] = useState("");
   const [ed, setEd] = useState(null);
@@ -8377,8 +8377,12 @@ function NotesPanel({ data, reload, toast, user, onClose }) {
     window.addEventListener("keydown", h, true);
     return () => window.removeEventListener("keydown", h, true);
   }, [onClose]);
-  const notes = useMemo(() => (data.requests || []).filter((r) => r.mode === NOTE_MODE && r.lines && (r.lines.user_id === user.id || r.lines.shared))
-    .map((r) => ({ id: r.id, ...r.lines })), [data.requests, user.id]);
+  // чужую общую заметку можно скрыть у себя (у автора и у остальных она остаётся)
+  const hidKey = "te:notehid:" + user.id;
+  const [hid, setHid] = useState(() => { try { return JSON.parse(localStorage.getItem(hidKey) || "[]"); } catch (e) { return []; } });
+  const hideForMe = (id) => { const nx = [...new Set([...hid, id])]; setHid(nx); try { localStorage.setItem(hidKey, JSON.stringify(nx)); } catch (e) {} toast("Заметка скрыта у вас"); };
+  const notes = useMemo(() => (data.requests || []).filter((r) => r.mode === NOTE_MODE && r.lines && (r.lines.user_id === user.id || (r.lines.shared && !hid.includes(r.id))))
+    .map((r) => ({ id: r.id, ...r.lines })), [data.requests, user.id, hid]);
   const words = searchWords(q);
   const shown = notes.filter((n) => !words.length || words.every((w) => (String(n.title || "") + " " + String(n.text || "") + " " + String(n.author || "")).toLowerCase().replace(/ё/g, "е").includes(w)))
     .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
@@ -8401,9 +8405,10 @@ function NotesPanel({ data, reload, toast, user, onClose }) {
     if (ok) { setDraft(""); toast("Заметка сохранена"); if (taRef.current) taRef.current.focus(); }
   };
   const del = async (n) => {
-    if (!(await askConfirm({ title: "Удалить заметку?", text: "«" + (n.title || String(n.text || "").slice(0, 40) || "без названия") + "»", ok: "Да, удалить", cancel: "Нет" }))) return false;
+    if (!(await askConfirm({ title: "Удалить заметку?", text: "«" + (n.title || String(n.text || "").slice(0, 40) || "без названия") + "»" + (n.user_id && n.user_id !== user.id ? " — заметка " + (n.author || "другого сотрудника") + ", удалится у всех" : ""), ok: "Да, удалить", cancel: "Нет" }))) return false;
     const r = await db.from("requests").delete().eq("id", n.id);
     if (r.error) return false;
+    if (n.user_id && n.user_id !== user.id) await logAction("Удалена общая заметка", n.author || "", n.title || String(n.text || "").slice(0, 60));
     await reload(["requests"]); toast("Заметка удалена"); return true;
   };
   const when = (iso) => (iso ? new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "");
@@ -8434,12 +8439,12 @@ function NotesPanel({ data, reload, toast, user, onClose }) {
         ))}
         {!shown.length && <div className="mut sm" style={{ textAlign: "center", padding: 18 }}>{notes.length ? "Ничего не найдено" : "Заметок пока нет"}</div>}
       </div>
-      {ed && <NoteModal n={ed} mine={!ed.id || ed.user_id === user.id} onClose={() => setEd(null)} onSave={async (n) => { if (await save(n)) setEd(null); }} onDelete={async () => { if (await del(ed)) setEd(null); }} />}
+      {ed && <NoteModal n={ed} mine={!ed.id || ed.user_id === user.id} canDel={boss} onClose={() => setEd(null)} onSave={async (n) => { if (await save(n)) setEd(null); }} onDelete={async () => { if (await del(ed)) setEd(null); }} onHide={() => { hideForMe(ed.id); setEd(null); }} />}
     </div>
     </div>
   );
 }
-function NoteModal({ n, mine, onClose, onSave, onDelete }) {
+function NoteModal({ n, mine, canDel = false, onClose, onSave, onDelete, onHide }) {
   const [v, setV] = useState({ title: "", text: "", color: "", pinned: false, shared: false, ...n });
   const [busy, setBusy] = useState(false);
   const ro = !mine; // чужую общую заметку — только читать
@@ -8454,6 +8459,10 @@ function NoteModal({ n, mine, onClose, onSave, onDelete }) {
       </div>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
         {n.id && !ro && <button className="btn dng" style={{ marginRight: "auto" }} onClick={onDelete}>Удалить</button>}
+        {n.id && ro && <span className="row" style={{ marginRight: "auto", gap: 8 }}>
+          {canDel && <button className="btn dng" onClick={onDelete} title="Заметка удалится у всех, в том числе у автора">Удалить у всех</button>}
+          {onHide && <button className="btn" onClick={onHide} title="Заметка пропадёт только у вас — у автора и у остальных останется">Скрыть у себя</button>}
+        </span>}
         <button className="btn" onClick={onClose}>{ro ? "Закрыть" : "Отмена"}</button>
         {!ro && <button className="btn pri" disabled={busy || !(String(v.title).trim() || String(v.text).trim())} onClick={async () => { setBusy(true); await onSave(v); setBusy(false); }}>{busy ? "Сохраняю…" : "Сохранить"}</button>}
       </div>
@@ -9839,7 +9848,7 @@ function AppInner() {
         await reload("all"); setWipeOpen(false); setOpenId(null); toast("База очищена. Товары, поставщики и мастера сохранены.");
       }} />}
       {calcOpen && <Calculator onClose={() => setCalcOpen(false)} />}
-      {notesOpen && currentUser && <NotesPanel data={data} reload={reload} toast={toast} user={currentUser} onClose={() => setNotesOpen(false)} />}
+      {notesOpen && currentUser && <NotesPanel data={data} reload={reload} toast={toast} user={currentUser} boss={role === "boss"} onClose={() => setNotesOpen(false)} />}
       <ConfirmHost />
       <SheetPickHost />
       <SelectPopupHost />
