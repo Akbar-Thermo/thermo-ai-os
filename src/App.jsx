@@ -390,6 +390,34 @@ html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::
   .tab{width:100%;text-align:left;padding:12px 14px;border-radius:6px}
   .burger{display:flex}
 }
+.menu-extra{display:none}
+@media(max-width:820px){
+.te .hdr{padding:8px 12px;gap:8px;flex-wrap:nowrap}
+.te .hdr .logo{font-size:14px;white-space:nowrap;margin-right:auto}
+.te .hdr .logo small,.te .hdr-user,.te .hdr-lbl{display:none}
+.te .hdr .btn.xs{min-width:38px;height:38px;font-size:17px;padding:0 8px}
+.te .burger{display:flex;margin-left:0;flex:none;order:9}
+.te .tabs{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;flex-wrap:nowrap;gap:0;margin:0;background:var(--hdr-bg);border-bottom:2px solid var(--acc);box-shadow:0 16px 30px rgba(0,0,0,.35);padding:6px;z-index:60;max-height:calc(100dvh - 60px);overflow:auto}
+.te .tabs.open{display:flex}
+.te .tab{width:100%;text-align:left;padding:12px 14px;border-radius:6px}
+.te .menu-extra{display:flex;align-items:center;gap:6px;padding:10px 8px 4px;margin-top:4px;border-top:1px solid var(--hdr-line)}
+.te .menu-extra .btn.xs{font-size:13px}
+.te .hdr.hide-on-scroll{transform:translateY(-100%)}
+.te .body{padding:14px 14px 32px}
+}
+.te.phone .hdr{padding:8px 12px;gap:8px;flex-wrap:nowrap}
+.te.phone .hdr .logo{font-size:14px;white-space:nowrap;margin-right:auto}
+.te.phone .hdr .logo small,.te.phone .hdr-user,.te.phone .hdr-lbl{display:none}
+.te.phone .hdr .btn.xs{min-width:38px;height:38px;font-size:17px;padding:0 8px}
+.te.phone .burger{display:flex;margin-left:0;flex:none;order:9}
+.te.phone .tabs{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;flex-wrap:nowrap;gap:0;margin:0;background:var(--hdr-bg);border-bottom:2px solid var(--acc);box-shadow:0 16px 30px rgba(0,0,0,.35);padding:6px;z-index:60;max-height:calc(100dvh - 60px);overflow:auto}
+.te.phone .tabs.open{display:flex}
+.te.phone .tab{width:100%;text-align:left;padding:12px 14px;border-radius:6px}
+.te.phone .menu-extra{display:flex;align-items:center;gap:6px;padding:10px 8px 4px;margin-top:4px;border-top:1px solid var(--hdr-line)}
+.te.phone .menu-extra .btn.xs{font-size:13px}
+.te.phone .hdr.hide-on-scroll{transform:translateY(-100%)}
+.te.phone .body{padding:14px 14px 32px}
+@media(orientation:landscape){.te.phone .tabs.open{display:grid;grid-template-columns:repeat(3,1fr)}.te.phone .menu-extra{grid-column:1/-1}}
 .hdr .btn{background:var(--hdr-panel2);border-color:var(--hdr-line);color:var(--hdr-txt)}
 .hdr .btn:hover{border-color:var(--acc);color:#fff}
 .hdr .mut{color:var(--hdr-mut)}
@@ -1773,7 +1801,7 @@ function SheetPickHost() {
   if (!c) return null;
   const done = (v) => { c.res(v); setC(null); };
   return (
-    <div ref={kRef} className="modal-bg" style={{ zIndex: 300 }} onMouseDown={(e) => { if (e.target === e.currentTarget) done(null); }}>
+    <div ref={kRef} className="modal-bg" style={{ zIndex: 1100 }} onMouseDown={(e) => { if (e.target === e.currentTarget) done(null); }}>
       <div className="modal" style={{ maxWidth: 560, marginTop: "12vh" }}>
         <h3 style={{ marginBottom: 6 }}>Какой лист загрузить?</h3>
         <p className="sm mut" style={{ marginBottom: 12 }}>В файле {c.fileName ? "«" + c.fileName + "» " : ""}несколько листов. Выберите нужный:</p>
@@ -1960,7 +1988,7 @@ function ConfirmHost() {
   if (!c) return null;
   const done = (v) => { c.res(v); setC(null); };
   return (
-    <div ref={kRef} className="modal-bg" style={{ zIndex: 300 }} onMouseDown={(e) => { if (e.target === e.currentTarget) done(false); }}>
+    <div ref={kRef} className="modal-bg" style={{ zIndex: 1100 }} onMouseDown={(e) => { if (e.target === e.currentTarget) done(false); }}>
       <div className="modal" style={{ maxWidth: 520, marginTop: "14vh" }}>
         <h3 style={{ marginBottom: 10, color: "var(--warn)" }}>⚠ {c.title}</h3>
         {c.text && <p className="sm" style={{ marginBottom: 8 }}>{c.text}</p>}
@@ -9643,11 +9671,11 @@ function AppInner() {
     onLogout={(note) => { (async () => { if (SECURE && sb) { try { await sb.rpc("te_logout"); } catch (e) {} } endSession(note); })(); }} />}{intro}</>;
   return (<>
     <PeopleCtx.Provider value={peopleCtx}>
-    <div className={"te" + (darkMode ? " dark" : "")}>
+    <div className={"te" + (darkMode ? " dark" : "") + (isPhone() ? " phone" : "")}>
       <style>{CSS}</style>
       <div className={"hdr" + (hdrHidden ? " hide-on-scroll" : "")}>
         <div className="logo">THERMO<span>•</span>ENGINEERING<small>procurement & finance OS</small></div>
-        <div className="row" style={{ gap: 8 }}>
+        <div className="row hdr-user" style={{ gap: 8 }}>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontWeight: 700, fontSize: 13 }}>{currentUser.name || currentUser.username}</div>
             <div className="xs mut">{lang === "uz" && ({ boss: "Rahbar", manager: "Menejer", driver: "Yetkazuvchi" })[acc.id] || acc.label}</div>
@@ -9662,10 +9690,16 @@ function AppInner() {
             if (tab === t.id) { setOpenId(null); setTabNonce((n) => n + 1); }
             setTab(t.id); if (t.id !== "objects") setOpenId(null); setMobileMenuOpen(false);
           }} title={"Alt+" + (allTabs.indexOf(t) === 9 ? 0 : allTabs.indexOf(t) + 1)}>{t.label}</button>)}
+          <div className="menu-extra">
+            <div style={{ marginRight: "auto" }}><b className="sm">{currentUser.name || currentUser.username}</b> <span className="xs mut">{lang === "uz" && ({ boss: "Rahbar", manager: "Menejer", driver: "Yetkazuvchi" })[acc.id] || acc.label}</span></div>
+            <button className="btn xs" onClick={toggleLang} style={{ fontWeight: 800 }}>{lang === "ru" ? "UZ" : "RU"}</button>
+            <button className="btn xs" onClick={toggleDark}>{darkMode ? "☀️" : "🌙"}</button>
+            <button className="btn xs" onClick={doLogout}>{lang === "uz" ? "Chiqish" : "Выйти"}</button>
+          </div>
         </div>
         <button className="burger" onClick={() => setMobileMenuOpen((v) => !v)} title="Меню">{mobileMenuOpen ? "✕" : "☰"}</button>
-        <button className={"btn xs npanel-btn" + (notesOpen ? " pri" : "")} title="Заметки: Alt два раза подряд (или левый + правый Alt)" onClick={() => setNotesOpen((v) => !v)}>📝 Заметки</button>
-        {role !== "driver" && <button className={"btn xs" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => setCalcOpen((v) => !v)}>🧮 Калькулятор</button>}
+        <button className={"btn xs npanel-btn" + (notesOpen ? " pri" : "")} title="Заметки: Alt два раза подряд (или левый + правый Alt)" onClick={() => setNotesOpen((v) => !v)}>📝<span className="hdr-lbl"> Заметки</span></button>
+        {role !== "driver" && <button className={"btn xs" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => setCalcOpen((v) => !v)}>🧮<span className="hdr-lbl"> Калькулятор</span></button>}
         <input ref={restoreRef} type="file" accept=".json,.gz,application/json,application/gzip" style={{ display: "none" }} onChange={onRestore} />
       </div>
       <div className="body" key={tab + ":" + tabNonce}>
