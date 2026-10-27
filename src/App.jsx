@@ -1537,7 +1537,7 @@ function useTopKeys(ref, keys) {
   }, []);
 }
 // окно: фокус сразу в первое поле; Esc — закрыть (если в поле не набран текст); Ctrl+Enter — главная кнопка окна
-function Modal({ title, onClose, children, w = 640, cls = "" }) {
+function Modal({ title, onClose, children, w = 640, cls = "", noBgClose = false }) {
   const bgRef = useRef(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -1572,7 +1572,7 @@ function Modal({ title, onClose, children, w = 640, cls = "" }) {
     return () => { clearTimeout(t); window.removeEventListener("keydown", h); };
   }, []);
   return (
-    <div ref={bgRef} className="modal-bg" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div ref={bgRef} className="modal-bg" onMouseDown={(e) => { if (e.target === e.currentTarget && !noBgClose) onClose(); }}>
       <div className={"modal" + (cls ? " " + cls : "")} style={{ maxWidth: w }}>
         <div className="row" style={{ justifyContent: "space-between", marginBottom: 14 }}>
           <h3>{title}</h3>
@@ -8351,10 +8351,20 @@ function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
     return { ...b, from: pk.date, gap: gapFrom <= gapTo ? [gapFrom, gapTo] : null };
   }, [prev, data, ops, date]);
   // null — в этом окне не меняли: при повторном открытии дня берётся сохранённое (вписанное вручную не теряется)
-  const [open, setOpen] = useState(null);
-  const [pickEd, setPickEd] = useState(null);
-  const [manEd, setManEd] = useState(null);
-  const [convEd, setConvEd] = useState(null);
+  // черновик: всё, что вписали, но ещё не сохранили, хранится на этом компьютере (по дню) — окно закрыли нечаянно,
+  // открыли снова — всё на месте; после «Сохранить» черновик стирается
+  const draftKey = "te:kassadraft:" + (user.id || "") + ":" + date;
+  const draft0 = useMemo(() => { try { return JSON.parse(localStorage.getItem(draftKey) || "null") || {}; } catch (e) { return {}; } }, [draftKey]);
+  const [open, setOpen] = useState(draft0.open || null);
+  const [pickEd, setPickEd] = useState(draft0.pick || null);
+  const [manEd, setManEd] = useState(draft0.manual || null);
+  const [convEd, setConvEd] = useState(draft0.conv || null);
+  useEffect(() => {
+    try {
+      if (open || pickEd || manEd || convEd) localStorage.setItem(draftKey, JSON.stringify({ open, pick: pickEd, manual: manEd, conv: convEd }));
+      else localStorage.removeItem(draftKey);
+    } catch (e) {}
+  }, [open, pickEd, manEd, convEd, draftKey]);
   const [busy, setBusy] = useState(false);
   // сум и $ из отчёта показываем и нулём; карта — пусто, если 0
   const toStr = (b) => { const r = {}; KASSA_KEYS.forEach((k) => { r[k] = !b ? "" : b[k] ? String(b[k]) : k === "uzs" || k === "usd" ? "0" : ""; }); return r; };
@@ -8384,6 +8394,7 @@ function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
       : await db.from("requests").insert({ mode: NOTE_MODE, source: "note", lines });
     setBusy(false);
     if (r.error) { toast("Не сохранено: " + (r.error.message || r.error)); return; }
+    try { localStorage.removeItem(draftKey); } catch (e) {}
     await onSaved(same ? "Отчёт кассы обновлён в заметках" : "Отчёт кассы сохранён в заметки");
   };
   // курс в системе: последний курс из операций в сумах (по дате ≤ дня отчёта), иначе последний введённый на этом компьютере
@@ -8403,7 +8414,7 @@ function KassaNoteModal({ data, ops, date0, onClose, onSaved, toast }) {
   const neg = KASSA_KEYS.some((k) => rep.close[k] < -0.004);
   const BUCKETS = [["uzs", "сум"], ["usd", "$"], ["card", "карта, сум"], ["cardUsd", "карта, $"]];
   return (
-    <Modal title={"Касса за " + dt(date) + " → в заметки"} onClose={onClose} w={720}>
+    <Modal title={"Касса за " + dt(date) + " → в заметки"} onClose={onClose} w={720} noBgClose>
       <div className="grid" style={{ gridTemplateColumns: showCardUsd ? "1fr 1fr 1fr 1fr" : "1fr 1fr 1fr" }}>
         <Fld label={"Остаток со вчера, сум" + openSrc}><input className="inp" inputMode="decimal" placeholder="впишите остаток" value={op.uzs} onChange={(e) => setOpen({ ...op, uzs: e.target.value })} /></Fld>
         <Fld label="Остаток со вчера, $"><input className="inp" inputMode="decimal" placeholder="впишите остаток" value={op.usd} onChange={(e) => setOpen({ ...op, usd: e.target.value })} /></Fld>
