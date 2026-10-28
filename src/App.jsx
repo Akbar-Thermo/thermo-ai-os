@@ -830,6 +830,71 @@ async function logAction(action, entity, detail) {
     });
   } catch (e) { console.error("log", e); }
 }
+/* ---- Восстановление удалённого из «Журнала».
+   При удалении рядом с обычной записью журнала пишется скрытая запись te_trash — снимок удалённых строк
+   (и что сделать после вставки: вернуть привязки, остаток склада). Журнал в базе только дописывается,
+   поэтому снимок нельзя ни изменить, ни удалить. В «Журнале» у такой записи — «↩ Восстановить»;
+   после восстановления пишется te_restored (повторно восстановить нельзя). Аккаунты и заметки не снимаются:
+   в снимке были бы пароли и личные заметки, а журнал видят и другие. ---- */
+const TRASH_ACT = "te_trash", TRASH_DONE = "te_restored";
+const LOG_HIDDEN = new Set([TRASH_ACT, TRASH_DONE]);
+const logWho = () => ({ user_name: CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username) : "—", role: CURRENT_USER ? CURRENT_USER.role : "—" });
+async function logDeleted(action, entity, detail, snap) {
+  const ts = new Date().toISOString();
+  try {
+    const r = await db.from("audit_log").insert([
+      { action, entity: entity || "", detail: detail || "", ...logWho(), ts },
+      { action: TRASH_ACT, entity: "trash:" + ts, detail: JSON.stringify({ v: 1, ts, action, entity: entity || "", rows: {}, after: [], ...snap }), ...logWho(), ts },
+    ]);
+    if (r.error) await logAction(action, entity, detail); // снимок не записался — хотя бы обычная запись
+  } catch (e) { console.error("log", e); }
+}
+// вернуть удалённое: строки, которых уже нет в базе, вставляются обратно (есть — пропускаются), затем «после»
+async function restoreSnap(snap) {
+  let n = 0, skip = 0;
+  for (const t of RESTORE_ORDER) {
+    const list = (snap.rows && snap.rows[t]) || [];
+    if (sb && list.length > 20) {
+      // много строк (товары) — пачками
+      for (let i = 0; i < list.length; i += 200) {
+        const part = list.slice(i, i + 200);
+        const ex = await sb.from(t).select("id").in("id", part.map((x) => x.id));
+        if (ex.error) return { error: ex.error.message, n };
+        const have = new Set((ex.data || []).map((x) => x.id));
+        const add = part.filter((x) => !have.has(x.id)).map(cleanUuids);
+        skip += part.length - add.length;
+        if (add.length) { const r = await db.from(t).insert(add); if (r.error) return { error: r.error.message || String(r.error), n }; n += add.length; }
+      }
+      continue;
+    }
+    for (const row of list) {
+      const ex = await db.from(t).select().eq("id", row.id);
+      if (ex.error) return { error: ex.error.message || String(ex.error), n };
+      if (ex.data.length) { skip++; continue; }
+      const r = await db.from(t).insert(cleanUuids(row));
+      if (r.error) return { error: r.error.message || String(r.error), n };
+      n++;
+    }
+  }
+  for (const a of snap.after || []) {
+    if (a.t === "setmany" && (a.ids || []).length) {
+      // вернуть привязку (поставщика товарам, мастера объектам) — только тем, у кого она пустая
+      const [k] = Object.keys(a.set);
+      if (sb) { for (let i = 0; i < a.ids.length; i += 200) await sb.from(a.table).update(a.set).in("id", a.ids.slice(i, i + 200)).is(k, null); }
+      else for (const id of a.ids) { const c = await db.from(a.table).select().eq("id", id); if (c.data && c.data[0] && c.data[0][k] == null) await db.from(a.table).update(a.set).eq("id", id); }
+    } else if (a.t === "whqty") {
+      const c = await db.from("warehouse").select().eq("id", a.id);
+      if (c.data && c.data[0]) await db.from("warehouse").update({ qty: Math.max(0, round2((Number(c.data[0].qty) || 0) + (Number(a.by) || 0))) }).eq("id", a.id);
+    } else if (a.t === "items" && (a.items || []).length) {
+      // позиции, удалённые из объекта, — обратно в объект (если объект есть и позиции ещё нет)
+      const r = await updateObjectItems(a.object_id, (cur) => { const have = new Set(cur.map((i) => i.id)); const add = a.items.filter((i) => !have.has(i.id)); n += add.length; skip += a.items.length - add.length; return add.length ? renumberBatches([...cur, ...add], a.created_at) : cur; });
+      if (r && r.error) return { error: r.error.message || String(r.error), n };
+    } else if (a.t === "move") {
+      await db.from("wh_moves").insert(cleanUuids({ ...a.row, op_date: today(), user: curUserName() }));
+    }
+  }
+  return { n, skip };
+}
 async function hashPass(pw) {
   try {
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("thermo:" + pw));
@@ -2148,7 +2213,7 @@ function ConfirmHost() {
     <div ref={kRef} className="modal-bg" style={{ zIndex: 1100 }} onMouseDown={(e) => { if (e.target === e.currentTarget) done(false); }}>
       <div className="modal" style={{ maxWidth: 520, marginTop: "14vh" }}>
         <h3 style={{ marginBottom: 10, color: "var(--warn)" }}>⚠ {c.title}</h3>
-        {c.text && <p className="sm" style={{ marginBottom: 8 }}>{c.text}</p>}
+        {c.text && <p className="sm" style={{ marginBottom: 8, whiteSpace: "pre-line" }}>{c.text}</p>}
         {c.items && c.items.length > 0 && (
           <div style={{ maxHeight: 240, overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 8 }}>
             <table className="t"><tbody>{c.items.map((x, i) => <tr key={i}><td className="sm">{x[0]}</td><td className="num sm" style={{ whiteSpace: "nowrap" }}>{x[1]}</td></tr>)}</tbody></table>
@@ -2746,8 +2811,10 @@ function ProductsTab({ data, reload, toast }) {
   const doDelete = async () => {
     setDeleting(true);
     try {
+      const gone = products.filter((p) => selSet.has(p.id));
       await deleteByIds("products", sel);
-      await logAction("Удалены товары", "products", "количество: " + sel.length);
+      if (gone.length <= 3000) await logDeleted("Удалены товары", "products", "количество: " + sel.length + (gone.length <= 5 ? " · " + gone.map((p) => p.name).join(", ") : ""), { label: gone.length === 1 ? "товар «" + gone[0].name + "»" : gone.length + " товаров", rows: { products: gone } });
+      else await logAction("Удалены товары", "products", "количество: " + sel.length);
       setConfirmDel(false); const n = sel.length; setSel([]); await reload("all"); toast("Удалено товаров: " + n);
     } catch (e) { toast("Ошибка удаления: " + e.message); }
     setDeleting(false);
@@ -2815,7 +2882,7 @@ function ProductsTab({ data, reload, toast }) {
       {confirmDel && (
         <Modal title="Подтверждение удаления" onClose={() => setConfirmDel(false)} w={440}>
           <p style={{ marginBottom: 6 }}>Удалить <b style={{ color: "var(--bad)" }}>{sel.length}</b> {sel.length === 1 ? "товар" : sel.length < 5 ? "товара" : "товаров"} из базы?</p>
-          <p className="sm mut" style={{ marginBottom: 16 }}>Действие необратимо. Позиции, уже добавленные в объекты, в объектах останутся. Если товар может понадобиться позже — лучше перевести его в «архив» через редактирование.</p>
+          <p className="sm mut" style={{ marginBottom: 16 }}>Вернуть можно в «Журнале» (↩ Восстановить). Позиции, уже добавленные в объекты, в объектах останутся. Если товар может понадобиться позже — лучше перевести его в «архив» через редактирование.</p>
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <button className="btn" onClick={() => setConfirmDel(false)}>Отмена</button>
             <button className="btn" style={{ background: "var(--bad)", borderColor: "var(--bad)", color: "#fff" }} disabled={deleting} onClick={doDelete}>{deleting ? "Удаляю…" : "Удалить " + sel.length}</button>
@@ -3641,7 +3708,8 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
       setDelErr("База не дала удалить поставщика (на него ссылаются оплаты или возвраты). Ничего не изменено. Можно отметить его как «неактивен» — он пропадёт из списков выбора, а история останется.");
       setDelBusy(false); await reload("all"); return;
     }
-    await logAction("Удалён поставщик", "supplier:" + s.name, "товаров отвязано: " + ids.length);
+    await logDeleted("Удалён поставщик", "supplier:" + s.name, "товаров отвязано: " + ids.length,
+      { label: "поставщик «" + s.name + "»" + (ids.length ? " и его привязка к " + ids.length + " товарам" : ""), rows: { suppliers: [s] }, after: ids.length ? [{ t: "setmany", table: "products", ids, set: { supplier_id: s.id } }] : [] });
     setDelBusy(false); setDel(null); setOpenId(null); await reload("all"); toast("Поставщик удалён");
   };
   const history = (list, name) => {
@@ -3753,7 +3821,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
         onVoidPay={async (o) => {
           const r = await db.from("finance_ops").delete().eq("id", o.id);
           if (r.error) return false;
-          await logAction("Удалена оплата поставщику", "supplier:" + pay.name, fmt(o.amount) + " от " + dt(o.op_date || o.created_at) + (payText(o) ? " · " + payText(o) : "") + (o.note ? " · " + o.note : "")); await reload(); toast("Оплата удалена"); return true;
+          await logDeleted("Удалена оплата поставщику", "supplier:" + pay.name, fmt(o.amount) + " от " + dt(o.op_date || o.created_at) + (payText(o) ? " · " + payText(o) : "") + (o.note ? " · " + o.note : ""), { label: "оплата " + fmt(o.amount) + " поставщику «" + pay.name + "»", rows: { finance_ops: [o] } }); await reload(); toast("Оплата удалена"); return true;
         }} />}
       {del && (() => {
         const st = supplierStats(del, objects, finance_ops, wh_moves);
@@ -3766,7 +3834,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
             {cnt > 0 && <p className="sm mut" style={{ marginBottom: 6 }}>К нему привязано товаров: {cnt} — они останутся в базе без поставщика.</p>}
             {nOps > 0 && <p className="sm mut" style={{ marginBottom: 6 }}>У поставщика есть операции (оплаты/возвраты): {nOps}. Если нужно только убрать его из списков — лучше «Сделать неактивным»: история и долг сохранятся.</p>}
             {delErr && <p className="sm" style={{ color: "var(--bad)", marginBottom: 8 }}>{delErr}</p>}
-            <p className="sm mut" style={{ marginBottom: 12 }}>Удаление необратимо.</p>
+            <p className="sm mut" style={{ marginBottom: 12 }}>Вернуть можно в «Журнале» (↩ Восстановить).</p>
             <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
               <button className="btn" disabled={delBusy} onClick={() => { setDel(null); setDelErr(""); }}>Отмена</button>
               {del.status !== "inactive" && <button className="btn" disabled={delBusy} onClick={() => deactivate(del)}>Сделать неактивным</button>}
@@ -4700,12 +4768,17 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   const removeObject = async (o) => {
     setDelBusy(true);
     // по шагам: при любой ошибке останавливаемся (ошибка уже показана на экране)
+    // снимок для «Журнал → ↩ Восстановить»: объект, его операции и заявки — как они сейчас в базе
+    const sOps = await db.from("finance_ops").select().eq("object_id", o.id);
+    const sReq = await db.from("requests").select().eq("object_id", o.id);
+    const sObj = await db.from("objects").select().eq("id", o.id);
     let r = await db.from("finance_ops").delete().eq("object_id", o.id);
     if (!r.error) r = await db.from("requests").delete().eq("object_id", o.id);
     if (!r.error) r = await db.from("objects").delete().eq("id", o.id);
     setDelBusy(false);
     if (r.error) { await reload(); return false; }
-    await logAction("Удалён объект", "object:" + o.name, "клиент: " + (o.client || "") + ", позиций: " + (o.items || []).length + ", операций: " + (opsCount[o.id] || 0));
+    await logDeleted("Удалён объект", "object:" + o.name, "клиент: " + (o.client || "") + ", позиций: " + (o.items || []).length + ", операций: " + (opsCount[o.id] || 0),
+      { label: "объект «" + o.name + "»", rows: { objects: sObj.data && sObj.data.length ? sObj.data : [o], finance_ops: sOps.data || [], requests: sReq.data || [] } });
     await reload(); toast("Объект удалён");
     return true;
   };
@@ -4876,7 +4949,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         <Modal title="Удалить объект" onClose={() => { if (!delBusy) setDelObj(null); }} w={460}>
           <p style={{ marginBottom: 6 }}>Удалить объект <b style={{ color: "var(--bad)" }}>{delObj.name}</b> ({delObj.client})?</p>
           {isLive(delObj) && (f.clientDebt > 0 || f.supplierDebt > 0) && <p className="sm" style={{ color: "var(--warn)", marginBottom: 6 }}>⚠ По объекту есть долги — клиента: {fmt(Math.max(0, f.clientDebt))}, поставщикам: {fmt(f.supplierDebt)}.</p>}
-          <p className="sm mut" style={{ marginBottom: 14 }}>Будут удалены все материалы, финансовые операции ({opsCount[delObj.id] || 0}) и заявки этого объекта. Действие необратимо. Если объект завершён — не удаляйте его, история пригодится. Если сделка не состоялась — поставьте статус «Черновик»: такой объект ни на что не влияет.</p>
+          <p className="sm mut" style={{ marginBottom: 14 }}>Будут удалены все материалы, финансовые операции ({opsCount[delObj.id] || 0}) и заявки этого объекта. Вернуть можно в «Журнале» (↩ Восстановить). Если объект завершён — не удаляйте его, история пригодится. Если сделка не состоялась — поставьте статус «Черновик»: такой объект ни на что не влияет.</p>
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <button className="btn" disabled={delBusy} onClick={() => setDelObj(null)}>Отмена</button>
             <button className="btn" disabled={delBusy} style={{ background: "var(--bad)", borderColor: "var(--bad)", color: "#fff" }} onClick={async () => { if (await removeObject(delObj)) setDelObj(null); }}>{delBusy ? "Удаляю…" : "Удалить"}</button>
@@ -5029,7 +5102,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   const delItem = async (iid) => {
     const it = (obj.items || []).find((i) => i.id === iid) || {};
     const ok = await saveItems((cur) => cur.filter((i) => i.id !== iid));
-    if (ok) { await logAction("Удалена позиция", "object:" + obj.name, (it.name || "") + " × " + fmt(it.qty) + " по " + fmt2(it.price)); toast("Позиция удалена"); }
+    if (ok) { await logDeleted("Удалена позиция", "object:" + obj.name, (it.name || "") + " × " + fmt(it.qty) + " по " + fmt2(it.price), { label: "позиция «" + (it.name || "") + "» в объекте «" + obj.name + "»", after: it.id ? [{ t: "items", object_id: obj.id, created_at: obj.created_at, items: [it] }] : [] }); toast("Позиция удалена"); }
     return ok;
   };
   const setItemQty = async (iid, qty) => {
@@ -5257,7 +5330,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     const wentToWh = op.type === "return" && !op.voided && !supplierReturnIds(finance_ops, data.wh_moves).has(op.id);
     const r = await db.from("finance_ops").delete().eq("id", op.id);
     if (r.error) return;
-    let whNote = "";
+    let whNote = "", whBack = [];
     if (wentToWh && (op.product_id || op.product_name)) {
       const w = await whFind(op.product_id, op.product_name, op.size);
       if (w.row) {
@@ -5265,11 +5338,13 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         if (!u.error) {
           await db.from("wh_moves").insert(cleanUuids({ product_id: op.product_id || null, name: op.product_name, qty: op.qty, dir: "out", object_id: obj.id, object_name: obj.name, op_date: today(), user: curUserName(), note: "удалён возврат" }));
           whNote = " · со склада списано " + fmt(op.qty);
+          whBack = [{ t: "whqty", id: w.row.id, by: op.qty }, { t: "move", row: { product_id: op.product_id || null, name: op.product_name, qty: op.qty, dir: "in", object_id: obj.id, object_name: obj.name, note: "восстановлен удалённый возврат" } }];
         }
       }
     }
-    await logAction("Удалена операция: " + opLabel(op.type), "object:" + obj.name,
-      fmt(op.amount) + " от " + dt(op.op_date || op.created_at) + [op.product_name, op.reason, op.note].filter(Boolean).map((x) => " · " + x).join("") + whNote);
+    await logDeleted("Удалена операция: " + opLabel(op.type), "object:" + obj.name,
+      fmt(op.amount) + " от " + dt(op.op_date || op.created_at) + [op.product_name, op.reason, op.note].filter(Boolean).map((x) => " · " + x).join("") + whNote,
+      { label: opLabel(op.type) + " " + fmt(op.amount) + " (объект «" + obj.name + "»)", rows: { finance_ops: [op] }, after: whBack });
     setDelAsk(null); await reload(); toast("Операция удалена" + whNote);
   };
   const safe = (s) => String(s || "object").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
@@ -5461,7 +5536,9 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       if (t.ids.length) note = " · на Склад Thermo возвращено: " + t.ids.length + " поз." + (t.fail ? " ⚠ не записано: " + t.fail : "");
     }
     const sum = b.items.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0);
-    await logAction("Удалена поставка №" + b.no, "object:" + obj.name, b.items.length + " поз. на " + fmt2(sum) + " от " + dt(b.date) + note);
+    // товар, вернувшийся на Склад Thermo, при восстановлении сам со склада не спишется — такую поставку не восстанавливаем
+    if (!note) await logDeleted("Удалена поставка №" + b.no, "object:" + obj.name, b.items.length + " поз. на " + fmt2(sum) + " от " + dt(b.date), { label: "поставка №" + b.no + " (" + b.items.length + " поз.) в объекте «" + obj.name + "»", after: [{ t: "items", object_id: obj.id, created_at: obj.created_at, items: b.items }] });
+    else await logAction("Удалена поставка №" + b.no, "object:" + obj.name, b.items.length + " поз. на " + fmt2(sum) + " от " + dt(b.date) + note);
     setOpenBatches({});
     await reload(); toast("Поставка №" + b.no + " удалена: " + b.items.length + " поз." + note);
     return true;
@@ -5739,7 +5816,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         <Modal title={"Удалить поставку №" + delBatch.no + "?"} onClose={() => setDelBatch(null)} w={460}>
           <p className="sm">Из объекта будут удалены все позиции поставки от <b>{dt(delBatch.date)}</b>: <b>{delBatch.items.length} поз.</b> на <b>{fmt2(delBatch.items.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0))}</b>.</p>
           {isLive(obj) && delBatch.items.some((i) => i.from_warehouse && !i.wh_pending) && <p className="sm mut" style={{ marginTop: 6 }}>Товар со Склада Thermo вернётся на склад.</p>}
-          <p className="sm mut" style={{ marginTop: 6 }}>Долг клиента и долг поставщикам пересчитаются. Это действие нельзя отменить.</p>
+          <p className="sm mut" style={{ marginTop: 6 }}>Долг клиента и долг поставщикам пересчитаются. {isLive(obj) && delBatch.items.some((i) => i.from_warehouse && !i.wh_pending) ? "Это действие нельзя отменить." : "Вернуть можно в «Журнале» (↩ Восстановить)."}</p>
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
             <button className="btn" onClick={() => setDelBatch(null)}>Отмена</button>
             <button className="btn dng" onClick={async () => { const b = delBatch; setDelBatch(null); await deleteBatch(b); }}>Удалить поставку</button>
@@ -5748,7 +5825,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       )}
       {delItemId && (
         <Modal title="Удалить позицию?" onClose={() => setDelItemId(null)} w={420}>
-          <p className="sm mut">Позиция будет удалена из объекта. Это действие нельзя отменить.</p>
+          <p className="sm mut">Позиция будет удалена из объекта. Вернуть можно в «Журнале» (↩ Восстановить).</p>
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
             <button className="btn" onClick={() => setDelItemId(null)}>Отмена</button>
             <button className="btn dng" onClick={async () => { const id = delItemId; setDelItemId(null); await delItem(id); }}>Удалить</button>
@@ -6639,7 +6716,7 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
   const removeOp = async (o) => {
     const r = await db.from("finance_ops").delete().eq("id", o.id);
     if (r.error) return;
-    await logAction("Удалена операция: " + opLabel(o.type), "master:" + m.name, fmt(o.amount) + " от " + dt(o.op_date || o.created_at) + (o.item_name ? " · " + o.item_name : "") + (o.note ? " · " + o.note : ""));
+    await logDeleted("Удалена операция: " + opLabel(o.type), "master:" + m.name, fmt(o.amount) + " от " + dt(o.op_date || o.created_at) + (o.item_name ? " · " + o.item_name : "") + (o.note ? " · " + o.note : ""), { label: opLabel(o.type) + " " + fmt(o.amount) + " (мастер " + m.name + ")", rows: { finance_ops: [o] } });
     setDelOp(null); await reload(); toast("Операция удалена");
   };
   const payOps = finance_ops.filter((x) => x.master_id === m.id && ["bonus", "bonus_payment"].includes(x.type));
@@ -6769,11 +6846,13 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
             <button className="btn" disabled={delBusy} style={{ background: "var(--bad)", borderColor: "var(--bad)", color: "#fff" }} onClick={async () => {
               setDelBusy(true);
               // имя мастера остаётся в его объектах текстом (ссылку база уберёт сама при удалении)
+              const mObj = await db.from("objects").select().eq("master_id", m.id);
+              const mIds = (mObj.data || []).map((x) => x.id);
               if (st.count) await db.from("objects").update({ master: m.name }).eq("master_id", m.id);
               const r = await db.from("masters").delete().eq("id", m.id);
               setDelBusy(false);
               if (r.error) { await reload(); return; } // ошибка показана (на мастера ссылаются другие записи) — можно сделать его неактивным
-              await logAction("Удалён мастер", "master:" + m.name, "объектов: " + st.count);
+              await logDeleted("Удалён мастер", "master:" + m.name, "объектов: " + st.count, { label: "мастер «" + m.name + "»" + (mIds.length ? " и его привязка к " + mIds.length + " объектам" : ""), rows: { masters: [m] }, after: mIds.length ? [{ t: "setmany", table: "objects", ids: mIds, set: { master_id: m.id } }] : [] });
               await reload(); toast("Мастер удалён"); back();
             }}>{delBusy ? "Удаляю…" : "Удалить"}</button>
           </div>
@@ -7170,7 +7249,7 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
     const r = await db.from("warehouse").delete().eq("id", delRow.id);
     if (r.error) return;
     if (Number(delRow.qty) > 0) await db.from("wh_moves").insert(cleanUuids({ product_id: delRow.product_id, name: delRow.name, qty: delRow.qty, dir: "out", object_id: null, object_name: null, op_date: today(), user: curUserName(), note: "позиция удалена со склада вручную" }));
-    await logAction("Склад: позиция удалена", delRow.name, "кол-во " + delRow.qty);
+    await logDeleted("Склад: позиция удалена", delRow.name, "кол-во " + delRow.qty, { label: "позиция склада «" + delRow.name + "» (" + fmt(delRow.qty) + ")", rows: { warehouse: [delRow] }, after: Number(delRow.qty) > 0 ? [{ t: "move", row: { product_id: delRow.product_id, name: delRow.name, qty: delRow.qty, dir: "in", object_id: null, object_name: null, note: "позиция склада восстановлена" } }] : [] });
     setDelRow(null); await reload(); toast("Позиция удалена со склада");
   };
   // Возврат поставщику со склада: списываем количество и создаём финансовую операцию type:"return",
@@ -7308,7 +7387,7 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
       )}
       {delRow && (
         <Modal title="Удалить позицию со склада?" onClose={() => setDelRow(null)} w={420}>
-          <p className="sm mut">«{delRow.name}» ({delRow.qty} {delRow.unit}) будет полностью удалено со склада. Это действие нельзя отменить.</p>
+          <p className="sm mut">«{delRow.name}» ({delRow.qty} {delRow.unit}) будет полностью удалено со склада. Вернуть можно в «Журнале» (↩ Восстановить).</p>
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
             <button className="btn" onClick={() => setDelRow(null)}>Отмена</button>
             <button className="btn dng" onClick={confirmDelRow}>Удалить</button>
@@ -8252,7 +8331,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
                   <td className="xs mut">{o.user}</td>
                   <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>{delExp === o.id ? (<>
                     <span className="xs" style={{ color: "var(--bad)" }}>Удалить?</span>
-                    <button className="btn xs dng" onClick={async () => { const r = await db.from("finance_ops").delete().eq("id", o.id); if (r.error) return; await logAction("Удалён приход", "company:" + (o.category || ""), fmt(o.amount) + " от " + dt(o.op_date || o.created_at) + (o.note ? " · " + o.note : "")); setDelExp(null); await reload(); toast("Приход удалён"); }}>Да</button>
+                    <button className="btn xs dng" onClick={async () => { const r = await db.from("finance_ops").delete().eq("id", o.id); if (r.error) return; await logDeleted("Удалён приход", "company:" + (o.category || ""), fmt(o.amount) + " от " + dt(o.op_date || o.created_at) + (o.note ? " · " + o.note : ""), { label: "приход " + fmt(o.amount) + (o.category ? " (" + o.category + ")" : ""), rows: { finance_ops: [o] } }); setDelExp(null); await reload(); toast("Приход удалён"); }}>Да</button>
                     <button className="btn xs" onClick={() => setDelExp(null)}>Нет</button>
                   </>) : <button className="btn xs dng" onClick={() => setDelExp(o.id)}>удалить</button>}</div></td>
                 </tr>
@@ -8284,7 +8363,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
                 <td className="xs mut">{o.user}</td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>{delExp === o.id ? (<>
                   <span className="xs" style={{ color: "var(--bad)" }}>Удалить?</span>
-                  <button className="btn xs dng" onClick={async () => { const r = await db.from("finance_ops").delete().eq("id", o.id); if (r.error) return; await logAction("Удалён расход", "company:" + (o.category || ""), fmt(o.amount) + " от " + dt(o.op_date || o.created_at) + (o.note ? " · " + o.note : "")); setDelExp(null); await reload(); toast("Расход удалён"); }}>Да</button>
+                  <button className="btn xs dng" onClick={async () => { const r = await db.from("finance_ops").delete().eq("id", o.id); if (r.error) return; await logDeleted("Удалён расход", "company:" + (o.category || ""), fmt(o.amount) + " от " + dt(o.op_date || o.created_at) + (o.note ? " · " + o.note : ""), { label: "расход " + fmt(o.amount) + (o.category ? " (" + o.category + ")" : ""), rows: { finance_ops: [o] } }); setDelExp(null); await reload(); toast("Расход удалён"); }}>Да</button>
                   <button className="btn xs" onClick={() => setDelExp(null)}>Нет</button>
                 </>) : <button className="btn xs dng" onClick={() => setDelExp(o.id)}>удалить</button>}</div></td>
               </tr>
@@ -8817,8 +8896,42 @@ function NoteModal({ n, mine, canDel = false, onClose, onSave, onDelete, onHide 
   );
 }
 /* ============ ЖУРНАЛ ДЕЙСТВИЙ ============ */
-function LogTab({ data, reload, onBackup }) {
-  const { audit_log } = data;
+function LogTab({ data, reload, toast, onBackup }) {
+  const audit_all = data.audit_log;
+  // скрытые служебные записи (снимки удалённого) — не показываются, по ним работает «↩ Восстановить»
+  const { audit_log, trashOf, restored } = useMemo(() => {
+    const vis = [], trash = new Map(), done = new Set();
+    audit_all.forEach((l) => {
+      if (l.action === TRASH_ACT) { try { const sn = JSON.parse(l.detail); trash.set(Date.parse(sn.ts) + "|" + sn.action, sn); } catch (e) {} }
+      else if (l.action === TRASH_DONE) done.add(String(l.entity || "").replace(/^trash:/, ""));
+      else vis.push(l);
+    });
+    return { audit_log: vis, trashOf: (l) => trash.get(Date.parse(l.ts) + "|" + l.action) || null, restored: done };
+  }, [audit_all]);
+  const [rBusy, setRBusy] = useState("");
+  const [onlyDel, setOnlyDel] = useState(false);
+  const nDel = audit_log.filter((l) => { const sn = trashOf(l); return sn && !restored.has(sn.ts); }).length;
+  const snapSize = (sn) => {
+    const T = { objects: "объект", finance_ops: "операций", requests: "заявок", suppliers: "поставщик", masters: "мастер", warehouse: "позиция склада", products: "товаров" };
+    const parts = Object.entries(sn.rows || {}).filter(([, v]) => (v || []).length).map(([t, v]) => (T[t] || t) + ": " + v.length);
+    (sn.after || []).forEach((a) => { if (a.t === "items") parts.push("позиций в объект: " + a.items.length); if (a.t === "setmany") parts.push((a.table === "products" ? "привязка товаров: " : "привязка объектов: ") + a.ids.length); if (a.t === "whqty") parts.push("склад: +" + fmt(a.by)); });
+    return parts.join(" · ");
+  };
+  const doRestore = async (l, sn) => {
+    if (!(await askConfirm({ title: "Восстановить?", text: "«" + l.action + "» от " + new Date(l.ts).toLocaleString("ru-RU") + " (" + (l.user_name || "—") + ")\n\nВернётся: " + (sn.label || l.entity) + "\n" + snapSize(sn) + "\n\nТо, что уже есть в базе, не тронется.", ok: "↩ Восстановить" }))) return;
+    setRBusy(sn.ts);
+    const r = await restoreSnap(sn);
+    if (!r.error) {
+      const who = logWho(), ts = new Date().toISOString();
+      await db.from("audit_log").insert([
+        { action: "Восстановлено: " + l.action, entity: l.entity || "", detail: (sn.label || "") + " · из записи журнала от " + new Date(l.ts).toLocaleString("ru-RU") + " (" + (l.user_name || "—") + ")" + (r.skip ? " · уже были: " + r.skip : ""), ...who, ts },
+        { action: TRASH_DONE, entity: "trash:" + sn.ts, detail: "", ...who, ts },
+      ]);
+    }
+    await reload("all");
+    setRBusy("");
+    if (toast) toast(r.error ? "Восстановлено не всё (" + r.n + "): " + r.error : "Восстановлено: " + (sn.label || l.action) + (r.skip ? " · уже было в базе: " + r.skip : ""));
+  };
   useEffect(() => { if (reload) reload(["audit_log"]); }, []); // журнал подгружается при открытии вкладки
   const [q, setQ] = useState("");
   const [usr, setUsr] = useState("");
@@ -8829,6 +8942,7 @@ function LogTab({ data, reload, onBackup }) {
   const rows = audit_log
     .filter((l) => (!cutoff || new Date(l.ts).getTime() >= cutoff))
     .filter((l) => (!usr || l.user_name === usr))
+    .filter((l) => (!onlyDel || trashOf(l)))
     .filter((l) => (!q || (l.action + " " + l.entity + " " + l.detail).toLowerCase().includes(q.toLowerCase())))
     .sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
   const fmtTs = (s) => { try { return new Date(s).toLocaleString("ru-RU"); } catch (e) { return s; } };
@@ -8837,6 +8951,7 @@ function LogTab({ data, reload, onBackup }) {
       <div className="row sect">
         <h2 style={{ marginRight: "auto" }}>Журнал действий <span className="mut sm">({audit_log.length})</span></h2>
         {onBackup && <button className="btn" title="Бэкап и восстановление базы" onClick={onBackup}><Ic n="save" /> Бэкап</button>}
+        <button className={"btn log-onlydel" + (onlyDel ? " pri" : "")} title="Показать только удалённое, что можно восстановить" onClick={() => setOnlyDel(!onlyDel)}>↩ Удалённое{nDel ? " (" + nDel + ")" : ""}</button>
         <input className="inp" style={{ maxWidth: 220 }} placeholder="Поиск по журналу…" value={q} onChange={(e) => setQ(e.target.value)} />
         <select className="inp" style={{ maxWidth: 180 }} value={usr} onChange={(e) => setUsr(e.target.value)}>
           <option value="">Все сотрудники</option>{users.map((u) => <option key={u}>{u}</option>)}
@@ -8854,7 +8969,12 @@ function LogTab({ data, reload, onBackup }) {
                 <td className="xs mono mut">{fmtTs(l.ts)}</td>
                 <td className="sm" style={{ fontWeight: 600 }}>{l.user_name}</td>
                 <td><Badge c={l.role === "boss" ? "#ff707b" : "#fff"}>{l.role === "boss" ? "Рук." : l.role === "manager" ? "Менедж." : l.role === "driver" ? "Доставщ." : "—"}</Badge></td>
-                <td className="sm">{l.action}</td>
+                <td className="sm">{l.action}{(() => {
+                  const sn = trashOf(l);
+                  if (!sn) return null;
+                  if (restored.has(sn.ts)) return <div className="xs" style={{ color: "var(--ok)", marginTop: 3 }}>✓ восстановлено</div>;
+                  return <div style={{ marginTop: 4 }}><button className="btn xs log-restore" disabled={!!rBusy} title={"Вернуть: " + (sn.label || "") + "\n" + snapSize(sn)} onClick={() => doRestore(l, sn)}>{rBusy === sn.ts ? "Восстанавливаю…" : "↩ Восстановить"}</button></div>;
+                })()}</td>
                 <td className="xs mut">{l.entity}</td>
                 <td className="xs mut">{l.detail}</td>
               </tr>
@@ -10246,7 +10366,7 @@ function AppInner() {
         {tab === "masters" && <MastersTab data={data} reload={reload} toast={toast} fin={true} canDel={!!acc.perms.del} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "wh" && <WarehouseTab data={data} reload={reload} toast={toast} readOnly={role === "driver"} openObject={(id) => { if (role === "driver") { setTab("delivery"); setOpenId(id); } else { setOpenId(id); setTab("objects"); } }} />}
         {tab === "delivery" && <DeliveryTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} />}
-        {tab === "log" && <LogTab data={data} reload={reload} onBackup={acc.perms.backup ? () => setBackupOpen(true) : null} />}
+        {tab === "log" && <LogTab data={data} reload={reload} toast={toast} onBackup={acc.perms.backup ? () => setBackupOpen(true) : null} />}
         {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} isBoss={role === "boss"} />}
         {tab === "finance" && <FinanceTab data={data} reload={reload} toast={toast} boss={!!acc.perms.salary} />}
       </div>
@@ -10529,7 +10649,7 @@ function archiveBook(T, who) {
       .map((p) => [p.code || "", p.sku || "", p.name || "", p.category || "", p.brand || "", supName.get(p.supplier_id) || "", p.size || "", p.unit || "", r2(p.cost), r2(p.price), p.status === "inactive" ? "неактивен" : "", d(p.price_updated)])]);
   // аккаунты — без паролей
   add("Аккаунты", [["Логин", "Имя", "Роль", "Статус"], ...users.map((u) => [u.username || "", u.name || "", roleLabel(u.role), u.status === "active" || !u.status ? "активен" : u.status === "disabled" ? "отключён" : "неактивен"])]);
-  const logRows = [...log].sort((a, b) => String(b.ts || b.created_at || "").localeCompare(String(a.ts || a.created_at || ""))).slice(0, 20000);
+  const logRows = [...log].filter((l) => !LOG_HIDDEN.has(l.action)).sort((a, b) => String(b.ts || b.created_at || "").localeCompare(String(a.ts || a.created_at || ""))).slice(0, 20000);
   add("Журнал", [["Дата и время", "Кто", "Роль", "Действие", "Объект / раздел", "Подробности"], ...logRows.map((l) => [dtm(l.ts || l.created_at), l.user_name || "", l.role ? roleLabel(l.role) : "", l.action || "", l.entity || "", l.detail || ""])]);
   return styledXlsxBook(book);
 }
