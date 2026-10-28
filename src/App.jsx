@@ -668,6 +668,27 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .note-color.on{border-color:var(--txt);box-shadow:0 0 0 2px var(--acc-ring)}
 .fin-seg{display:inline-flex;gap:6px;flex-wrap:wrap}
 /* «Объекты»: поиск, фильтры-кнопки, недавние, таблица с сортировкой */
+.obj-layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:16px;align-items:start}
+.obj-main{min-width:0}
+.obj-side{position:sticky;padding:10px;display:flex;flex-direction:column;gap:6px;overflow:hidden}
+.obj-side-h{font-size:var(--fs-xs);font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--mut);padding:4px 6px 2px}
+.obj-side-q{height:34px;font-size:var(--fs-sm)}
+.obj-side-list{display:flex;flex-direction:column;gap:2px;overflow:auto;min-height:0}
+.obj-m{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:none;color:var(--txt);border-radius:var(--r-sm);padding:8px 10px;font:500 var(--fs-sm) var(--sans);cursor:pointer}
+.obj-m:hover{background:var(--hover)}
+.obj-m .obj-m-n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.obj-m b{font-size:var(--fs-xs);color:var(--mut);font-weight:700}
+.obj-m-d{display:block;font-size:var(--fs-2xs);color:var(--bad);font-weight:600}
+.obj-m.on{background:var(--txt);color:var(--panel)}
+.obj-m.on b,.obj-m.on .obj-m-d{color:inherit;opacity:.8}
+.obj-m.none{color:var(--mut)}
+.obj-m.none.on{color:var(--panel)}
+.obj-mselect{display:none}
+@media(max-width:820px){
+  .obj-layout{grid-template-columns:minmax(0,1fr)}
+  .obj-side{display:none}
+  .obj-mselect{display:block;height:42px}
+}
 .seg{display:inline-flex;gap:2px;padding:3px;border-radius:var(--r-md);background:var(--panel2);border:1px solid var(--line)}
 .seg button{border:0;background:none;color:var(--mut);font:600 var(--fs-sm) var(--sans);padding:6px 12px;border-radius:var(--r-sm);cursor:pointer;white-space:nowrap}
 .seg button:hover{color:var(--txt)}
@@ -4714,22 +4735,39 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   const recentKey = "te:objrecent:" + ((CURRENT_USER && CURRENT_USER.id) || "");
   const [recent, setRecent] = useState(() => { try { return JSON.parse(localStorage.getItem(recentKey) || "[]"); } catch (e) { return []; } });
   const [lim, setLim] = useState(150); // длинный список — частями, чтобы экран не тормозил
-  useEffect(() => { setLim(150); }, [q, stF, sort.k, sort.d]);
+  // фильтр по мастеру (панель слева; на телефоне — список выбора)
+  const [mF, setMF] = useState("");
+  const [mQ, setMQ] = useState("");
+  useEffect(() => { setLim(150); }, [q, stF, mF, sort.k, sort.d]);
+  // панель мастеров «прилипает» под верхней панелью программы (если та закреплена)
+  const [sideTop, setSideTop] = useState(12);
+  useEffect(() => {
+    const h = document.querySelector(".hdr");
+    if (!h || typeof ResizeObserver === "undefined") return;
+    const upd = () => { const sticky = getComputedStyle(h).position === "sticky"; setSideTop((sticky ? Math.round(h.getBoundingClientRect().height) : 0) + 12); };
+    upd();
+    const ro = new ResizeObserver(upd); ro.observe(h);
+    return () => ro.disconnect();
+  }, [openId]);
   useEffect(() => {
     if (!openId) return;
     setRecent((r) => { const n = [openId, ...r.filter((x) => x !== openId)].slice(0, 8); try { localStorage.setItem(recentKey, JSON.stringify(n)); } catch (e) {} return n; });
   }, [openId]);
   // по каждому объекту — один раз: суммы, долг, дата последнего действия и текст для поиска
+  const masterName = useMemo(() => { const m = {}; (data.masters || []).forEach((x) => { m[x.id] = x.name; }); return m; }, [data.masters]);
   const rowsAll = useMemo(() => objects.map((o) => {
     const f = calcObject(o, finance_ops);
+    // мастер объекта: по id (имя — из «Мастеров»), у старых объектов — по имени
+    const mn = (o.master_id && masterName[o.master_id]) || String(o.master || "").trim();
+    const mk = o.master_id ? "id:" + o.master_id : mn ? "nm:" + mn.toLowerCase() : "none";
     let upd = String(o.created_at || "");
     (o.items || []).forEach((i) => { const d = String(i.added_at || i.batch_date || ""); if (d > upd) upd = d; });
     opsOf(finance_ops, o.id).forEach((x) => { const d = String(x.created_at || x.op_date || ""); if (d > upd) upd = d; });
     const txt = [o.name, o.client, o.phone, o.address, o.master, o.manager, stById(o.status).label].filter(Boolean).join(" ").toLowerCase().replace(/ё/g, "е");
     const hay = txt + " " + translit(txt) + " " + String(o.phone || "").replace(/\D/g, "");
     const debt = isLive(o) ? f.clientDebt : 0;
-    return { o, f, upd, hay, debt };
-  }), [objects, finance_ops]);
+    return { o, f, upd, hay, debt, mk, mn };
+  }), [objects, finance_ops, masterName]);
   if (obj) return <ObjectDetail obj={obj} data={data} reload={reload} toast={toast} fin={fin} back={() => setOpenId(null)} />;
   // поиск: каждое слово где угодно (название, клиент, телефон, адрес, мастер, менеджер, статус); латиница = кириллица; телефон — по цифрам
   const toks = q.trim().toLowerCase().replace(/ё/g, "е").split(/\s+/).filter(Boolean);
@@ -4746,12 +4784,23 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
     debt: (a, b) => a.debt - b.debt,
     upd: (a, b) => a.upd.localeCompare(b.upd),
   }[sort.k] || ((a, b) => a.upd.localeCompare(b.upd));
-  const sortedRows = found.filter(stOk).sort((a, b) => cmp(a, b) * sort.d || b.upd.localeCompare(a.upd));
+  const mOk = (r) => !mF || r.mk === mF;
+  const sortedRows = found.filter(stOk).filter(mOk).sort((a, b) => cmp(a, b) * sort.d || b.upd.localeCompare(a.upd));
   const shown = sortedRows.map((r) => r.o);
   // счётчики для кнопок-фильтров (с учётом поиска)
-  const cnt = (id) => found.filter((r) => (id === "debt" ? r.debt > 0.004 : id === "old" ? !OBJ_STATUSES.some((x) => x.id === (r.o.status || "draft")) : (r.o.status || "draft") === id)).length;
-  const chips = [["", "Все", found.length], ...OBJ_STATUSES.map((x) => [x.id, x.label, cnt(x.id)]), ["debt", "С долгом", cnt("debt")], ...(cnt("old") ? [["old", "Старые статусы", cnt("old")]] : [])];
+  const foundM = found.filter(mOk);
+  const cnt = (id) => foundM.filter((r) => (id === "debt" ? r.debt > 0.004 : id === "old" ? !OBJ_STATUSES.some((x) => x.id === (r.o.status || "draft")) : (r.o.status || "draft") === id)).length;
+  const chips = [["", "Все", foundM.length], ...OBJ_STATUSES.map((x) => [x.id, x.label, cnt(x.id)]), ["debt", "С долгом", cnt("debt")], ...(cnt("old") ? [["old", "Старые статусы", cnt("old")]] : [])];
   const recentObjs = recent.map((id) => objects.find((o) => o.id === id)).filter(Boolean).slice(0, 6);
+  // мастера — с числом объектов (с учётом поиска и статуса) и долгом клиентов по их объектам
+  const foundS = found.filter(stOk);
+  const mAgg = new Map();
+  foundS.forEach((r) => { const x = mAgg.get(r.mk) || { key: r.mk, name: r.mn || "Без мастера", n: 0, debt: 0 }; x.n++; if (r.debt > 0.004) x.debt += r.debt; mAgg.set(r.mk, x); });
+  if (mF && !mAgg.has(mF)) { const r0 = rowsAll.find((r) => r.mk === mF); mAgg.set(mF, { key: mF, name: (r0 && r0.mn) || "Без мастера", n: 0, debt: 0 }); }
+  const mList = [...mAgg.values()].filter((x) => x.key !== "none").sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, "ru"));
+  const mNone = mAgg.get("none");
+  const mqT = mQ.trim().toLowerCase().replace(/ё/g, "е");
+  const mShown = mqT ? mList.filter((x) => { const t = x.name.toLowerCase().replace(/ё/g, "е"); return t.includes(mqT) || translit(t).includes(mqT) || t.includes(translit(mqT)); }) : mList;
   const SortTh = ({ k, children, num, w }) => <th className={"clk objt-th" + (num ? " num" : "")} style={w ? { width: w } : undefined} onClick={() => sortBy(k)} title="Сортировать">{children}<span className="objt-arr">{sort.k === k ? (sort.d > 0 ? " ↑" : " ↓") : ""}</span></th>;
   // список по статусам: «Черновик» и «Согласовано» вместе, «В процессе» и «Оплачено» вместе, старые статусы — в конце
   const groups = OBJ_GROUPS.map((g) => ({ ...g, list: shown.filter((o) => (g.ids ? g.ids.includes(o.status || "draft") : !OBJ_GROUPS.some((x) => x.ids && x.ids.includes(o.status || "draft")))) }))
@@ -4766,6 +4815,22 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         </div>
         <button className="btn pri" onClick={goRequest}>+ Новая заявка</button>
       </div>
+      <div className="obj-layout">
+      <aside className="obj-side card" style={{ top: sideTop, maxHeight: "calc(100vh - " + (sideTop + 16) + "px)" }}>
+        <div className="obj-side-h">Мастера</div>
+        {mList.length > 8 && <input className="inp obj-side-q" placeholder="Найти мастера…" value={mQ} onChange={(e) => setMQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape" && mQ) { e.preventDefault(); e.stopPropagation(); setMQ(""); } }} />}
+        <div className="obj-side-list">
+          <button type="button" className={"obj-m" + (!mF ? " on" : "")} onClick={() => setMF("")}><span className="obj-m-n">Все мастера</span><b>{foundS.length}</b></button>
+          {mShown.map((m) => (
+            <button key={m.key} type="button" className={"obj-m" + (mF === m.key ? " on" : "")} onClick={() => setMF(mF === m.key ? "" : m.key)} title={m.name + " — объектов: " + m.n + (m.debt > 0.004 ? ", долг клиентов: " + fmt2(m.debt) : "")}>
+              <span className="obj-m-n">{m.name}{m.debt > 0.004 && <span className="obj-m-d">долг {fmt(m.debt)}</span>}</span><b>{m.n}</b>
+            </button>
+          ))}
+          {mqT && !mShown.length && <div className="xs mut" style={{ padding: "6px 10px" }}>Не найдено</div>}
+          {mNone && !mqT && <button type="button" className={"obj-m none" + (mF === "none" ? " on" : "")} onClick={() => setMF(mF === "none" ? "" : "none")}><span className="obj-m-n">Без мастера</span><b>{mNone.n}</b></button>}
+        </div>
+      </aside>
+      <div className="obj-main">
       <div className="obj-find sect">
         <div className="obj-q">
           <span className="obj-q-ic"><Ic n="search" /></span>
@@ -4777,10 +4842,15 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         <div className="obj-chips">
           {chips.map(([id, l, n]) => <button key={id || "all"} type="button" className={"obj-chip" + (stF === id ? " on" : "") + (id === "debt" ? " debt" : "")} disabled={!n && stF !== id && id !== ""} onClick={() => setStF(stF === id ? "" : id)}>{l} <b>{n}</b></button>)}
         </div>
+        <select className="inp obj-mselect" value={mF} onChange={(e) => setMF(e.target.value)}>
+          <option value="">Мастер: все ({foundS.length})</option>
+          {mList.map((m) => <option key={m.key} value={m.key}>{m.name} ({m.n})</option>)}
+          {mNone && <option value="none">Без мастера ({mNone.n})</option>}
+        </select>
         {!q && recentObjs.length > 0 && <div className="obj-recent"><span className="xs mut">Недавние:</span>{recentObjs.map((o) => <button key={o.id} type="button" className="obj-rc" onClick={() => setOpenId(o.id)} title={[o.client, o.phone].filter(Boolean).join(" · ")}>{o.name}</button>)}</div>}
       </div>
       {/* статусы — колонками рядом: Черновик и Согласовано · В процессе и Оплачено (· старые статусы) */}
-      {!shown.length ? <div className="card mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? <>Ничего не найдено{(q || stF) && <> · <button type="button" className="btn xs" onClick={() => { setQ(""); setStF(""); }}>Показать все</button></>}</> : "Объектов пока нет — создайте через «Новая заявка»"}</div> : view === "list" ? (
+      {!shown.length ? <div className="card mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? <>Ничего не найдено{(q || stF || mF) && <> · <button type="button" className="btn xs" onClick={() => { setQ(""); setStF(""); setMF(""); }}>Показать все</button></>}</> : "Объектов пока нет — создайте через «Новая заявка»"}</div> : view === "list" ? (
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t objt">
           <thead><tr>
@@ -4794,7 +4864,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
                 <tr key={o.id} className="clk" onClick={() => setOpenId(o.id)}>
                   <td className="objt-name"><div style={{ fontWeight: 700 }}>{o.name}</div>{o.address && <div className="xs mut">{o.address}</div>}</td>
                   <td className="objt-cl"><div>{o.client || "—"}</div>{o.phone && <div className="xs mut mono">{o.phone}</div>}</td>
-                  <td className="objt-ms sm">{o.master || <span className="mut">—</span>}{o.manager && <div className="xs mut">{o.manager}</div>}</td>
+                  <td className="objt-ms sm">{o.master || masterName[o.master_id] || <span className="mut">—</span>}{o.manager && <div className="xs mut">{o.manager}</div>}</td>
                   <td className="objt-st"><Badge c={st.c}>{st.label.replace(" (старый статус)", "")}</Badge></td>
                   <td className="num objt-sum">{fmt(f.saleNet)}</td>
                   <td className="num objt-debt" style={{ fontWeight: 700, color: debt > 0.004 ? "var(--bad)" : debt < -0.004 ? "var(--ok)" : "var(--mut)" }} title={debt < -0.004 ? "переплата клиента" : ""}>{debt > 0.004 ? fmt(debt) : debt < -0.004 ? "+" + fmt(-debt) : "—"}</td>
@@ -4844,6 +4914,8 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
           );
         })}
       </div>)}
+      </div>
+      </div>
       {editO && <ObjectEditModal obj={editO} data={data} reload={reload} toast={toast} onClose={() => setEditO(null)} />}
       {delObj && (() => { const f = calcObject(delObj, finance_ops); return (
         <Modal title="Удалить объект" onClose={() => { if (!delBusy) setDelObj(null); }} w={460}>
