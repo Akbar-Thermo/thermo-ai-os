@@ -667,6 +667,49 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .note-color{width:22px;height:22px;border-radius:50%;border:2px solid var(--line2);cursor:pointer;padding:0}
 .note-color.on{border-color:var(--txt);box-shadow:0 0 0 2px var(--acc-ring)}
 .fin-seg{display:inline-flex;gap:6px;flex-wrap:wrap}
+/* «Объекты»: поиск, фильтры-кнопки, недавние, таблица с сортировкой */
+.seg{display:inline-flex;gap:2px;padding:3px;border-radius:var(--r-md);background:var(--panel2);border:1px solid var(--line)}
+.seg button{border:0;background:none;color:var(--mut);font:600 var(--fs-sm) var(--sans);padding:6px 12px;border-radius:var(--r-sm);cursor:pointer;white-space:nowrap}
+.seg button:hover{color:var(--txt)}
+.seg button.on{background:var(--panel);color:var(--txt);box-shadow:var(--shadow)}
+.obj-find{display:flex;flex-direction:column;gap:10px}
+.obj-q{position:relative}
+.obj-q .inp{height:44px;padding-left:40px;padding-right:40px;font-size:var(--fs-lg);border-radius:var(--r-lg)}
+.obj-q-ic{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--mut);display:flex;pointer-events:none}
+.obj-q-x{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:30px;height:30px;border:0;border-radius:var(--r-sm);background:none;color:var(--mut);cursor:pointer;font-size:var(--fs-sm)}
+.obj-q-x:hover{background:var(--hover);color:var(--txt)}
+.obj-chips{display:flex;flex-wrap:wrap;gap:6px}
+.obj-chip{border:1px solid var(--line2);background:var(--panel);color:var(--txt);border-radius:var(--r-pill);padding:5px 12px;font:600 var(--fs-sm) var(--sans);cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.obj-chip b{font-weight:700;color:var(--mut);font-size:var(--fs-xs)}
+.obj-chip:hover{border-color:var(--mut)}
+.obj-chip.on{background:var(--txt);border-color:var(--txt);color:var(--panel)}
+.obj-chip.on b{color:inherit;opacity:.75}
+.obj-chip.debt b{color:var(--bad)}
+.obj-chip.debt.on{background:var(--bad);border-color:var(--bad);color:#fff}
+.obj-chip:disabled{opacity:.45;cursor:default}
+.obj-recent{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.obj-rc{border:1px dashed var(--line2);background:none;color:var(--txt);border-radius:var(--r-pill);padding:4px 11px;font:600 var(--fs-xs) var(--sans);cursor:pointer;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.obj-rc:hover{border-style:solid;border-color:var(--mut)}
+table.objt th.objt-th{user-select:none;white-space:nowrap}
+table.objt th.num{text-align:right}
+table.objt th.objt-th:hover{color:var(--txt)}
+.objt-arr{color:var(--acc);font-weight:800}
+table.objt td{vertical-align:middle}
+@media(max-width:820px){
+  table.objt thead{display:none}
+  table.objt,table.objt tbody{display:block}
+  table.objt tr{display:grid;grid-template-columns:1fr auto;grid-template-areas:"name sum" "cl debt" "st act";gap:4px 10px;padding:10px 12px;border-bottom:1px solid var(--line)}
+  table.objt td{border:0;padding:0}
+  table.objt .objt-name{grid-area:name}
+  table.objt .objt-sum{grid-area:sum;font-weight:700}
+  table.objt .objt-cl{grid-area:cl;font-size:var(--fs-sm);color:var(--mut)}
+  table.objt .objt-cl div{display:inline}
+  table.objt .objt-cl div+div::before{content:" · "}
+  table.objt .objt-debt{grid-area:debt}
+  table.objt .objt-st{grid-area:st}
+  table.objt .objt-act{grid-area:act}
+  table.objt .objt-ms,table.objt .objt-upd{display:none}
+}
 .obj-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;align-items:start}
 .obj-col{overflow:hidden}
 .obj-grp{background:var(--panel2);font-weight:800;font-size:var(--fs-xs);letter-spacing:.4px;text-transform:uppercase;padding:10px 12px;border-bottom:1px solid var(--line)}
@@ -4662,9 +4705,54 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
     return true;
   };
   useHotActions(() => (obj ? [] : [{ label: "+ Новая заявка", keys: "Alt+N", code: "KeyN", run: goRequest }]));
+  // вид списка: «Список» (таблица с сортировкой) или «По статусам» (колонки) — запоминается на этом устройстве
+  const [view, setView] = useState(() => { try { return localStorage.getItem("te:objview") === "cols" ? "cols" : "list"; } catch (e) { return "list"; } });
+  const setViewSave = (v) => { setView(v); try { localStorage.setItem("te:objview", v); } catch (e) {} };
+  const [sort, setSort] = useState(() => { try { const x = JSON.parse(localStorage.getItem("te:objsort") || "null"); return x && x.k ? x : { k: "upd", d: -1 }; } catch (e) { return { k: "upd", d: -1 }; } });
+  const sortBy = (k) => { const n = sort.k === k ? { k, d: -sort.d } : { k, d: k === "name" || k === "client" || k === "master" || k === "status" ? 1 : -1 }; setSort(n); try { localStorage.setItem("te:objsort", JSON.stringify(n)); } catch (e) {} };
+  // недавно открытые объекты (на этом устройстве) — быстрый переход одним нажатием
+  const recentKey = "te:objrecent:" + ((CURRENT_USER && CURRENT_USER.id) || "");
+  const [recent, setRecent] = useState(() => { try { return JSON.parse(localStorage.getItem(recentKey) || "[]"); } catch (e) { return []; } });
+  const [lim, setLim] = useState(150); // длинный список — частями, чтобы экран не тормозил
+  useEffect(() => { setLim(150); }, [q, stF, sort.k, sort.d]);
+  useEffect(() => {
+    if (!openId) return;
+    setRecent((r) => { const n = [openId, ...r.filter((x) => x !== openId)].slice(0, 8); try { localStorage.setItem(recentKey, JSON.stringify(n)); } catch (e) {} return n; });
+  }, [openId]);
+  // по каждому объекту — один раз: суммы, долг, дата последнего действия и текст для поиска
+  const rowsAll = useMemo(() => objects.map((o) => {
+    const f = calcObject(o, finance_ops);
+    let upd = String(o.created_at || "");
+    (o.items || []).forEach((i) => { const d = String(i.added_at || i.batch_date || ""); if (d > upd) upd = d; });
+    opsOf(finance_ops, o.id).forEach((x) => { const d = String(x.created_at || x.op_date || ""); if (d > upd) upd = d; });
+    const txt = [o.name, o.client, o.phone, o.address, o.master, o.manager, stById(o.status).label].filter(Boolean).join(" ").toLowerCase().replace(/ё/g, "е");
+    const hay = txt + " " + translit(txt) + " " + String(o.phone || "").replace(/\D/g, "");
+    const debt = isLive(o) ? f.clientDebt : 0;
+    return { o, f, upd, hay, debt };
+  }), [objects, finance_ops]);
   if (obj) return <ObjectDetail obj={obj} data={data} reload={reload} toast={toast} fin={fin} back={() => setOpenId(null)} />;
-  const ql = q.trim().toLowerCase();
-  const shown = objects.filter((o) => (!stF || o.status === stF) && (!ql || [o.name, o.client, o.phone, o.address, o.master, o.manager].join(" ").toLowerCase().includes(ql)));
+  // поиск: каждое слово где угодно (название, клиент, телефон, адрес, мастер, менеджер, статус); латиница = кириллица; телефон — по цифрам
+  const toks = q.trim().toLowerCase().replace(/ё/g, "е").split(/\s+/).filter(Boolean);
+  const hit = (r) => toks.every((t) => r.hay.includes(t) || r.hay.includes(translit(t)) || (/\d/.test(t) && r.hay.includes(t.replace(/\D/g, ""))));
+  const stOk = (r) => !stF || (stF === "debt" ? r.debt > 0.004 : stF === "old" ? !OBJ_STATUSES.some((x) => x.id === (r.o.status || "draft")) : (r.o.status || "draft") === stF);
+  const found = rowsAll.filter((r) => !toks.length || hit(r));
+  const ordIdx = (o) => { const i = [...OBJ_STATUSES, ...OLD_STATUSES].findIndex((x) => x.id === (o.status || "draft")); return i < 0 ? 99 : i; };
+  const cmp = {
+    name: (a, b) => String(a.o.name || "").localeCompare(String(b.o.name || ""), "ru"),
+    client: (a, b) => String(a.o.client || "").localeCompare(String(b.o.client || ""), "ru"),
+    master: (a, b) => String(a.o.master || "").localeCompare(String(b.o.master || ""), "ru"),
+    status: (a, b) => ordIdx(a.o) - ordIdx(b.o),
+    sum: (a, b) => a.f.saleNet - b.f.saleNet,
+    debt: (a, b) => a.debt - b.debt,
+    upd: (a, b) => a.upd.localeCompare(b.upd),
+  }[sort.k] || ((a, b) => a.upd.localeCompare(b.upd));
+  const sortedRows = found.filter(stOk).sort((a, b) => cmp(a, b) * sort.d || b.upd.localeCompare(a.upd));
+  const shown = sortedRows.map((r) => r.o);
+  // счётчики для кнопок-фильтров (с учётом поиска)
+  const cnt = (id) => found.filter((r) => (id === "debt" ? r.debt > 0.004 : id === "old" ? !OBJ_STATUSES.some((x) => x.id === (r.o.status || "draft")) : (r.o.status || "draft") === id)).length;
+  const chips = [["", "Все", found.length], ...OBJ_STATUSES.map((x) => [x.id, x.label, cnt(x.id)]), ["debt", "С долгом", cnt("debt")], ...(cnt("old") ? [["old", "Старые статусы", cnt("old")]] : [])];
+  const recentObjs = recent.map((id) => objects.find((o) => o.id === id)).filter(Boolean).slice(0, 6);
+  const SortTh = ({ k, children, num, w }) => <th className={"clk objt-th" + (num ? " num" : "")} style={w ? { width: w } : undefined} onClick={() => sortBy(k)} title="Сортировать">{children}<span className="objt-arr">{sort.k === k ? (sort.d > 0 ? " ↑" : " ↓") : ""}</span></th>;
   // список по статусам: «Черновик» и «Согласовано» вместе, «В процессе» и «Оплачено» вместе, старые статусы — в конце
   const groups = OBJ_GROUPS.map((g) => ({ ...g, list: shown.filter((o) => (g.ids ? g.ids.includes(o.status || "draft") : !OBJ_GROUPS.some((x) => x.ids && x.ids.includes(o.status || "draft")))) }))
     .filter((g) => g.list.length || (g.ids && !stF)); // три основные колонки — всегда (если не выбран статус), «старые статусы» — только если есть
@@ -4672,15 +4760,57 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
     <div>
       <div className="row sect">
         <h2 style={{ marginRight: "auto" }}>Объекты <span className="mut sm">({shown.length !== objects.length ? shown.length + " из " + objects.length : objects.length})</span></h2>
-        <input className="inp" style={{ maxWidth: 220 }} data-kbnav="1" placeholder="Поиск: объект, клиент, телефон…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <select className="inp" style={{ maxWidth: 180 }} value={stF} onChange={(e) => setStF(e.target.value)}>
-          <option value="">Все статусы</option>
-          {[...OBJ_STATUSES, ...OLD_STATUSES.filter((x) => objects.some((o) => o.status === x.id))].map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}
-        </select>
+        <div className="seg obj-view">
+          <button type="button" className={view === "list" ? "on" : ""} onClick={() => setViewSave("list")}>Список</button>
+          <button type="button" className={view === "cols" ? "on" : ""} onClick={() => setViewSave("cols")}>По статусам</button>
+        </div>
         <button className="btn pri" onClick={goRequest}>+ Новая заявка</button>
       </div>
+      <div className="obj-find sect">
+        <div className="obj-q">
+          <span className="obj-q-ic"><Ic n="search" /></span>
+          <input className="inp" data-kbnav="1" autoFocus={!isPhone()} data-phone-nofocus="1" placeholder={isPhone() ? "Найти: объект, клиент, телефон…" : "Найти объект: название, клиент, телефон, мастер, адрес…"} value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "/" && !q) e.preventDefault(); /* «/» — горячая клавиша поиска: курсор уже здесь */ else if (e.key === "Enter" && shown.length) { e.preventDefault(); setOpenId(shown[0].id); } else if (e.key === "Escape" && q) { e.preventDefault(); e.stopPropagation(); setQ(""); } }} />
+          {q && <button type="button" className="obj-q-x" title="Очистить" onClick={() => setQ("")}>✕</button>}
+        </div>
+        <div className="obj-chips">
+          {chips.map(([id, l, n]) => <button key={id || "all"} type="button" className={"obj-chip" + (stF === id ? " on" : "") + (id === "debt" ? " debt" : "")} disabled={!n && stF !== id && id !== ""} onClick={() => setStF(stF === id ? "" : id)}>{l} <b>{n}</b></button>)}
+        </div>
+        {!q && recentObjs.length > 0 && <div className="obj-recent"><span className="xs mut">Недавние:</span>{recentObjs.map((o) => <button key={o.id} type="button" className="obj-rc" onClick={() => setOpenId(o.id)} title={[o.client, o.phone].filter(Boolean).join(" · ")}>{o.name}</button>)}</div>}
+      </div>
       {/* статусы — колонками рядом: Черновик и Согласовано · В процессе и Оплачено (· старые статусы) */}
-      {!shown.length ? <div className="card mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? "Ничего не найдено" : "Объектов пока нет — создайте через «Новая заявка»"}</div> : (
+      {!shown.length ? <div className="card mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? <>Ничего не найдено{(q || stF) && <> · <button type="button" className="btn xs" onClick={() => { setQ(""); setStF(""); }}>Показать все</button></>}</> : "Объектов пока нет — создайте через «Новая заявка»"}</div> : view === "list" ? (
+      <div className="card" style={{ padding: 0, overflow: "auto" }}>
+        <table className="t objt">
+          <thead><tr>
+            <SortTh k="name">Объект</SortTh><SortTh k="client">Клиент</SortTh><SortTh k="master">Мастер · менеджер</SortTh><SortTh k="status" w={130}>Статус</SortTh>
+            <SortTh k="sum" num w={110}>Сумма</SortTh><SortTh k="debt" num w={120}>Долг клиента</SortTh><SortTh k="upd" w={110}>Изменён</SortTh><th style={{ width: 76 }}></th>
+          </tr></thead>
+          <tbody>
+            {sortedRows.slice(0, lim).map(({ o, f, upd, debt }) => {
+              const st = stById(o.status);
+              return (
+                <tr key={o.id} className="clk" onClick={() => setOpenId(o.id)}>
+                  <td className="objt-name"><div style={{ fontWeight: 700 }}>{o.name}</div>{o.address && <div className="xs mut">{o.address}</div>}</td>
+                  <td className="objt-cl"><div>{o.client || "—"}</div>{o.phone && <div className="xs mut mono">{o.phone}</div>}</td>
+                  <td className="objt-ms sm">{o.master || <span className="mut">—</span>}{o.manager && <div className="xs mut">{o.manager}</div>}</td>
+                  <td className="objt-st"><Badge c={st.c}>{st.label.replace(" (старый статус)", "")}</Badge></td>
+                  <td className="num objt-sum">{fmt(f.saleNet)}</td>
+                  <td className="num objt-debt" style={{ fontWeight: 700, color: debt > 0.004 ? "var(--bad)" : debt < -0.004 ? "var(--ok)" : "var(--mut)" }} title={debt < -0.004 ? "переплата клиента" : ""}>{debt > 0.004 ? fmt(debt) : debt < -0.004 ? "+" + fmt(-debt) : "—"}</td>
+                  <td className="xs mut mono objt-upd">{dt(upd.slice(0, 10))}</td>
+                  <td className="objt-act" onClick={(e) => e.stopPropagation()}><div className="row" style={{ gap: 4, flexWrap: "nowrap", justifyContent: "flex-end" }}>
+                    <button className="btn xs" title="Изменить объект" aria-label="Изменить" onClick={() => setEditO(o)}><Ic n="pencil" /></button>
+                    {canDelete(o) ? <button className="btn xs dng" title="Удалить объект" onClick={() => setDelObj(o)}>✕</button> : null}
+                  </div></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {sortedRows.length > lim && <div style={{ padding: 10, textAlign: "center" }}><button type="button" className="btn" onClick={() => setLim(lim + 300)}>Показать ещё ({sortedRows.length - lim})</button></div>}
+      </div>
+      ) : (
       <div className="obj-cols">
         {groups.map((g) => {
           const debt = g.list.reduce((a, o) => a + (isLive(o) ? Math.max(0, calcObject(o, finance_ops).clientDebt) : 0), 0);
