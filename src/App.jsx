@@ -668,29 +668,11 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .note-color.on{border-color:var(--txt);box-shadow:0 0 0 2px var(--acc-ring)}
 .fin-seg{display:inline-flex;gap:6px;flex-wrap:wrap}
 /* «Объекты»: поиск, фильтры-кнопки, недавние, таблица с сортировкой */
-.obj-layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:16px;align-items:start}
-.obj-main{min-width:0}
-/* мастера — вертикальный столбик «таблеток», как кнопки статусов; без подложки */
-.obj-side{position:sticky;display:flex;flex-direction:column;gap:8px;overflow:hidden}
-.obj-side-h{font-size:var(--fs-xs);font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--mut);padding:2px 4px}
-.obj-side-q{height:34px;font-size:var(--fs-sm);border-radius:var(--r-pill)!important;padding-left:14px!important}
-.obj-side-list{display:flex;flex-direction:column;align-items:stretch;gap:6px;overflow:auto;min-height:0;padding:1px}
-.obj-m{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:1px solid var(--line2);background:var(--panel);color:var(--txt);border-radius:18px;padding:7px 14px;font:600 var(--fs-sm) var(--sans);cursor:pointer;transition:border-color .12s,background .12s,color .12s}
-.obj-m:hover{border-color:var(--mut)}
-.obj-m .obj-m-n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3}
-.obj-m b{font-size:var(--fs-xs);color:var(--mut);font-weight:700}
-.obj-m-d{display:block;font-size:var(--fs-2xs);color:var(--bad);font-weight:700}
-.obj-m.on{background:var(--txt);border-color:var(--txt);color:var(--panel)}
-.obj-m.on b{color:inherit;opacity:.75}
-.obj-m.on .obj-m-d{color:inherit;opacity:.85}
-.obj-m.none{color:var(--mut);border-style:dashed}
-.obj-m.none.on{color:var(--panel);border-style:solid}
-.obj-mselect{display:none}
-@media(max-width:820px){
-  .obj-layout{grid-template-columns:minmax(0,1fr)}
-  .obj-side{display:none}
-  .obj-mselect{display:block;height:42px}
-}
+.obj-chips-l{font-size:var(--fs-xs);font-weight:700;color:var(--mut);align-self:center;min-width:52px}
+.obj-chip.none{border-style:dashed;color:var(--mut)}
+.obj-chip.none.on{border-style:solid;color:var(--panel)}
+.obj-chip-d{font-style:normal;font-size:var(--fs-2xs);font-weight:700;color:var(--bad)}
+.obj-chip.on .obj-chip-d{color:inherit;opacity:.85}
 .seg{display:inline-flex;gap:2px;padding:3px;border-radius:var(--r-md);background:var(--panel2);border:1px solid var(--line)}
 .seg button{border:0;background:none;color:var(--mut);font:600 var(--fs-sm) var(--sans);padding:6px 12px;border-radius:var(--r-sm);cursor:pointer;white-space:nowrap}
 .seg button:hover{color:var(--txt)}
@@ -4739,18 +4721,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   const [lim, setLim] = useState(150); // длинный список — частями, чтобы экран не тормозил
   // фильтр по мастеру (панель слева; на телефоне — список выбора)
   const [mF, setMF] = useState("");
-  const [mQ, setMQ] = useState("");
   useEffect(() => { setLim(150); }, [q, stF, mF, sort.k, sort.d]);
-  // панель мастеров «прилипает» под верхней панелью программы (если та закреплена)
-  const [sideTop, setSideTop] = useState(12);
-  useEffect(() => {
-    const h = document.querySelector(".hdr");
-    if (!h || typeof ResizeObserver === "undefined") return;
-    const upd = () => { const sticky = getComputedStyle(h).position === "sticky"; setSideTop((sticky ? Math.round(h.getBoundingClientRect().height) : 0) + 12); };
-    upd();
-    const ro = new ResizeObserver(upd); ro.observe(h);
-    return () => ro.disconnect();
-  }, [openId]);
   useEffect(() => {
     if (!openId) return;
     setRecent((r) => { const n = [openId, ...r.filter((x) => x !== openId)].slice(0, 8); try { localStorage.setItem(recentKey, JSON.stringify(n)); } catch (e) {} return n; });
@@ -4801,8 +4772,6 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   if (mF && !mAgg.has(mF)) { const r0 = rowsAll.find((r) => r.mk === mF); mAgg.set(mF, { key: mF, name: (r0 && r0.mn) || "Без мастера", n: 0, debt: 0 }); }
   const mList = [...mAgg.values()].filter((x) => x.key !== "none").sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, "ru"));
   const mNone = mAgg.get("none");
-  const mqT = mQ.trim().toLowerCase().replace(/ё/g, "е");
-  const mShown = mqT ? mList.filter((x) => { const t = x.name.toLowerCase().replace(/ё/g, "е"); return t.includes(mqT) || translit(t).includes(mqT) || t.includes(translit(mqT)); }) : mList;
   const SortTh = ({ k, children, num, w }) => <th className={"clk objt-th" + (num ? " num" : "")} style={w ? { width: w } : undefined} onClick={() => sortBy(k)} title="Сортировать">{children}<span className="objt-arr">{sort.k === k ? (sort.d > 0 ? " ↑" : " ↓") : ""}</span></th>;
   // список по статусам: «Черновик» и «Согласовано» вместе, «В процессе» и «Оплачено» вместе, старые статусы — в конце
   const groups = OBJ_GROUPS.map((g) => ({ ...g, list: shown.filter((o) => (g.ids ? g.ids.includes(o.status || "draft") : !OBJ_GROUPS.some((x) => x.ids && x.ids.includes(o.status || "draft")))) }))
@@ -4817,22 +4786,6 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         </div>
         <button className="btn pri" onClick={goRequest}>+ Новая заявка</button>
       </div>
-      <div className="obj-layout">
-      <aside className="obj-side" style={{ top: sideTop, maxHeight: "calc(100vh - " + (sideTop + 16) + "px)" }}>
-        <div className="obj-side-h">Мастера</div>
-        {mList.length > 8 && <input className="inp obj-side-q" placeholder="Найти мастера…" value={mQ} onChange={(e) => setMQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape" && mQ) { e.preventDefault(); e.stopPropagation(); setMQ(""); } }} />}
-        <div className="obj-side-list">
-          <button type="button" className={"obj-m" + (!mF ? " on" : "")} onClick={() => setMF("")}><span className="obj-m-n">Все мастера</span><b>{foundS.length}</b></button>
-          {mShown.map((m) => (
-            <button key={m.key} type="button" className={"obj-m" + (mF === m.key ? " on" : "")} onClick={() => setMF(mF === m.key ? "" : m.key)} title={m.name + " — объектов: " + m.n + (m.debt > 0.004 ? ", долг клиентов: " + fmt2(m.debt) : "")}>
-              <span className="obj-m-n">{m.name}{m.debt > 0.004 && <span className="obj-m-d">долг {fmt(m.debt)}</span>}</span><b>{m.n}</b>
-            </button>
-          ))}
-          {mqT && !mShown.length && <div className="xs mut" style={{ padding: "6px 10px" }}>Не найдено</div>}
-          {mNone && !mqT && <button type="button" className={"obj-m none" + (mF === "none" ? " on" : "")} onClick={() => setMF(mF === "none" ? "" : "none")}><span className="obj-m-n">Без мастера</span><b>{mNone.n}</b></button>}
-        </div>
-      </aside>
-      <div className="obj-main">
       <div className="obj-find sect">
         <div className="obj-q">
           <span className="obj-q-ic"><Ic n="search" /></span>
@@ -4842,13 +4795,15 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
           {q && <button type="button" className="obj-q-x" title="Очистить" onClick={() => setQ("")}>✕</button>}
         </div>
         <div className="obj-chips">
+          <span className="obj-chips-l">Статус:</span>
           {chips.map(([id, l, n]) => <button key={id || "all"} type="button" className={"obj-chip" + (stF === id ? " on" : "") + (id === "debt" ? " debt" : "")} disabled={!n && stF !== id && id !== ""} onClick={() => setStF(stF === id ? "" : id)}>{l} <b>{n}</b></button>)}
         </div>
-        <select className="inp obj-mselect" value={mF} onChange={(e) => setMF(e.target.value)}>
-          <option value="">Мастер: все ({foundS.length})</option>
-          {mList.map((m) => <option key={m.key} value={m.key}>{m.name} ({m.n})</option>)}
-          {mNone && <option value="none">Без мастера ({mNone.n})</option>}
-        </select>
+        <div className="obj-chips obj-mchips">
+          <span className="obj-chips-l">Мастер:</span>
+          <button type="button" className={"obj-chip" + (!mF ? " on" : "")} onClick={() => setMF("")}>Все <b>{foundS.length}</b></button>
+          {mList.map((m) => <button key={m.key} type="button" className={"obj-chip" + (mF === m.key ? " on" : "")} onClick={() => setMF(mF === m.key ? "" : m.key)} title={m.name + " — объектов: " + m.n + (m.debt > 0.004 ? ", долг клиентов: " + fmt2(m.debt) : "")}>{m.name} <b>{m.n}</b>{m.debt > 0.004 && <i className="obj-chip-d">долг {fmt(m.debt)}</i>}</button>)}
+          {mNone && <button type="button" className={"obj-chip none" + (mF === "none" ? " on" : "")} onClick={() => setMF(mF === "none" ? "" : "none")}>Без мастера <b>{mNone.n}</b></button>}
+        </div>
         {!q && recentObjs.length > 0 && <div className="obj-recent"><span className="xs mut">Недавние:</span>{recentObjs.map((o) => <button key={o.id} type="button" className="obj-rc" onClick={() => setOpenId(o.id)} title={[o.client, o.phone].filter(Boolean).join(" · ")}>{o.name}</button>)}</div>}
       </div>
       {/* статусы — колонками рядом: Черновик и Согласовано · В процессе и Оплачено (· старые статусы) */}
@@ -4916,8 +4871,6 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
           );
         })}
       </div>)}
-      </div>
-      </div>
       {editO && <ObjectEditModal obj={editO} data={data} reload={reload} toast={toast} onClose={() => setEditO(null)} />}
       {delObj && (() => { const f = calcObject(delObj, finance_ops); return (
         <Modal title="Удалить объект" onClose={() => { if (!delBusy) setDelObj(null); }} w={460}>
