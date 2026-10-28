@@ -5103,7 +5103,14 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     return ok;
   };
   // ---- «Себестоимость подряд» ----
-  const costOf = (x) => Math.round(parseNum(x) * 10000) / 10000;
+  // «1 250,50», «1.250,50», «1,250.50», «$12.5», «12,5 сум» — всё понимается как число
+  const costOf = (x) => {
+    let t = String(x == null ? "" : x).replace(/[^\d.,-]/g, "");
+    if (t.includes(",") && t.includes(".")) t = t.lastIndexOf(",") > t.lastIndexOf(".") ? t.replace(/\./g, "").replace(",", ".") : t.replace(/,/g, "");
+    else if ((t.match(/,/g) || []).length > 1) t = t.replace(/,/g, "");
+    else if ((t.match(/\./g) || []).length > 1) t = t.replace(/\./g, "");
+    return Math.round(parseNum(t) * 10000) / 10000;
+  };
   const costChanges = () => (obj.items || []).map((i) => {
     const d = costDraft[i.id];
     if (d == null) return null;
@@ -5133,7 +5140,24 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   };
   const saveCosts = async () => {
     const ch = costChanges();
-    if (!ch.length) { exitCost(); return; }
+    const ps = prodSync();
+    if (!ch.length && !ps.length) { exitCost(); return; }
+    if (!ch.length) {
+      // себестоимость в объекте не меняли — только переносим её в «Товары»
+      setCostBusy(true);
+      let np = 0;
+      for (const { p, c } of ps) {
+        const r = await db.from("products").update({ cost: c, price_updated: new Date().toISOString() }).eq("id", p.id);
+        if (r.error) continue;
+        np++;
+        await logAction("Изменён товар", "product:" + (p.name || ""), "себест. " + fmt2(p.cost) + " → " + fmt2(c) + " (из объекта «" + obj.name + "», быстрый ввод)");
+      }
+      if (np) await reload(["products"]);
+      setCostBusy(false);
+      exitCost();
+      toast(np ? "Себестоимость из объекта записана в «Товары»: " + np + " поз." : "Не удалось записать в «Товары» — попробуйте ещё раз");
+      return;
+    }
     if (!(await confirmLowPrice(ch.map(({ i, c }) => ({ name: i.name, price: i.price, cost: c }))))) return;
     setCostBusy(true);
     const m = new Map(ch.map(({ i, c }) => [i.id, c]));
@@ -5149,6 +5173,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     let np = 0;
     if (costToProd) {
       const byProd = new Map();
+      ps.forEach(({ p, c }) => byProd.set(p.id, c)); // и те, что не меняли сейчас, но в «Товары» другая себестоимость
       ch.forEach(({ i, c }) => { if (pOf.has(i.id)) byProd.set(pOf.get(i.id).id, c); });
       for (const [pid, c] of byProd) {
         const p = (products || []).find((x) => x.id === pid);
@@ -5504,6 +5529,22 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     return { c0: a.c0 + q * c0, c1: a.c1 + q * c1, s: a.s + q * (Number(i.price) || 0) };
   }, { c0: 0, c1: 0, s: 0 }) : null;
   const cqN = costMode ? costChanges().length : 0;
+  // себестоимость в объекте (новая или прежняя) отличается от «Товары» — такие товары обновятся при сохранении
+  const prodSync = () => {
+    if (!costToProd) return [];
+    const out = new Map();
+    (obj.items || []).forEach((i) => {
+      if (i.from_warehouse) return;
+      const d = costDraft[i.id];
+      const c = d != null ? Math.max(0, costOf(d)) : Number(i.cost) || 0;
+      if (!(c > 0)) return;
+      const p = prodForItem(i, products);
+      if (!p || Math.abs((Number(p.cost) || 0) - c) <= 0.00001) return;
+      out.set(p.id, { p, c, i });
+    });
+    return [...out.values()];
+  };
+  const cqP = costMode ? prodSync().length : 0;
   const KPI = ({ l, v, c, sub }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}</div>{sub && <div className="xs mut kpi-sub">{sub}</div>}</div>;
   // возвраты товара — не в «Финансовых операциях», а отдельным блоком «Возвраты» в материалах объекта (как поставка)
   const shownOps = opsNewestFirst(ops.filter((o) => o.type !== "return" && !MASTER_ONLY_OPS.includes(o.type) && (fin || MANAGER_OP_TYPES.includes(o.type))));
@@ -5645,11 +5686,11 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
             <div>Себестоимость: {fmt2(cqTot.c0)}{cqN ? <> → <b>{fmt2(cqTot.c1)}</b></> : null} · Прибыль по позициям: {fmt2(cqTot.s - cqTot.c0)}{cqN ? <> → <b style={{ color: cqTot.s - cqTot.c1 < 0 ? "var(--bad)" : "var(--ok)" }}>{fmt2(cqTot.s - cqTot.c1)}</b></> : null}</div>
           </div>
           <label className="row xs clk" style={{ gap: 6, flexWrap: "nowrap" }} title="Новая себестоимость запишется и в базу «Товары» — следующие заявки возьмут её (товар со Склада Thermo не меняется)">
-            <input type="checkbox" checked={costToProd} onChange={(e) => setCostToProd(e.target.checked)} /> обновить и в «Товары»
+            <input type="checkbox" checked={costToProd} onChange={(e) => setCostToProd(e.target.checked)} /> обновить и в «Товары»{costToProd && cqP ? <b className="cq-n on">: {cqP} тов.</b> : null}
           </label>
           <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
             <button className="btn" disabled={costBusy} onClick={cancelCost}>Отмена</button>
-            <button className="btn pri cq-save" disabled={costBusy} onClick={saveCosts}>{costBusy ? "Сохраняю…" : cqN ? "✓ Сохранить (" + cqN + ")" : "Готово"}</button>
+            <button className="btn pri cq-save" disabled={costBusy} onClick={saveCosts}>{costBusy ? "Сохраняю…" : cqN ? "✓ Сохранить (" + cqN + ")" : cqP ? "✓ Записать в «Товары» (" + cqP + ")" : "Готово"}</button>
           </div>
         </div>
       )}
