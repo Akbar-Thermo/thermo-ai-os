@@ -670,19 +670,21 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 /* «Объекты»: поиск, фильтры-кнопки, недавние, таблица с сортировкой */
 .obj-layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:16px;align-items:start}
 .obj-main{min-width:0}
-.obj-side{position:sticky;padding:10px;display:flex;flex-direction:column;gap:6px;overflow:hidden}
-.obj-side-h{font-size:var(--fs-xs);font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--mut);padding:4px 6px 2px}
-.obj-side-q{height:34px;font-size:var(--fs-sm)}
-.obj-side-list{display:flex;flex-direction:column;gap:2px;overflow:auto;min-height:0}
-.obj-m{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:none;color:var(--txt);border-radius:var(--r-sm);padding:8px 10px;font:500 var(--fs-sm) var(--sans);cursor:pointer}
-.obj-m:hover{background:var(--hover)}
-.obj-m .obj-m-n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* мастера — вертикальный столбик «таблеток», как кнопки статусов; без подложки */
+.obj-side{position:sticky;display:flex;flex-direction:column;gap:8px;overflow:hidden}
+.obj-side-h{font-size:var(--fs-xs);font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--mut);padding:2px 4px}
+.obj-side-q{height:34px;font-size:var(--fs-sm);border-radius:var(--r-pill)!important;padding-left:14px!important}
+.obj-side-list{display:flex;flex-direction:column;align-items:stretch;gap:6px;overflow:auto;min-height:0;padding:1px}
+.obj-m{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:1px solid var(--line2);background:var(--panel);color:var(--txt);border-radius:18px;padding:7px 14px;font:600 var(--fs-sm) var(--sans);cursor:pointer;transition:border-color .12s,background .12s,color .12s}
+.obj-m:hover{border-color:var(--mut)}
+.obj-m .obj-m-n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3}
 .obj-m b{font-size:var(--fs-xs);color:var(--mut);font-weight:700}
-.obj-m-d{display:block;font-size:var(--fs-2xs);color:var(--bad);font-weight:600}
-.obj-m.on{background:var(--txt);color:var(--panel)}
-.obj-m.on b,.obj-m.on .obj-m-d{color:inherit;opacity:.8}
-.obj-m.none{color:var(--mut)}
-.obj-m.none.on{color:var(--panel)}
+.obj-m-d{display:block;font-size:var(--fs-2xs);color:var(--bad);font-weight:700}
+.obj-m.on{background:var(--txt);border-color:var(--txt);color:var(--panel)}
+.obj-m.on b{color:inherit;opacity:.75}
+.obj-m.on .obj-m-d{color:inherit;opacity:.85}
+.obj-m.none{color:var(--mut);border-style:dashed}
+.obj-m.none.on{color:var(--panel);border-style:solid}
 .obj-mselect{display:none}
 @media(max-width:820px){
   .obj-layout{grid-template-columns:minmax(0,1fr)}
@@ -4816,7 +4818,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         <button className="btn pri" onClick={goRequest}>+ Новая заявка</button>
       </div>
       <div className="obj-layout">
-      <aside className="obj-side card" style={{ top: sideTop, maxHeight: "calc(100vh - " + (sideTop + 16) + "px)" }}>
+      <aside className="obj-side" style={{ top: sideTop, maxHeight: "calc(100vh - " + (sideTop + 16) + "px)" }}>
         <div className="obj-side-h">Мастера</div>
         {mList.length > 8 && <input className="inp obj-side-q" placeholder="Найти мастера…" value={mQ} onChange={(e) => setMQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape" && mQ) { e.preventDefault(); e.stopPropagation(); setMQ(""); } }} />}
         <div className="obj-side-list">
