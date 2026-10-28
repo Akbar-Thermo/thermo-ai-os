@@ -3230,6 +3230,43 @@ function AktEditModal({ ed, s, onClose, onDone }) {
   );
 }
 /* Данные акта сверки поставщика: получено (по поставкам), возвраты, оплаты, баланс. Без React — нужно и для «Истории (Excel)». */
+// строки акта сверки с поставщиком (Excel): общий для «Поставщиков» и для объекта (там — только по этому объекту)
+function aktExcelRows(s, d, objTitle) {
+  const { batches, returns, payments, totalReceived, totalReturns, totalPaid, balance } = d;
+    const rows = [
+      { k: "title", v: ["АКТ СВЕРКИ: " + s.name + (objTitle ? " · объект «" + objTitle + "»" : "")] },
+      { k: "info", v: ["Thermo Engineering · составлен " + new Date().toLocaleDateString("ru-RU") + " · суммы в $ по себестоимости"] },
+      { k: "blank" },
+      { k: "section", v: ["1. ПОЛУЧЕНО ТОВАРОВ"] },
+      { k: "head", v: ["№", "Наименование", "Кол-во", "Ед.", "Себест.", "Сумма"] },
+    ];
+    // каждая накладная: позиции с 1, под ней — сумма накладной
+    batches.forEach((g) => {
+      rows.push({ k: "section", v: [g.obj_name + (String(g.obj_id).startsWith("wh:") ? "" : " · Поставка №" + g.no) + " от " + dt(g.date)] });
+      g.items.forEach((it, i) => rows.push({ k: "row", v: [i + 1, it.name, Number(it.qty) || 0, it.unit || "", Number(it.cost) || 0, round2((it.qty || 0) * (it.cost || 0))] }));
+      rows.push({ k: "sum", v: ["", "Сумма накладной", "", "", "", round2(g.sum)] });
+    });
+    if (!batches.length) rows.push({ k: "info", v: ["Поступлений нет"] });
+    rows.push({ k: "total", v: ["Итого получено", round2(totalReceived)] }, { k: "blank" });
+    rows.push({ k: "section", v: ["2. ВОЗВРАТЫ ПОСТАВЩИКУ"] });
+    if (returns.length) {
+      rows.push({ k: "head", v: ["№", "Наименование · дата", "Кол-во", "Ед.", "Себест.", "Сумма"] });
+      returns.forEach((o, i) => rows.push({ k: "row", v: [i + 1, (o.product_name || "—") + " · " + dt(o.op_date || o.created_at), Number(o.qty) || 0, o.unit || "", o.qty ? round2((o.cost_amount || 0) / o.qty) : "", round2(o.cost_amount || 0)] }));
+    } else rows.push({ k: "info", v: ["Возвратов нет"] });
+    rows.push({ k: "total", v: ["Итого возвраты", round2(totalReturns)] }, { k: "blank" });
+    rows.push({ k: "section", v: ["3. ОПЛАТЫ"] });
+    if (payments.length) {
+      rows.push({ k: "head", v: ["№", "Дата · способ оплаты · комментарий", "", "", "", "Сумма"] });
+      [...payments].sort((a, b) => String(a.op_date || a.created_at).localeCompare(String(b.op_date || b.created_at)))
+        .forEach((o, i) => rows.push({ k: "row", v: [i + 1, [dt(o.op_date || o.created_at), payText(o), o.note].filter(Boolean).join(" · "), "", "", "", round2(o.amount || 0)] }));
+    } else rows.push({ k: "info", v: ["Оплат нет"] });
+    rows.push({ k: "total", v: ["Итого оплачено", round2(totalPaid)] }, { k: "blank" });
+    rows.push({ k: "total", v: ["Получено − возвраты − оплаты", round2(balance)] });
+    rows.push({ k: "section", v: [balance > 0 ? "Долг Thermo Engineering перед " + s.name + ": " + fmt2(balance) + " $" : balance < 0 ? "Аванс (переплата) " + s.name + ": " + fmt2(-balance) + " $" : "Задолженности нет"] });
+    rows.push({ k: "blank" }, { k: "blank" });
+    rows.push({ k: "info", v: ["Thermo Engineering: ____________________          " + s.name + ": ____________________"] });
+  return rows;
+}
 function aktData(s, objects, ops, whMoves) {
   // Received items (purchases) from all non-cancelled objects
   const received = [];
@@ -3391,38 +3428,7 @@ function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, re
   const toggleAll = () => { const n = {}; if (allClosed) batches.forEach((g) => { n[g.key] = true; }); setOpened(n); };
   // акт сверки в Excel (с рамками) — чтобы отправить поставщику
   const exportAkt = () => {
-    const rows = [
-      { k: "title", v: ["АКТ СВЕРКИ: " + s.name] },
-      { k: "info", v: ["Thermo Engineering · составлен " + new Date().toLocaleDateString("ru-RU") + " · суммы в $ по себестоимости"] },
-      { k: "blank" },
-      { k: "section", v: ["1. ПОЛУЧЕНО ТОВАРОВ"] },
-      { k: "head", v: ["№", "Наименование", "Кол-во", "Ед.", "Себест.", "Сумма"] },
-    ];
-    // каждая накладная: позиции с 1, под ней — сумма накладной
-    batches.forEach((g) => {
-      rows.push({ k: "section", v: [g.obj_name + (String(g.obj_id).startsWith("wh:") ? "" : " · Поставка №" + g.no) + " от " + dt(g.date)] });
-      g.items.forEach((it, i) => rows.push({ k: "row", v: [i + 1, it.name, Number(it.qty) || 0, it.unit || "", Number(it.cost) || 0, round2((it.qty || 0) * (it.cost || 0))] }));
-      rows.push({ k: "sum", v: ["", "Сумма накладной", "", "", "", round2(g.sum)] });
-    });
-    if (!batches.length) rows.push({ k: "info", v: ["Поступлений нет"] });
-    rows.push({ k: "total", v: ["Итого получено", round2(totalReceived)] }, { k: "blank" });
-    rows.push({ k: "section", v: ["2. ВОЗВРАТЫ ПОСТАВЩИКУ"] });
-    if (returns.length) {
-      rows.push({ k: "head", v: ["№", "Наименование · дата", "Кол-во", "Ед.", "Себест.", "Сумма"] });
-      returns.forEach((o, i) => rows.push({ k: "row", v: [i + 1, (o.product_name || "—") + " · " + dt(o.op_date || o.created_at), Number(o.qty) || 0, o.unit || "", o.qty ? round2((o.cost_amount || 0) / o.qty) : "", round2(o.cost_amount || 0)] }));
-    } else rows.push({ k: "info", v: ["Возвратов нет"] });
-    rows.push({ k: "total", v: ["Итого возвраты", round2(totalReturns)] }, { k: "blank" });
-    rows.push({ k: "section", v: ["3. ОПЛАТЫ"] });
-    if (payments.length) {
-      rows.push({ k: "head", v: ["№", "Дата · способ оплаты · комментарий", "", "", "", "Сумма"] });
-      [...payments].sort((a, b) => String(a.op_date || a.created_at).localeCompare(String(b.op_date || b.created_at)))
-        .forEach((o, i) => rows.push({ k: "row", v: [i + 1, [dt(o.op_date || o.created_at), payText(o), o.note].filter(Boolean).join(" · "), "", "", "", round2(o.amount || 0)] }));
-    } else rows.push({ k: "info", v: ["Оплат нет"] });
-    rows.push({ k: "total", v: ["Итого оплачено", round2(totalPaid)] }, { k: "blank" });
-    rows.push({ k: "total", v: ["Получено − возвраты − оплаты", round2(balance)] });
-    rows.push({ k: "section", v: [balance > 0 ? "Долг Thermo Engineering перед " + s.name + ": " + fmt2(balance) + " $" : balance < 0 ? "Аванс (переплата) " + s.name + ": " + fmt2(-balance) + " $" : "Задолженности нет"] });
-    rows.push({ k: "blank" }, { k: "blank" });
-    rows.push({ k: "info", v: ["Thermo Engineering: ____________________          " + s.name + ": ____________________"] });
+    const rows = aktExcelRows(s, { batches, returns, payments, totalReceived, totalReturns, totalPaid, balance });
     const r = downloadStyledXLSX("Акт_сверки_" + fileSafe(s.name) + ".xlsx", "Акт сверки", rows, [6, 60, 10, 7, 13, 15], ["c", "t", "n", "c", "m", "m"]);
     if (toast) toast(r === "xlsx" ? "Акт сверки скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
@@ -5190,6 +5196,22 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     const r = downloadStyledXLSX("Объект_" + safe(obj.name) + ".xlsx", "Клиенту", rows, [6, 60, 10, 7, 13, 15], ["c", "t", "n", "c", "m", "m"]);
     toast(r === "xlsx" ? "Excel для клиента скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
+  // акт сверки с поставщиками — как в «Поставщиках», но только по этому объекту
+  // (поставки объекта, возвраты с объекта поставщику, оплаты поставщику, записанные в объекте)
+  const objSups = useMemo(() => {
+    const ids = [...new Set((obj.items || []).filter((i) => i.supplier_id && !i.from_warehouse).map((i) => i.supplier_id))];
+    return ids.map((id) => suppliers.find((x) => x.id === id)).filter(Boolean);
+  }, [obj, suppliers]);
+  const exportObjAkt = () => {
+    const objOps = finance_ops.filter((o) => o.object_id === obj.id);
+    let rows = [];
+    objSups.forEach((sp, k) => {
+      if (k) rows.push({ k: "blank" }, { k: "blank" });
+      rows = rows.concat(aktExcelRows(sp, aktData(sp, [obj], objOps, data.wh_moves || []), obj.name));
+    });
+    const r = downloadStyledXLSX("Акт_сверки_" + safe(obj.name) + ".xlsx", "Акт сверки", rows, [6, 60, 10, 7, 13, 15], ["c", "t", "n", "c", "m", "m"]);
+    toast(r === "xlsx" ? "Акт сверки по объекту скачан" + (objSups.length > 1 ? " (поставщиков: " + objSups.length + ")" : "") : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
+  };
   // внутренний Excel: себестоимость, цена и наценка по каждой позиции (клиенту не отправлять)
   const exportCost = () => {
     const rows = [
@@ -5370,6 +5392,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
           <button className="btn" onClick={exportClient}><Ic n="download" /> Excel клиенту</button>
           <button className="btn" onClick={exportDelivery}><Ic n="truck" /> Лист доставки</button>
           <button className="btn" onClick={exportCost} title="Внутренний: себестоимость, цена и прибыль по каждой позиции"><Ic n="sheet" /> Excel себестоимость</button>
+          {fin && objSups.length > 0 && <button className="btn obj-akt" onClick={exportObjAkt} title={"Акт сверки с поставщиком только по этому объекту: " + objSups.map((x) => x.name).join(", ")}><Ic n="sheet" /> Акт сверки</button>}
         </div>
       </div>
 
