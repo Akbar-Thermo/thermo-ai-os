@@ -6,6 +6,8 @@ import { createHash } from "node:crypto";
 const sha256 = (s) => createHash("sha256").update(s, "utf8").digest("hex");
 
 export function makeRest({ url, anon, login, password, fetchImpl = globalThis.fetch }) {
+  // нечаянный пробел / перевод строки при вставке логина и пароля в настройки — не мешает входу
+  login = String(login || "").trim(); password = String(password || "").replace(/^[\s\u00a0\u200b\ufeff]+|[\s\u00a0\u200b\ufeff]+$/g, "");
   const base = String(url || "").replace(/\/+$/, "") + "/rest/v1/";
   let token = null;
   let secure = null;
