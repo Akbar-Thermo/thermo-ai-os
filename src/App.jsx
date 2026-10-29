@@ -2538,7 +2538,9 @@ function SupBrandFilter({ suppliers, products, sfs, setSfs, sbr, setSbr, onChang
             {supOpen && (
               <div className="sup-pop" style={{ position: "absolute", top: "105%", left: 0, width: 290, zIndex: 1002, background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 10, boxShadow: "0 16px 44px rgba(0,0,0,.2)", padding: 8 }}>
                 {(() => {
-                  const list = suppliers.filter((x) => x.status !== "inactive" && supCount[x.id] && (!supQ.trim() || String(x.name || "").toLowerCase().includes(supQ.trim().toLowerCase())));
+                  // все действующие поставщики (и новые — ещё без товаров), по алфавиту
+                  const list = suppliers.filter((x) => (x.status !== "inactive" || sfSet.has(x.id)) && (!supQ.trim() || String(x.name || "").toLowerCase().includes(supQ.trim().toLowerCase())))
+                    .map((x) => ({ x, k: translit(String(x.name || "").trim()).toLowerCase() })).sort((a, b) => a.k.localeCompare(b.k, "en", { numeric: true, sensitivity: "base" })).map((r) => r.x);
                   const hs = hov && list.some((x) => x.id === hov) ? hov : null;
                   const brands = hs ? supBrands[hs] || [] : [];
                   const onKey = (e) => {
@@ -2562,11 +2564,11 @@ function SupBrandFilter({ suppliers, products, sfs, setSfs, sbr, setSbr, onChang
                           style={{ gap: 8, flexWrap: "nowrap", padding: "6px 6px", borderRadius: 6, background: sfSet.has(x.id) ? "var(--acc-tint)" : "none" }}>
                           <input type="checkbox" checked={sfSet.has(x.id)} onChange={() => toggleSup(x.id)} />
                           <span className="sm" style={{ flex: 1, fontWeight: sfSet.has(x.id) ? 700 : 500 }}>{x.name}{sbr[x.id] && sbr[x.id].length ? <span className="xs" style={{ color: "var(--acc)", fontWeight: 600 }}> · брендов: {sbr[x.id].length}</span> : null}</span>
-                          <span className="xs mut">{supCount[x.id]}</span>
+                          <span className="xs mut" title={supCount[x.id] ? "товаров в базе" : "товаров этого поставщика пока нет"}>{supCount[x.id] || 0}</span>
                           {(supBrands[x.id] || []).length > 1 && <span className="xs mut">›</span>}
                         </label>
                       ))}
-                      {!list.length && <div className="xs mut" style={{ padding: "8px 6px" }}>{supQ.trim() ? "Не найдено" : "Нет поставщиков с товарами в базе"}</div>}
+                      {!list.length && <div className="xs mut" style={{ padding: "8px 6px" }}>{supQ.trim() ? "Не найдено" : "Нет поставщиков"}</div>}
                     </div>
                     {hs && brands.length > 1 && (
                       <div className="brand-fly">
