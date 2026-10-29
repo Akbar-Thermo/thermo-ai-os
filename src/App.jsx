@@ -5742,6 +5742,17 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   const shownOps = opsNewestFirst(ops.filter((o) => o.type !== "return" && !MASTER_ONLY_OPS.includes(o.type) && (fin || MANAGER_OP_TYPES.includes(o.type))));
   const retOps = opsNewestFirst(ops.filter((o) => o.type === "return")).reverse();
   const retLive = retOps.filter((o) => !o.voided);
+  // поставки и дни возвратов по порядку дат (в один день — сначала поставка); в «Себестоимость подряд» — только поставки
+  const timeline = (() => {
+    let last = String(obj.created_at || "").slice(0, 10);
+    const ev = batches.map((b, i) => { const d = String(b.date || "").slice(0, 10) || last; last = d; return { kind: "b", b, date: d, o: 0, i }; });
+    if (!costMode) {
+      const byDay = new Map();
+      retOps.forEach((o) => { const d = String(o.op_date || o.created_at || "").slice(0, 10); if (!byDay.has(d)) byDay.set(d, []); byDay.get(d).push(o); });
+      [...byDay.entries()].forEach(([day, ops], i) => ev.push({ kind: "r", day, ops, date: day, o: 1, i }));
+    }
+    return ev.sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.o - b.o || a.i - b.i);
+  })();
   const canReturn = isLive(obj) && (fin || MANAGER_OP_TYPES.includes("return"));
   // клавиатура: Alt+буква — сразу; остальное — через Ctrl+K
   useHotActions(() => [
@@ -5815,7 +5826,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
             ? <thead><tr><th className="cq-hm" style={{ width: 28 }}>№</th><th>Товар</th><th style={{ textAlign: "right", width: 90 }}>Кол-во</th><th style={{ textAlign: "center", width: 140 }}><span className="cq-hm">Себестоимость</span><span className="cq-pm">Себест.</span></th><th className="cq-hm" style={{ textAlign: "right", width: 100 }}>Цена</th><th style={{ textAlign: "right", width: 120 }}>Прибыль</th></tr></thead>
             : <thead><tr><th style={{ width: 28 }}></th><th>Товар</th><th style={{width:90}}>Кол-во</th><th>Ед.</th><th style={{textAlign:"center",width:120}}>Цена</th><th style={{textAlign:"right"}}>Сумма</th><th></th></tr></thead>}
           <tbody>
-            {batches.map((b) => (
+            {/* поставки и возвраты — вперемешку по датам: каждый день возвратов — отдельной группой между поставками */}
+            {timeline.map((ev) => ev.kind === "b" ? (() => { const b = ev.b; return (
               <React.Fragment key={b.no}>
                 {batchHead ? (
                   <tr className="clk batch-head" onClick={() => toggleBatch(b.no)}>
@@ -5834,15 +5846,15 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
               : <ObjectItemRow key={i.id} i={i} late={lateAdded.get(i.id)} fin={fin} supName={supName} setItemQty={setItemQty} setItemPrice={setItemPrice} setEditItem={setEditItem} setDelItemId={setDelItemId} setItemMark={setItemMark} />
                 ))}
               </React.Fragment>
-            ))}
-            {!costMode && retOps.length > 0 && <>
-              <tr className="clk batch-head ret-head" onClick={() => toggleBatch("ret")}>
+            ); })() : (() => { const day = ev.day, k = "ret:" + day, live = ev.ops.filter((o) => !o.voided); return (
+              <React.Fragment key={k}>
+              <tr className="clk batch-head ret-head" onClick={() => toggleBatch(k)}>
                 <td colSpan={7} style={{ background: "color-mix(in srgb, var(--bad) 9%, transparent)", fontWeight: 800, fontSize: 12, letterSpacing: ".5px", userSelect: "none" }}>
-                  {openBatches.ret ? "▾" : "▸"} <Ic n="undo" /> ВОЗВРАТЫ · позиций: {retLive.length} · на сумму <span style={{ color: "var(--bad)" }}>−{fmt(retLive.reduce((a, o) => a + (Number(o.amount) || 0), 0))}</span>
-                  <span className="xs mut" style={{ fontWeight: 500 }}>  — нажмите чтобы {openBatches.ret ? "свернуть" : "раскрыть"}</span>
+                  {openBatches[k] ? "▾" : "▸"} <Ic n="undo" /> ВОЗВРАТ · {dt(day)} · позиций: {live.length} · на сумму <span style={{ color: "var(--bad)" }}>−{fmt(live.reduce((a, o) => a + (Number(o.amount) || 0), 0))}</span>
+                  <span className="xs mut" style={{ fontWeight: 500 }}>  — нажмите чтобы {openBatches[k] ? "свернуть" : "раскрыть"}</span>
                 </td>
               </tr>
-              {openBatches.ret && retOps.map((o) => {
+              {openBatches[k] && ev.ops.map((o) => {
                 const q = Number(o.qty) || 0, amt = Number(o.amount) || 0;
                 return (
                   <tr key={o.id} className="ret-row" style={{ opacity: o.voided ? 0.4 : 1, textDecoration: o.voided ? "line-through" : "none" }}>
@@ -5866,7 +5878,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
                   </tr>
                 );
               })}
-            </>}
+              </React.Fragment>
+            ); })())}
             {!(obj.items || []).length && <tr><td colSpan={7} className="mut" style={{ textAlign: "center", padding: 22 }}>Материалов нет — добавьте через «Новая заявка»</td></tr>}
           </tbody>
         </table>
