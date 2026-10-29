@@ -161,7 +161,8 @@ const ROLE_CFG_MODE = "te_roles";
    Хэши хранятся служебной записью requests (mode = "te_2fa", lines = { id аккаунта: хэш }). */
 const CLOUD_MODE = "te_2fa";
 const MIGR_MODE = "te_migr"; // отметки о разовых переходах данных
-const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note", MIGR_MODE];
+const NOTE_ORD_MODE = "te_noteord"; // свой порядок заметок у каждого сотрудника: lines = { user_id, ids }
+const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note", MIGR_MODE, NOTE_ORD_MODE];
 // служебная запись-словарь в requests: прочитать свежую и поменять один ключ
 async function cfgSetKey(mode, key, value) {
   const r0 = await db.from("requests").select().eq("mode", mode);
@@ -656,6 +657,12 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .pnote-title{font-size:var(--fs-md);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .pnote-text{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;color:var(--txt);opacity:.85;line-height:1.4}
 .pnote-when{margin-top:auto;padding-top:2px}
+.pnote{user-select:none;-webkit-user-select:none}
+.pnote-grip{display:none;color:var(--mut);font-size:16px;line-height:1;padding:2px 4px;margin:-2px 0 -2px -6px;touch-action:none;cursor:grab}
+.te.touch .pnote-grip{display:inline-block}
+.npanel-list.dragging .pnote{transition:none}
+.npanel-list.dragging,.npanel-list.dragging .pnote{cursor:grabbing}
+.pnote.drag{opacity:.55;border-style:dashed;border-color:var(--acc);transform:scale(.98)}
 @media(max-width:820px){.npanel-bg{padding:0;align-items:stretch}.npanel{width:100%;max-height:none;min-height:0;height:100%;border-radius:0;border:0;padding:calc(14px + env(safe-area-inset-top,0px)) 14px calc(14px + env(safe-area-inset-bottom,0px))}.npanel-list{grid-template-columns:1fr}}
 .notes-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;align-items:start}
 .card.note{--nc:var(--mut);border-top:4px solid var(--nc);padding:12px 14px;min-height:96px}
@@ -9002,8 +9009,60 @@ function NotesPanel({ data, reload, toast, user, boss = false, onClose }) {
   const notes = useMemo(() => (data.requests || []).filter((r) => r.mode === NOTE_MODE && r.lines && (r.lines.user_id === user.id || (r.lines.shared && !hid.includes(r.id))))
     .map((r) => ({ id: r.id, ...r.lines })), [data.requests, user.id, hid]);
   const words = searchWords(q);
+  // порядок, в который сотрудник перетащил заметки (мышью; на телефоне — за «⠿»); новые — сверху, закреплённые — всегда первые
+  const ordRow = (data.requests || []).find((r) => r.mode === NOTE_ORD_MODE && r.lines && r.lines.user_id === user.id) || null;
+  const [ordLocal, setOrdLocal] = useState(null);
+  const ord = ordLocal || (ordRow && Array.isArray(ordRow.lines.ids) ? ordRow.lines.ids : []);
+  const [drag, setDrag] = useState(null); // { id, ids } — во время перетаскивания
+  const pos = useMemo(() => { const m = new Map(); (drag ? drag.ids : ord).forEach((id, i) => m.set(id, i)); return m; }, [ord, drag]);
+  const ordCmp = (a, b) => {
+    if (drag) return (pos.has(a.id) ? pos.get(a.id) : -1) - (pos.has(b.id) ? pos.get(b.id) : -1);
+    const pa = pos.has(a.id) ? pos.get(a.id) : -1, pb = pos.has(b.id) ? pos.get(b.id) : -1;
+    if (pa < 0 || pb < 0) return pa < 0 && pb < 0 ? String(b.updated_at || "").localeCompare(String(a.updated_at || "")) : pa < 0 ? -1 : 1;
+    return pa - pb;
+  };
   const shown = notes.filter((n) => !words.length || words.every((w) => (String(n.title || "") + " " + String(n.text || "") + " " + String(n.author || "")).toLowerCase().replace(/ё/g, "е").includes(w)))
-    .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+    .sort((a, b) => (drag ? 0 : (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)) || ordCmp(a, b));
+  const saveOrd = async (ids) => {
+    setOrdLocal(ids);
+    const lines = { user_id: user.id, ids };
+    const r = ordRow ? await db.from("requests").update({ lines }).eq("id", ordRow.id) : await db.from("requests").insert({ mode: NOTE_ORD_MODE, source: "config", lines });
+    if (r.error) { toast("Порядок заметок не сохранён"); return; }
+    await reload(["requests"]);
+  };
+  const listRef = useRef(null), dragRef = useRef(null), noClick = useRef(false);
+  // перетаскивание: мышью — за любую часть заметки (после сдвига на 6 px), пальцем — за «⠿»
+  const dragStart = (e, n) => {
+    if (words.length || e.button > 0) return;
+    if (e.pointerType !== "mouse" && !e.target.closest(".pnote-grip")) return;
+    const st = { id: n.id, x: e.clientX, y: e.clientY, on: e.pointerType !== "mouse", ids: shown.map((x) => x.id) };
+    dragRef.current = st;
+    if (st.on) { e.preventDefault(); setDrag({ id: n.id, ids: st.ids }); }
+    const move = (ev) => {
+      const d = dragRef.current; if (!d) return;
+      if (!d.on) { if (Math.abs(ev.clientX - d.x) + Math.abs(ev.clientY - d.y) < 6) return; d.on = true; }
+      ev.preventDefault();
+      const els = listRef.current ? [...listRef.current.querySelectorAll(".pnote[data-id]")] : [];
+      const over = els.find((el) => { const r = el.getBoundingClientRect(); return ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom; });
+      const tid = over && over.getAttribute("data-id");
+      if (tid && tid !== d.id) {
+        const from = d.ids.indexOf(d.id), to = d.ids.indexOf(tid);
+        const ids = d.ids.filter((x) => x !== d.id); ids.splice(to, 0, d.id);
+        if (from !== to) d.ids = ids;
+      }
+      setDrag({ id: d.id, ids: d.ids.slice() });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up);
+      const d = dragRef.current; dragRef.current = null;
+      setDrag(null);
+      if (!d || !d.on) return;
+      noClick.current = true; setTimeout(() => { noClick.current = false; }, 0);
+      const before = shown.map((x) => x.id).join();
+      if (d.ids.join() !== before) saveOrd(d.ids);
+    };
+    window.addEventListener("pointermove", move, { passive: false }); window.addEventListener("pointerup", up); window.addEventListener("pointercancel", up);
+  };
   const save = async (n) => {
     const lines = { title: String(n.title || "").trim(), text: n.text || "", color: n.color || "", pinned: !!n.pinned, shared: !!n.shared,
       user_id: n.user_id || user.id, author: n.author || user.name || user.username, updated_at: new Date().toISOString() };
@@ -9045,10 +9104,13 @@ function NotesPanel({ data, reload, toast, user, boss = false, onClose }) {
         </div>
       </div>
       <div className="npanel-search"><span><Ic n="search" /></span><input className="inp" placeholder="Поиск по заметкам" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-      <div className="npanel-list">
+      <div className={"npanel-list" + (drag ? " dragging" : "")} ref={listRef}>
         {shown.map((n) => (
-          <div key={n.id} className="pnote clk" style={n.color ? { "--pc": n.color } : undefined} tabIndex={0} onClick={() => setEd(n)} onKeyDown={(e) => { if (e.key === "Enter") setEd(n); }}>
+          <div key={n.id} data-id={n.id} className={"pnote clk" + (drag && drag.id === n.id ? " drag" : "")} style={n.color ? { "--pc": n.color } : undefined} tabIndex={0}
+            title={words.length ? undefined : "Перетащите, чтобы поменять порядок"}
+            onPointerDown={(e) => dragStart(e, n)} onClick={() => { if (!noClick.current) setEd(n); }} onKeyDown={(e) => { if (e.key === "Enter") setEd(n); }}>
             <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
+              {!words.length && <span className="pnote-grip" aria-hidden="true">⠿</span>}
               <b className="pnote-title" style={{ marginRight: "auto" }}>{n.title || String(n.text || "").split("\n")[0] || "Без названия"}</b>
               {n.pinned && <span title="Закреплена" className="mut"><Ic n="pin" s={14} /></span>}
               {n.shared && <span className="mut" title="Видна всем"><Ic n="users" s={14} /></span>}
