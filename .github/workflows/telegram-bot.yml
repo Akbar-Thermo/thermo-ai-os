@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "ULASH — ulash; HOLAT — tekshirish; UZISH — uzish"
+        description: "TELEGRAM_ULASH — funksiya Supabase'da tayyor, faqat Telegram'ni ulash; ULASH — joylash + ulash; HOLAT — tekshirish; UZISH — uzish"
         type: choice
-        options: ["HOLAT", "ULASH", "UZISH"]
+        options: ["HOLAT", "TELEGRAM_ULASH", "ULASH", "UZISH"]
         default: "HOLAT"
 permissions:
   contents: read
@@ -73,4 +73,4 @@ jobs:
           sed -E "s/$REF/<loyiha>/g" "$RUNNER_TEMP/out.txt" | tail -5
           sleep 5
       - name: Telegram
-        run: node scripts/bot/connect.mjs ${{ inputs.action }}
+        run: node scripts/bot/connect.mjs ${{ inputs.action == 'TELEGRAM_ULASH' && 'ULASH' || inputs.action }}
