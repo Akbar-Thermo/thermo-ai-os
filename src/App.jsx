@@ -667,12 +667,40 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .note-color{width:22px;height:22px;border-radius:50%;border:2px solid var(--line2);cursor:pointer;padding:0}
 .note-color.on{border-color:var(--txt);box-shadow:0 0 0 2px var(--acc-ring)}
 .fin-seg{display:inline-flex;gap:6px;flex-wrap:wrap}
-/* «Объекты»: поиск, фильтры-кнопки, недавние, таблица с сортировкой */
-.obj-chips-l{font-size:var(--fs-xs);font-weight:700;color:var(--mut);align-self:center;min-width:52px}
-.obj-chip.none{border-style:dashed;color:var(--mut)}
-.obj-chip.none.on{border-style:solid;color:var(--panel)}
-.obj-chip-d{font-style:normal;font-size:var(--fs-2xs);font-weight:700;color:var(--bad)}
-.obj-chip.on .obj-chip-d{color:inherit;opacity:.85}
+/* «Объекты»: лента мастеров сверху, поиск, таблица с сортировкой */
+.obj-mbar{position:relative;display:flex;min-width:0}
+.obj-mscroll{display:flex;gap:10px;flex:1;min-width:0;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;padding:4px 4px 10px;margin-bottom:-6px}
+.obj-mscroll::-webkit-scrollbar{display:none}
+.obj-mbar.fl .obj-mscroll{-webkit-mask-image:linear-gradient(90deg,transparent,#000 56px);mask-image:linear-gradient(90deg,transparent,#000 56px)}
+.obj-mbar.fr .obj-mscroll{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 56px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 56px),transparent)}
+.obj-mbar.fl.fr .obj-mscroll{-webkit-mask-image:linear-gradient(90deg,transparent,#000 56px,#000 calc(100% - 56px),transparent);mask-image:linear-gradient(90deg,transparent,#000 56px,#000 calc(100% - 56px),transparent)}
+.obj-mnav{position:absolute;top:50%;z-index:2;width:34px;height:34px;margin-top:-18px;border-radius:50%;border:1px solid var(--line2);background:var(--panel);color:var(--txt);display:none;place-items:center;cursor:pointer;box-shadow:var(--shadow);padding:0}
+.obj-mnav.l{left:0}
+.obj-mnav.r{right:0}
+.obj-mnav:hover{border-color:var(--mut)}
+.te.fine .obj-mbar.fl .obj-mnav.l,.te.fine .obj-mbar.fr .obj-mnav.r{display:grid}
+.obj-m{--c:#64748b;flex:none;display:inline-flex;align-items:center;gap:10px;min-height:50px;padding:6px 18px 6px 7px;border:1px solid var(--line2);border-radius:var(--r-pill);background:none;color:var(--txt);cursor:pointer;font-family:var(--sans);text-align:left;white-space:nowrap;transition:border-color .15s,background-color .15s,color .15s,box-shadow .15s}
+.obj-m:hover{border-color:var(--mut)}
+.obj-m:focus-visible{outline:none;box-shadow:0 0 0 3px var(--acc-ring)}
+.obj-m-av{width:36px;height:36px;flex:none;border-radius:50%;display:grid;place-items:center;font:800 13px/1 var(--sans);letter-spacing:.02em;color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent);transition:background-color .15s,color .15s}
+.te.dark .obj-m-av{color:color-mix(in srgb,var(--c) 50%,#fff);background:color-mix(in srgb,var(--c) 30%,transparent)}
+.obj-m-av .ic{width:18px;height:18px}
+.obj-m-t{display:flex;flex-direction:column;gap:3px;line-height:1.1;min-width:0}
+.obj-m-n{font-size:var(--fs-md);font-weight:700;max-width:190px;overflow:hidden;text-overflow:ellipsis}
+.obj-m-s{font-size:var(--fs-xs);font-weight:600;color:var(--mut)}
+.obj-m-d{font-style:normal;font-weight:700;color:var(--bad)}
+.obj-m.all{--c:var(--acc)}
+.obj-m.none{border-style:dashed;--c:#7b8583}
+.obj-m.none .obj-m-n{color:var(--mut)}
+.obj-m.on{background:var(--txt);border-color:var(--txt);color:var(--panel);box-shadow:0 3px 8px rgba(0,0,0,.16)}
+.obj-m.on .obj-m-n{color:inherit}
+.obj-m.on .obj-m-av,.te.dark .obj-m.on .obj-m-av{background:var(--c);color:#fff}
+.obj-m.on .obj-m-s{color:inherit;opacity:.72}
+.obj-m.on .obj-m-d{color:#ff7d88}
+.te.dark .obj-m.on .obj-m-d{color:#c4232f}
+.te.phone .obj-m{min-height:46px;padding:5px 14px 5px 5px;gap:9px}
+.te.phone .obj-m-av{width:34px;height:34px;font-size:12px}
+.te.phone .obj-m-n{max-width:150px}
 .seg{display:inline-flex;gap:2px;padding:3px;border-radius:var(--r-md);background:var(--panel2);border:1px solid var(--line)}
 .seg button{border:0;background:none;color:var(--mut);font:600 var(--fs-sm) var(--sans);padding:6px 12px;border-radius:var(--r-sm);cursor:pointer;white-space:nowrap}
 .seg button:hover{color:var(--txt)}
@@ -683,18 +711,6 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .obj-q-ic{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--mut);display:flex;pointer-events:none}
 .obj-q-x{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:30px;height:30px;border:0;border-radius:var(--r-sm);background:none;color:var(--mut);cursor:pointer;font-size:var(--fs-sm)}
 .obj-q-x:hover{background:var(--hover);color:var(--txt)}
-.obj-chips{display:flex;flex-wrap:wrap;gap:6px}
-.obj-chip{border:1px solid var(--line2);background:var(--panel);color:var(--txt);border-radius:var(--r-pill);padding:5px 12px;font:600 var(--fs-sm) var(--sans);cursor:pointer;display:inline-flex;gap:6px;align-items:center}
-.obj-chip b{font-weight:700;color:var(--mut);font-size:var(--fs-xs)}
-.obj-chip:hover{border-color:var(--mut)}
-.obj-chip.on{background:var(--txt);border-color:var(--txt);color:var(--panel)}
-.obj-chip.on b{color:inherit;opacity:.75}
-.obj-chip.debt b{color:var(--bad)}
-.obj-chip.debt.on{background:var(--bad);border-color:var(--bad);color:#fff}
-.obj-chip:disabled{opacity:.45;cursor:default}
-.obj-recent{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.obj-rc{border:1px dashed var(--line2);background:none;color:var(--txt);border-radius:var(--r-pill);padding:4px 11px;font:600 var(--fs-xs) var(--sans);cursor:pointer;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.obj-rc:hover{border-style:solid;border-color:var(--mut)}
 table.objt th.objt-th{user-select:none;white-space:nowrap}
 table.objt th.num{text-align:right}
 table.objt th.objt-th:hover{color:var(--txt)}
@@ -1613,7 +1629,7 @@ function NoAutofillGuard() {
 // бейдж: старые яркие hex-цвета переводятся в спокойные тона темы (читаются и в светлой, и в тёмной теме)
 const BADGE_TONE = { "#fff": "--t-strong", "#ffffff": "--t-strong", "#9a9a9a": "--t-neutral", "#d6d6d6": "--t-neutral", "#ffb020": "--t-warn", "#ff707b": "--t-bad", "#ff4d5e": "--t-bad", "#3ddc7d": "--t-ok", "#4db8ff": "--t-info" };
 /* Иконки — один набор (контурные, в стиле Lucide), вместо эмодзи. <Ic n="truck" /> — размер по тексту (1.1em) или s={20} */
-const IC = {"truck": "<path d=\"M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2\"/><path d=\"M15 18H9\"/><path d=\"M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14\"/><circle cx=\"17\" cy=\"18\" r=\"2\"/><circle cx=\"7\" cy=\"18\" r=\"2\"/>", "sheet": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h2\"/><path d=\"M14 13h2\"/><path d=\"M8 17h2\"/><path d=\"M14 17h2\"/>", "download": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" x2=\"12\" y1=\"15\" y2=\"3\"/>", "upload": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"17 8 12 3 7 8\"/><line x1=\"12\" x2=\"12\" y1=\"3\" y2=\"15\"/>", "down": "<path d=\"M12 5v14\"/><path d=\"m19 12-7 7-7-7\"/>", "up": "<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>", "save": "<path d=\"M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z\"/><path d=\"M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7\"/><path d=\"M7 3v4a1 1 0 0 0 1 1h7\"/>", "note": "<path d=\"M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z\"/><path d=\"M15 3v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h8\"/><path d=\"M8 17h5\"/>", "calc": "<rect width=\"16\" height=\"20\" x=\"4\" y=\"2\" rx=\"2\"/><line x1=\"8\" x2=\"16\" y1=\"6\" y2=\"6\"/><line x1=\"16\" x2=\"16\" y1=\"14\" y2=\"18\"/><path d=\"M16 10h.01\"/><path d=\"M12 10h.01\"/><path d=\"M8 10h.01\"/><path d=\"M12 14h.01\"/><path d=\"M8 14h.01\"/><path d=\"M12 18h.01\"/><path d=\"M8 18h.01\"/>", "warehouse": "<path d=\"M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z\"/><path d=\"M6 18h12\"/><path d=\"M6 14h12\"/><rect width=\"12\" height=\"12\" x=\"6\" y=\"10\"/>", "search": "<circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/>", "lock": "<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\"/><path d=\"M7 11V7a5 5 0 0 1 10 0v4\"/>", "pin": "<path d=\"M12 17v5\"/><path d=\"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z\"/>", "eye": "<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>", "eyeoff": "<path d=\"M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49\"/><path d=\"M14.084 14.158a3 3 0 0 1-4.242-4.242\"/><path d=\"M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143\"/><path d=\"m2 2 20 20\"/>", "file": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/>", "trash": "<path d=\"M3 6h18\"/><path d=\"M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6\"/><path d=\"M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2\"/>", "cash": "<rect width=\"20\" height=\"12\" x=\"2\" y=\"6\" rx=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/><path d=\"M6 12h.01M18 12h.01\"/>", "pencil": "<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>", "users": "<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/>", "sun": "<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2\"/><path d=\"M12 20v2\"/><path d=\"m4.93 4.93 1.41 1.41\"/><path d=\"m17.66 17.66 1.41 1.41\"/><path d=\"M2 12h2\"/><path d=\"M20 12h2\"/><path d=\"m6.34 17.66-1.41 1.41\"/><path d=\"m19.07 4.93-1.41 1.41\"/>", "moon": "<path d=\"M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z\"/>", "package": "<path d=\"M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z\"/><path d=\"M12 22V12\"/><path d=\"m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7\"/><path d=\"m7.5 4.27 9 5.15\"/>", "wrench": "<path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z\"/>", "cloud": "<path d=\"M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z\"/>", "link": "<path d=\"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71\"/><path d=\"M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71\"/>", "clipboard": "<rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/>", "folder": "<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "eraser": "<path d=\"m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21\"/><path d=\"M22 21H7\"/><path d=\"m5 11 9 9\"/>", "hourglass": "<path d=\"M5 22h14\"/><path d=\"M5 2h14\"/><path d=\"M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22\"/><path d=\"M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2\"/>", "undo": "<path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"/>", "menu": "<line x1=\"4\" x2=\"20\" y1=\"12\" y2=\"12\"/><line x1=\"4\" x2=\"20\" y1=\"6\" y2=\"6\"/><line x1=\"4\" x2=\"20\" y1=\"18\" y2=\"18\"/>", "copy": "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>"};
+const IC = {"chevL": "<path d=\"m15 18-6-6 6-6\"/>", "chevR": "<path d=\"m9 18 6-6-6-6\"/>", "truck": "<path d=\"M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2\"/><path d=\"M15 18H9\"/><path d=\"M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14\"/><circle cx=\"17\" cy=\"18\" r=\"2\"/><circle cx=\"7\" cy=\"18\" r=\"2\"/>", "sheet": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h2\"/><path d=\"M14 13h2\"/><path d=\"M8 17h2\"/><path d=\"M14 17h2\"/>", "download": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" x2=\"12\" y1=\"15\" y2=\"3\"/>", "upload": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"17 8 12 3 7 8\"/><line x1=\"12\" x2=\"12\" y1=\"3\" y2=\"15\"/>", "down": "<path d=\"M12 5v14\"/><path d=\"m19 12-7 7-7-7\"/>", "up": "<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>", "save": "<path d=\"M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z\"/><path d=\"M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7\"/><path d=\"M7 3v4a1 1 0 0 0 1 1h7\"/>", "note": "<path d=\"M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z\"/><path d=\"M15 3v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h8\"/><path d=\"M8 17h5\"/>", "calc": "<rect width=\"16\" height=\"20\" x=\"4\" y=\"2\" rx=\"2\"/><line x1=\"8\" x2=\"16\" y1=\"6\" y2=\"6\"/><line x1=\"16\" x2=\"16\" y1=\"14\" y2=\"18\"/><path d=\"M16 10h.01\"/><path d=\"M12 10h.01\"/><path d=\"M8 10h.01\"/><path d=\"M12 14h.01\"/><path d=\"M8 14h.01\"/><path d=\"M12 18h.01\"/><path d=\"M8 18h.01\"/>", "warehouse": "<path d=\"M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z\"/><path d=\"M6 18h12\"/><path d=\"M6 14h12\"/><rect width=\"12\" height=\"12\" x=\"6\" y=\"10\"/>", "search": "<circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/>", "lock": "<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\"/><path d=\"M7 11V7a5 5 0 0 1 10 0v4\"/>", "pin": "<path d=\"M12 17v5\"/><path d=\"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z\"/>", "eye": "<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>", "eyeoff": "<path d=\"M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49\"/><path d=\"M14.084 14.158a3 3 0 0 1-4.242-4.242\"/><path d=\"M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143\"/><path d=\"m2 2 20 20\"/>", "file": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/>", "trash": "<path d=\"M3 6h18\"/><path d=\"M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6\"/><path d=\"M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2\"/>", "cash": "<rect width=\"20\" height=\"12\" x=\"2\" y=\"6\" rx=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/><path d=\"M6 12h.01M18 12h.01\"/>", "pencil": "<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>", "users": "<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/>", "sun": "<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2\"/><path d=\"M12 20v2\"/><path d=\"m4.93 4.93 1.41 1.41\"/><path d=\"m17.66 17.66 1.41 1.41\"/><path d=\"M2 12h2\"/><path d=\"M20 12h2\"/><path d=\"m6.34 17.66-1.41 1.41\"/><path d=\"m19.07 4.93-1.41 1.41\"/>", "moon": "<path d=\"M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z\"/>", "package": "<path d=\"M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z\"/><path d=\"M12 22V12\"/><path d=\"m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7\"/><path d=\"m7.5 4.27 9 5.15\"/>", "wrench": "<path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z\"/>", "cloud": "<path d=\"M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z\"/>", "link": "<path d=\"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71\"/><path d=\"M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71\"/>", "clipboard": "<rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/>", "folder": "<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "eraser": "<path d=\"m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21\"/><path d=\"M22 21H7\"/><path d=\"m5 11 9 9\"/>", "hourglass": "<path d=\"M5 22h14\"/><path d=\"M5 2h14\"/><path d=\"M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22\"/><path d=\"M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2\"/>", "undo": "<path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"/>", "menu": "<line x1=\"4\" x2=\"20\" y1=\"12\" y2=\"12\"/><line x1=\"4\" x2=\"20\" y1=\"6\" y2=\"6\"/><line x1=\"4\" x2=\"20\" y1=\"18\" y2=\"18\"/>", "copy": "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>"};
 const Ic = ({ n, s, style, title, className = "" }) => <svg className={"ic " + className} width={s || "1.1em"} height={s || "1.1em"} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden={title ? undefined : "true"} role={title ? "img" : undefined} style={style} dangerouslySetInnerHTML={{ __html: (title ? "<title>" + title + "</title>" : "") + (IC[n] || "") }} />;
 const Badge = ({ c, children }) => {
   const col = String(c || "").startsWith("var(") ? c : BADGE_TONE[String(c || "").toLowerCase()] ? "var(" + BADGE_TONE[String(c).toLowerCase()] + ")" : c;
@@ -4753,6 +4769,70 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   );
 }
 
+/* «Объекты» → лента мастеров: аватар с инициалами (свой цвет у каждого мастера), имя, сколько объектов и долг клиентов.
+   Не помещается — листается вбок (на компьютере — стрелки по краям, на телефоне — пальцем). Повторное нажатие — снять выбор. */
+const M_COLORS = ["#2563eb", "#0d9488", "#7c3aed", "#ea580c", "#0891b2", "#c026d3", "#4f46e5", "#15803d", "#b45309", "#be185d", "#0369a1", "#6d28d9"];
+const mColor = (s) => { let h = 7; for (const ch of String(s || "").toLowerCase()) h = (h * 31 + ch.codePointAt(0)) >>> 0; return M_COLORS[h % M_COLORS.length]; };
+const mInitials = (s) => { const w = String(s || "").replace(/[^\p{L}\p{N}\s]/gu, " ").trim().split(/\s+/).filter(Boolean); if (!w.length) return "?"; return (w.length > 1 ? w[0][0] + w[1][0] : w[0].slice(0, 2)).toUpperCase(); };
+const plural = (n, one, few, many) => { const a = Math.abs(n) % 100, b = a % 10; return a > 10 && a < 20 ? many : b === 1 ? one : b >= 2 && b <= 4 ? few : many; };
+function MasterBar({ items, value, onPick }) {
+  const ref = useRef(null);
+  const [edge, setEdge] = useState({ l: false, r: false });
+  const upd = useCallback(() => {
+    const el = ref.current; if (!el) return;
+    const l = el.scrollLeft > 2, r = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+    setEdge((e) => (e.l === l && e.r === r ? e : { l, r }));
+  }, []);
+  useEffect(() => {
+    upd();
+    const el = ref.current;
+    if (!el) return undefined;
+    // колесо мыши над лентой листает её вбок (у края ленты — как обычно, страница)
+    const wh = (e) => {
+      if (e.ctrlKey || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+      const max = el.scrollWidth - el.clientWidth;
+      if (max <= 0 || (e.deltaY < 0 && el.scrollLeft <= 0) || (e.deltaY > 0 && el.scrollLeft >= max - 1)) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaY * (e.deltaMode === 1 ? 32 : 1);
+    };
+    el.addEventListener("wheel", wh, { passive: false });
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(upd) : null;
+    if (ro) ro.observe(el);
+    return () => { el.removeEventListener("wheel", wh); if (ro) ro.disconnect(); };
+  }, [upd, items.length]);
+  // выбранный мастер всегда в зоне видимости ленты
+  useEffect(() => {
+    const el = ref.current, b = el && el.querySelector(".obj-m.on");
+    if (!b) return;
+    const r = b.getBoundingClientRect(), p = el.getBoundingClientRect();
+    if (r.left < p.left + 8) el.scrollBy({ left: r.left - p.left - 40, behavior: "smooth" });
+    else if (r.right > p.right - 8) el.scrollBy({ left: r.right - p.right + 40, behavior: "smooth" });
+  }, [value]);
+  const go = (d) => { const el = ref.current; if (el) el.scrollBy({ left: d * Math.max(240, el.clientWidth * 0.75), behavior: "smooth" }); };
+  return (
+    <div className={"obj-mbar sect" + (edge.l ? " fl" : "") + (edge.r ? " fr" : "")}>
+      <button type="button" className="obj-mnav l" tabIndex={-1} aria-label="Листать влево" onClick={() => go(-1)}><Ic n="chevL" /></button>
+      <div className="obj-mscroll" ref={ref} onScroll={upd} role="group" aria-label="Фильтр по мастеру">
+        {items.map((m) => {
+          const on = m.kind === "all" ? !value : value === m.key;
+          return (
+            <button key={m.kind + m.key} type="button" className={"obj-m " + m.kind + (on ? " on" : "")} aria-pressed={on}
+              style={m.kind === "m" ? { "--c": mColor(m.name) } : undefined}
+              title={(m.kind === "all" ? "Все объекты" : m.name) + " — " + m.n + " " + plural(m.n, "объект", "объекта", "объектов") + (m.debt > 0.004 ? ", долг клиентов " + fmt2(m.debt) : "")}
+              onClick={() => onPick(m.kind === "all" || on ? "" : m.key)}>
+              <span className="obj-m-av">{m.kind === "all" ? <Ic n="users" /> : m.kind === "none" ? "?" : mInitials(m.name)}</span>
+              <span className="obj-m-t">
+                <span className="obj-m-n">{m.name}</span>
+                <span className="obj-m-s">{m.n} {plural(m.n, "объект", "объекта", "объектов")}{m.debt > 0.004 && <> · <i className="obj-m-d">долг {fmt(m.debt)}</i></>}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <button type="button" className="obj-mnav r" tabIndex={-1} aria-label="Листать вправо" onClick={() => go(1)}><Ic n="chevR" /></button>
+    </div>
+  );
+}
 /* ============ OBJECTS TAB ============ */
 function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = true }) {
   const { objects, finance_ops, suppliers } = data;
@@ -4760,7 +4840,6 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   const [delBusy, setDelBusy] = useState(false);
   const [editO, setEditO] = useState(null);
   const [q, setQ] = useState("");
-  const [stF, setStF] = useState("");
   const obj = objects.find((o) => o.id === openId);
   const opsCount = useMemo(() => { const m = {}; finance_ops.forEach((x) => { if (x.object_id) m[x.object_id] = (m[x.object_id] || 0) + 1; }); return m; }, [finance_ops]);
   // объект с оплатами/возвратами удаляет только руководитель; менеджер может удалить только «пустой» (ошибочный) объект
@@ -4788,17 +4867,10 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   const setViewSave = (v) => { setView(v); try { localStorage.setItem("te:objview", v); } catch (e) {} };
   const [sort, setSort] = useState(() => { try { const x = JSON.parse(localStorage.getItem("te:objsort") || "null"); return x && x.k ? x : { k: "upd", d: -1 }; } catch (e) { return { k: "upd", d: -1 }; } });
   const sortBy = (k) => { const n = sort.k === k ? { k, d: -sort.d } : { k, d: k === "name" || k === "client" || k === "master" || k === "status" ? 1 : -1 }; setSort(n); try { localStorage.setItem("te:objsort", JSON.stringify(n)); } catch (e) {} };
-  // недавно открытые объекты (на этом устройстве) — быстрый переход одним нажатием
-  const recentKey = "te:objrecent:" + ((CURRENT_USER && CURRENT_USER.id) || "");
-  const [recent, setRecent] = useState(() => { try { return JSON.parse(localStorage.getItem(recentKey) || "[]"); } catch (e) { return []; } });
   const [lim, setLim] = useState(150); // длинный список — частями, чтобы экран не тормозил
-  // фильтр по мастеру (панель слева; на телефоне — список выбора)
+  // единственный фильтр — по мастеру (лента сверху)
   const [mF, setMF] = useState("");
-  useEffect(() => { setLim(150); }, [q, stF, mF, sort.k, sort.d]);
-  useEffect(() => {
-    if (!openId) return;
-    setRecent((r) => { const n = [openId, ...r.filter((x) => x !== openId)].slice(0, 8); try { localStorage.setItem(recentKey, JSON.stringify(n)); } catch (e) {} return n; });
-  }, [openId]);
+  useEffect(() => { setLim(150); }, [q, mF, sort.k, sort.d]);
   // по каждому объекту — один раз: суммы, долг, дата последнего действия и текст для поиска
   const masterName = useMemo(() => { const m = {}; (data.masters || []).forEach((x) => { m[x.id] = x.name; }); return m; }, [data.masters]);
   const rowsAll = useMemo(() => objects.map((o) => {
@@ -4818,7 +4890,6 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   // поиск: каждое слово где угодно (название, клиент, телефон, адрес, мастер, менеджер, статус); латиница = кириллица; телефон — по цифрам
   const toks = q.trim().toLowerCase().replace(/ё/g, "е").split(/\s+/).filter(Boolean);
   const hit = (r) => toks.every((t) => r.hay.includes(t) || r.hay.includes(translit(t)) || (/\d/.test(t) && r.hay.includes(t.replace(/\D/g, ""))));
-  const stOk = (r) => !stF || (stF === "debt" ? r.debt > 0.004 : stF === "old" ? !OBJ_STATUSES.some((x) => x.id === (r.o.status || "draft")) : (r.o.status || "draft") === stF);
   const found = rowsAll.filter((r) => !toks.length || hit(r));
   const ordIdx = (o) => { const i = [...OBJ_STATUSES, ...OLD_STATUSES].findIndex((x) => x.id === (o.status || "draft")); return i < 0 ? 99 : i; };
   const cmp = {
@@ -4831,24 +4902,20 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
     upd: (a, b) => a.upd.localeCompare(b.upd),
   }[sort.k] || ((a, b) => a.upd.localeCompare(b.upd));
   const mOk = (r) => !mF || r.mk === mF;
-  const sortedRows = found.filter(stOk).filter(mOk).sort((a, b) => cmp(a, b) * sort.d || b.upd.localeCompare(a.upd));
+  const sortedRows = found.filter(mOk).sort((a, b) => cmp(a, b) * sort.d || b.upd.localeCompare(a.upd));
   const shown = sortedRows.map((r) => r.o);
-  // счётчики для кнопок-фильтров (с учётом поиска)
-  const foundM = found.filter(mOk);
-  const cnt = (id) => foundM.filter((r) => (id === "debt" ? r.debt > 0.004 : id === "old" ? !OBJ_STATUSES.some((x) => x.id === (r.o.status || "draft")) : (r.o.status || "draft") === id)).length;
-  const chips = [["", "Все", foundM.length], ...OBJ_STATUSES.map((x) => [x.id, x.label, cnt(x.id)]), ["debt", "С долгом", cnt("debt")], ...(cnt("old") ? [["old", "Старые статусы", cnt("old")]] : [])];
-  const recentObjs = recent.map((id) => objects.find((o) => o.id === id)).filter(Boolean).slice(0, 6);
-  // мастера — с числом объектов (с учётом поиска и статуса) и долгом клиентов по их объектам
-  const foundS = found.filter(stOk);
+  // мастера — с числом объектов (с учётом поиска) и долгом клиентов по их объектам; больше объектов — левее
   const mAgg = new Map();
-  foundS.forEach((r) => { const x = mAgg.get(r.mk) || { key: r.mk, name: r.mn || "Без мастера", n: 0, debt: 0 }; x.n++; if (r.debt > 0.004) x.debt += r.debt; mAgg.set(r.mk, x); });
+  let allDebt = 0;
+  found.forEach((r) => { const x = mAgg.get(r.mk) || { key: r.mk, name: r.mn || "Без мастера", n: 0, debt: 0 }; x.n++; if (r.debt > 0.004) { x.debt += r.debt; allDebt += r.debt; } mAgg.set(r.mk, x); });
   if (mF && !mAgg.has(mF)) { const r0 = rowsAll.find((r) => r.mk === mF); mAgg.set(mF, { key: mF, name: (r0 && r0.mn) || "Без мастера", n: 0, debt: 0 }); }
   const mList = [...mAgg.values()].filter((x) => x.key !== "none").sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, "ru"));
   const mNone = mAgg.get("none");
+  const mItems = [{ key: "", kind: "all", name: "Все мастера", n: found.length, debt: allDebt }, ...mList.map((m) => ({ ...m, kind: "m" })), ...(mNone ? [{ ...mNone, kind: "none" }] : [])];
   const SortTh = ({ k, children, num, w }) => <th className={"clk objt-th" + (num ? " num" : "")} style={w ? { width: w } : undefined} onClick={() => sortBy(k)} title="Сортировать">{children}<span className="objt-arr">{sort.k === k ? (sort.d > 0 ? " ↑" : " ↓") : ""}</span></th>;
   // список по статусам: «Черновик» и «Согласовано» вместе, «В процессе» и «Оплачено» вместе, старые статусы — в конце
   const groups = OBJ_GROUPS.map((g) => ({ ...g, list: shown.filter((o) => (g.ids ? g.ids.includes(o.status || "draft") : !OBJ_GROUPS.some((x) => x.ids && x.ids.includes(o.status || "draft")))) }))
-    .filter((g) => g.list.length || (g.ids && !stF)); // три основные колонки — всегда (если не выбран статус), «старые статусы» — только если есть
+    .filter((g) => g.list.length || g.ids); // три основные колонки — всегда, «старые статусы» — только если есть
   return (
     <div>
       <div className="row sect">
@@ -4859,6 +4926,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         </div>
         <button className="btn pri" onClick={goRequest}>+ Новая заявка</button>
       </div>
+      <MasterBar items={mItems} value={mF} onPick={setMF} />
       <div className="obj-find sect">
         <div className="obj-q">
           <span className="obj-q-ic"><Ic n="search" /></span>
@@ -4867,20 +4935,9 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
             onKeyDown={(e) => { if (e.key === "/" && !q) e.preventDefault(); /* «/» — горячая клавиша поиска: курсор уже здесь */ else if (e.key === "Enter" && shown.length) { e.preventDefault(); setOpenId(shown[0].id); } else if (e.key === "Escape" && q) { e.preventDefault(); e.stopPropagation(); setQ(""); } }} />
           {q && <button type="button" className="obj-q-x" title="Очистить" onClick={() => setQ("")}>✕</button>}
         </div>
-        <div className="obj-chips">
-          <span className="obj-chips-l">Статус:</span>
-          {chips.map(([id, l, n]) => <button key={id || "all"} type="button" className={"obj-chip" + (stF === id ? " on" : "") + (id === "debt" ? " debt" : "")} disabled={!n && stF !== id && id !== ""} onClick={() => setStF(stF === id ? "" : id)}>{l} <b>{n}</b></button>)}
-        </div>
-        <div className="obj-chips obj-mchips">
-          <span className="obj-chips-l">Мастер:</span>
-          <button type="button" className={"obj-chip" + (!mF ? " on" : "")} onClick={() => setMF("")}>Все <b>{foundS.length}</b></button>
-          {mList.map((m) => <button key={m.key} type="button" className={"obj-chip" + (mF === m.key ? " on" : "")} onClick={() => setMF(mF === m.key ? "" : m.key)} title={m.name + " — объектов: " + m.n + (m.debt > 0.004 ? ", долг клиентов: " + fmt2(m.debt) : "")}>{m.name} <b>{m.n}</b>{m.debt > 0.004 && <i className="obj-chip-d">долг {fmt(m.debt)}</i>}</button>)}
-          {mNone && <button type="button" className={"obj-chip none" + (mF === "none" ? " on" : "")} onClick={() => setMF(mF === "none" ? "" : "none")}>Без мастера <b>{mNone.n}</b></button>}
-        </div>
-        {!q && recentObjs.length > 0 && <div className="obj-recent"><span className="xs mut">Недавние:</span>{recentObjs.map((o) => <button key={o.id} type="button" className="obj-rc" onClick={() => setOpenId(o.id)} title={[o.client, o.phone].filter(Boolean).join(" · ")}>{o.name}</button>)}</div>}
       </div>
       {/* статусы — колонками рядом: Черновик и Согласовано · В процессе и Оплачено (· старые статусы) */}
-      {!shown.length ? <div className="card mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? <>Ничего не найдено{(q || stF || mF) && <> · <button type="button" className="btn xs" onClick={() => { setQ(""); setStF(""); setMF(""); }}>Показать все</button></>}</> : "Объектов пока нет — создайте через «Новая заявка»"}</div> : view === "list" ? (
+      {!shown.length ? <div className="card mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? <>Ничего не найдено{(q || mF) && <> · <button type="button" className="btn xs" onClick={() => { setQ(""); setMF(""); }}>Показать все</button></>}</> : "Объектов пока нет — создайте через «Новая заявка»"}</div> : view === "list" ? (
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t objt">
           <thead><tr>
