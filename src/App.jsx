@@ -1909,6 +1909,17 @@ const rateFix = (r) => { const n = Number(r); return n > 0 && n < 100 ? Math.rou
 const lastRate = () => { try { const n = Number(localStorage.getItem(RATE_KEY)); return rateOk(n) ? n : ""; } catch (e) { return ""; } };
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const parseNum = (x) => Number(String(x || "").replace(/[\s\u00a0\u202f]/g, "").replace(",", ".")) || 0;
+// число для поля ввода — без «хвоста» плавающей точки: 0.18000000000000002 → 0.18 (такие числа приходят
+// из Excel с формулами и из расчётов; в поле они выглядели как «0.180000000…» и мешали вводу)
+const inNum = (x) => { const n = Number(x); return x == null || x === "" || !isFinite(n) ? "" : String(Math.round(n * 1e6) / 1e6); };
+// себестоимость из поля: «1 250,50», «1.250,50», «1,250.50», «$12.5», «12,5 сум» — всё понимается как число (до 6 знаков после точки)
+const parseCost = (x) => {
+  let t = String(x == null ? "" : x).replace(/[^\d.,-]/g, "");
+  if (t.includes(",") && t.includes(".")) t = t.lastIndexOf(",") > t.lastIndexOf(".") ? t.replace(/\./g, "").replace(",", ".") : t.replace(/,/g, "");
+  else if ((t.match(/,/g) || []).length > 1) t = t.replace(/,/g, "");
+  else if ((t.match(/\./g) || []).length > 1 && !/^0\./.test(t)) t = t.replace(/\./g, "");
+  return Math.round(parseNum(t) * 1e6) / 1e6;
+};
 const payMethod = (id) => PAY_METHODS.find((m) => m.id === id) || PAY_METHODS[0];
 // «… 1 260 000 сум × курс 12 600» в тексте операции
 const SUM_RATE_RE = /([\d\s\u00a0\u202f.,]+)\s*\u0441\u0443\u043c\s*\u00d7\s*\u043a\u0443\u0440\u0441\s*([\d\s\u00a0\u202f.,]+)/;
@@ -2926,7 +2937,7 @@ function ProductsTab({ data, reload, toast }) {
 }
 function ProductForm({ p, products = [], suppliers, onClose, onSave }) {
   // числа храним строкой, пока их редактируют: поле можно очистить и набрать заново (раньше сразу вставал «0»)
-  const [v, setV] = useState(() => ({ ...p, status: p.status || "active", cost: p.cost ?? 0, price: p.price ?? 0, stock: p.stock ?? 0, min_stock: p.min_stock ?? 0 }));
+  const [v, setV] = useState(() => ({ ...p, status: p.status || "active", cost: inNum(p.cost ?? 0), price: inNum(p.price ?? 0), stock: inNum(p.stock ?? 0), min_stock: inNum(p.min_stock ?? 0) }));
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setV({ ...v, [k]: e.target.value });
   const code = String(v.code || "").trim();
@@ -5249,19 +5260,13 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     return ok;
   };
   // ---- «Себестоимость подряд» ----
-  // «1 250,50», «1.250,50», «1,250.50», «$12.5», «12,5 сум» — всё понимается как число
-  const costOf = (x) => {
-    let t = String(x == null ? "" : x).replace(/[^\d.,-]/g, "");
-    if (t.includes(",") && t.includes(".")) t = t.lastIndexOf(",") > t.lastIndexOf(".") ? t.replace(/\./g, "").replace(",", ".") : t.replace(/,/g, "");
-    else if ((t.match(/,/g) || []).length > 1) t = t.replace(/,/g, "");
-    else if ((t.match(/\./g) || []).length > 1) t = t.replace(/\./g, "");
-    return Math.round(parseNum(t) * 10000) / 10000;
-  };
+  const costOf = parseCost;
+  // изменено — любое отличие от записанного: в том числе «0.18» вместо «0.18000000000000002» (чистим хвост в базе)
   const costChanges = () => (obj.items || []).map((i) => {
     const d = costDraft[i.id];
     if (d == null) return null;
     const c = Math.max(0, costOf(d));
-    return Math.abs(c - (Number(i.cost) || 0)) > 0.00001 ? { i, c } : null;
+    return c !== (Number(i.cost) || 0) ? { i, c } : null;
   }).filter(Boolean);
   const costFocus = (n) => {
     const el = document.querySelector('input[data-cq="' + n + '"]');
@@ -6128,21 +6133,22 @@ function ShipModal({ obj, batches, fin, supName, onClose, onShip, onUnship }) {
 // в базу уходят только по потере фокуса (onBlur) — чтобы не слать запрос на каждое нажатие клавиши
 // и не ловить промежуточные значения вроде "1" при наборе "15".
 function ObjectItemRow({ i, late, fin, supName, setItemQty, setItemPrice, setEditItem, setDelItemId, setItemMark }) {
-  const [qty, setQty] = useState(i.qty);
+  const [qty, setQty] = useState(inNum(i.qty));
   const [mk, setMk] = useState(i.mark || "");
   useEffect(() => { setMk(i.mark || ""); }, [i.mark]);
-  const [price, setPrice] = useState(i.price);
-  useEffect(() => { setQty(i.qty); }, [i.qty]);
-  useEffect(() => { setPrice(i.price); }, [i.price]);
+  const [price, setPrice] = useState(inNum(i.price));
+  useEffect(() => { setQty(inNum(i.qty)); }, [i.qty]);
+  useEffect(() => { setPrice(inNum(i.price)); }, [i.price]);
+  const same = (a, b) => Math.abs(a - (Number(b) || 0)) < 1e-7;
   return (
     <tr>
       <td style={{ width: 28, paddingRight: 0, verticalAlign: "middle" }}><MarkDot value={mk} onClick={async () => { const nx = nextMark(mk); setMk(nx); if (!(await setItemMark(i.id, nx))) setMk(i.mark || ""); }} /></td>
       <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «В процессе»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}{late && <div className="xs late-add" style={{ color: "var(--warn)" }} title="Позиция добавлена в эту поставку позже остальных — сумма поставки после этого выросла">добавлено позже: {dt(late)}</div>}</td>
       <td><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)}
-        onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (v !== Number(i.qty)) { if (!(await setItemQty(i.id, v))) setQty(i.qty); } else setQty(i.qty); }} /></td>
+        onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (!same(v, i.qty)) { if (!(await setItemQty(i.id, v))) setQty(inNum(i.qty)); } else setQty(inNum(i.qty)); }} /></td>
       <td className="sm">{i.unit}</td>
       <td style={{ textAlign: "center" }}><input type="number" className="inp num" min={0} style={{ width: 104, textAlign: "right", margin: "0 auto", display: "block" }} value={price} onChange={(e) => setPrice(e.target.value)}
-        onBlur={async () => { const v = Math.max(0, parseNum(price)); if (v !== Number(i.price)) { if (!(await confirmLowPrice([{ name: i.name, price: v, cost: i.cost }])) || !(await setItemPrice(i.id, v))) setPrice(i.price); } else setPrice(i.price); }} /></td>
+        onBlur={async () => { const v = Math.max(0, parseNum(price)); if (!same(v, i.price)) { if (!(await confirmLowPrice([{ name: i.name, price: v, cost: i.cost }])) || !(await setItemPrice(i.id, v))) setPrice(inNum(i.price)); } else setPrice(inNum(i.price)); }} /></td>
       <td className="num" style={{ fontWeight: 700 }}>{fmt((Number(qty) || 0) * (Number(price) || 0))}</td>
       <td><div className="row" style={{ gap: 4, flexWrap: "nowrap", justifyContent: "flex-end" }}>
         <button className="btn xs" onClick={() => setEditItem(i)}>ред.</button>
@@ -6154,8 +6160,9 @@ function ObjectItemRow({ i, late, fin, supName, setItemQty, setItemPrice, setEdi
 // строка режима «Себестоимость подряд»: поле себестоимости + прибыль позиции пересчитывается сразу
 function CostQuickRow({ i, n, val, onVal, onKey, onPaste }) {
   const c0 = Number(i.cost) || 0;
-  const cost = val != null ? Math.max(0, parseNum(val)) : c0;
-  const changed = val != null && Math.abs(cost - c0) > 0.00001;
+  const cost = val != null ? Math.max(0, parseCost(val)) : c0;
+  const changed = val != null && cost !== c0;
+  const real = changed && Math.abs(cost - c0) > 0.00001; // не только «хвост» после запятой
   const q = Number(i.qty) || 0, price = Number(i.price) || 0;
   const pr = price - cost, pct = price > 0 ? (pr / price) * 100 : null;
   const bad = cost > 0 && pr < -0.0001;
@@ -6166,9 +6173,9 @@ function CostQuickRow({ i, n, val, onVal, onKey, onPaste }) {
       <td className="num" style={{ whiteSpace: "nowrap" }}>{fmt(q)} <span className="sm mut">{i.unit}</span></td>
       <td style={{ textAlign: "center" }}>
         <input className={"inp num cq-inp" + (changed ? " ch" : "")} data-cq={n} inputMode="decimal" enterKeyHint="next" autoComplete="off" placeholder="0"
-          value={val != null ? val : c0 ? String(c0) : ""} onChange={(e) => onVal(i.id, e.target.value)}
+          value={val != null ? val : c0 ? inNum(c0) : ""} onChange={(e) => onVal(i.id, e.target.value)}
           onFocus={(e) => e.target.select()} onKeyDown={(e) => onKey(e, n, i)} onPaste={(e) => onPaste(e, n)} />
-        {changed && <div className="xs mut cq-was">было {fmt2(c0)}</div>}
+        {real && <div className="xs mut cq-was">было {fmt2(c0)}</div>}
       </td>
       <td className="num cq-hm">{fmt2(price)}</td>
       <td className="num" style={{ fontWeight: 700, color: bad ? "var(--bad)" : cost > 0 ? "var(--ok)" : "var(--mut)" }}>
@@ -6178,7 +6185,7 @@ function CostQuickRow({ i, n, val, onVal, onKey, onPaste }) {
   );
 }
 function ItemEditModal({ item, suppliers, fin, onClose, onSave }) {
-  const [v, setV] = useState({ ...item, qty: item.qty ?? 0, cost: item.cost ?? 0, price: item.price ?? 0 });
+  const [v, setV] = useState({ ...item, qty: inNum(item.qty ?? 0), cost: inNum(item.cost ?? 0), price: inNum(item.price ?? 0) });
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setV({ ...v, [k]: e.target.value });
   const save = async () => {
@@ -7048,7 +7055,7 @@ function WhInForm({ products, suppliers, warehouse, onClose, onSave }) {
       const ex = prev.find((r) => r.product_id === p.id);
       if (ex) return prev.map((r) => (r.product_id === p.id ? { ...r, qty: round2(parseNum(r.qty) + add) } : r));
       const w = whOf(p.id);
-      return [{ _k: uuid(), product_id: p.id, name: p.name, unit: p.unit || "шт", qty: add, cost: String(w ? w.cost : Number(p.cost) || ""), price: String(w ? w.price : retailOf(p) || ""), supplier_id: p.supplier_id || "", toDebt: true }, ...prev];
+      return [{ _k: uuid(), product_id: p.id, name: p.name, unit: p.unit || "шт", qty: add, cost: inNum(w ? w.cost : Number(p.cost) || ""), price: inNum(w ? w.price : retailOf(p) || ""), supplier_id: p.supplier_id || "", toDebt: true }, ...prev];
     });
   };
   const blank = () => setRows((prev) => [{ _k: uuid(), product_id: null, name: "", unit: "шт", qty: 1, cost: "", price: "", supplier_id: "", toDebt: true }, ...prev]);
@@ -7567,9 +7574,9 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
   );
 }
 function WarehouseEditForm({ row, onCancel, onSave }) {
-  const [qty, setQty] = useState(row.qty);
-  const [cost, setCost] = useState(row.cost);
-  const [price, setPrice] = useState(row.price);
+  const [qty, setQty] = useState(inNum(row.qty));
+  const [cost, setCost] = useState(inNum(row.cost));
+  const [price, setPrice] = useState(inNum(row.price));
   const [busy, setBusy] = useState(false);
   return (
     <div>
