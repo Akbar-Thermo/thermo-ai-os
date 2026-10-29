@@ -162,7 +162,8 @@ const ROLE_CFG_MODE = "te_roles";
 const CLOUD_MODE = "te_2fa";
 const MIGR_MODE = "te_migr"; // отметки о разовых переходах данных
 const NOTE_ORD_MODE = "te_noteord"; // свой порядок заметок у каждого сотрудника: lines = { user_id, ids }
-const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note", MIGR_MODE, NOTE_ORD_MODE];
+const TG_MODE = "te_tg", TG_PEND_MODE = "te_tgpend"; // Telegram-бот: разрешённые группы (руководитель) / куда бота добавили (бот)
+const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note", MIGR_MODE, NOTE_ORD_MODE, TG_MODE, TG_PEND_MODE];
 // служебная запись-словарь в requests: прочитать свежую и поменять один ключ
 async function cfgSetKey(mode, key, value) {
   const r0 = await db.from("requests").select().eq("mode", mode);
@@ -879,7 +880,7 @@ async function logAction(action, entity, detail) {
    после восстановления пишется te_restored (повторно восстановить нельзя). Аккаунты и заметки не снимаются:
    в снимке были бы пароли и личные заметки, а журнал видят и другие. ---- */
 const TRASH_ACT = "te_trash", TRASH_DONE = "te_restored";
-const LOG_HIDDEN = new Set([TRASH_ACT, TRASH_DONE]);
+const LOG_HIDDEN = new Set([TRASH_ACT, TRASH_DONE, "te_tg"]); // te_tg — отметка бота «сообщение уже внесено»
 const logWho = () => ({ user_name: CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username) : "—", role: CURRENT_USER ? CURRENT_USER.role : "—" });
 async function logDeleted(action, entity, detail, snap) {
   const ts = new Date().toISOString();
@@ -9189,7 +9190,7 @@ function LogTab({ data, reload, toast, onBackup }) {
     audit_all.forEach((l) => {
       if (l.action === TRASH_ACT) { try { const sn = JSON.parse(l.detail); trash.set(Date.parse(sn.ts) + "|" + sn.action, sn); } catch (e) {} }
       else if (l.action === TRASH_DONE) done.add(String(l.entity || "").replace(/^trash:/, ""));
-      else vis.push(l);
+      else if (!LOG_HIDDEN.has(l.action)) vis.push(l);
     });
     return { audit_log: vis, trashOf: (l) => trash.get(Date.parse(l.ts) + "|" + l.action) || null, restored: done };
   }, [audit_all]);
@@ -9351,6 +9352,41 @@ function AdminTab({ data, reload, toast, currentUser, isBoss = true }) {
           </div>
         </Modal>
       )}
+      <TelegramCard data={data} reload={reload} toast={toast} />
+    </div>
+  );
+}
+/* Telegram-бот (api/tg.js): в каких группах он работает. Бота добавляют в группу — группа появляется здесь,
+   руководитель нажимает «Разрешить». Бот вносит расходы/приходы группы (после «✅») и отвечает на /kassa /qarz … */
+function TelegramCard({ data, reload, toast }) {
+  const reqs = data.requests || [];
+  const cfgRow = reqs.find((r) => r.mode === TG_MODE) || null;
+  const pendRow = reqs.find((r) => r.mode === TG_PEND_MODE) || null;
+  const allowed = (cfgRow && cfgRow.lines && Array.isArray(cfgRow.lines.allowed) ? cfgRow.lines.allowed : []);
+  const pending = (pendRow && pendRow.lines && Array.isArray(pendRow.lines.groups) ? pendRow.lines.groups : []).filter((g) => !allowed.some((a) => String(a.id) === String(g.id)));
+  const [busy, setBusy] = useState(false);
+  const save = async (list, what, g) => {
+    setBusy(true);
+    const lines = { ...(cfgRow && cfgRow.lines), allowed: list };
+    const r = cfgRow ? await db.from("requests").update({ lines }).eq("id", cfgRow.id) : await db.from("requests").insert({ mode: TG_MODE, source: "config", lines });
+    setBusy(false);
+    if (r.error) return;
+    await logAction(what, "telegram", (g.title || "") + " (" + g.id + ")");
+    await reload(["requests"]); toast(what + ": " + (g.title || g.id));
+  };
+  const Row = ({ g, on }) => (
+    <div className="row tg-row" style={{ gap: 10, padding: "8px 0", borderTop: "1px solid var(--line)" }}>
+      <div style={{ marginRight: "auto" }}><b>{g.title || "Группа"}</b> <span className="xs mut mono">{g.id}</span>{g.at && !on ? <div className="xs mut">бота добавили {new Date(g.at).toLocaleString("ru-RU")}</div> : null}</div>
+      {on ? <><span className="xs" style={{ color: "var(--ok)", fontWeight: 700 }}>✓ работает</span><button className="btn xs" disabled={busy} onClick={() => save(allowed.filter((x) => String(x.id) !== String(g.id)), "Telegram: группа отключена", g)}>Отключить</button></>
+        : <button className="btn xs pri" disabled={busy} onClick={() => save([...allowed, { id: String(g.id), title: g.title || "", at: new Date().toISOString() }], "Telegram: группа разрешена", g)}>Разрешить</button>}
+    </div>
+  );
+  return (
+    <div className="card sect tg-card" style={{ marginTop: 16 }}>
+      <div className="row" style={{ marginBottom: 6 }}><h3 style={{ marginRight: "auto" }}>Telegram-бот</h3><span className="xs mut">группы, где бот вносит расходы и отвечает на /kassa, /qarz…</span></div>
+      {allowed.map((g) => <Row key={"a" + g.id} g={g} on />)}
+      {pending.map((g) => <Row key={"p" + g.id} g={g} />)}
+      {!allowed.length && !pending.length && <div className="sm mut" style={{ padding: "8px 0", borderTop: "1px solid var(--line)" }}>Групп пока нет: добавьте бота в группу и сделайте его админом — группа появится здесь.</div>}
     </div>
   );
 }
@@ -10940,6 +10976,8 @@ function archiveBook(T, who) {
 }
 // для ночного бэкапа на сервере (scripts/nightly) — тот же Excel-архив, что и в программе
 export { archiveBook };
+// для Telegram-бота (api/tg.js, сборка scripts/bot/build-core.mjs) — те же расчёты кассы, долгов и способов оплаты, что в программе
+export { kassaOps, kassaBal, kassaText, KASSA_KEYS, isoAddDays, calcObject, isLive, supplierStats, normFinOp, payInfo, payText, payPatch, opName, fmt, fmt2, fmtDot, round2, EXPENSE_CATEGORIES, INCOME_CATEGORIES, SALARY_CAT, stById, PAY_METHODS, LOG_HIDDEN, translit, normPName };
 async function downloadArchive(who) {
   const dump = await freshDump();
   const blob = archiveBook(dump.tables, who);

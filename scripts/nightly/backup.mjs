@@ -137,6 +137,14 @@ async function check() {
   }
   if (CHATS.length) log("Тестовое сообщение отправлено получателям: " + okN + " из " + CHATS.length);
   if (okN < CHATS.length) fail("Не дошло до получателей: " + (CHATS.length - okN) + " из " + CHATS.length + " — какой именно и почему, см. предупреждения выше");
+  // бот подключён к программе (Telegram-бот в группе, вебхук /api/tg) — его не отключаем; ID чата бот пишет сам на команду /id
+  let hook = null;
+  try { hook = await tg("getWebhookInfo", {}); } catch (e) {}
+  if (hook && /\/api\/tg/.test(hook.url || "")) {
+    log("Бот подключён к программе (Telegram-бот, вебхук) — узнать ID чата: напишите боту /id");
+    if (!CHATS.length) fail("Нет секрета TELEGRAM_CHAT_ID: напишите боту /id (в личке или в группе) и вставьте число в секрет");
+    return;
+  }
   // если у бота когда-то был webhook, getUpdates ничего не отдаёт — снимаем (сообщения не теряются)
   try { await tg("deleteWebhook", { drop_pending_updates: false }); } catch (e) {}
   const ups = await tg("getUpdates", { limit: 100, allowed_updates: ["message", "edited_message", "my_chat_member"] });

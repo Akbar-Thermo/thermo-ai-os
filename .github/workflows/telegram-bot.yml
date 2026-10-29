@@ -1,0 +1,26 @@
+# Telegram-бот Thermo: guruhdagi rasxod/prixodlarni dasturga kiritadi, kassa va qarzlarni ko'rsatadi (api/tg.js).
+# ULASH — botni saytga ulash; HOLAT — tekshirish; UZISH — uzish. Sekret: TELEGRAM_BOT_TOKEN (ночной бэкап bilan bir xil bot).
+# Vercel'da (Settings → Environment Variables): TELEGRAM_BOT_TOKEN, TG_BOT_LOGIN, TG_BOT_PASSWORD.
+name: "Telegram-бот"
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "ULASH — ulash; HOLAT — tekshirish; UZISH — uzish"
+        type: choice
+        options: ["HOLAT", "ULASH", "UZISH"]
+        default: "HOLAT"
+permissions:
+  contents: read
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node scripts/bot/connect.mjs ${{ inputs.action }}
