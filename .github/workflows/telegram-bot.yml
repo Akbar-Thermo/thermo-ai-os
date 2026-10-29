@@ -54,11 +54,23 @@ jobs:
           URL=$(grep -E '^VITE_SUPABASE_URL=' .env.txt | head -1 | cut -d= -f2- | tr -d '\r" ')
           umask 077
           { printf 'TELEGRAM_BOT_TOKEN=%s\n' "$TELEGRAM_BOT_TOKEN"; printf 'TG_BOT_LOGIN=%s\n' "$TG_BOT_LOGIN"; printf 'TG_BOT_PASSWORD=%s\n' "$TG_BOT_PASSWORD"; printf 'TG_DB_URL=%s\n' "$URL"; printf 'TG_DB_KEY=%s\n' "$KEY"; } > "$RUNNER_TEMP/tg.env"
-          supabase secrets set --project-ref "$REF" --env-file "$RUNNER_TEMP/tg.env" > /dev/null
+          echo "1/2 Sekretlar (TELEGRAM_BOT_TOKEN, TG_BOT_LOGIN, …) Supabase funksiyasiga…"
+          if ! supabase secrets set --project-ref "$REF" --env-file "$RUNNER_TEMP/tg.env" > "$RUNNER_TEMP/out.txt" 2>&1; then
+            sed -E "s/$REF/<loyiha>/g" "$RUNNER_TEMP/out.txt" | tail -20
+            rm -f "$RUNNER_TEMP/tg.env"
+            echo "::error::Sekretlarni qo'yib bo'lmadi — SUPABASE_ACCESS_TOKEN huquqlari: Edge Functions va Secrets — Read & write, loyiha tanlangan bo'lishi kerak"
+            exit 1
+          fi
           rm -f "$RUNNER_TEMP/tg.env"
+          echo "2/2 Funksiya «tg» joylanmoqda…"
           mkdir -p supabase/functions/tg/_lib
           cp api/_lib/*.mjs supabase/functions/tg/_lib/
-          supabase functions deploy tg --project-ref "$REF" --no-verify-jwt
+          if ! supabase functions deploy tg --project-ref "$REF" --no-verify-jwt --use-api > "$RUNNER_TEMP/out.txt" 2>&1; then
+            sed -E "s/$REF/<loyiha>/g" "$RUNNER_TEMP/out.txt" | tail -30
+            echo "::error::Funksiyani joylab bo'lmadi — xabar yuqorida"
+            exit 1
+          fi
+          sed -E "s/$REF/<loyiha>/g" "$RUNNER_TEMP/out.txt" | tail -5
           sleep 5
       - name: Telegram
         run: node scripts/bot/connect.mjs ${{ inputs.action }}
