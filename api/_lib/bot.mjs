@@ -111,7 +111,11 @@ export function guessCat(text, dir) {
   const i = cats.indexOf(name);
   return i >= 0 ? i : cats.length - 1;
 }
+// в сообщении кроме суммы должно быть слово (за что / приход): «50000» или «50 000 сум» — не спрашиваем
+const AMOUNT_WORDS = /(?<![\p{L}])(sum|so'?m|сум|сўм|som|usd|dollar|доллар|долл|у\.?е|k|к|ming|минг|тыс|тысяч|mln|млн|million|миллион)(?![\p{L}])/giu;
+export const hasWords = (text) => /\p{L}{2,}/u.test(low(text).replace(AMOUNT_WORDS, " "));
 export function parseMoney(text) {
+  if (!hasWords(text)) return null;
   const a = findAmount(text);
   if (!a) return null;
   const dir = guessDir(text);
