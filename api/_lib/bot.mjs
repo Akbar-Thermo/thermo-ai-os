@@ -3,10 +3,12 @@
 // как программа (тот же код — core.mjs), и отвечает на команды: /kassa /bugun /qarz /postavshik /obyekt /yordam.
 // Группы разрешает руководитель в программе (Аккаунты → Telegram-бот); бот сам записывает группы, куда его добавили.
 import * as C from "./core.mjs";
+import { sniffMime, MAX_IMAGE_BYTES, MAX_PDF_BYTES } from "./receipt.mjs";
 
 export const CFG_MODE = "te_tg";        // разрешённые группы — меняет руководитель (lines.allowed = [{ id, title }])
 export const PEND_MODE = "te_tgpend";   // группы, куда добавили бота, — пишет бот (lines.groups = [{ id, title, at }])
 export const LOG_MODE = "te_tg";        // скрытая запись журнала: entity «tg:<группа>:<сообщение>», detail — id операции
+                                        // и «tgrc:<группа>:<сообщение>» — что прочитано с фото чека (JSON)
 
 // ---------- дата и числа ----------
 export const tzDate = (d = new Date()) => d.toLocaleDateString("sv-SE", { timeZone: "Asia/Tashkent" });
@@ -73,12 +75,15 @@ export function guessDir(text) {
   if (has(s, OUT_WORDS)) return "e";
   return has(s, IN_WORDS) ? "i" : "e";
 }
-export function guessMethod(text) {
+// способ оплаты, если он назван в тексте (иначе null)
+export function methodHint(text) {
   const s = low(text);
   if (has(s, ["karta", "карта", "card", "plastik", "пластик", "uzcard", "humo", "хумо", "click", "payme", "клик"])) return "card";
   if (has(s, ["perech", "перечис", "bank", "банк", "o'tkazma", "ўтказма", "utkazma", "hisob raqam", "счёт", "счет"])) return "transfer";
-  return "cash";
+  if (has(s, ["naqd", "нақд", "налич", "cash"])) return "cash";
+  return null;
 }
+export const guessMethod = (text) => methodHint(text) || "cash";
 // статьи расходов программы (без «Зарплата»: выплата зарплаты вносится в программе — с сотрудником)
 export const expCats = () => C.EXPENSE_CATEGORIES.filter((c) => c !== C.SALARY_CAT);
 export const incCats = () => C.INCOME_CATEGORIES.slice();
@@ -102,14 +107,26 @@ const INC_WORDS = [
   ["Аренда (доход)", ["ijara haqi", "аренда от", "ijaraga berdik"]],
   ["Продажа имущества", ["sotdik", "сотдик", "продали", "продажа"]],
 ];
-export function guessCat(text, dir) {
+// статья по словам в тексте: индекс в списке или -1, если слов нет
+export function catHint(text, dir) {
   const s = low(text) + " ";
   const list = dir === "i" ? INC_WORDS : CAT_WORDS;
   const hit = list.find(([, w]) => has(s, w));
+  return hit ? (dir === "i" ? incCats() : expCats()).indexOf(hit[0]) : -1;
+}
+export function guessCat(text, dir) {
+  const i = catHint(text, dir);
+  if (i >= 0) return i;
   const cats = dir === "i" ? incCats() : expCats();
-  const name = hit ? hit[0] : "Прочее";
-  const i = cats.indexOf(name);
-  return i >= 0 ? i : cats.length - 1;
+  const o = cats.indexOf("Прочее");
+  return o >= 0 ? o : cats.length - 1;
+}
+// направление, если оно указано в тексте (+ / prixod / rasxod …), иначе null
+export function dirHint(text) {
+  const s = low(text).trim();
+  if (!s) return null;
+  if (/^\+/.test(s) || /^[-−]/.test(s) || has(s, OUT_WORDS) || has(s, IN_WORDS)) return guessDir(s);
+  return null;
 }
 // в сообщении кроме суммы должно быть слово (за что / приход): «50000» или «50 000 сум» — не спрашиваем
 const AMOUNT_WORDS = /(?<![\p{L}])(sum|so'?m|сум|сўм|som|usd|dollar|доллар|долл|у\.?е|k|к|ming|минг|тыс|тысяч|mln|млн|million|миллион)(?![\p{L}])/giu;
@@ -167,6 +184,7 @@ export const HELP = [
   "<b>Rasxod / prixod</b> — summa va nima uchunligini yozing:",
   "• <code>taksi 50 000</code> · <code>obed 120.000 sum</code> · <code>benzin 200 000 karta</code>",
   "• <code>prixod 500$ Jamol aka</code> · <code>+300$ qarz qaytardi</code>",
+  "• 🧾 <b>chek rasmi</b> — bot o'zi o'qiydi (izohga <code>karta</code>, <code>obed</code> yoki <code>prixod</code> deb yozsa ham bo'ladi)",
   "Bot so'raydi — <b>✅ Kiritish</b> bosilsa, dasturga (Финансы) kiradi. Kategoriya va rasxod/prixodni tugmalar bilan o'zgartirsa bo'ladi.",
   "So'mdagi summa oxirgi kurs bilan $ ga o'giriladi (boshqa kurs: <code>… kurs 12 650</code>).",
   "",
@@ -178,8 +196,25 @@ export const HELP = [
   "• /obyekt <i>nomi</i> — obyekt holati",
 ].join("\n");
 
+// фото / картинка-файл / PDF из сообщения: { id, mime, size, pdf }
+export function pickImage(msg) {
+  if (!msg) return null;
+  if (Array.isArray(msg.photo) && msg.photo.length) {
+    const big = (p) => Math.max(p.width || 0, p.height || 0);
+    const fit = msg.photo.filter((p) => big(p) <= 1600 && !(p.file_size > MAX_IMAGE_BYTES));
+    const ph = (fit.length ? fit : msg.photo).reduce((a, b) => (big(b) > big(a) ? b : a));
+    return { id: ph.file_id, mime: "image/jpeg", size: ph.file_size || 0, pdf: false };
+  }
+  const d = msg.document;
+  const mt = String((d && d.mime_type) || "").toLowerCase();
+  if (d && /^image\/(jpe?g|png|webp|gif)$/.test(mt)) return { id: d.file_id, mime: mt === "image/jpg" ? "image/jpeg" : mt, size: d.file_size || 0, pdf: false };
+  if (d && mt === "application/pdf") return { id: d.file_id, mime: mt, size: d.file_size || 0, pdf: true };
+  return null;
+}
+
 // ---------- бот ----------
-export function makeBot({ db, tg, now = () => new Date() }) {
+// file(file_id) → { bytes } — скачать файл из Telegram; reader({ bytes, mime, caption, cats }) — прочитать чек (receipt.mjs)
+export function makeBot({ db, tg, now = () => new Date(), file = null, reader = null }) {
   const nameOf = (u) => (u ? [u.first_name, u.last_name].filter(Boolean).join(" ") || (u.username ? "@" + u.username : "") : "") || "—";
   const send = (chat, text, extra = {}) => tg("sendMessage", { chat_id: chat, text, parse_mode: "HTML", disable_web_page_preview: true, ...extra });
   async function cfg() {
@@ -225,11 +260,14 @@ export function makeBot({ db, tg, now = () => new Date() }) {
   const METHOD_UZ = { cash: "naqd", card: "karta", transfer: "perechisleniye" };
   function view(p, d, c, rate, author) {
     const pl = plan(p, d, c, rate);
+    const rc = p.rc;
     const lines = [
       (d === "i" ? "💰 <b>Prixod</b>" : "💸 <b>Rasxod</b>") + " · " + esc(pl.cat),
+      ...(rc ? ["🧾 " + esc([rc.merchant, rc.what].filter(Boolean).join(" — ") || "chek") + (rc.date ? " · " + dt(rc.date) : "")] : []),
       "<b>" + (p.cur === "uzs" ? sum(p.v) : usd(p.v)) + "</b>" + (p.cur === "uzs" ? (pl.usdAmt ? " ≈ " + usd(pl.usdAmt) + " (kurs " + C.fmtDot(rate) + ")" : " · ⚠️ kurs topilmadi") : "") + " · " + METHOD_UZ[p.method],
       "Kim: " + esc(author),
-      p.cur === "uzs" && !pl.usdAmt ? "Xabarga kursni qo'shing: <code>kurs 12 600</code>" : "Dasturga kiritaymi?",
+      ...(rc && !rc.sure ? ["⚠️ Summani chek bilan solishtiring"] : []),
+      p.cur === "uzs" && !pl.usdAmt ? (rc ? "Kurs topilmadi — summani kurs bilan yozib yuboring: <code>… kurs 12 600</code>" : "Xabarga kursni qo'shing: <code>kurs 12 600</code>") : "Dasturga kiritaymi?",
     ];
     const k = d + ":" + pl.cats.indexOf(pl.cat);
     const kb = p.cur === "uzs" && !pl.usdAmt ? [[{ text: "❌ Yo'q", callback_data: "no" }]] : [
@@ -247,27 +285,75 @@ export function makeBot({ db, tg, now = () => new Date() }) {
   }
   const tgDate = (unix) => tzDate(new Date((unix || 0) * 1000 || now().getTime()));
 
+  // ---------- чек (фото) ----------
+  const rcKey = (chatId, msgId) => "tgrc:" + chatId + ":" + msgId;
+  // статья для чека: слова в подписи → что выбрал ИИ (для расхода) → слова в названии магазина / покупке
+  function receiptCat(rc, caption, dir) {
+    let c = catHint(caption, dir);
+    if (c < 0 && dir === "e" && rc.cat) c = expCats().indexOf(rc.cat);
+    return c >= 0 ? c : guessCat([rc.merchant, rc.what].join(" "), dir);
+  }
+  // прочитанное с чека + подпись к фото → те же поля, что у текстового сообщения (подпись важнее)
+  function receiptMoney(rc, caption) {
+    const dir = dirHint(caption) || (rc.dir === "i" ? "i" : "e");
+    return { v: rc.v, cur: rc.cur === "usd" ? "usd" : "uzs", dir, method: methodHint(caption) || rc.method || "cash", cat: receiptCat(rc, caption, dir), rate: findRate(caption), rc };
+  }
+  async function loadReceipt(chatId, msgId) {
+    const rows = await db.select("audit_log", "action=eq." + LOG_MODE + "&entity=eq." + encodeURIComponent(rcKey(chatId, msgId)) + "&select=detail,ts&order=ts.desc&limit=1");
+    try { const rc = rows[0] && JSON.parse(rows[0].detail); return rc && rc.v > 0 ? rc : null; } catch (e) { return null; }
+  }
+  const TOO_BIG = "🧾 Fayl juda katta — chekni oddiy rasm (foto) qilib yuboring.";
+  async function onReceipt(msg, chat, img, caption) {
+    const reply = { reply_to_message_id: msg.message_id };
+    if (img.size > (img.pdf ? MAX_PDF_BYTES : MAX_IMAGE_BYTES)) return send(chat.id, TOO_BIG, reply);
+    tg("sendChatAction", { chat_id: chat.id, action: "typing" }).catch(() => {});
+    let rc;
+    try {
+      const f = await file(img.id);
+      const mime = sniffMime(f.bytes, img.mime);
+      if (!/^image\/(jpeg|png|webp|gif)$|^application\/pdf$/.test(mime)) return;
+      if (f.bytes.length > (mime === "application/pdf" ? MAX_PDF_BYTES : MAX_IMAGE_BYTES)) return send(chat.id, TOO_BIG, reply);
+      rc = await reader({ bytes: f.bytes, mime, caption, cats: expCats() });
+    } catch (e) {
+      console.error("tg receipt:", e && e.message);
+      return send(chat.id, "⚠️ Chekni o'qib bo'lmadi" + (e && /^AI (401|403)/.test(e.message || "") ? " (AI kaliti ishlamayapti)" : "") + ". Summani yozib yuboring: <code>taksi 50 000</code>", reply);
+    }
+    if (!rc || !rc.receipt) return; // не чек (фото объекта, товара…) — молчим
+    if (!(rc.v > 0)) return send(chat.id, "🧾 Chekdagi summani o'qib bo'lmadi — yozib yuboring: <code>taksi 50 000</code>", reply);
+    const saved = { v: rc.v, cur: rc.cur, merchant: rc.merchant, what: rc.what, date: rc.date, method: rc.method, dir: rc.dir, cat: rc.cat, sure: rc.sure };
+    try { await db.insert("audit_log", { action: LOG_MODE, entity: rcKey(chat.id, msg.message_id), detail: JSON.stringify(saved), user_name: "Telegram: " + nameOf(msg.from), role: "telegram", ts: now().toISOString() }); }
+    catch (e) { return send(chat.id, "⚠️ Chek o'qildi, lekin saqlab bo'lmadi: " + esc(e.message).slice(0, 200), reply); }
+    const p = receiptMoney(saved, caption);
+    const rate = p.cur === "uzs" ? p.rate || (await lastRate()) : 0;
+    const v = view(p, p.dir, p.cat, rate, nameOf(msg.from));
+    return send(chat.id, v.text, { ...reply, reply_markup: v.reply_markup });
+  }
+
   async function onMessage(msg) {
     const chat = msg.chat || {};
     const text = String(msg.text || msg.caption || "").trim();
+    const img = pickImage(msg);
     const cmd = parseCommand(text);
     if (cmd && cmd.name === "id") return send(chat.id, "ID: <code>" + esc(chat.id) + "</code>", { reply_to_message_id: msg.message_id });
     if (chat.type === "private") {
-      if (cmd || text) return send(chat.id, "Bu bot ishchi guruhda ishlaydi: guruhga qo'shing va admin qiling.\n\n" + HELP);
+      if (cmd || text || img) return send(chat.id, "Bu bot ishchi guruhda ishlaydi: guruhga qo'shing va admin qiling.\n\n" + HELP);
       return;
     }
     if (chat.type !== "group" && chat.type !== "supergroup") return;
     const cf = await cfg();
     if (msg.migrate_to_chat_id) return migrate(cf, chat.id, msg.migrate_to_chat_id);
     if (msg.new_chat_members || msg.left_chat_member) return; // добавление бота — в my_chat_member
-    if (!text || msg.from && msg.from.is_bot) return;
+    if (!text && !img || msg.from && msg.from.is_bot) return;
     const money = cmd ? null : parseMoney(text);
-    if (!cmd && !money) return;
+    // фото без суммы в подписи — читаем чек (подпись «taksi 50 000» к фото — как обычный текст)
+    const photo = !cmd && !money && img && reader && file ? img : null;
+    if (!cmd && !money && !photo) return;
     if (!isAllowed(cf, chat.id)) {
       if (await addPending(cf, chat)) return send(chat.id, NOT_ALLOWED);
       return;
     }
     if (cmd) return runCommand(chat.id, msg, cmd);
+    if (photo) return onReceipt(msg, chat, photo, text);
     const rate = money.cur === "uzs" ? money.rate || (await lastRate()) : 0;
     const v = view(money, money.dir, money.cat, rate, nameOf(msg.from));
     return send(chat.id, v.text, { reply_to_message_id: msg.message_id, reply_markup: v.reply_markup });
@@ -284,13 +370,15 @@ export function makeBot({ db, tg, now = () => new Date() }) {
     if (act === "undo") return undo(cq, a1, who, ans, edit);
     const orig = m.reply_to_message;
     if (!orig) { await edit("⚠️ Asl xabar o'chirilgan — kiritilmadi."); return ans(); }
-    const p = parseMoney(orig.text || orig.caption || "");
+    const otext = String(orig.text || orig.caption || "");
+    let p = parseMoney(otext);
+    if (!p && pickImage(orig)) { const rc = await loadReceipt(chat.id, orig.message_id); if (rc) p = receiptMoney(rc, otext); }
     if (!p) { await edit("⚠️ Asl xabarda summa topilmadi — kiritilmadi."); return ans(); }
     const author = nameOf(orig.from);
     const rate = p.cur === "uzs" ? p.rate || (await lastRate()) : 0;
     const d = a1 === "i" ? "i" : "e", c = Number(a2) || 0;
     if (act === "no") { await edit("❌ Kiritilmadi · " + esc(who)); return ans(); }
-    if (act === "dir") { const nd = d === "i" ? "e" : "i"; const v = view(p, nd, guessCat(orig.text || "", nd), rate, author); await edit(v.text, v.reply_markup); return ans(); }
+    if (act === "dir") { const nd = d === "i" ? "e" : "i"; const v = view(p, nd, p.rc ? receiptCat(p.rc, otext, nd) : guessCat(otext, nd), rate, author); await edit(v.text, v.reply_markup); return ans(); }
     if (act === "cat") { await tg("editMessageReplyMarkup", { chat_id: chat.id, message_id: m.message_id, reply_markup: catKeyboard(d, c) }); return ans("Kategoriyani tanlang"); }
     if (act === "setc") { const v = view(p, d, c, rate, author); await edit(v.text, v.reply_markup); return ans(); }
     if (act !== "ok") return ans();
@@ -301,8 +389,10 @@ export function makeBot({ db, tg, now = () => new Date() }) {
     const pl = plan(p, d, c, rate);
     if (!(pl.usdAmt > 0)) return ans("Kurs topilmadi — xabarga «kurs 12 600» qo'shing", true);
     const type = d === "i" ? "company_income" : "company_expense";
-    const note = String(orig.text || orig.caption || "").replace(/\s+/g, " ").trim().slice(0, 200) + " (Telegram: " + author + ")";
-    const row = { type, object_id: null, category: pl.cat, ...(type === "company_expense" ? { size: pl.cat } : {}), ...C.payPatch(pl.pay, type, false), op_date: tgDate(orig.date), note, user: author, user_name: author };
+    const opDate = tgDate(orig.date);
+    const rcText = p.rc ? "Чек: " + ([p.rc.merchant, p.rc.what].filter(Boolean).join(" — ") || "фото") + (p.rc.date && p.rc.date !== opDate ? " от " + dt(p.rc.date) : "") : "";
+    const note = [otext.trim(), rcText].filter(Boolean).join(" · ").replace(/\s+/g, " ").trim().slice(0, 200) + " (Telegram: " + author + ")";
+    const row = { type, object_id: null, category: pl.cat, ...(type === "company_expense" ? { size: pl.cat } : {}), ...C.payPatch(pl.pay, type, false), op_date: opDate, note, user: author, user_name: author };
     let op;
     try { op = (await db.insert("finance_ops", row))[0]; }
     catch (e) { await ans("Xato: dasturga yozilmadi", true); await send(chat.id, "⚠️ Dasturga yozilmadi: " + esc(e.message).slice(0, 300), { reply_to_message_id: orig.message_id }); return; }
@@ -314,7 +404,7 @@ export function makeBot({ db, tg, now = () => new Date() }) {
         { action: LOG_MODE, entity: key, detail: (op && op.id) || "", user_name: "Telegram: " + who, role: "telegram", ts },
       ]);
     } catch (e) { /* журнал не обязателен для операции */ }
-    await edit((d === "i" ? "✅ <b>Prixod kiritildi</b>" : "✅ <b>Rasxod kiritildi</b>") + " · " + esc(pl.cat) + "\n" + amt + " · " + METHOD_UZ[p.method] + " · " + dt(row.op_date) + "\nKim: " + esc(author) + " · tasdiqladi: " + esc(who),
+    await edit((d === "i" ? "✅ <b>Prixod kiritildi</b>" : "✅ <b>Rasxod kiritildi</b>") + " · " + esc(pl.cat) + "\n" + (p.rc ? "🧾 " + esc([p.rc.merchant, p.rc.what].filter(Boolean).join(" — ") || "chek") + "\n" : "") + amt + " · " + METHOD_UZ[p.method] + " · " + dt(row.op_date) + "\nKim: " + esc(author) + " · tasdiqladi: " + esc(who),
       op && op.id ? { inline_keyboard: [[{ text: "↩️ Bekor qilish", callback_data: "undo:" + op.id }]] } : undefined);
     return ans("Kiritildi");
   }
