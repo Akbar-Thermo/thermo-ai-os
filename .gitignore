@@ -9,3 +9,6 @@ supabase.temp/
 supabase\.temp/
 .nightly
 
+
+# код бота копируется из api/_lib при выкладке функции
+supabase/functions/tg/_lib/

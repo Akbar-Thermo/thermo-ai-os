@@ -1,6 +1,8 @@
-# Telegram-бот Thermo: guruhdagi rasxod/prixodlarni dasturga kiritadi, kassa va qarzlarni ko'rsatadi (api/tg.js).
-# ULASH — botni saytga ulash; HOLAT — tekshirish; UZISH — uzish. Sekret: TELEGRAM_BOT_TOKEN (ночной бэкап bilan bir xil bot).
-# Vercel'da (Settings → Environment Variables): TELEGRAM_BOT_TOKEN, TG_BOT_LOGIN, TG_BOT_PASSWORD.
+# Telegram-бот Thermo: guruhdagi rasxod/prixodlarni dasturga kiritadi, kassa va qarzlarni ko'rsatadi.
+# Bot Supabase funksiyasi bo'lib ishlaydi (supabase/functions/tg, kodi — api/_lib).
+# ULASH — funksiyani joylash + sekretlarni qo'yish + Telegram'ni ulash; HOLAT — tekshirish; UZISH — uzish.
+# GitHub sekretlari: TELEGRAM_BOT_TOKEN, SUPABASE_ACCESS_TOKEN (Supabase → Account → Access Tokens),
+# TG_BOT_LOGIN / TG_BOT_PASSWORD (dasturdagi bot akkaunti). Loglarda sekretlar ko'rinmaydi.
 name: "Telegram-бот"
 on:
   workflow_dispatch:
@@ -12,15 +14,51 @@ on:
         default: "HOLAT"
 permissions:
   contents: read
+concurrency:
+  group: telegram-bot
+  cancel-in-progress: false
 jobs:
   bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      TG_BOT_LOGIN: ${{ secrets.TG_BOT_LOGIN }}
+      TG_BOT_PASSWORD: ${{ secrets.TG_BOT_PASSWORD }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: node scripts/bot/connect.mjs ${{ inputs.action }}
+      # адрес базы и публичный ключ — те же, что у сайта (.env.txt в репозитории)
+      - name: Loyiha manzili
+        run: |
+          URL=$(grep -E '^VITE_SUPABASE_URL=' .env.txt | head -1 | cut -d= -f2- | tr -d '\r" ')
+          REF=$(printf '%s' "$URL" | sed -E 's#https://([a-z0-9]+)\.supabase\.co.*#\1#')
+          if [ -z "$REF" ] || [ "$REF" = "$URL" ]; then echo "::error::.env.txt dan Supabase manzili topilmadi"; exit 1; fi
+          echo "::add-mask::$REF"
+          echo "REF=$REF" >> "$GITHUB_ENV"
+          echo "BOT_URL=https://$REF.supabase.co/functions/v1/tg" >> "$GITHUB_ENV"
+      - uses: supabase/setup-cli@v1
+        if: inputs.action == 'ULASH'
+        with:
+          version: latest
+      - name: Funksiyani joylash (Supabase)
+        if: inputs.action == 'ULASH'
+        run: |
+          [ -n "$SUPABASE_ACCESS_TOKEN" ] || { echo "::error::Sekret SUPABASE_ACCESS_TOKEN yo'q: Supabase → Account → Access Tokens → yangi token → GitHub sekretiga qo'ying"; exit 1; }
+          [ -n "$TELEGRAM_BOT_TOKEN" ] || { echo "::error::Sekret TELEGRAM_BOT_TOKEN yo'q"; exit 1; }
+          [ -n "$TG_BOT_LOGIN" ] && [ -n "$TG_BOT_PASSWORD" ] || echo "::warning::TG_BOT_LOGIN / TG_BOT_PASSWORD yo'q — bazada kirish himoyasi yoqilgan bo'lsa, bot ishlamaydi"
+          KEY=$(grep -E '^VITE_SUPABASE_ANON_KEY=' .env.txt | head -1 | cut -d= -f2- | tr -d '\r" ')
+          URL=$(grep -E '^VITE_SUPABASE_URL=' .env.txt | head -1 | cut -d= -f2- | tr -d '\r" ')
+          umask 077
+          { printf 'TELEGRAM_BOT_TOKEN=%s\n' "$TELEGRAM_BOT_TOKEN"; printf 'TG_BOT_LOGIN=%s\n' "$TG_BOT_LOGIN"; printf 'TG_BOT_PASSWORD=%s\n' "$TG_BOT_PASSWORD"; printf 'TG_DB_URL=%s\n' "$URL"; printf 'TG_DB_KEY=%s\n' "$KEY"; } > "$RUNNER_TEMP/tg.env"
+          supabase secrets set --project-ref "$REF" --env-file "$RUNNER_TEMP/tg.env" > /dev/null
+          rm -f "$RUNNER_TEMP/tg.env"
+          mkdir -p supabase/functions/tg/_lib
+          cp api/_lib/*.mjs supabase/functions/tg/_lib/
+          supabase functions deploy tg --project-ref "$REF" --no-verify-jwt
+          sleep 5
+      - name: Telegram
+        run: node scripts/bot/connect.mjs ${{ inputs.action }}

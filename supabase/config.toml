@@ -1,0 +1,5 @@
+# Нужен только для выкладки функции Telegram-бота (supabase functions deploy tg) — база этим файлом не настраивается.
+project_id = "thermo-ai-os"
+
+[functions.tg]
+verify_jwt = false # Telegram присылает обновления без ключа Supabase; чужие запросы отсекает секрет вебхука

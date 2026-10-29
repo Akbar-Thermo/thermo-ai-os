@@ -140,7 +140,7 @@ async function check() {
   // бот подключён к программе (Telegram-бот в группе, вебхук /api/tg) — его не отключаем; ID чата бот пишет сам на команду /id
   let hook = null;
   try { hook = await tg("getWebhookInfo", {}); } catch (e) {}
-  if (hook && /\/api\/tg/.test(hook.url || "")) {
+  if (hook && /\/api\/tg|\/functions\/v1\/tg/.test(hook.url || "")) {
     log("Бот подключён к программе (Telegram-бот, вебхук) — узнать ID чата: напишите боту /id");
     if (!CHATS.length) fail("Нет секрета TELEGRAM_CHAT_ID: напишите боту /id (в личке или в группе) и вставьте число в секрет");
     return;
