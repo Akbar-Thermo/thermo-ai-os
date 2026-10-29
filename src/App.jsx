@@ -639,6 +639,9 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .npanel-bg{position:fixed;inset:0;z-index:950;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(3px)}
 .npanel{width:min(760px,100%);max-height:min(84vh,820px);min-height:min(420px,84vh);display:flex;flex-direction:column;gap:12px;padding:18px 18px 16px;border-radius:var(--r-xl);background:var(--panel);border:1px solid var(--line2);box-shadow:0 30px 80px rgba(0,0,0,.45)}
 .npanel-head{display:flex;align-items:center;gap:8px}
+/* поле без стрелок вверх/вниз (рядом свои кнопки − / +) */
+.inp.no-spin{-moz-appearance:textfield;appearance:textfield}
+.inp.no-spin::-webkit-outer-spin-button,.inp.no-spin::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 @media(min-width:821px){.te.fine .npanel-head{cursor:move;user-select:none}}
 .npanel-bg.free{background:none;backdrop-filter:none;pointer-events:none}
 .npanel-bg.free .npanel{pointer-events:auto}
@@ -6655,7 +6658,7 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
                 <td className="num ret-dk">{r.avail}</td>
                 <td className="ret-q"><div className="ret-step">
                   <button type="button" className="btn xs" tabIndex={-1} disabled={r.avail === 0 || !r.ret} onClick={() => step(i, -1)}>−</button>
-                  <input type="number" inputMode="decimal" className="inp" min={0} max={r.avail} step="any" value={r.txt} placeholder="0" disabled={r.avail === 0}
+                  <input type="number" inputMode="decimal" className="inp no-spin" min={0} max={r.avail} step="any" value={r.txt} placeholder="0" disabled={r.avail === 0}
                     onFocus={(e) => e.target.select()} onChange={(e) => setRet(i, e.target.value)} />
                   <button type="button" className="btn xs" tabIndex={-1} disabled={r.avail === 0 || r.ret >= r.avail} onClick={() => step(i, 1)}>+</button>
                   {r.avail > 0 && <button type="button" className="btn xs ret-all" tabIndex={-1} disabled={r.ret >= r.avail} onClick={() => setRet(i, String(r.avail))}>все</button>}
