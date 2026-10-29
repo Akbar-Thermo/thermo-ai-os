@@ -693,6 +693,23 @@ tr.wh-grp:hover > td{background:color-mix(in srgb,var(--acc) 10%,transparent)}
 .wh-gh-m{color:var(--mut);font-weight:600;white-space:nowrap}
 .wh-gh-m.old{color:var(--bad);font-weight:700}
 tr.wh-row > td.wh-name{padding-left:30px}
+.wh-kpis{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.wh-kpis .kpi .l{display:flex;align-items:center;gap:6px}
+.te.phone .wh-kpis{grid-template-columns:1fr 1fr;gap:8px}
+.te.phone .wh-kpis .kpi{padding:10px 12px}
+.te.phone .wh-kpis .kpi .v{font-size:var(--fs-xl)}
+.wh-kpis .kpi .xs{margin-top:4px}
+button.kpi.wh-oldkpi{text-align:left;font:inherit;color:inherit;cursor:pointer}
+button.kpi.wh-oldkpi:disabled{cursor:default}
+.kpi.wh-oldkpi.warn .v,.kpi.wh-oldkpi.warn .l{color:var(--warn)}
+.kpi.wh-oldkpi.warn:hover{border-color:var(--warn)}
+.kpi.wh-oldkpi.on{border-color:var(--warn);box-shadow:0 0 0 3px color-mix(in srgb,var(--warn) 18%,transparent)}
+.wh-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.wh-q{flex:1 1 280px;max-width:520px}
+.wh-q .inp{height:40px;font-size:var(--fs-md)}
+.wh-mvhead{display:flex;align-items:center;gap:6px;width:100%;margin-top:18px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);color:var(--txt);font:inherit;cursor:pointer;text-align:left;box-shadow:var(--shadow)}
+.wh-mvhead b{font-size:var(--fs-lg)}
+.wh-mvhead:hover{border-color:var(--line2)}
 .te.touch .wh-gh-obj{pointer-events:none;text-decoration:none;color:inherit}
 .te.phone .wh-gh{position:sticky;left:12px;max-width:calc(100vw - 64px)}
 .wh-hico .ic{width:13px;height:13px;vertical-align:-2px;opacity:.55}
@@ -4821,7 +4838,7 @@ const M_COLORS = ["#2563eb", "#0d9488", "#7c3aed", "#ea580c", "#0891b2", "#c026d
 const mColor = (s) => { let h = 7; for (const ch of String(s || "").toLowerCase()) h = (h * 31 + ch.codePointAt(0)) >>> 0; return M_COLORS[h % M_COLORS.length]; };
 const mInitials = (s) => { const w = String(s || "").replace(/[^\p{L}\p{N}\s]/gu, " ").trim().split(/\s+/).filter(Boolean); if (!w.length) return "?"; return (w.length > 1 ? w[0][0] + w[1][0] : w[0].slice(0, 2)).toUpperCase(); };
 const plural = (n, one, few, many) => { const a = Math.abs(n) % 100, b = a % 10; return a > 10 && a < 20 ? many : b === 1 ? one : b >= 2 && b <= 4 ? few : many; };
-function MasterBar({ items, value, onPick }) {
+function MasterBar({ items, value, onPick, noun = ["объект", "объекта", "объектов"], label = "Фильтр по мастеру", allTitle = "Все объекты" }) {
   const ref = useRef(null);
   const [edge, setEdge] = useState({ l: false, r: false });
   const upd = useCallback(() => {
@@ -4858,18 +4875,18 @@ function MasterBar({ items, value, onPick }) {
   return (
     <div className={"obj-mbar sect" + (edge.l ? " fl" : "") + (edge.r ? " fr" : "")}>
       <button type="button" className="obj-mnav l" tabIndex={-1} aria-label="Листать влево" onClick={() => go(-1)}><Ic n="chevL" /></button>
-      <div className="obj-mscroll" ref={ref} onScroll={upd} role="group" aria-label="Фильтр по мастеру">
+      <div className="obj-mscroll" ref={ref} onScroll={upd} role="group" aria-label={label}>
         {items.map((m) => {
           const on = m.kind === "all" ? !value : value === m.key;
           return (
             <button key={m.kind + m.key} type="button" className={"obj-m " + m.kind + (on ? " on" : "")} aria-pressed={on}
               style={m.kind === "m" ? { "--c": mColor(m.name) } : undefined}
-              title={(m.kind === "all" ? "Все объекты" : m.name) + " — " + m.n + " " + plural(m.n, "объект", "объекта", "объектов") + (m.debt > 0.004 ? ", долг клиентов " + fmt2(m.debt) : "")}
+              title={(m.kind === "all" ? allTitle : m.name) + " — " + m.n + " " + plural(m.n, ...noun) + (m.debt > 0.004 ? ", долг клиентов " + fmt2(m.debt) : "") + (m.note ? ", " + m.note : "")}
               onClick={() => onPick(m.kind === "all" || on ? "" : m.key)}>
-              <span className="obj-m-av">{m.kind === "all" ? <Ic n="users" /> : m.kind === "none" ? "?" : mInitials(m.name)}</span>
+              <span className="obj-m-av">{m.kind === "all" ? <Ic n={m.icon || "users"} /> : m.kind === "none" ? "?" : mInitials(m.name)}</span>
               <span className="obj-m-t">
                 <span className="obj-m-n">{m.name}</span>
-                <span className="obj-m-s">{m.n} {plural(m.n, "объект", "объекта", "объектов")}{m.debt > 0.004 && <> · <i className="obj-m-d">долг {fmt(m.debt)}</i></>}</span>
+                <span className="obj-m-s">{m.n} {plural(m.n, ...noun)}{m.debt > 0.004 && <> · <i className="obj-m-d">долг {fmt(m.debt)}</i></>}{m.note ? " · " + m.note : ""}</span>
               </span>
             </button>
           );
@@ -7333,6 +7350,8 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
   const [sort, setSort] = useState("new");
   const [open, setOpen] = useState(null);
   const [openG, setOpenG] = useState({}); // приходы свёрнуты, пока не нажали на строку прихода
+  const [supF, setSupF] = useState(""); // фильтр по поставщику (лента сверху): "id:<поставщик>" / "none"
+  const [movesOpen, setMovesOpen] = useState(false); // «История движений» свёрнута, пока не нажали
   const [mvDir, setMvDir] = useState("all");
   const [mq, setMq] = useState("");
   /* Приходы — как поставки в объекте: каждый приход (возврат с объекта, приход вручную, корректировка) — отдельной
@@ -7403,14 +7422,30 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
   };
   const toks = normPName(q).split(" ").filter(Boolean);
   const hitAll = (txt) => toks.every((t) => txt.includes(t));
-  const shownGroups = whGroups.map((g) => {
+  const supKey = (w) => (w.supplier_id && supName.get(w.supplier_id) ? "id:" + w.supplier_id : "none");
+  const shownGroups = whGroups.map((g) => (supF ? { ...g, items: g.items.filter((x) => supKey(x.w) === supF) } : g)).filter((g) => g.items.length).map((g) => {
     if (!toks.length) return g;
     const I = grpInfo(g);
     if (hitAll(normPName([I.kind, I.obj, I.sub, g.users.join(" "), g.no ? "№" + g.no : "", dt(g.date)].join(" ")))) return g;
     const items = g.items.filter((x) => hitAll(normPName([x.w.name, supName.get(x.w.supplier_id)].join(" "))));
     return items.length ? { ...g, items } : null;
   }).filter(Boolean).sort((a, b) => (a.none - b.none) || (sort === "old" ? String(a.date).localeCompare(String(b.date)) || a.no - b.no : String(b.date).localeCompare(String(a.date)) || b.no - a.no));
-  const gOpen = (g) => !!toks.length || !!openG[g.id];
+  const gOpen = (g) => !!toks.length || !!supF || !!openG[g.id];
+  // поставщики склада: сколько позиций и на какую сумму (по закупу); больше позиций — левее
+  const supItems = useMemo(() => {
+    const m = new Map();
+    let n = 0, sum = 0;
+    warehouse.filter((w) => (Number(w.qty) || 0) > 0).forEach((w) => {
+      const k = w.supplier_id && supName.get(w.supplier_id) ? "id:" + w.supplier_id : "none";
+      const x = m.get(k) || { key: k, name: k === "none" ? "Без поставщика" : supName.get(w.supplier_id), n: 0, sum: 0 };
+      x.n++; x.sum += (Number(w.qty) || 0) * (Number(w.cost) || 0); m.set(k, x);
+      n++; sum += (Number(w.qty) || 0) * (Number(w.cost) || 0);
+    });
+    const note = (v) => (readOnly ? "" : "на " + fmt(round2(v)) + " $");
+    const list = [...m.values()].filter((x) => x.key !== "none").sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, "ru")).map((x) => ({ ...x, kind: "m", note: note(x.sum) }));
+    const none = m.get("none");
+    return [{ key: "", kind: "all", icon: "truck", name: "Все поставщики", n, note: note(sum) }, ...list, ...(none ? [{ ...none, kind: "none", note: note(none.sum) }] : [])];
+  }, [warehouse, supName, readOnly]);
   const allOpen = shownGroups.length > 0 && shownGroups.every(gOpen);
   const oldCnt = whGroups.filter((g) => g.days >= WH_OLD_DAYS).reduce((a, g) => a + g.items.length, 0);
   const mtoks = normPName(mq).split(" ").filter(Boolean);
@@ -7460,17 +7495,22 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
         {!readOnly && <button className="btn" onClick={() => setInForm(true)}>+ Приход вручную</button>}
         {!readOnly && <button className="btn pri" disabled={!stock.length} onClick={() => setIssue(true)}>→ Отправить на объект</button>}
       </div>
-      <div className="kpis sect">
-        <KPI l="Позиций на складе" v={stock.length} />
-        <KPI l="Единиц всего" v={stock.reduce((a, w) => a + w.qty, 0)} />
-        {!readOnly && <KPI l="Склад по закупу" v={totalCost} />}
-        {!readOnly && <KPI l="Склад по продаже" v={totalSale} c="var(--txt)" />}
+      <div className="kpis sect wh-kpis">
+        <div className="kpi"><div className="l"><Ic n="package" /> Позиций на складе</div><div className="v">{fmt(stock.length)}</div><div className="xs mut">{fmt(stock.reduce((a, w) => a + w.qty, 0))} ед. · приходов: {whGroups.filter((g) => !g.none).length}</div></div>
+        {!readOnly && <div className="kpi"><div className="l"><Ic n="cash" /> Склад по закупу</div><div className="v">{fmt(totalCost)} $</div><div className="xs mut">по продаже {fmt(totalSale)} $</div></div>}
+        {!readOnly && <div className="kpi"><div className="l">Возможная прибыль</div><div className="v" style={{ color: "var(--ok)" }}>{fmt(totalSale - totalCost)} $</div><div className="xs mut">{totalSale > 0 ? Math.round(((totalSale - totalCost) / totalSale) * 100) + "% от продажи" : "—"}</div></div>}
+        <button type="button" className={"kpi wh-oldkpi" + (oldCnt ? " warn" : "") + (sort === "old" ? " on" : "")} disabled={!oldCnt} onClick={() => setSort(sort === "old" ? "new" : "old")} title={oldCnt ? "Показать сначала то, что лежит дольше всего" : ""}>
+          <div className="l"><Ic n="hourglass" /> Лежат {WH_OLD_DAYS}+ дней</div><div className="v">{oldCnt}</div><div className="xs mut">{oldCnt ? (sort === "old" ? "старые сверху ✓" : "нажмите — старые сверху") : "всё свежее"}</div>
+        </button>
       </div>
-      <div className="row sect wh-bar" style={{ gap: 8 }}>
-        <input className="inp" type="search" style={{ flex: "1 1 220px", maxWidth: 380 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск: товар, поставщик или объект" />
-        <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>{[["new", "Новые сверху"], ["old", "Давно лежат"]].map(([k, l]) => <button key={k} className={"btn xs" + (sort === k ? " pri" : "")} onClick={() => setSort(k)}>{l}</button>)}</div>
-        {!toks.length && whGroups.length > 1 && <button className="btn xs wh-all" onClick={() => setOpenG(allOpen ? {} : Object.fromEntries(whGroups.map((g) => [g.id, true])))}>{allOpen ? "▴ Свернуть все" : "▾ Раскрыть все"}</button>}
-        {oldCnt > 0 && <span className="sm" style={{ color: "var(--warn)", fontWeight: 600 }}><Ic n="hourglass" /> лежат {WH_OLD_DAYS}+ дн.: {oldCnt} поз.</span>}
+      {stock.length > 0 && <MasterBar items={supItems} value={supF} onPick={setSupF} noun={["позиция", "позиции", "позиций"]} label="Фильтр по поставщику" allTitle="Весь склад" />}
+      <div className="sect wh-bar">
+        <div className="obj-q wh-q">
+          <span className="obj-q-ic"><Ic n="search" /></span>
+          <input className="inp" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Найти: товар, поставщик, объект, накладная…" />
+        </div>
+        <div className="seg">{[["new", "Новые сверху"], ["old", "Давно лежат"]].map(([k, l]) => <button key={k} type="button" className={sort === k ? "on" : ""} onClick={() => setSort(k)}>{l}</button>)}</div>
+        {!toks.length && !supF && whGroups.length > 1 && <button className="btn wh-all" onClick={() => setOpenG(allOpen ? {} : Object.fromEntries(whGroups.map((g) => [g.id, true])))}>{allOpen ? "▴ Свернуть все" : "▾ Раскрыть все"}</button>}
       </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
         <table className="t wh-t">
@@ -7537,10 +7577,13 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
           </tbody>
         </table>
       </div>
+      <button type="button" className={"wh-mvhead" + (movesOpen ? " on" : "")} onClick={() => setMovesOpen(!movesOpen)}>
+        <span className="wh-gh-a">{movesOpen ? "▾" : "▸"}</span> <Ic n="history" /> <b>История движений</b> <span className="mut sm">· {wh_moves.length} записей · приходы и отгрузки по датам</span>
+      </button>
+      {movesOpen && <>
       <div className="row sect" style={{ gap: 8, marginTop: 8 }}>
-        <h3 style={{ marginRight: "auto" }}>История движений</h3>
-        <input className="inp" type="search" style={{ flex: "0 1 260px" }} value={mq} onChange={(e) => setMq(e.target.value)} placeholder="Поиск: товар, объект, кто" />
-        <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>{[["all", "Все"], ["in", <><Ic n="down" /> Приход</>], ["out", <><Ic n="up" /> Отгрузка</>]].map(([k, l]) => <button key={k} className={"btn xs" + (mvDir === k ? " pri" : "")} onClick={() => setMvDir(k)}>{l}</button>)}</div>
+        <input className="inp" type="search" style={{ flex: "0 1 300px", marginRight: "auto" }} value={mq} onChange={(e) => setMq(e.target.value)} placeholder="Поиск: товар, объект, кто" />
+        <div className="seg">{[["all", "Все"], ["in", <><Ic n="down" /> Приход</>], ["out", <><Ic n="up" /> Отгрузка</>]].map(([k, l]) => <button key={k} type="button" className={mvDir === k ? "on" : ""} onClick={() => setMvDir(k)}>{l}</button>)}</div>
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
@@ -7563,6 +7606,7 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
         </table>
         {shownMoves.length > 200 && <div style={{ padding: 10 }}><button className="btn xs" onClick={() => setAllMoves(!allMoves)}>{allMoves ? "Показать последние 200" : "Показать все (" + shownMoves.length + ")"}</button></div>}
       </div>
+      </>}
       {inForm && <WhInForm products={data.products || []} suppliers={suppliers} warehouse={warehouse} onClose={() => setInForm(false)} onSave={submitIn} />}
       {issue && <IssueForm stock={stock} objects={objects} onClose={() => setIssue(false)} onSave={async (lines, targetObj, user) => {
         let batchNo = 1;
