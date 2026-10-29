@@ -20,8 +20,12 @@ async function tg(method, body) {
 async function site() {
   try { const r = await fetch(BOT_URL); return r.ok ? await r.json() : { http: r.status }; } catch (e) { return { error: e.message }; }
 }
+// любая ошибка — понятной строкой в итог (без токенов)
+process.on("unhandledRejection", (e) => { fail(String((e && e.message) || e).replace(/bot\d+:[\w-]+/g, "bot<TOKEN>")); process.exit(1); });
 if (!TOKEN) { fail("Нет секрета TELEGRAM_BOT_TOKEN"); process.exit(); }
-const me = await tg("getMe");
+let me;
+try { me = await tg("getMe"); }
+catch (e) { fail("Telegram tokenni qabul qilmadi (" + e.message + ") — GitHub'dagi TELEGRAM_BOT_TOKEN BotFather bergan token bilan bir xil ekanini tekshiring"); process.exit(); }
 log("Бот: @" + me.username);
 const h = await site();
 log("Бот-сервер " + BOT_URL.replace(/^https:\/\/([a-z0-9]{4})[a-z0-9]*/, "https://$1…") + ": " + JSON.stringify(h));
@@ -29,7 +33,8 @@ if (MODE === "ULASH") {
   if (!h.ok) { fail("Бот-сервер не отвечает — проверьте шаг выкладки выше"); process.exit(); }
   if (!h.bot) fail("У бот-сервера нет TELEGRAM_BOT_TOKEN");
   if (!h.account) console.log("::warning::Нет TG_BOT_LOGIN / TG_BOT_PASSWORD — нужны, если в базе включена защита входа");
-  await tg("setWebhook", { url: BOT_URL, secret_token: SECRET, allowed_updates: ["message", "callback_query", "my_chat_member"], drop_pending_updates: true });
+  try { await tg("setWebhook", { url: BOT_URL, secret_token: SECRET, allowed_updates: ["message", "callback_query", "my_chat_member"], drop_pending_updates: true }); }
+  catch (e) { fail("Telegram vebxukni o'rnatmadi: " + e.message); process.exit(); }
   await tg("setMyCommands", { commands: [
     { command: "kassa", description: "Bugungi kassa (kassa kecha / kassa 28.10)" },
     { command: "bugun", description: "Bugungi kirim-chiqim" },
