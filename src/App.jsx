@@ -667,6 +667,22 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .note-color{width:22px;height:22px;border-radius:50%;border:2px solid var(--line2);cursor:pointer;padding:0}
 .note-color.on{border-color:var(--txt);box-shadow:0 0 0 2px var(--acc-ring)}
 .fin-seg{display:inline-flex;gap:6px;flex-wrap:wrap}
+/* «Склад Thermo»: приходы — как поставки в объекте (свёрнуты, раскрываются нажатием) */
+tr.wh-grp > td{background:var(--acc-tint);padding:9px 12px;user-select:none}
+tr.wh-grp.none > td{background:var(--panel2)}
+tr.wh-grp:hover > td{background:color-mix(in srgb,var(--acc) 10%,transparent)}
+.wh-gh{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px;font-size:var(--fs-xs)}
+.wh-gh-a{color:var(--mut);width:10px}
+.wh-gh-t{font-weight:800;letter-spacing:.5px;white-space:nowrap}
+.wh-gh-src{font-weight:700}
+.wh-gh-obj{color:var(--acc2);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--acc2) 35%,transparent);text-underline-offset:2px}
+.wh-gh-m{color:var(--mut);font-weight:600;white-space:nowrap}
+.wh-gh-m.old{color:var(--bad);font-weight:700}
+tr.wh-row > td.wh-name{padding-left:30px}
+.te.touch .wh-gh-obj{pointer-events:none;text-decoration:none;color:inherit}
+.te.phone .wh-gh{position:sticky;left:12px;max-width:calc(100vw - 64px)}
+.wh-hico .ic{width:13px;height:13px;vertical-align:-2px;opacity:.55}
+tr.wh-row:hover .wh-hico .ic{opacity:1}
 /* «Объекты»: лента мастеров сверху, поиск, таблица с сортировкой */
 .obj-mbar{position:relative;display:flex;min-width:0}
 .obj-mscroll{display:flex;gap:10px;flex:1;min-width:0;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;padding:4px 4px 10px;margin-bottom:-6px}
@@ -1629,7 +1645,7 @@ function NoAutofillGuard() {
 // бейдж: старые яркие hex-цвета переводятся в спокойные тона темы (читаются и в светлой, и в тёмной теме)
 const BADGE_TONE = { "#fff": "--t-strong", "#ffffff": "--t-strong", "#9a9a9a": "--t-neutral", "#d6d6d6": "--t-neutral", "#ffb020": "--t-warn", "#ff707b": "--t-bad", "#ff4d5e": "--t-bad", "#3ddc7d": "--t-ok", "#4db8ff": "--t-info" };
 /* Иконки — один набор (контурные, в стиле Lucide), вместо эмодзи. <Ic n="truck" /> — размер по тексту (1.1em) или s={20} */
-const IC = {"chevL": "<path d=\"m15 18-6-6 6-6\"/>", "chevR": "<path d=\"m9 18 6-6-6-6\"/>", "truck": "<path d=\"M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2\"/><path d=\"M15 18H9\"/><path d=\"M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14\"/><circle cx=\"17\" cy=\"18\" r=\"2\"/><circle cx=\"7\" cy=\"18\" r=\"2\"/>", "sheet": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h2\"/><path d=\"M14 13h2\"/><path d=\"M8 17h2\"/><path d=\"M14 17h2\"/>", "download": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" x2=\"12\" y1=\"15\" y2=\"3\"/>", "upload": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"17 8 12 3 7 8\"/><line x1=\"12\" x2=\"12\" y1=\"3\" y2=\"15\"/>", "down": "<path d=\"M12 5v14\"/><path d=\"m19 12-7 7-7-7\"/>", "up": "<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>", "save": "<path d=\"M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z\"/><path d=\"M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7\"/><path d=\"M7 3v4a1 1 0 0 0 1 1h7\"/>", "note": "<path d=\"M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z\"/><path d=\"M15 3v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h8\"/><path d=\"M8 17h5\"/>", "calc": "<rect width=\"16\" height=\"20\" x=\"4\" y=\"2\" rx=\"2\"/><line x1=\"8\" x2=\"16\" y1=\"6\" y2=\"6\"/><line x1=\"16\" x2=\"16\" y1=\"14\" y2=\"18\"/><path d=\"M16 10h.01\"/><path d=\"M12 10h.01\"/><path d=\"M8 10h.01\"/><path d=\"M12 14h.01\"/><path d=\"M8 14h.01\"/><path d=\"M12 18h.01\"/><path d=\"M8 18h.01\"/>", "warehouse": "<path d=\"M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z\"/><path d=\"M6 18h12\"/><path d=\"M6 14h12\"/><rect width=\"12\" height=\"12\" x=\"6\" y=\"10\"/>", "search": "<circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/>", "lock": "<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\"/><path d=\"M7 11V7a5 5 0 0 1 10 0v4\"/>", "pin": "<path d=\"M12 17v5\"/><path d=\"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z\"/>", "eye": "<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>", "eyeoff": "<path d=\"M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49\"/><path d=\"M14.084 14.158a3 3 0 0 1-4.242-4.242\"/><path d=\"M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143\"/><path d=\"m2 2 20 20\"/>", "file": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/>", "trash": "<path d=\"M3 6h18\"/><path d=\"M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6\"/><path d=\"M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2\"/>", "cash": "<rect width=\"20\" height=\"12\" x=\"2\" y=\"6\" rx=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/><path d=\"M6 12h.01M18 12h.01\"/>", "pencil": "<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>", "users": "<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/>", "sun": "<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2\"/><path d=\"M12 20v2\"/><path d=\"m4.93 4.93 1.41 1.41\"/><path d=\"m17.66 17.66 1.41 1.41\"/><path d=\"M2 12h2\"/><path d=\"M20 12h2\"/><path d=\"m6.34 17.66-1.41 1.41\"/><path d=\"m19.07 4.93-1.41 1.41\"/>", "moon": "<path d=\"M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z\"/>", "package": "<path d=\"M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z\"/><path d=\"M12 22V12\"/><path d=\"m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7\"/><path d=\"m7.5 4.27 9 5.15\"/>", "wrench": "<path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z\"/>", "cloud": "<path d=\"M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z\"/>", "link": "<path d=\"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71\"/><path d=\"M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71\"/>", "clipboard": "<rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/>", "folder": "<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "eraser": "<path d=\"m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21\"/><path d=\"M22 21H7\"/><path d=\"m5 11 9 9\"/>", "hourglass": "<path d=\"M5 22h14\"/><path d=\"M5 2h14\"/><path d=\"M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22\"/><path d=\"M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2\"/>", "undo": "<path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"/>", "menu": "<line x1=\"4\" x2=\"20\" y1=\"12\" y2=\"12\"/><line x1=\"4\" x2=\"20\" y1=\"6\" y2=\"6\"/><line x1=\"4\" x2=\"20\" y1=\"18\" y2=\"18\"/>", "copy": "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>"};
+const IC = {"history": "<path d=\"M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8\"/><path d=\"M3 3v5h5\"/><path d=\"M12 7v5l4 2\"/>", "chevL": "<path d=\"m15 18-6-6 6-6\"/>", "chevR": "<path d=\"m9 18 6-6-6-6\"/>", "truck": "<path d=\"M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2\"/><path d=\"M15 18H9\"/><path d=\"M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14\"/><circle cx=\"17\" cy=\"18\" r=\"2\"/><circle cx=\"7\" cy=\"18\" r=\"2\"/>", "sheet": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h2\"/><path d=\"M14 13h2\"/><path d=\"M8 17h2\"/><path d=\"M14 17h2\"/>", "download": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" x2=\"12\" y1=\"15\" y2=\"3\"/>", "upload": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"17 8 12 3 7 8\"/><line x1=\"12\" x2=\"12\" y1=\"3\" y2=\"15\"/>", "down": "<path d=\"M12 5v14\"/><path d=\"m19 12-7 7-7-7\"/>", "up": "<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>", "save": "<path d=\"M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z\"/><path d=\"M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7\"/><path d=\"M7 3v4a1 1 0 0 0 1 1h7\"/>", "note": "<path d=\"M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z\"/><path d=\"M15 3v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h8\"/><path d=\"M8 17h5\"/>", "calc": "<rect width=\"16\" height=\"20\" x=\"4\" y=\"2\" rx=\"2\"/><line x1=\"8\" x2=\"16\" y1=\"6\" y2=\"6\"/><line x1=\"16\" x2=\"16\" y1=\"14\" y2=\"18\"/><path d=\"M16 10h.01\"/><path d=\"M12 10h.01\"/><path d=\"M8 10h.01\"/><path d=\"M12 14h.01\"/><path d=\"M8 14h.01\"/><path d=\"M12 18h.01\"/><path d=\"M8 18h.01\"/>", "warehouse": "<path d=\"M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z\"/><path d=\"M6 18h12\"/><path d=\"M6 14h12\"/><rect width=\"12\" height=\"12\" x=\"6\" y=\"10\"/>", "search": "<circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/>", "lock": "<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\"/><path d=\"M7 11V7a5 5 0 0 1 10 0v4\"/>", "pin": "<path d=\"M12 17v5\"/><path d=\"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z\"/>", "eye": "<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>", "eyeoff": "<path d=\"M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49\"/><path d=\"M14.084 14.158a3 3 0 0 1-4.242-4.242\"/><path d=\"M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143\"/><path d=\"m2 2 20 20\"/>", "file": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/>", "trash": "<path d=\"M3 6h18\"/><path d=\"M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6\"/><path d=\"M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2\"/>", "cash": "<rect width=\"20\" height=\"12\" x=\"2\" y=\"6\" rx=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/><path d=\"M6 12h.01M18 12h.01\"/>", "pencil": "<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>", "users": "<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/>", "sun": "<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2\"/><path d=\"M12 20v2\"/><path d=\"m4.93 4.93 1.41 1.41\"/><path d=\"m17.66 17.66 1.41 1.41\"/><path d=\"M2 12h2\"/><path d=\"M20 12h2\"/><path d=\"m6.34 17.66-1.41 1.41\"/><path d=\"m19.07 4.93-1.41 1.41\"/>", "moon": "<path d=\"M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z\"/>", "package": "<path d=\"M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z\"/><path d=\"M12 22V12\"/><path d=\"m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7\"/><path d=\"m7.5 4.27 9 5.15\"/>", "wrench": "<path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z\"/>", "cloud": "<path d=\"M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z\"/>", "link": "<path d=\"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71\"/><path d=\"M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71\"/>", "clipboard": "<rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/>", "folder": "<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "eraser": "<path d=\"m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21\"/><path d=\"M22 21H7\"/><path d=\"m5 11 9 9\"/>", "hourglass": "<path d=\"M5 22h14\"/><path d=\"M5 2h14\"/><path d=\"M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22\"/><path d=\"M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2\"/>", "undo": "<path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"/>", "menu": "<line x1=\"4\" x2=\"20\" y1=\"12\" y2=\"12\"/><line x1=\"4\" x2=\"20\" y1=\"6\" y2=\"6\"/><line x1=\"4\" x2=\"20\" y1=\"18\" y2=\"18\"/>", "copy": "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>"};
 const Ic = ({ n, s, style, title, className = "" }) => <svg className={"ic " + className} width={s || "1.1em"} height={s || "1.1em"} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden={title ? undefined : "true"} role={title ? "img" : undefined} style={style} dangerouslySetInnerHTML={{ __html: (title ? "<title>" + title + "</title>" : "") + (IC[n] || "") }} />;
 const Badge = ({ c, children }) => {
   const col = String(c || "").startsWith("var(") ? c : BADGE_TONE[String(c || "").toLowerCase()] ? "var(" + BADGE_TONE[String(c).toLowerCase()] + ")" : c;
@@ -7275,18 +7291,87 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState("new");
   const [open, setOpen] = useState(null);
+  const [openG, setOpenG] = useState({}); // приходы свёрнуты, пока не нажали на строку прихода
   const [mvDir, setMvDir] = useState("all");
   const [mq, setMq] = useState("");
+  /* Приходы — как поставки в объекте: каждый приход (возврат с объекта, приход вручную, корректировка) — отдельной
+     группой. Остаток позиции раскладывается по её приходам с конца: что пришло позже — то и лежит
+     (раньше пришедшее уходит первым). Остаток, которого нет в истории прихода (старые данные), — отдельной группой. */
+  const whGroups = useMemo(() => {
+    const ins = wh_moves.filter((m) => m.dir === "in" && Number(m.qty) > 0);
+    const dOf = (m) => String(m.op_date || m.created_at || "").slice(0, 10);
+    const tOf = (m) => { const t = Date.parse(m.created_at || ""); return isNaN(t) ? null : t; };
+    const ord = ins.slice().sort((a, b) => dOf(a).localeCompare(dOf(b)) || String(a.created_at || "").localeCompare(String(b.created_at || "")));
+    const groups = [], lastOf = new Map(), gOf = new Map();
+    ord.forEach((m) => {
+      // один приход — одна дата, один источник (объект / комментарий) и один сотрудник; записи с разницей больше 20 минут — разные приходы
+      const k = dOf(m) + "|" + (m.object_id ? "o:" + m.object_id : "n:" + normPName(m.note || "")) + "|" + (m.user || "");
+      const t = tOf(m);
+      let g = lastOf.get(k);
+      if (!g || (t != null && g.t != null && t - g.t > 20 * 60000)) { g = { id: k + "#" + groups.length, date: dOf(m), m0: m, users: [], items: [], t }; groups.push(g); lastOf.set(k, g); }
+      if (t != null) g.t = t;
+      if (m.user && !g.users.includes(m.user)) g.users.push(m.user);
+      gOf.set(m.id, g);
+    });
+    groups.forEach((g, i) => { g.no = i + 1; });
+    const byProd = {}, byName = {};
+    ins.forEach((m) => {
+      if (m.product_id) (byProd[m.product_id] = byProd[m.product_id] || []).push(m);
+      const k = normPName(m.name); if (k) (byName[k] = byName[k] || []).push(m);
+    });
+    const newest = (a, b) => dOf(b).localeCompare(dOf(a)) || String(b.created_at || "").localeCompare(String(a.created_at || ""));
+    const noHist = { id: "nohist", none: true, no: 0, date: "", users: [], items: [] };
+    warehouse.filter((w) => (Number(w.qty) || 0) > 0).forEach((w) => {
+      const list = ((w.product_id && byProd[w.product_id]) || byName[normPName(w.name)] || []).slice().sort(newest);
+      let left = Number(w.qty) || 0, first = true;
+      for (const m of list) {
+        if (left <= 0.0001) break;
+        const qn = Math.min(left, Number(m.qty) || 0);
+        left = round2(left - qn);
+        // одна позиция дважды в одном приходе (две строки накладной) — одной строкой
+        const g = gOf.get(m.id), ex = g.items.find((x) => x.w.id === w.id);
+        if (ex) { ex.q = round2(ex.q + qn); ex.of = round2(ex.of + (Number(m.qty) || 0)); }
+        else g.items.push({ w, q: round2(qn), of: Number(m.qty) || 0, first });
+        first = false;
+      }
+      if (left > 0.0001) noHist.items.push({ w, q: left, of: 0, first });
+    });
+    const out = groups.filter((g) => g.items.length);
+    if (noHist.items.length) out.push(noHist);
+    // позиция лежит в нескольких приходах — в каждом подскажем остальные
+    const where = {};
+    out.forEach((g) => g.items.forEach((x) => { (where[x.w.id] = where[x.w.id] || []).push(g.none ? "без истории" : "№" + g.no); }));
+    out.forEach((g) => {
+      g.items.sort((a, b) => String(a.w.name).localeCompare(String(b.w.name), "ru"));
+      g.items.forEach((x) => { x.also = where[x.w.id].filter((n) => n !== (g.none ? "без истории" : "№" + g.no)); });
+      g.days = g.date ? Math.max(0, Math.floor((Date.now() - new Date(g.date + "T12:00:00").getTime()) / 864e5)) : null;
+    });
+    return out;
+  }, [wh_moves, warehouse]);
+  // заголовок прихода: откуда, комментарий (накладная), кто принял
+  const grpInfo = (g) => {
+    if (g.none) return { ic: "package", kind: "", sub: "", note: "старые данные — приход не записан в истории движений" };
+    const m = g.m0, note = String(m.note || "");
+    if (m.object_id || m.object_name) {
+      const back = /вернулся на склад/.test(note);
+      return { ic: "undo", kind: back ? "Вернулось с объекта" : "Возврат с объекта", obj: m.object_name || "объект", objId: m.object_id, sub: back ? note.replace(/\s*—\s*товар вернулся на склад.*$/, "") : "" };
+    }
+    if (/вручную/.test(note)) return { ic: "package", kind: "Приход вручную", sub: note.replace(/^приход вручную:?\s*/i, "") };
+    if (/корректир/.test(note)) return { ic: "pencil", kind: "Корректировка остатка", sub: "" };
+    return { ic: "package", kind: "Приход", sub: note };
+  };
   const toks = normPName(q).split(" ").filter(Boolean);
-  const rowText = (w) => normPName([w.name, supName.get(w.supplier_id), info[w.id] && info[w.id].src].join(" "));
-  const shownStock = stock.filter((w) => !toks.length || toks.every((t) => rowText(w).includes(t))).sort((a, b) => {
-    const A = info[a.id] || {}, B = info[b.id] || {};
-    if (sort === "name") return String(a.name).localeCompare(String(b.name), "ru");
-    if (sort === "sup") return String(supName.get(a.supplier_id) || "я").localeCompare(String(supName.get(b.supplier_id) || "я"), "ru") || String(a.name).localeCompare(String(b.name), "ru");
-    if (sort === "old") return String(A.date || "9").localeCompare(String(B.date || "9"));
-    return String(B.date || "").localeCompare(String(A.date || ""));
-  });
-  const oldCnt = stock.filter((w) => (info[w.id] || {}).days >= WH_OLD_DAYS).length;
+  const hitAll = (txt) => toks.every((t) => txt.includes(t));
+  const shownGroups = whGroups.map((g) => {
+    if (!toks.length) return g;
+    const I = grpInfo(g);
+    if (hitAll(normPName([I.kind, I.obj, I.sub, g.users.join(" "), g.no ? "№" + g.no : "", dt(g.date)].join(" ")))) return g;
+    const items = g.items.filter((x) => hitAll(normPName([x.w.name, supName.get(x.w.supplier_id)].join(" "))));
+    return items.length ? { ...g, items } : null;
+  }).filter(Boolean).sort((a, b) => (a.none - b.none) || (sort === "old" ? String(a.date).localeCompare(String(b.date)) || a.no - b.no : String(b.date).localeCompare(String(a.date)) || b.no - a.no));
+  const gOpen = (g) => !!toks.length || !!openG[g.id];
+  const allOpen = shownGroups.length > 0 && shownGroups.every(gOpen);
+  const oldCnt = whGroups.filter((g) => g.days >= WH_OLD_DAYS).reduce((a, g) => a + g.items.length, 0);
   const mtoks = normPName(mq).split(" ").filter(Boolean);
   const shownMoves = moves.filter((mv) => (mvDir === "all" || mv.dir === mvDir) && (!mtoks.length || mtoks.every((t) => normPName([mv.name, mv.object_name, mv.note, mv.user].join(" ")).includes(t))));
   const mvWhere = (mv) => mv.object_name ? (mv.dir === "in" ? "с объекта «" + mv.object_name + "»" : "на объект «" + mv.object_name + "»") : (mv.note || "—");
@@ -7342,50 +7427,72 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
       </div>
       <div className="row sect wh-bar" style={{ gap: 8 }}>
         <input className="inp" type="search" style={{ flex: "1 1 220px", maxWidth: 380 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Поиск: товар, поставщик или объект" />
-        <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>{[["new", "Новые сверху"], ["old", "Давно лежат"], ["name", "По названию"], ["sup", "По поставщику"]].map(([k, l]) => <button key={k} className={"btn xs" + (sort === k ? " pri" : "")} onClick={() => setSort(k)}>{l}</button>)}</div>
-        {oldCnt > 0 && <span className="sm" style={{ color: "var(--warn)", fontWeight: 600 }}><Ic n="hourglass" /> лежат {WH_OLD_DAYS}+ дн.: {oldCnt}</span>}
+        <div className="row" style={{ gap: 4, flexWrap: "wrap" }}>{[["new", "Новые сверху"], ["old", "Давно лежат"]].map(([k, l]) => <button key={k} className={"btn xs" + (sort === k ? " pri" : "")} onClick={() => setSort(k)}>{l}</button>)}</div>
+        {!toks.length && whGroups.length > 1 && <button className="btn xs wh-all" onClick={() => setOpenG(allOpen ? {} : Object.fromEntries(whGroups.map((g) => [g.id, true])))}>{allOpen ? "▴ Свернуть все" : "▾ Раскрыть все"}</button>}
+        {oldCnt > 0 && <span className="sm" style={{ color: "var(--warn)", fontWeight: 600 }}><Ic n="hourglass" /> лежат {WH_OLD_DAYS}+ дн.: {oldCnt} поз.</span>}
       </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
         <table className="t wh-t">
-          <thead><tr><th>Товар</th><th>Откуда пришёл</th><th>Дата прихода</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th>{!readOnly && <><th style={{textAlign:"right"}}>Закуп</th><th style={{textAlign:"right"}}>Продажа</th><th style={{textAlign:"right"}}>Сумма (закуп)</th><th></th></>}</tr></thead>
+          {shownGroups.some(gOpen) && <thead><tr><th>Товар</th><th style={{textAlign:"right"}}>Кол-во</th><th>Ед.</th>{!readOnly && <><th style={{textAlign:"right"}}>Закуп</th><th style={{textAlign:"right"}}>Продажа</th><th style={{textAlign:"right"}}>Сумма (закуп)</th><th></th></>}</tr></thead>}
           <tbody>
-            {shownStock.map((w) => { const I = info[w.id] || {}; const isOpen = open === w.id; const old = I.days >= WH_OLD_DAYS; return (
-              <React.Fragment key={w.id}>
-              <tr className={"clk wh-row" + (isOpen ? " on" : "")} onClick={() => setOpen(isOpen ? null : w.id)} title="Нажмите — история этой позиции">
-                <td style={{ fontWeight: 600 }}><span className="mut" style={{ fontWeight: 400 }}>{isOpen ? "▾" : "▸"} </span>{w.name}
-                  <div className="xs mut" style={{ fontWeight: 400 }}>{supName.get(w.supplier_id) ? "Поставщик: " + supName.get(w.supplier_id) : "поставщик не указан"}</div></td>
-                <td className="sm">{I.objId ? <span className="clk" style={{ color: "var(--acc2)" }} onClick={(e) => { e.stopPropagation(); openObject(I.objId); }}>{I.src}</span> : I.src}{I.more ? <span className="xs mut"> + ещё {I.more}</span> : null}
-                  {I.last && I.last.user ? <div className="xs mut">принял: {I.last.user}</div> : null}</td>
-                <td className="sm mono wh-date" style={{ whiteSpace: "nowrap" }}>{I.date ? dt(I.date) : "—"}
-                  {I.days != null && <div className="xs" style={old ? { color: "var(--bad)", fontWeight: 700 } : { color: "var(--mut)" }}>{old ? <><Ic n="hourglass" /> </> : ""}{I.days} дн. на складе</div>}</td>
-                <td className="num" style={{ fontWeight: 700, color: "var(--acc2)" }}>{w.qty}
-                  {I.res ? <div className="xs wh-res" style={{ color: "var(--warn)", fontWeight: 600, whiteSpace: "nowrap" }} title={"В брони: " + I.res.objs.join(", ")}><Ic n="lock" /> бронь {fmt(Math.min(I.res.qty, w.qty))}</div> : null}</td>
-                <td className="sm">{w.unit}</td>
-                {!readOnly && <>
-                <td className="num">{fmt(w.cost)}</td>
-                <td className="num">{fmt(w.price)}</td>
-                <td className="num">{fmt(w.qty * (w.cost || 0))}</td>
-                <td onClick={(e) => e.stopPropagation()}><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
-                  <button className="btn xs" onClick={() => setEditRow(w)}>ред.</button>
-                  <button className="btn xs" onClick={() => setRetForm(w)}><Ic n="undo" /> поставщику</button>
-                  <button className="btn xs dng" onClick={() => setDelRow(w)}>✕</button>
-                </div></td>
-                </>}
-              </tr>
-              {isOpen && <tr className="wh-hist"><td colSpan={readOnly ? 5 : 9} style={{ background: "var(--panel2)", padding: "8px 14px 12px" }}>
-                <div className="xs mut" style={{ fontWeight: 700, marginBottom: 4 }}>История позиции</div>
-                {I.hist && I.hist.length ? <table className="t" style={{ fontSize: 12 }}><tbody>
-                  {I.hist.map((mv) => <tr key={mv.id}>
-                    <td className="mono mut" style={{ whiteSpace: "nowrap" }}>{dt(mv.op_date || mv.created_at)}</td>
-                    <td style={{ color: mv.dir === "in" ? "var(--ok)" : "var(--bad)", fontWeight: 700, whiteSpace: "nowrap" }}>{mv.dir === "in" ? <><Ic n="down" /> +</> : <><Ic n="up" /> −</>}{fmt(mv.qty)}</td>
-                    <td>{mv.object_id ? <span className="clk" style={{ color: "var(--acc2)" }} onClick={() => openObject(mv.object_id)}>{mvWhere(mv)}</span> : mvWhere(mv)}{mv.object_name && mv.note && !/^(отгрузка на объект|возврат с объекта)/.test(mv.note) ? <span className="mut"> · {mv.note}</span> : null}</td>
-                    <td className="mut">{mv.user}</td></tr>)}
-                </tbody></table> : <div className="xs mut">Движений по позиции нет</div>}
-              </td></tr>}
+            {shownGroups.map((g) => {
+              const I = grpInfo(g), isG = gOpen(g), old = g.days >= WH_OLD_DAYS, cols = readOnly ? 3 : 7;
+              const units = g.items.reduce((a, x) => a + x.q, 0), sum = g.items.reduce((a, x) => a + x.q * (Number(x.w.cost) || 0), 0);
+              return (
+              <React.Fragment key={g.id}>
+                <tr className={"clk batch-head wh-grp" + (g.none ? " none" : "") + (isG ? " on" : "")} onClick={() => setOpenG((o) => ({ ...o, [g.id]: !isG }))}>
+                  <td colSpan={cols}>
+                    <div className="wh-gh">
+                      <span className="wh-gh-a">{isG ? "▾" : "▸"}</span>
+                      <span className="wh-gh-t"><Ic n={I.ic} /> {g.none ? "ОСТАТОК БЕЗ ИСТОРИИ ПРИХОДА" : "ПРИХОД №" + g.no}{g.date ? " · " + dt(g.date) : ""}</span>
+                      {I.note && <span className="wh-gh-m">{I.note}</span>}
+                      {I.kind && <span className="wh-gh-src">{I.kind}{I.obj ? <> «{I.objId ? <span className="clk wh-gh-obj" onClick={(e) => { e.stopPropagation(); openObject(I.objId); }}>{I.obj}</span> : I.obj}»</> : null}{I.sub ? <span className="mut">: {I.sub}</span> : null}</span>}
+                      {g.users.length > 0 && <span className="wh-gh-m">принял: {g.users.join(", ")}</span>}
+                      <span className="wh-gh-m">позиций: {g.items.length} · {fmt(units)} ед.{!readOnly ? " · на сумму " + fmt(sum) : ""}</span>
+                      {g.days != null && <span className={"wh-gh-m" + (old ? " old" : "")}>{old ? <><Ic n="hourglass" /> </> : null}{g.days} дн. на складе</span>}
+                    </div>
+                  </td>
+                </tr>
+                {isG && g.items.map((x) => {
+                  const w = x.w, H = info[w.id] || {}, hk = g.id + "|" + w.id, isOpen = open === hk;
+                  return (
+                  <React.Fragment key={w.id}>
+                  <tr className={"clk wh-row" + (isOpen ? " on" : "")} onClick={() => setOpen(isOpen ? null : hk)} title="Нажмите — история этой позиции">
+                    <td className="wh-name"><span style={{ fontWeight: 600 }}>{w.name}</span> <span className="wh-hico mut"><Ic n="history" /></span>
+                      <div className="xs mut">{supName.get(w.supplier_id) ? "Поставщик: " + supName.get(w.supplier_id) : "поставщик не указан"}{x.also.length ? " · всего на складе " + fmt(w.qty) + " (ещё в приходе " + x.also.join(", ") + ")" : ""}</div></td>
+                    <td className="num" style={{ fontWeight: 700, color: "var(--acc2)" }}>{fmt(x.q)}
+                      {x.of > x.q + 0.0001 ? <div className="xs mut" style={{ fontWeight: 500 }} title={"пришло " + fmt(x.of) + ", осталось " + fmt(x.q)}>из {fmt(x.of)}</div> : null}
+                      {x.first && H.res ? <div className="xs wh-res" style={{ color: "var(--warn)", fontWeight: 600, whiteSpace: "nowrap" }} title={"В брони: " + H.res.objs.join(", ")}><Ic n="lock" /> бронь {fmt(Math.min(H.res.qty, w.qty))}</div> : null}</td>
+                    <td className="sm">{w.unit}</td>
+                    {!readOnly && <>
+                    <td className="num">{fmt(w.cost)}</td>
+                    <td className="num">{fmt(w.price)}</td>
+                    <td className="num">{fmt(x.q * (w.cost || 0))}</td>
+                    <td onClick={(e) => e.stopPropagation()}><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
+                      <button className="btn xs" onClick={() => setEditRow(w)}>ред.</button>
+                      <button className="btn xs" onClick={() => setRetForm(w)}><Ic n="undo" /> поставщику</button>
+                      <button className="btn xs dng" onClick={() => setDelRow(w)}>✕</button>
+                    </div></td>
+                    </>}
+                  </tr>
+                  {isOpen && <tr className="wh-hist"><td colSpan={cols} style={{ background: "var(--panel2)", padding: "8px 14px 12px" }}>
+                    <div className="xs mut" style={{ fontWeight: 700, marginBottom: 4 }}>История позиции{x.also.length ? " (всего на складе " + fmt(w.qty) + " " + (w.unit || "") + ")" : ""}</div>
+                    {H.hist && H.hist.length ? <table className="t" style={{ fontSize: 12 }}><tbody>
+                      {H.hist.map((mv) => <tr key={mv.id}>
+                        <td className="mono mut" style={{ whiteSpace: "nowrap" }}>{dt(mv.op_date || mv.created_at)}</td>
+                        <td style={{ color: mv.dir === "in" ? "var(--ok)" : "var(--bad)", fontWeight: 700, whiteSpace: "nowrap" }}>{mv.dir === "in" ? <><Ic n="down" /> +</> : <><Ic n="up" /> −</>}{fmt(mv.qty)}</td>
+                        <td>{mv.object_id ? <span className="clk" style={{ color: "var(--acc2)" }} onClick={() => openObject(mv.object_id)}>{mvWhere(mv)}</span> : mvWhere(mv)}{mv.object_name && mv.note && !/^(отгрузка на объект|возврат с объекта)/.test(mv.note) ? <span className="mut"> · {mv.note}</span> : null}</td>
+                        <td className="mut">{mv.user}</td></tr>)}
+                    </tbody></table> : <div className="xs mut">Движений по позиции нет</div>}
+                  </td></tr>}
+                  </React.Fragment>
+                  );
+                })}
               </React.Fragment>
-            ); })}
+              );
+            })}
             {!stock.length && <tr><td colSpan={9} className="mut" style={{ textAlign: "center", padding: 26 }}>Склад пуст — товары появляются автоматически при возвратах с объектов</td></tr>}
-            {stock.length > 0 && !shownStock.length && <tr><td colSpan={9} className="mut" style={{ textAlign: "center", padding: 20 }}>Ничего не найдено</td></tr>}
+            {stock.length > 0 && !shownGroups.length && <tr><td colSpan={9} className="mut" style={{ textAlign: "center", padding: 20 }}>Ничего не найдено</td></tr>}
           </tbody>
         </table>
       </div>
