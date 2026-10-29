@@ -638,6 +638,9 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .npanel-bg{position:fixed;inset:0;z-index:950;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(3px)}
 .npanel{width:min(760px,100%);max-height:min(84vh,820px);min-height:min(420px,84vh);display:flex;flex-direction:column;gap:12px;padding:18px 18px 16px;border-radius:var(--r-xl);background:var(--panel);border:1px solid var(--line2);box-shadow:0 30px 80px rgba(0,0,0,.45)}
 .npanel-head{display:flex;align-items:center;gap:8px}
+@media(min-width:821px){.te.fine .npanel-head{cursor:move;user-select:none}}
+.npanel-bg.free{background:none;backdrop-filter:none;pointer-events:none}
+.npanel-bg.free .npanel{pointer-events:auto}
 .npanel-head b{font-size:var(--fs-xl);margin-right:auto;display:flex;align-items:center;gap:8px}
 .npanel-cnt{font-size:var(--fs-xs);font-weight:700;color:var(--mut);background:var(--panel2);border:1px solid var(--line);border-radius:var(--r-pill);padding:1px 8px}
 .npanel-x{width:34px;height:34px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--panel2);color:var(--mut);font-size:var(--fs-lg);cursor:pointer;display:flex;align-items:center;justify-content:center}
@@ -9030,6 +9033,30 @@ function NotesPanel({ data, reload, toast, user, boss = false, onClose }) {
     if (r.error) { toast("Порядок заметок не сохранён"); return; }
     await reload(["requests"]);
   };
+  // окно заметок можно перетащить за шапку (на компьютере): становится «плавающим» — страница за ним не затемняется
+  // и работает; место запоминается; двойной щелчок по шапке — снова по центру
+  const posKey = "te:npanelpos:" + user.id;
+  const [wpos, setWpos] = useState(() => { try { const p = JSON.parse(localStorage.getItem(posKey) || "null"); return p && typeof p.x === "number" && typeof p.y === "number" ? p : null; } catch (e) { return null; } });
+  const wide = () => window.innerWidth > 820;
+  const headDown = (e) => {
+    if (e.button > 0 || e.pointerType !== "mouse" || !wide() || e.target.closest("button,input,textarea")) return;
+    const box = boxRef.current.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    let last = { x: box.left, y: box.top };
+    e.preventDefault();
+    const mv = (ev) => {
+      const x = Math.min(Math.max(box.left + ev.clientX - sx, 80 - box.width), window.innerWidth - 120);
+      const y = Math.min(Math.max(box.top + ev.clientY - sy, 0), window.innerHeight - 60);
+      last = { x: Math.round(x), y: Math.round(y) }; setWpos(last);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up);
+      try { localStorage.setItem(posKey, JSON.stringify(last)); } catch (er) {}
+    };
+    window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up);
+  };
+  const center = () => { setWpos(null); try { localStorage.removeItem(posKey); } catch (e) {} };
+  const free = !!wpos && wide();
   const listRef = useRef(null), dragRef = useRef(null), noClick = useRef(false);
   // перетаскивание: мышью — за любую часть заметки (после сдвига на 6 px), пальцем — за «⠿»
   const dragStart = (e, n) => {
@@ -9090,9 +9117,11 @@ function NotesPanel({ data, reload, toast, user, boss = false, onClose }) {
   };
   const when = (iso) => (iso ? new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "");
   return (
-    <div className="npanel-bg" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-    <div className="npanel" role="dialog" aria-label="Заметки" ref={boxRef}>
-      <div className="npanel-head">
+    <div className={"npanel-bg" + (free ? " free" : "")} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="npanel" role="dialog" aria-label="Заметки" ref={boxRef}
+      style={free ? { position: "fixed", margin: 0, left: Math.min(wpos.x, window.innerWidth - 120), top: Math.min(wpos.y, window.innerHeight - 60) } : undefined}>
+      <div className="npanel-head" onPointerDown={headDown} onDoubleClick={(e) => { if (!e.target.closest("button")) center(); }}
+        title={wide() ? "Перетащите окно за эту полосу · двойной щелчок — снова по центру" : undefined}>
         <b><Ic n="note" /> Заметки <span className="npanel-cnt">{notes.length}</span></b>
         <button type="button" className="npanel-x" title="Закрыть (Esc, Alt два раза)" onClick={onClose}>✕</button>
       </div>
