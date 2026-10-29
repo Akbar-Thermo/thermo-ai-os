@@ -1096,6 +1096,10 @@ const OLD_STATUSES = [
 const stById = (id) => OBJ_STATUSES.find((s) => s.id === id) || OLD_STATUSES.find((s) => s.id === id) || OBJ_STATUSES[0];
 const statusOptions = (cur) => { const old = OLD_STATUSES.find((s) => s.id === cur); return old ? [...OBJ_STATUSES, old] : OBJ_STATUSES; };
 const opLabel = (id) => (OP_TYPES.find((o) => o.id === id) || {}).label || id;
+// возврат денег клиенту — «Оплата клиента» с минусом: долг клиента растёт обратно (переплата уменьшается), в кассе — расход
+const isRefund = (o) => !!o && o.type === "client_payment" && Number(o.amount) < 0;
+const REFUND_LABEL = "Возврат денег клиенту";
+const opName = (o) => (isRefund(o) ? REFUND_LABEL : opLabel(o && o.type));
 // списки операций: новые сверху — по дате операции, при одинаковой дате — по времени записи
 // (раньше — в порядке записи в базу: операция «задним числом» оказывалась наверху)
 const opsNewestFirst = (list) => list.map((o, i) => ({ o, i, d: String(o.op_date || o.created_at || "").slice(0, 10), c: String(o.created_at || "") }))
@@ -1932,7 +1936,8 @@ function payInfo(op) {
   if (!m) return { id: null, cur: null, uzs: 0, rate: 0 };
   const r = op.reason ? SUM_RATE_RE.exec(op.reason) : null;
   const cur = op.pay_currency ? String(op.pay_currency).toLowerCase() : r ? "uzs" : m.cur || "usd";
-  const uzs = cur === "uzs" ? (op.pay_currency && Number(op.pay_amount)) || (r ? parseNum(r[1]) : 0) : 0;
+  let uzs = cur === "uzs" ? (op.pay_currency && Number(op.pay_amount)) || (r ? parseNum(r[1]) : 0) : 0;
+  if (Number(op.amount) < 0 && uzs > 0) uzs = -uzs;
   const rate = cur === "uzs" ? Number(op.pay_rate) || (r ? parseNum(r[2]) : 0) : 0;
   return { id: m.id, label: m.label, cur, uzs, rate };
 }
@@ -1940,7 +1945,7 @@ function payInfo(op) {
 function payText(op) {
   const i = payInfo(op);
   if (!i.id) return "";
-  return i.cur === "uzs" ? i.label + ": " + fmt(i.uzs) + " сум" + (i.rate ? " × курс " + fmt(i.rate) + (rateOk(i.rate) ? "" : " ⚠ курс неверный") : "") : i.label + (payMethod(i.id).cur === null ? " ($)" : "");
+  return i.cur === "uzs" ? i.label + ": " + fmt(Math.abs(i.uzs)) + " сум" + (i.rate ? " × курс " + fmt(i.rate) + (rateOk(i.rate) ? "" : " ⚠ курс неверный") : "") : i.label + (payMethod(i.id).cur === null ? " ($)" : "");
 }
 // детали операции без повтора способа оплаты (он уже записан в reason)
 const opDetails = (o, extra = []) => [...extra, o.item_name, payInfo(o).id ? payText(o) : o.reason, o.note].filter(Boolean).join(" · ");
@@ -1948,7 +1953,7 @@ function payInit(op, defUsd) {
   const i = payInfo(op);
   const method = i.id || "usd";
   const cur = i.id ? i.cur : payMethod(method).cur || "usd";
-  return { method, cur, usd: op ? op.amount || "" : defUsd || "", uzs: i.uzs || "", rate: i.rate || lastRate() };
+  return { method, cur, usd: op ? Math.abs(Number(op.amount) || 0) || "" : defUsd || "", uzs: Math.abs(i.uzs) || "", rate: i.rate || lastRate() };
 }
 // сумма в сумах меньше 1 000 — почти наверняка введена в тысячах («29» вместо «29 000»)
 const uzsOk = (u) => Number(u) >= 1000;
@@ -5509,7 +5514,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         e.ops.forEach((o, k) => {
           const i = payInfo(o), usd = round2(o.amount || 0); sub += usd;
           const uzs = i.cur === "uzs";
-          const label = i.id ? (payMethod(i.id).cur === null ? i.label + (uzs ? " сум" : " $") : i.label) : "Оплата";
+          const label0 = i.id ? (payMethod(i.id).cur === null ? i.label + (uzs ? " сум" : " $") : i.label) : "Оплата";
+          const label = isRefund(o) ? "Возврат денег клиенту (" + label0 + ")" : label0;
           rows.push({ k: "row", v: [k + 1, label, uzs ? (i.uzs ? fmt(i.uzs) : "") : usd, uzs ? (i.rate ? fmt(i.rate) : "") : 1, "", usd], merge: [[3, 4]] });
         });
         tot("Итого оплачено :", round2(sub));
@@ -5871,8 +5877,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
             {shownOps.map((o) => (
               <tr key={o.id} style={{ opacity: o.voided ? 0.4 : 1, textDecoration: o.voided ? "line-through" : "none" }}>
                 <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
-                <td>{opLabel(o.type)}{o.type === "expense" ? <div className="xs exp-cl" style={{ color: o.size === EXP_CLIENT ? "var(--acc2)" : "var(--mut)", fontWeight: o.size === EXP_CLIENT ? 700 : 400 }}>{o.size === EXP_CLIENT ? "в Excel клиенту · в долг клиента" : "только наш расход"}</div> : null}{o.type === "return" && o.product_name ? <div className="xs mut">{o.product_name} × {o.qty}</div> : null}{o.edited && <div className="xs" style={{ color: "var(--warn)" }}>изменено</div>}</td>
-                <td className="num" style={{ fontWeight: 700, color: o.type === "client_payment" ? "var(--ok)" : "inherit" }}>{fmt(o.amount)}</td>
+                <td>{opName(o)}{o.type === "expense" ? <div className="xs exp-cl" style={{ color: o.size === EXP_CLIENT ? "var(--acc2)" : "var(--mut)", fontWeight: o.size === EXP_CLIENT ? 700 : 400 }}>{o.size === EXP_CLIENT ? "в Excel клиенту · в долг клиента" : "только наш расход"}</div> : null}{o.type === "return" && o.product_name ? <div className="xs mut">{o.product_name} × {o.qty}</div> : null}{o.edited && <div className="xs" style={{ color: "var(--warn)" }}>изменено</div>}</td>
+                <td className="num" style={{ fontWeight: 700, color: isRefund(o) ? "var(--bad)" : o.type === "client_payment" ? "var(--ok)" : "inherit" }}>{fmt(o.amount)}</td>
                 <td className="xs mut">{opDetails(o, [o.supplier_id ? supName(o.supplier_id) : ""])}{!o.voided && (fin || MANAGER_OP_TYPES.includes(o.type)) && <RateRepairLine op={o} where={"object:" + obj.name} onDone={async (usd) => { await reload(); toast("Исправлено: " + fmt(usd) + " $"); }} />}</td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
                   {!o.voided && (fin || MANAGER_OP_TYPES.includes(o.type)) && <button className="btn xs" title="Изменить" aria-label="Изменить" onClick={() => setEditOp(o)}><Ic n="pencil" /></button>}
@@ -5939,12 +5945,12 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         setOpForm(null); await reload();
         toast("Возврат оформлен: " + list.length + " поз." + (toWh.length ? " → Склад Thermo: " + (toWh.length - whFail) : "") + (toSup ? " → поставщику: " + toSup + " (долг уменьшен)" : "") + (whFail ? " · ⚠ на склад не записано: " + whFail + " — проверьте Склад" : ""));
       }} />}
-      {opForm && opForm.type !== "return" && <OpForm obj={obj} type={opForm.type} suppliers={suppliers} onClose={() => setOpForm(null)}
+      {opForm && opForm.type !== "return" && <OpForm obj={obj} type={opForm.type} suppliers={suppliers} paid={f.paidClient} overpay={Math.max(0, -f.clientDebt)} onClose={() => setOpForm(null)}
         onSave={async (op) => {
           if (op.type === "bonus") op.master_id = obj.master_id || null;
           const r = await db.from("finance_ops").insert(cleanUuids(op));
           if (r.error) return; // ошибка уже показана, окно остаётся открытым
-          await logAction(opLabel(op.type), "object:" + obj.name, fmt(op.amount) + (isPayType(op.type) ? " · " + payText(op) : "") + (op.note ? " · " + op.note : "")); setOpForm(null); await reload(); toast("Операция добавлена");
+          await logAction(opName(op), "object:" + obj.name, fmt(op.amount) + (isPayType(op.type) ? " · " + payText(op) : "") + (op.note ? " · " + op.note : "")); setOpForm(null); await reload(); toast(isRefund(op) ? "Возврат денег клиенту записан: " + fmt2(-op.amount) + " $" : "Операция добавлена");
         }} />}
     </div>
   );
@@ -6511,7 +6517,7 @@ function EditOpModal({ op, suppliers, isReturn, onClose, onSave, products = null
   });
   const [toClient, setToClient] = useState(op.size === EXP_CLIENT);
   return (
-    <Modal title={"Редактировать: " + opLabel(op.type)} onClose={onClose} w={520}>
+    <Modal title={"Редактировать: " + opName(op)} onClose={onClose} w={520}>
       {isReturn && <p className="sm" style={{ color: "var(--warn)", marginBottom: 10 }}>⚠ У возврата можно изменить только дату, причину и комментарий. Количество/сумму меняйте так: удалите возврат и оформите новый — иначе разойдётся склад.</p>}
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         {bonusItem && products && <div style={{ gridColumn: "1/-1" }}><Fld label="Найти в товарах поставщиков (необязательно)">
@@ -6553,6 +6559,7 @@ function EditOpModal({ op, suppliers, isReturn, onClose, onSave, products = null
           if (bonusItem) patch.item_name = v.item_name.trim() || op.item_name;
           if (objects && (op.type === "bonus" || op.type === "bonus_payment")) patch.object_id = v.object_id || null;
           if (usesPay) Object.assign(patch, payPatch(pay, op.type, false));
+          if (isRefund(op) && usesPay) { patch.amount = -Math.abs(patch.amount); patch.pay_amount = -Math.abs(Number(patch.pay_amount) || 0); }
           setBusy(true); await onSave(patch); setBusy(false);
         }} disabled={busy || (usesPay ? !(payUsd(pay) > 0) : !isReturn && !(parseNum(v.amount) > 0)) || (bonusItem && !v.item_name.trim())}>{busy ? "Сохраняю…" : "Сохранить"}</button>
       </div>
@@ -6672,7 +6679,7 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
     </Modal>
   );
 }
-function OpForm({ obj, type, suppliers, onClose, onSave }) {
+function OpForm({ obj, type, suppliers, onClose, onSave, paid = 0, overpay = 0 }) {
   const items = obj.items || [];
   // поставщики этого объекта — первыми в списке; если он один, выбран сразу
   const objSupIds = [...new Set(items.filter((i) => i.supplier_id && !i.from_warehouse).map((i) => i.supplier_id))];
@@ -6685,6 +6692,8 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
   const [toClient, setToClient] = useState(null); // доп. расход: показать клиенту в Excel (и в его долг) — спрашиваем каждый раз
   const usesPay = isPayType(type); // клиент платит / оплата поставщику / доп. расход — со способом оплаты
   const [pay, setPay] = useState(() => payInit(null));
+  const [refund, setRefund] = useState(false); // «Оплата клиента» → «Возврат денег клиенту»
+  const canRefund = type === "client_payment";
   const [busy, setBusy] = useState(false);
   const item = items.find((i) => i.id === v.item_id);
   const retAmount = item ? v.qty * item.price : 0;
@@ -6694,13 +6703,24 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
     if (isReturn && item) {
       await onSave({ ...base, amount: retAmount, cost_amount: v.qty * item.cost, qty: v.qty, product_id: item.product_id, product_name: item.name, supplier_id: item.supplier_id });
     } else if (usesPay) {
-      await onSave({ ...base, ...payPatch(pay, type), supplier_id: isSupPay ? v.supplier_id || null : null, ...(isExp ? { size: toClient ? EXP_CLIENT : null } : {}) });
+      const pp = payPatch(pay, type);
+      // возврат денег — та же операция с минусом (и сумма в валюте тоже)
+      if (refund) { pp.amount = -Math.abs(pp.amount); pp.pay_amount = -Math.abs(Number(pp.pay_amount) || 0); }
+      await onSave({ ...base, ...pp, supplier_id: isSupPay ? v.supplier_id || null : null, ...(isExp ? { size: toClient ? EXP_CLIENT : null } : {}) });
     } else {
       await onSave({ ...base, amount: parseNum(v.amount), supplier_id: isSupPay ? v.supplier_id || null : null, item_name: isBonus && v.item_name ? v.item_name : null });
     }
   };
   return (
-    <Modal title={opLabel(type)} onClose={onClose} w={520}>
+    <Modal title={refund ? REFUND_LABEL : opLabel(type)} onClose={onClose} w={520}>
+      {canRefund && <div className="seg op-dir" style={{ marginBottom: 12 }}>
+        <button type="button" className={!refund ? "on" : ""} onClick={() => setRefund(false)}><Ic n="down" /> Клиент платит</button>
+        <button type="button" className={refund ? "on" : ""} onClick={() => setRefund(true)}><Ic n="up" /> Вернуть деньги клиенту</button>
+      </div>}
+      {refund && <div className="sm op-ref" style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 10, background: "color-mix(in srgb, var(--bad) 8%, transparent)" }}>
+        {overpay > 0.004 ? <>Переплата клиента: <b>{fmt2(overpay)} $</b> <button type="button" className="btn xs" onClick={() => setPay(paySetUsd(pay, overpay))}>вернуть всю</button></> : <>Переплаты нет — долг клиента вырастет на сумму возврата.</>}
+        <div className="xs mut" style={{ marginTop: 4 }}>Оплачено клиентом: {fmt2(paid)} $ · деньги уйдут из кассы</div>
+      </div>}
       <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
         {isReturn ? (
           <>
@@ -6714,7 +6734,7 @@ function OpForm({ obj, type, suppliers, onClose, onSave }) {
           </>
         ) : (
           <>
-            {usesPay ? <PayFields p={pay} setP={setPay} methods={payMethodsFor(type)} usdLabel={payUsdLabel(type)} /> : <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: e.target.value })} /></Fld>}
+            {usesPay ? <PayFields p={pay} setP={setPay} methods={payMethodsFor(type)} usdLabel={refund ? "Вернуть клиенту, $" : payUsdLabel(type)} /> : <Fld label="Сумма"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: e.target.value })} /></Fld>}
             {isSupPay && <Fld label="Поставщик (обязательно)"><select className="inp" value={v.supplier_id} onChange={(e) => setV({ ...v, supplier_id: e.target.value })} style={{ borderColor: v.supplier_id ? undefined : "var(--bad)" }}><option value="">— выберите поставщика —</option>{supOpts.map((s) => <option key={s.id} value={s.id}>{s.name}{objSupIds.includes(s.id) ? " · в этом объекте" : ""}</option>)}</select></Fld>}
             {isBonus && <Fld label="Предмет (если бонус вещью)"><input className="inp" value={v.item_name} onChange={(e) => setV({ ...v, item_name: e.target.value })} placeholder="инструмент / предмет — опц." /></Fld>}
             <div style={{ gridColumn: "1/-1" }}><Fld label={isExp ? "За что расход (видно клиенту, если «Да»)" : "Комментарий"}><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} placeholder={isExp ? "доставка / такси / работа мастера…" : undefined} /></Fld></div>
@@ -8457,7 +8477,7 @@ function FinanceTab({ data, reload, toast, boss = false }) {
   const totalExp = genExpenses.reduce((a, o) => a + (o.amount || 0), 0);
   // общий список операций — тоже за выбранный период (раньше показывались все операции за всё время)
   const ql = opsQ.trim().toLowerCase();
-  const periodOps = finance_ops.filter((o) => inRange(o) && (!ql || [objName(o.object_id), supName(o.supplier_id), opLabel(o.type), o.product_name, o.reason, o.note, o.user, o.category].join(" ").toLowerCase().includes(ql)))
+  const periodOps = finance_ops.filter((o) => inRange(o) && (!ql || [objName(o.object_id), supName(o.supplier_id), opName(o), o.product_name, o.reason, o.note, o.user, o.category].join(" ").toLowerCase().includes(ql)))
     .sort((a, b) => String(b.op_date || b.created_at || "").localeCompare(String(a.op_date || a.created_at || "")) || String(b.created_at || "").localeCompare(String(a.created_at || "")));
   return (
     <div>
@@ -8647,8 +8667,8 @@ function FinanceTab({ data, reload, toast, boss = false }) {
               <tr key={o.id} style={{ opacity: o.voided ? 0.4 : 1, textDecoration: o.voided ? "line-through" : "none" }}>
                 <td className="xs mono mut">{dt(o.op_date || o.created_at)}</td>
                 <td className="sm">{objName(o.object_id)}</td>
-                <td>{opLabel(o.type)}</td>
-                <td className="num" style={{ fontWeight: 700 }}>{fmt(o.amount)}</td>
+                <td>{opName(o)}</td>
+                <td className="num" style={{ fontWeight: 700, color: isRefund(o) ? "var(--bad)" : undefined }}>{fmt(o.amount)}</td>
                 <td className="xs mut">{opDetails(o, [supName(o.supplier_id), o.product_name])}{!o.voided && <RateRepairLine op={o} where={o.object_id ? "object:" + objName(o.object_id) : "finance"} onDone={async (usd) => { await reload(); toast("Исправлено: " + fmt(usd) + " $"); }} />}</td>
                 <td className="xs mut">{o.user}</td>
               </tr>
@@ -8752,7 +8772,9 @@ function kassaOps(data, ops, from, to = from) {
       if (x.object_id && (!o || !isLive(o) || (x.type === "client_payment" && !payLive(o)))) return;
       const i = payInfo(x);
       const inUzs = i.cur === "uzs";
-      const amt = inUzs ? Number(i.uzs) || 0 : Number(x.amount) || 0;
+      const ref = isRefund(x);
+      const raw = inUzs ? Number(i.uzs) || 0 : Number(x.amount) || 0;
+      const amt = ref ? Math.abs(raw) : raw; // возврат денег клиенту — расход из кассы
       if (!amt) return;
       const nonCash = i.id === "card" || i.id === "transfer";
       const bucket = nonCash ? (inUzs ? "card" : "cardUsd") : inUzs ? "uzs" : "usd";
@@ -8760,13 +8782,14 @@ function kassaOps(data, ops, from, to = from) {
       const s = salaryInfo(x);
       // сначала вид операции, потом кому / за что
       let type, rest;
-      if (x.type === "client_payment") { type = "Оплата клиента"; rest = [o && o.name, x.note]; }
+      if (ref) { type = REFUND_LABEL; rest = [o && o.name, x.note]; }
+      else if (x.type === "client_payment") { type = "Оплата клиента"; rest = [o && o.name, x.note]; }
       else if (x.type === "supplier_payment") { type = "Оплата поставщику"; rest = [supName(x.supplier_id) || "поставщик не указан", x.note]; }
       else if (x.type === "bonus_payment") { type = "Бонус мастеру"; rest = [mName(x.master_id) || x.product_name, x.note]; }
       else if (x.type === "expense") { type = "Доп. расход"; rest = [o && o.name, x.note]; }
       else if (s) { type = [x.category, s.kind && s.kind !== x.category ? s.kind.toLowerCase() : ""].filter(Boolean).join(" "); rest = [s.emp, s.note]; }
       else { type = x.category || opLabel(x.type); rest = [x.note]; }
-      list.push({ id: x.id, t: x.type, dir: KASSA_IN_T.includes(x.type) ? "in" : "out", bucket, amt, transfer,
+      list.push({ id: x.id, t: ref ? "client_refund" : x.type, dir: KASSA_IN_T.includes(x.type) && !ref ? "in" : "out", bucket, amt, transfer,
         label: [type, ...rest].filter(Boolean).join(", "), short: rest.filter(Boolean).join(", "), def: KASSA_DEF.includes(x.type) && !transfer });
     });
   return list;
@@ -10804,7 +10827,7 @@ function archiveBook(T, who) {
     i.from_warehouse ? "Склад Thermo" : supName.get(i.supplier_id) || "", isShipped(i) ? "да" : "нет"])));
   add("Позиции объектов", [["Объект", "Клиент", "Поставка №", "Дата поставки", "Товар", "Размер", "Кол-во", "Ед.", "Цена, $", "Сумма, $", "Себест., $", "Сумма себест., $", "Поставщик", "Отгружено"], ...itemRows]);
   add("Операции", [["Дата", "Операция", "Объект", "Поставщик", "Мастер", "Сумма, $", "Себест. (возврат), $", "Способ оплаты / причина", "Категория", "Товар / предмет", "Кол-во", "Комментарий", "Кто", "Сторно"],
-    ...opsNewestFirst(ops).map((o) => [d(o.op_date || o.created_at), opLabel(o.type), oName.get(o.object_id) || "", supName.get(o.supplier_id) || "", mName.get(o.master_id) || "",
+    ...opsNewestFirst(ops).map((o) => [d(o.op_date || o.created_at), opName(o), oName.get(o.object_id) || "", supName.get(o.supplier_id) || "", mName.get(o.master_id) || "",
       r2(o.amount), o.cost_amount ? r2(o.cost_amount) : "", o.reason || "", o.category || "", o.product_name || o.item_name || "", o.qty == null ? "" : Number(o.qty) || 0, o.note || "",
       o.user || o.user_name || "", o.voided ? "сторно" : ""])]);
   add("Поставщики", [["Поставщик", "Контакт", "Телефон", "Закупки, $", "Оплачено, $", "Возвраты, $", "Долг (+) / аванс (−), $", "Статус"], ...supRows]);
