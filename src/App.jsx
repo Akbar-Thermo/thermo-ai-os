@@ -644,6 +644,18 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .inp.no-spin::-webkit-outer-spin-button,.inp.no-spin::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 @media(min-width:821px){.te.fine .npanel-head{cursor:move;user-select:none}}
 .npanel-bg.free{background:none;backdrop-filter:none;pointer-events:none}
+.npanel{position:relative}
+.fw-grip{position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:nwse-resize;z-index:2;border-radius:0 0 var(--r-xl) 0;background:linear-gradient(135deg,transparent 50%,var(--line2) 50%,var(--line2) 58%,transparent 58%,transparent 70%,var(--line2) 70%,var(--line2) 78%,transparent 78%);opacity:.8}
+.fw-grip:hover{opacity:1}
+body.fw-busy,body.fw-busy *{user-select:none!important}
+.nwin{position:fixed;z-index:5;display:flex;flex-direction:column;gap:10px;padding:16px 18px 14px;border-radius:var(--r-xl);background:var(--panel);border:1px solid var(--line2);box-shadow:0 30px 80px rgba(0,0,0,.45);pointer-events:auto;overflow:hidden}
+.nwin-head{display:flex;align-items:center;gap:8px;cursor:move;user-select:none}
+.nwin-head b{font-size:var(--fs-lg);margin-right:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.note-form.in-win{display:flex;flex-direction:column;flex:1;min-height:0}
+.note-form.in-win .note-text-fld{flex:1;min-height:0;display:flex;flex-direction:column}
+.note-form.in-win .note-area{flex:1;min-height:80px;resize:none}
+.pnote.open{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
+@media(max-width:820px){.fw-grip{display:none}}
 .npanel-bg.free .npanel{pointer-events:auto}
 .npanel-head b{font-size:var(--fs-xl);margin-right:auto;display:flex;align-items:center;gap:8px}
 .npanel-cnt{font-size:var(--fs-xs);font-weight:700;color:var(--mut);background:var(--panel2);border:1px solid var(--line);border-radius:var(--r-pill);padding:1px 8px}
@@ -1648,7 +1660,7 @@ async function batchInsert(table, rows, chunkSize = 500, onProgress) {
 // (сохранённые номера/имена). Невидимый символ внутри этих слов не даёт браузеру их распознать, текст выглядит так же.
 const NO_AUTOFILL_WORDS = /(тел)(ефон)|(им)(я)|(фам)(илия)|(отч)(ество)|(адр)(ес)|(поч)(та)|(e-?ma)(il)|(гор)(од)|(инд)(екс)/gi;
 const noAutofillLabel = (t) => (typeof t === "string" ? t.replace(NO_AUTOFILL_WORDS, (m) => m.slice(0, Math.ceil(m.length / 2)) + "\u2060" + m.slice(Math.ceil(m.length / 2))) : t);
-const Fld = ({ label, children }) => (<div className="fld"><label>{noAutofillLabel(label)}</label>{children}</div>);
+const Fld = ({ label, children, cls = "" }) => (<div className={"fld" + (cls ? " " + cls : "")}><label>{noAutofillLabel(label)}</label>{children}</div>);
 // всем полям ввода в системе — отключаем автозаполнение браузера (кроме пароля на входе)
 let NO_AF_SEQ = 0;
 const noAutofillInput = (el) => {
@@ -9042,6 +9054,42 @@ const NOTE_COLORS = ["", "#ff1f30", "#ffb020", "#3ddc7d", "#3d9bff", "#a46bff"];
 // окно заметок: большое окно по центру; левый + правый Alt — открыть / закрыть; курсор сразу в новой заметке;
 // Enter — сохранить, Shift+Enter — новая строка
 const noteDraftKey = (uid) => "te:notedraft:" + uid;
+// плавающее окно (компьютер): тянуть за шапку, размер — за уголок справа внизу; место и размер запоминаются.
+// def() — где показать в первый раз (пока окно не двигали)
+function useFloatWin(key, { minW = 320, minH = 260, def = null } = {}) {
+  const load = () => { try { const p = JSON.parse(localStorage.getItem(key) || "null"); return p && typeof p.x === "number" && typeof p.y === "number" ? p : null; } catch (e) { return null; } };
+  const [st, setSt] = useState(() => load() || (def && window.innerWidth > 820 ? def() : null));
+  const ref = useRef(null);
+  const save = (v) => { try { if (v) localStorage.setItem(key, JSON.stringify(v)); else localStorage.removeItem(key); } catch (e) {} };
+  const wide = () => window.innerWidth > 820;
+  const drag = (e, mode) => {
+    if (e.button > 0 || e.pointerType !== "mouse" || !wide() || !ref.current) return;
+    if (mode === "move" && e.target.closest("button,input,textarea,select,a,label")) return;
+    const box = ref.current.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY;
+    let last = { ...(st || {}), x: Math.round(box.left), y: Math.round(box.top) };
+    if (mode === "size") { last.w = Math.round(box.width); last.h = Math.round(box.height); }
+    e.preventDefault(); e.stopPropagation();
+    document.body.classList.add("fw-busy");
+    const mv = (ev) => {
+      if (mode === "move") last = { ...last, x: Math.round(Math.min(Math.max(box.left + ev.clientX - sx, 80 - box.width), window.innerWidth - 120)), y: Math.round(Math.min(Math.max(box.top + ev.clientY - sy, 0), window.innerHeight - 60)) };
+      else last = { ...last, w: Math.round(Math.min(Math.max(box.width + ev.clientX - sx, minW), window.innerWidth - box.left - 8)), h: Math.round(Math.min(Math.max(box.height + ev.clientY - sy, minH), window.innerHeight - box.top - 8)) };
+      setSt(last);
+    };
+    const up = () => { window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up); document.body.classList.remove("fw-busy"); save(last); };
+    window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up);
+  };
+  const reset = () => { const d = def && wide() ? def() : null; setSt(d); save(null); };
+  const on = !!st && wide();
+  const W = window.innerWidth, H = window.innerHeight;
+  const top = on ? Math.max(0, Math.min(st.y, H - 60)) : 0;
+  const style = on ? { position: "fixed", margin: 0, left: Math.max(0, Math.min(st.x, W - 120)), top,
+    ...(st.w ? { width: Math.min(st.w, W - 16), maxWidth: "none" } : {}), ...(st.h ? { height: Math.max(Math.min(minH, H - top - 8), Math.min(st.h, H - top - 8)), maxHeight: "none", minHeight: 0 } : {}) } : undefined;
+  return { ref, on, style, headDown: (e) => drag(e, "move"), sizeDown: (e) => drag(e, "size"), reset };
+}
+// уголок для изменения размера окна (только мышь, на телефоне скрыт)
+const FwGrip = ({ fw }) => <div className="fw-grip" title="Потяните, чтобы изменить размер окна" onPointerDown={fw.sizeDown} onDoubleClick={(e) => e.stopPropagation()} />;
+
 function NotesPanel({ data, reload, toast, user, boss = false, onClose }) {
   const boxRef = useRef(null), taRef = useRef(null);
   const [q, setQ] = useState("");
@@ -9062,7 +9110,7 @@ function NotesPanel({ data, reload, toast, user, boss = false, onClose }) {
   // Esc — закрыть (черновик сохраняется)
   useEffect(() => {
     const h = (e) => {
-      if (e.key !== "Escape" || topModal() || !boxRef.current || !boxRef.current.contains(document.activeElement)) return;
+      if (e.key !== "Escape" || topModal() || !boxRef.current || !boxRef.current.contains(document.activeElement) || (document.activeElement && document.activeElement.closest(".nwin"))) return;
       e.preventDefault(); e.stopPropagation(); onClose();
     };
     window.addEventListener("keydown", h, true);
@@ -9096,30 +9144,18 @@ function NotesPanel({ data, reload, toast, user, boss = false, onClose }) {
     if (r.error) { toast("Порядок заметок не сохранён"); return; }
     await reload(["requests"]);
   };
-  // окно заметок можно перетащить за шапку (на компьютере): становится «плавающим» — страница за ним не затемняется
-  // и работает; место запоминается; двойной щелчок по шапке — снова по центру
-  const posKey = "te:npanelpos:" + user.id;
-  const [wpos, setWpos] = useState(() => { try { const p = JSON.parse(localStorage.getItem(posKey) || "null"); return p && typeof p.x === "number" && typeof p.y === "number" ? p : null; } catch (e) { return null; } });
+  // окно заметок можно перетащить за шапку и растянуть за уголок (на компьютере): становится «плавающим» —
+  // страница за ним не затемняется и работает; место и размер запоминаются; двойной щелчок по шапке — снова по центру
+  const fw = useFloatWin("te:npanelpos:" + user.id, { minW: 340, minH: 300 });
   const wide = () => window.innerWidth > 820;
-  const headDown = (e) => {
-    if (e.button > 0 || e.pointerType !== "mouse" || !wide() || e.target.closest("button,input,textarea")) return;
-    const box = boxRef.current.getBoundingClientRect();
-    const sx = e.clientX, sy = e.clientY;
-    let last = { x: box.left, y: box.top };
-    e.preventDefault();
-    const mv = (ev) => {
-      const x = Math.min(Math.max(box.left + ev.clientX - sx, 80 - box.width), window.innerWidth - 120);
-      const y = Math.min(Math.max(box.top + ev.clientY - sy, 0), window.innerHeight - 60);
-      last = { x: Math.round(x), y: Math.round(y) }; setWpos(last);
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", mv); window.removeEventListener("pointerup", up);
-      try { localStorage.setItem(posKey, JSON.stringify(last)); } catch (er) {}
-    };
-    window.addEventListener("pointermove", mv); window.addEventListener("pointerup", up);
+  const free = fw.on;
+  // открытая заметка: на компьютере — отдельное окно рядом (список заметок остаётся и работает), на телефоне — как раньше
+  const edDirty = useRef(false);
+  const openNote = async (n) => {
+    if (ed && ed.id === n.id) return;
+    if (ed && edDirty.current && !(await askConfirm({ title: "Изменения не сохранены", text: "Открыть другую заметку без сохранения?", ok: "Открыть", cancel: "Остаться" }))) return;
+    edDirty.current = false; setEd(n);
   };
-  const center = () => { setWpos(null); try { localStorage.removeItem(posKey); } catch (e) {} };
-  const free = !!wpos && wide();
   const listRef = useRef(null), dragRef = useRef(null), noClick = useRef(false);
   // перетаскивание: мышью — за любую часть заметки (после сдвига на 6 px), пальцем — за «⠿»
   const dragStart = (e, n) => {
@@ -9166,8 +9202,13 @@ function NotesPanel({ data, reload, toast, user, boss = false, onClose }) {
     const t = draft.trim();
     if (!t || busy) return;
     const [first, ...rest] = t.split("\n");
+    // первая строка — заголовок; длинная строка (больше 80 знаков) — заголовок из её начала по целым словам с «…»,
+    // а текст — весь целиком (раньше строка резалась посередине слова: начало в заголовке, конец в тексте)
+    const f = first.trim();
+    let title = f, text = rest.join("\n").trim();
+    if (f.length > 80) { const cut = f.slice(0, 80); const sp = cut.lastIndexOf(" "); title = (sp > 30 ? cut.slice(0, sp) : cut).replace(/[\s,.;:–-]+$/, "") + "…"; text = t; }
     setBusy(true);
-    const ok = await save({ title: first.trim().slice(0, 80), text: (first.trim().length > 80 ? first.trim().slice(80) + "\n" : "") + rest.join("\n").trim() });
+    const ok = await save({ title, text });
     setBusy(false);
     if (ok) { setDraft(""); toast("Заметка сохранена"); if (taRef.current) taRef.current.focus(); }
   };
@@ -9181,10 +9222,9 @@ function NotesPanel({ data, reload, toast, user, boss = false, onClose }) {
   const when = (iso) => (iso ? new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "");
   return (
     <div className={"npanel-bg" + (free ? " free" : "")} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-    <div className="npanel" role="dialog" aria-label="Заметки" ref={boxRef}
-      style={free ? { position: "fixed", margin: 0, left: Math.min(wpos.x, window.innerWidth - 120), top: Math.min(wpos.y, window.innerHeight - 60) } : undefined}>
-      <div className="npanel-head" onPointerDown={headDown} onDoubleClick={(e) => { if (!e.target.closest("button")) center(); }}
-        title={wide() ? "Перетащите окно за эту полосу · двойной щелчок — снова по центру" : undefined}>
+    <div className="npanel" role="dialog" aria-label="Заметки" ref={(el) => { boxRef.current = el; fw.ref.current = el; }} style={fw.style}>
+      <div className="npanel-head" onPointerDown={fw.headDown} onDoubleClick={(e) => { if (!e.target.closest("button")) fw.reset(); }}
+        title={wide() ? "Перетащите окно за эту полосу · размер — за уголок справа внизу · двойной щелчок — снова по центру" : undefined}>
         <b><Ic n="note" /> Заметки <span className="npanel-cnt">{notes.length}</span></b>
         <button type="button" className="npanel-x" title="Закрыть (Esc, Alt два раза)" onClick={onClose}>✕</button>
       </div>
@@ -9198,9 +9238,9 @@ function NotesPanel({ data, reload, toast, user, boss = false, onClose }) {
       <div className="npanel-search"><span><Ic n="search" /></span><input className="inp" placeholder="Поиск по заметкам" value={q} onChange={(e) => setQ(e.target.value)} /></div>
       <div className={"npanel-list" + (drag ? " dragging" : "")} ref={listRef}>
         {shown.map((n) => (
-          <div key={n.id} data-id={n.id} className={"pnote clk" + (drag && drag.id === n.id ? " drag" : "")} style={n.color ? { "--pc": n.color } : undefined} tabIndex={0}
+          <div key={n.id} data-id={n.id} className={"pnote clk" + (drag && drag.id === n.id ? " drag" : "") + (ed && ed.id === n.id && wide() ? " open" : "")} style={n.color ? { "--pc": n.color } : undefined} tabIndex={0}
             title={words.length ? undefined : "Перетащите, чтобы поменять порядок"}
-            onPointerDown={(e) => dragStart(e, n)} onClick={() => { if (!noClick.current) setEd(n); }} onKeyDown={(e) => { if (e.key === "Enter") setEd(n); }}>
+            onPointerDown={(e) => dragStart(e, n)} onClick={() => { if (!noClick.current) openNote(n); }} onKeyDown={(e) => { if (e.key === "Enter") openNote(n); }}>
             <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
               {!words.length && <span className="pnote-grip" aria-hidden="true">⠿</span>}
               <b className="pnote-title" style={{ marginRight: "auto" }}>{n.title || String(n.text || "").split("\n")[0] || "Без названия"}</b>
@@ -9213,23 +9253,70 @@ function NotesPanel({ data, reload, toast, user, boss = false, onClose }) {
         ))}
         {!shown.length && <div className="mut sm" style={{ textAlign: "center", padding: 18 }}>{notes.length ? "Ничего не найдено" : "Заметок пока нет"}</div>}
       </div>
-      {ed && <NoteModal n={ed} mine={!ed.id || ed.user_id === user.id} canDel={boss} onClose={() => setEd(null)} onSave={async (n) => { if (await save(n)) setEd(null); }} onDelete={async () => { if (await del(ed)) setEd(null); }} onHide={() => { hideForMe(ed.id); setEd(null); }} />}
+      {ed && (() => {
+        const p = { n: ed, mine: !ed.id || ed.user_id === user.id, canDel: boss, onClose: () => { edDirty.current = false; setEd(null); },
+          onSave: async (n) => { if (await save(n)) { edDirty.current = false; setEd(null); } }, onDelete: async () => { if (await del(ed)) { edDirty.current = false; setEd(null); } },
+          onHide: () => { hideForMe(ed.id); setEd(null); } };
+        return wide() ? <NoteWin key={ed.id || "new"} {...p} uid={user.id} anchor={boxRef} dirtyRef={edDirty} /> : <NoteModal {...p} />;
+      })()}
+      <FwGrip fw={fw} />
     </div>
     </div>
   );
 }
-function NoteModal({ n, mine, canDel = false, onClose, onSave, onDelete, onHide }) {
+// заметка в отдельном окне рядом со списком (компьютер): окно двигается и растягивается, список за ним работает —
+// можно щёлкнуть другую заметку; закрыли — остаётся список заметок
+function NoteWin({ n, uid, anchor, dirtyRef, onClose, ...rest }) {
+  const fw = useFloatWin("te:notewin:" + uid, { minW: 340, minH: 300, def: () => {
+    // рядом со списком заметок: справа или слева, где хватает места (не меньше 380 px); тесно — у правого края экрана
+    const W = window.innerWidth, H = window.innerHeight, h = Math.min(560, H - 40);
+    const a = anchor && anchor.current ? anchor.current.getBoundingClientRect() : null;
+    let w = Math.min(560, W - 16), x = Math.round((W - w) / 2), y = Math.max(20, Math.round((H - h) / 2));
+    if (a) {
+      const R = W - a.right - 20, L = a.left - 20;
+      y = Math.round(a.top);
+      if (R >= 380 && R >= L) { w = Math.min(560, R); x = Math.round(a.right + 12); }
+      else if (L >= 380) { w = Math.min(560, L); x = Math.round(a.left - 12 - w); }
+      else { w = Math.min(520, W - 16); x = W - w - 8; y = Math.round(a.top + 30); }
+    }
+    return { x, y: Math.max(0, Math.min(y, H - h - 8)), w, h };
+  } });
+  const ro = !rest.mine;
+  const title = n.id ? (ro ? "Заметка · " + (n.author || "") : "Заметка") : "Новая заметка";
+  return (
+    <div className="nwin" role="dialog" aria-label={title} ref={fw.ref} style={fw.style}
+      onKeyDown={(e) => { if (e.key === "Escape" && !topModal()) { e.preventDefault(); e.stopPropagation(); onClose(); } }}>
+      <div className="nwin-head" onPointerDown={fw.headDown} onDoubleClick={(e) => { if (!e.target.closest("button")) fw.reset(); }} title="Перетащите окно за эту полосу · размер — за уголок справа внизу · двойной щелчок — на место">
+        <b>{title}</b>
+        <button type="button" className="npanel-x" title="Закрыть (Esc)" onClick={onClose}>✕</button>
+      </div>
+      <NoteForm n={n} onClose={onClose} dirtyRef={dirtyRef} win {...rest} />
+      <FwGrip fw={fw} />
+    </div>
+  );
+}
+function NoteModal({ n, onClose, ...rest }) {
+  const ro = !rest.mine;
+  return (
+    <Modal title={n.id ? (ro ? "Заметка · " + (n.author || "") : "Заметка") : "Новая заметка"} onClose={onClose} w={620}>
+      <NoteForm n={n} onClose={onClose} {...rest} />
+    </Modal>
+  );
+}
+function NoteForm({ n, mine, canDel = false, onClose, onSave, onDelete, onHide, dirtyRef = null, win = false }) {
   const [v, setV] = useState({ title: "", text: "", color: "", pinned: false, shared: false, ...n });
   const [busy, setBusy] = useState(false);
   const ro = !mine; // чужую общую заметку — только читать
+  const set = (patch) => { const nv = { ...v, ...patch }; setV(nv); if (dirtyRef) dirtyRef.current = ["title", "text", "color", "pinned", "shared"].some((k) => (nv[k] || "") !== ((n[k] == null ? (k === "pinned" || k === "shared" ? false : "") : n[k]) || "")); };
+  const doSave = async () => { if (busy || ro || !(String(v.title).trim() || String(v.text).trim())) return; setBusy(true); await onSave(v); setBusy(false); };
   return (
-    <Modal title={n.id ? (ro ? "Заметка · " + (n.author || "") : "Заметка") : "Новая заметка"} onClose={onClose} w={620}>
-      <Fld label="Заголовок"><input className="inp" value={v.title} readOnly={ro} onChange={(e) => setV({ ...v, title: e.target.value })} placeholder="например: позвонить клиенту" /></Fld>
-      <Fld label="Текст"><textarea className="inp note-area" value={v.text} readOnly={ro} autoFocus={!!n.id && !ro} onChange={(e) => setV({ ...v, text: e.target.value })} placeholder="Текст заметки…" /></Fld>
+    <div className={"note-form" + (win ? " in-win" : "")} onKeyDown={win ? (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); doSave(); } } : undefined}>
+      <Fld label="Заголовок"><input className="inp" value={v.title} readOnly={ro} onChange={(e) => set({ title: e.target.value })} placeholder="например: позвонить клиенту" /></Fld>
+      <Fld label="Текст" cls="note-text-fld"><textarea className="inp note-area" value={v.text} readOnly={ro} autoFocus={!!n.id && !ro} onChange={(e) => set({ text: e.target.value })} placeholder="Текст заметки…" /></Fld>
       {!ro && <div className="row" style={{ gap: 12, marginTop: 6 }}>
-        <span className="row" style={{ gap: 6 }}>{NOTE_COLORS.map((c) => <button key={c || "none"} type="button" className={"note-color" + (v.color === c ? " on" : "")} style={{ background: c || "var(--panel2)" }} title={c ? "Цвет" : "Без цвета"} onClick={() => setV({ ...v, color: c })} />)}</span>
-        <label className="clk sm row" style={{ gap: 6 }}><input type="checkbox" checked={v.pinned} onChange={(e) => setV({ ...v, pinned: e.target.checked })} /> <Ic n="pin" /> закрепить</label>
-        <label className="clk sm row" style={{ gap: 6 }}><input type="checkbox" checked={v.shared} onChange={(e) => setV({ ...v, shared: e.target.checked })} /> <Ic n="users" /> видна всем</label>
+        <span className="row" style={{ gap: 6 }}>{NOTE_COLORS.map((c) => <button key={c || "none"} type="button" className={"note-color" + (v.color === c ? " on" : "")} style={{ background: c || "var(--panel2)" }} title={c ? "Цвет" : "Без цвета"} onClick={() => set({ color: c })} />)}</span>
+        <label className="clk sm row" style={{ gap: 6 }}><input type="checkbox" checked={v.pinned} onChange={(e) => set({ pinned: e.target.checked })} /> <Ic n="pin" /> закрепить</label>
+        <label className="clk sm row" style={{ gap: 6 }}><input type="checkbox" checked={v.shared} onChange={(e) => set({ shared: e.target.checked })} /> <Ic n="users" /> видна всем</label>
       </div>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
         {n.id && !ro && <button className="btn dng" style={{ marginRight: "auto" }} onClick={onDelete}>Удалить</button>}
@@ -9238,9 +9325,9 @@ function NoteModal({ n, mine, canDel = false, onClose, onSave, onDelete, onHide 
           {onHide && <button className="btn" onClick={onHide} title="Заметка пропадёт только у вас — у автора и у остальных останется">Скрыть у себя</button>}
         </span>}
         <button className="btn" onClick={onClose}>{ro ? "Закрыть" : "Отмена"}</button>
-        {!ro && <button className="btn pri" disabled={busy || !(String(v.title).trim() || String(v.text).trim())} onClick={async () => { setBusy(true); await onSave(v); setBusy(false); }}>{busy ? "Сохраняю…" : "Сохранить"}</button>}
+        {!ro && <button className="btn pri" disabled={busy || !(String(v.title).trim() || String(v.text).trim())} onClick={doSave}>{busy ? "Сохраняю…" : "Сохранить"}</button>}
       </div>
-    </Modal>
+    </div>
   );
 }
 /* ============ ЖУРНАЛ ДЕЙСТВИЙ ============ */
