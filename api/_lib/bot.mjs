@@ -31,7 +31,8 @@ const MUL_RE = "(k|к|ming|минг|тыс\\.?|тысяч|mln|млн|million|м�
 const QTY_RE = /^\s*(ta|та|шт|dona|дона|kg|кг|metr|метр|м\b|m\b|litr|литр|л\b|x\b|х\b|pcs|pachka|пачка|qop|коп|қоп|kun|кун|soat|соат)/i;
 // сумма из сообщения: число (с разделителями тысяч), «k/ming/mln», валюта рядом ($, sum, so'm…)
 export function findAmount(text) {
-  const s = low(text);
+  // ссылки не читаем: «https://promo.click.uz/2HUz/…» — не сумма
+  const s = low(text).replace(/(?:https?:\/\/|www\.)\S+|\S+\.(?:uz|com|ru|org|net|me|io)(?:\/\S*)?/g, " ");
   // множитель и валюта — только целым словом («karta» — не «k», «summa» — не «sum»)
   const re = new RegExp("(\\$\\s*)?(\\d{1,3}(?:[ \\u00a0\\u202f.,]\\d{3})+(?:[.,]\\d{1,2})?|\\d+(?:[.,]\\d+)?)(?:\\s*" + MUL_RE + "(?![\\p{L}]))?(?:\\s*" + CUR_RE + "(?![\\p{L}]))?", "giu");
   const cands = [];
@@ -40,6 +41,7 @@ export function findAmount(text) {
     const after = s.slice(m.index + m[0].length);
     const before = s.slice(Math.max(0, m.index - 1), m.index);
     if (/[\d\p{L}]/u.test(before) && !m[1]) continue;           // часть слова/кода (например «ppr25»)
+    if (!m[3] && !m[4] && /^\p{L}/u.test(after)) continue;      // цифра, слитая с буквами («2huz», «5a»), — не сумма
     if (!m[4] && !m[1] && QTY_RE.test(after)) continue;          // «2 ta», «10 m» — количество
     if (/^\s*[./-]\s*\d/.test(after) && !m[4]) continue;        // дата «28.10.2026» / «28/10»
     if (/^\d{1,2}[.,]\d{2}$/.test(m[2]) && !m[4] && !m[1] && /\b(kurs|курс)\b/.test(s.slice(Math.max(0, m.index - 8), m.index))) continue;
