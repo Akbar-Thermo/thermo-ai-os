@@ -647,6 +647,7 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 @media(min-width:821px){.te.fine .npanel-head{cursor:move;user-select:none}}
 .npanel-bg.free{background:none;backdrop-filter:none;pointer-events:none}
 .npanel{position:relative}
+.modal-bg,.modal-bg *,.npanel,.npanel *,.nwin,.nwin *,.calc,.calc *,.sup-pop,.sup-pop *,.brand-fly,.brand-fly *{overscroll-behavior:contain}
 .tg-h{font-size:var(--fs-xs);font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 2px}
 .fw-grip{position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:nwse-resize;z-index:2;border-radius:0 0 var(--r-xl) 0;background:linear-gradient(135deg,transparent 50%,var(--line2) 50%,var(--line2) 58%,transparent 58%,transparent 70%,var(--line2) 70%,var(--line2) 78%,transparent 78%);opacity:.8}
 .fw-grip:hover{opacity:1}
@@ -972,6 +973,38 @@ async function restoreSnap(snap) {
     }
   }
   return { n, skip };
+}
+// ---- колёсико мыши не «проваливается» из окна в страницу ----
+const WHEEL_ROOTS = ".modal-bg, .npanel-bg:not(.free), .npanel, .nwin, .calc, .sup-pop, .brand-fly, [data-wheel-trap]";
+function wheelCanScroll(el, dx, dy) {
+  const cs = getComputedStyle(el);
+  if (dy && /(auto|scroll|overlay)/.test(cs.overflowY) && el.scrollHeight > el.clientHeight + 1) {
+    if (dy > 0 ? el.scrollTop + el.clientHeight < el.scrollHeight - 1 : el.scrollTop > 0) return true;
+  }
+  if (dx && /(auto|scroll|overlay)/.test(cs.overflowX) && el.scrollWidth > el.clientWidth + 1) {
+    if (dx > 0 ? el.scrollLeft + el.clientWidth < el.scrollWidth - 1 : el.scrollLeft > 0) return true;
+  }
+  return false;
+}
+// всплывающее окно: из списка выше или любой блок поверх страницы (position: fixed / absolute с z-index)
+function wheelRoot(el) {
+  const cs = getComputedStyle(el);
+  return el.matches(WHEEL_ROOTS) || cs.position === "fixed" || (cs.position === "absolute" && cs.zIndex !== "auto" && Number(cs.zIndex) >= 10);
+}
+function installWheelTrap() {
+  const h = (e) => {
+    if (e.ctrlKey) return; // Ctrl + колёсико — масштаб
+    let dx = e.deltaX, dy = e.deltaY;
+    if (e.shiftKey && !dx) { dx = dy; dy = 0; }
+    if (!dx && !dy) return;
+    const top = document.scrollingElement || document.documentElement;
+    for (let el = e.target instanceof Element ? e.target : null; el && el !== top && el !== document.body; el = el.parentElement) {
+      if (wheelCanScroll(el, dx, dy)) return;          // есть куда крутить — крутится этот список
+      if (wheelRoot(el)) { e.preventDefault(); return; } // край окна — дальше (в страницу) не пускаем
+    }
+  };
+  window.addEventListener("wheel", h, { passive: false, capture: true });
+  return () => window.removeEventListener("wheel", h, { capture: true });
 }
 async function sha256hex(t) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t));
@@ -9378,11 +9411,16 @@ function LogTab({ data, reload, toast, onBackup }) {
   const [q, setQ] = useState("");
   const [usr, setUsr] = useState("");
   const [days, setDays] = useState(0);
+  const [day, setDay] = useState(""); // любой день (ГГГГ-ММ-ДД, по местному времени): только записи этого дня
   const [all, setAll] = useState(false);
-  const cutoff = days ? Date.now() - days * 86400000 : 0;
+  const cutoff = days && !day ? Date.now() - days * 86400000 : 0;
+  const localDay = (ts) => { const d = new Date(ts); return isNaN(d) ? "" : d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+  const todayL = localDay(Date.now());
+  const shiftDay = (n) => { const b = day || todayL; const d = new Date(b + "T12:00:00"); d.setDate(d.getDate() + n); const nd = localDay(d); setDay(nd > todayL ? todayL : nd); };
   const users = [...new Set(audit_log.map((l) => l.user_name).filter(Boolean))];
   const rows = audit_log
     .filter((l) => (!cutoff || new Date(l.ts).getTime() >= cutoff))
+    .filter((l) => (!day || localDay(l.ts) === day))
     .filter((l) => (!usr || l.user_name === usr))
     .filter((l) => (!onlyDel || trashOf(l)))
     .filter((l) => (!q || (l.action + " " + l.entity + " " + l.detail).toLowerCase().includes(q.toLowerCase())))
@@ -9398,9 +9436,15 @@ function LogTab({ data, reload, toast, onBackup }) {
         <select className="inp" style={{ maxWidth: 180 }} value={usr} onChange={(e) => setUsr(e.target.value)}>
           <option value="">Все сотрудники</option>{users.map((u) => <option key={u}>{u}</option>)}
         </select>
-        <select className="inp" style={{ maxWidth: 150 }} value={days} onChange={(e) => setDays(Number(e.target.value))}>
+        <select className="inp" style={{ maxWidth: 150, opacity: day ? 0.5 : 1 }} value={days} onChange={(e) => { setDays(Number(e.target.value)); setDay(""); }}>
           <option value={0}>Весь период</option><option value={1}>Сегодня</option><option value={7}>7 дней</option><option value={30}>30 дней</option>
         </select>
+        <span className="row log-day" style={{ gap: 4, flexWrap: "nowrap" }} title="Записи за выбранный день">
+          <button type="button" className="btn xs" title="Предыдущий день" onClick={() => shiftDay(-1)}>‹</button>
+          <input type="date" className={"inp" + (day ? " on" : "")} style={{ width: 150, borderColor: day ? "var(--acc)" : undefined }} max={todayL} value={day} onChange={(e) => setDay(e.target.value)} />
+          <button type="button" className="btn xs" title="Следующий день" disabled={!day || day >= todayL} onClick={() => shiftDay(1)}>›</button>
+          {day && <button type="button" className="btn xs" title="Все дни" onClick={() => setDay("")}>✕</button>}
+        </span>
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
@@ -10704,6 +10748,9 @@ function AppInner() {
     document.addEventListener("touchend", te, { passive: true });
     return () => { document.removeEventListener("touchstart", ts); document.removeEventListener("touchend", te); };
   }, [finePtr]);
+  // колёсико мыши в открытом окне (окна, заметки, калькулятор, выпадающие списки) крутит только это окно:
+  // дошли до края списка или курсор на неподвижной части окна — страница за окном не прокручивается
+  useEffect(() => installWheelTrap(), []);
   // телефон: кнопка «Назад» не выходит сразу. Открыто меню / окно / заметки / калькулятор — закрывает их;
   // иначе спрашивает «Выйти из программы?». Лишняя запись истории ставится после касания экрана
   // (браузер пропускает записи, добавленные без действия пользователя).
