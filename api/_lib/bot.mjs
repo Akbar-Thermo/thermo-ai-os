@@ -163,20 +163,36 @@ const words = (q) => low(q).split(/\s+/).filter(Boolean);
 const hay = (parts) => { const t = low(parts.filter(Boolean).join(" ")); return t + " " + low(C.translit(t)); };
 const hitAll = (h, q) => words(q).every((w) => h.includes(w) || h.includes(low(C.translit(w))));
 
+// бот читает только сообщения, которые начинаются с «/»: «/kassa» — команда, «/taksi 50 000» — расход.
+// Текст после «/» (и без «@имя_бота»): «/taksi@ThermoBot 50 000» → «taksi 50 000»
+export const slashText = (t) => String(t || "").trim().replace(/^\/(\S*?)@\w+bot\b/i, "/$1").replace(/^\/\s*/, "");
+export function parseSlash(text) {
+  const t = String(text || "").trim();
+  if (!t.startsWith("/")) return null;
+  const cmd = parseCommand(t);
+  const body = slashText(t);
+  // «/qarz 500$ oldik», «/obyekt … 1 200 000» — это приход/расход, а не вопрос
+  if (cmd && cmd.name !== "kassa" && cmd.name !== "bugun" && cmd.name !== "yordam" && cmd.name !== "id") { const a = findAmount(cmd.arg); if (a && (a.v >= 1000 || a.cur)) { const m = parseMoney(body); if (m) return { money: m }; } }
+  if (cmd) return { cmd };
+  const money = parseMoney(body);
+  return money ? { money } : null;
+}
 export const HELP = [
   "🤖 <b>Thermo bot</b>",
   "",
-  "<b>Rasxod / prixod</b> — summa va nima uchunligini yozing:",
-  "• <code>taksi 50 000</code> · <code>obed 120.000 sum</code> · <code>benzin 200 000 karta</code>",
-  "• <code>prixod 500$ Jamol aka</code> · <code>+300$ qarz qaytardi</code>",
+  "Bot faqat <b>/</b> bilan boshlangan xabarlarni o'qiydi.",
+  "",
+  "<b>Rasxod / prixod</b> — / dan keyin summa va nima uchunligini yozing:",
+  "• <code>/taksi 50 000</code> · <code>/obed 120.000 sum</code> · <code>/benzin 200 000 karta</code>",
+  "• <code>/prixod 500$ Jamol aka</code> · <code>/+300$ qarz qaytardi</code>",
   "Bot so'raydi — <b>✅ Kiritish</b> bosilsa, dasturga (Финансы) kiradi. Kategoriya va rasxod/prixodni tugmalar bilan o'zgartirsa bo'ladi.",
   "So'mdagi summa oxirgi kurs bilan $ ga o'giriladi (boshqa kurs: <code>… kurs 12 650</code>).",
   "",
   "<b>Savollar:</b>",
-  "• /kassa — bugungi kassa (<code>kassa kecha</code>, <code>kassa 28.10</code>)",
+  "• /kassa — bugungi kassa (<code>/kassa kecha</code>, <code>/kassa 28.10</code>)",
   "• /bugun — bugungi kirim-chiqim",
-  "• /qarz — mijozlar qarzi (<code>qarz Aziz</code> — qidirish)",
-  "• /postavshik — postavshiklarga qarz (<code>postavshik KAS</code>)",
+  "• /qarz — mijozlar qarzi (<code>/qarz Aziz</code> — qidirish)",
+  "• /postavshik — postavshiklarga qarz (<code>/postavshik KAS</code>)",
   "• /obyekt <i>nomi</i> — obyekt holati",
 ].join("\n");
 
@@ -254,19 +270,20 @@ export function makeBot({ db, tg, now = () => new Date() }) {
     // фото, файлы, видео, голосовые — бот не читает и не отвечает (даже если есть подпись)
     if (msg.photo || msg.document || msg.video || msg.animation || msg.voice || msg.audio || msg.video_note || msg.sticker) return;
     const text = String(msg.text || "").trim();
-    const cmd = parseCommand(text);
+    // обычные сообщения (без «/» в начале) бот не читает
+    const sl = parseSlash(text);
+    const cmd = sl && sl.cmd, money = sl && sl.money;
     if (cmd && cmd.name === "id") return send(chat.id, "ID: <code>" + esc(chat.id) + "</code>", { reply_to_message_id: msg.message_id });
     if (chat.type === "private") {
-      if (cmd || text) return send(chat.id, "Bu bot ishchi guruhda ishlaydi: guruhga qo'shing va admin qiling.\n\n" + HELP);
+      if (text.startsWith("/")) return send(chat.id, "Bu bot ishchi guruhda ishlaydi: guruhga qo'shing va admin qiling.\n\n" + HELP);
       return;
     }
     if (chat.type !== "group" && chat.type !== "supergroup") return;
-    const cf = await cfg();
-    if (msg.migrate_to_chat_id) return migrate(cf, chat.id, msg.migrate_to_chat_id);
+    if (msg.migrate_to_chat_id) return migrate(await cfg(), chat.id, msg.migrate_to_chat_id);
     if (msg.new_chat_members || msg.left_chat_member) return; // добавление бота — в my_chat_member
     if (!text || msg.from && msg.from.is_bot) return;
-    const money = cmd ? null : parseMoney(text);
     if (!cmd && !money) return;
+    const cf = await cfg();
     if (!isAllowed(cf, chat.id)) {
       if (await addPending(cf, chat)) return send(chat.id, NOT_ALLOWED);
       return;
@@ -288,13 +305,14 @@ export function makeBot({ db, tg, now = () => new Date() }) {
     if (act === "undo") return undo(cq, a1, who, ans, edit);
     const orig = m.reply_to_message;
     if (!orig) { await edit("⚠️ Asl xabar o'chirilgan — kiritilmadi."); return ans(); }
-    const p = orig.text ? parseMoney(orig.text) : null;
+    const sl = parseSlash(orig.text || "");
+    const p = sl && sl.money;
     if (!p) { await edit("⚠️ Asl xabarda summa topilmadi — kiritilmadi."); return ans(); }
     const author = nameOf(orig.from);
     const rate = p.cur === "uzs" ? p.rate || (await lastRate()) : 0;
     const d = a1 === "i" ? "i" : "e", c = Number(a2) || 0;
     if (act === "no") { await edit("❌ Kiritilmadi · " + esc(who)); return ans(); }
-    if (act === "dir") { const nd = d === "i" ? "e" : "i"; const v = view(p, nd, guessCat(orig.text || "", nd), rate, author); await edit(v.text, v.reply_markup); return ans(); }
+    if (act === "dir") { const nd = d === "i" ? "e" : "i"; const v = view(p, nd, guessCat(slashText(orig.text), nd), rate, author); await edit(v.text, v.reply_markup); return ans(); }
     if (act === "cat") { await tg("editMessageReplyMarkup", { chat_id: chat.id, message_id: m.message_id, reply_markup: catKeyboard(d, c) }); return ans("Kategoriyani tanlang"); }
     if (act === "setc") { const v = view(p, d, c, rate, author); await edit(v.text, v.reply_markup); return ans(); }
     if (act !== "ok") return ans();
@@ -305,7 +323,7 @@ export function makeBot({ db, tg, now = () => new Date() }) {
     const pl = plan(p, d, c, rate);
     if (!(pl.usdAmt > 0)) return ans("Kurs topilmadi — xabarga «kurs 12 600» qo'shing", true);
     const type = d === "i" ? "company_income" : "company_expense";
-    const note = String(orig.text || "").replace(/\s+/g, " ").trim().slice(0, 200) + " (Telegram: " + author + ")";
+    const note = slashText(orig.text).replace(/\s+/g, " ").trim().slice(0, 200) + " (Telegram: " + author + ")";
     const row = { type, object_id: null, category: pl.cat, ...(type === "company_expense" ? { size: pl.cat } : {}), ...C.payPatch(pl.pay, type, false), op_date: tgDate(orig.date), note, user: author, user_name: author };
     let op;
     try { op = (await db.insert("finance_ops", row))[0]; }
