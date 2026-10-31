@@ -35,14 +35,15 @@ if (MODE === "ULASH") {
   if (!h.account) console.log("::warning::Нет TG_BOT_LOGIN / TG_BOT_PASSWORD — нужны, если в базе включена защита входа");
   try { await tg("setWebhook", { url: BOT_URL, secret_token: SECRET, allowed_updates: ["message", "callback_query", "my_chat_member"], drop_pending_updates: true }); }
   catch (e) { fail("Telegram vebxukni o'rnatmadi: " + e.message); process.exit(); }
-  await tg("setMyCommands", { commands: [
-    { command: "kassa", description: "Bugungi kassa (kassa kecha / kassa 28.10)" },
+  // меню команд — только в личном чате с ботом (в группах после «/» подсказок нет)
+  for (const scope of [{ type: "default" }, { type: "all_group_chats" }, { type: "all_chat_administrators" }]) await tg("deleteMyCommands", { scope });
+  await tg("setMyCommands", { scope: { type: "all_private_chats" }, commands: [
+    { command: "kassa", description: "Bugungi kassa (/kassa kecha, /kassa 28.10)" },
     { command: "bugun", description: "Bugungi kirim-chiqim" },
-    { command: "qarz", description: "Mijozlar qarzi (qarz Aziz)" },
+    { command: "qarz", description: "Mijozlar qarzi (/qarz Aziz)" },
     { command: "postavshik", description: "Postavshiklarga qarz" },
-    { command: "obyekt", description: "Obyekt holati (obyekt nomi)" },
+    { command: "obyekt", description: "Obyekt holati (/obyekt nomi)" },
     { command: "yordam", description: "Qanday ishlatish" },
-    { command: "id", description: "Chat ID" },
   ] });
   log("✅ Ulandi. Endi botni guruhga qo'shing va admin qiling, keyin dasturda Аккаунты → Telegram-бот → «Разрешить».");
 } else if (MODE === "UZISH") {

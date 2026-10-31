@@ -196,6 +196,20 @@ export const HELP = [
   "• /obyekt <i>nomi</i> — obyekt holati",
 ].join("\n");
 
+// меню команд (подсказки после «/»): только в личном чате с ботом; в группах меню нет
+export const MENU = [
+  { command: "kassa", description: "Bugungi kassa (/kassa kecha, /kassa 28.10)" },
+  { command: "bugun", description: "Bugungi kirim-chiqim" },
+  { command: "qarz", description: "Mijozlar qarzi (/qarz Aziz)" },
+  { command: "postavshik", description: "Postavshiklarga qarz" },
+  { command: "obyekt", description: "Obyekt holati (/obyekt nomi)" },
+  { command: "yordam", description: "Qanday ishlatish" },
+];
+export async function setupMenu(tg) {
+  for (const scope of [{ type: "default" }, { type: "all_group_chats" }, { type: "all_chat_administrators" }]) await tg("deleteMyCommands", { scope });
+  await tg("setMyCommands", { commands: MENU, scope: { type: "all_private_chats" } });
+}
+
 // ---------- бот ----------
 export function makeBot({ db, tg, now = () => new Date() }) {
   const nameOf = (u) => (u ? [u.first_name, u.last_name].filter(Boolean).join(" ") || (u.username ? "@" + u.username : "") : "") || "—";
@@ -472,8 +486,11 @@ export function makeBot({ db, tg, now = () => new Date() }) {
     return send(chatId, text, { reply_to_message_id: msg.message_id });
   }
 
+  // меню команд выставляется само один раз (после выкладки новой версии)
+  let menuDone = false;
   return {
     async handle(upd) {
+      if (!menuDone) { menuDone = true; try { await setupMenu(tg); } catch (e) { menuDone = false; } }
       if (upd.callback_query) return onCallback(upd.callback_query);
       if (upd.message) return onMessage(upd.message);
       if (upd.my_chat_member) {
