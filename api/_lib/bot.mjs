@@ -188,7 +188,7 @@ export const HELP = [
   "Bot so'raydi — <b>✅ Kiritish</b> bosilsa, dasturga (Финансы) kiradi. Kategoriya va rasxod/prixodni tugmalar bilan o'zgartirsa bo'ladi.",
   "So'mdagi summa oxirgi kurs bilan $ ga o'giriladi (boshqa kurs: <code>… kurs 12 650</code>).",
   "",
-  "<b>Savollar:</b>",
+  "<b>Savollar</b> — faqat bot bilan <b>shaxsiy chatda</b> (ishchi guruh a'zolari uchun):",
   "• /kassa — bugungi kassa (<code>/kassa kecha</code>, <code>/kassa 28.10</code>)",
   "• /bugun — bugungi kirim-chiqim",
   "• /qarz — mijozlar qarzi (<code>/qarz Aziz</code> — qidirish)",
@@ -220,6 +220,24 @@ export function makeBot({ db, tg, now = () => new Date() }) {
     const allowed = cf.allowed.map((g) => (String(g.id) === String(from) ? { ...g, id: String(to) } : g));
     await db.update("requests", "id=eq." + cf.c.id, { lines: { ...cf.c.lines, allowed } });
   }
+  // состоит ли человек в одной из разрешённых групп (ответ Telegram запоминается на 10 минут)
+  const memberCache = new Map();
+  async function isMember(cf, userId) {
+    if (!userId) return false;
+    const c = memberCache.get(userId);
+    if (c && now().getTime() - c.at < 600e3) return c.ok;
+    let ok = false;
+    for (const g of cf.allowed) {
+      try {
+        const m = await tg("getChatMember", { chat_id: g.id, user_id: userId });
+        if (m && (m.status === "creator" || m.status === "administrator" || m.status === "member" || (m.status === "restricted" && m.is_member))) { ok = true; break; }
+      } catch (e) { /* группа недоступна — следующая */ }
+    }
+    memberCache.set(userId, { ok, at: now().getTime() });
+    return ok;
+  }
+  let meName = null;
+  const botMe = async () => { if (meName === null) { try { const r = await tg("getMe", {}); meName = (r && r.username) || ""; } catch (e) { meName = ""; } } return meName; };
   const NOT_ALLOWED = "⛔️ Bu guruh hali ruxsat etilmagan.\nRahbar dasturda <b>Аккаунты → Telegram-бот</b> bo'limida shu guruhga ruxsat bersin — keyin bot ishlaydi.";
 
   // курс для сумм: из сообщения или последний курс из операций программы
@@ -274,9 +292,13 @@ export function makeBot({ db, tg, now = () => new Date() }) {
     const sl = parseSlash(text);
     const cmd = sl && sl.cmd, money = sl && sl.money;
     if (cmd && cmd.name === "id") return send(chat.id, "ID: <code>" + esc(chat.id) + "</code>", { reply_to_message_id: msg.message_id });
+    // личный чат с ботом: только вопросы (касса, долги…) — и только тем, кто состоит в разрешённой группе
     if (chat.type === "private") {
-      if (text.startsWith("/")) return send(chat.id, "Bu bot ishchi guruhda ishlaydi: guruhga qo'shing va admin qiling.\n\n" + HELP);
-      return;
+      if (!text.startsWith("/") || (msg.from && msg.from.is_bot)) return;
+      if (!cmd || cmd.name === "yordam") return send(chat.id, money ? "Rasxod / prixod ishchi guruhda yoziladi: <code>/taksi 50 000</code>" : HELP);
+      const cf = await cfg();
+      if (!(await isMember(cf, msg.from && msg.from.id))) return send(chat.id, "⛔️ Savol berish uchun ishchi guruh a'zosi bo'lishingiz kerak.");
+      return runCommand(chat.id, msg, cmd);
     }
     if (chat.type !== "group" && chat.type !== "supergroup") return;
     if (msg.migrate_to_chat_id) return migrate(await cfg(), chat.id, msg.migrate_to_chat_id);
@@ -288,7 +310,12 @@ export function makeBot({ db, tg, now = () => new Date() }) {
       if (await addPending(cf, chat)) return send(chat.id, NOT_ALLOWED);
       return;
     }
-    if (cmd) return runCommand(chat.id, msg, cmd);
+    // в группе вопросы не отвечаем — только в личном чате с ботом (касса и долги не видны всей группе)
+    if (cmd) {
+      if (cmd.name === "yordam") return send(chat.id, HELP, { reply_to_message_id: msg.message_id });
+      const me = await botMe();
+      return send(chat.id, "🔒 Savollarni bot bilan shaxsiy chatda bering" + (me ? ": @" + esc(me) : "") + ".", { reply_to_message_id: msg.message_id, ...(me ? { reply_markup: { inline_keyboard: [[{ text: "Botga yozish", url: "https://t.me/" + me }]] } } : {}) });
+    }
     const rate = money.cur === "uzs" ? money.rate || (await lastRate()) : 0;
     const v = view(money, money.dir, money.cat, rate, nameOf(msg.from));
     return send(chat.id, v.text, { reply_to_message_id: msg.message_id, reply_markup: v.reply_markup });
