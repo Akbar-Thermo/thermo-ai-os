@@ -3,9 +3,12 @@
 // как программа (тот же код — core.mjs), и отвечает на команды: /kassa /bugun /qarz /postavshik /obyekt /yordam.
 // Группы разрешает руководитель в программе (Аккаунты → Telegram-бот); бот сам записывает группы, куда его добавили.
 import * as C from "./core.mjs";
+import { createHash } from "node:crypto";
 
 export const CFG_MODE = "te_tg";        // разрешённые группы — меняет руководитель (lines.allowed = [{ id, title }])
 export const PEND_MODE = "te_tgpend";   // группы, куда добавили бота, — пишет бот (lines.groups = [{ id, title, at }])
+export const LINK_MODE = "te_tglink";   // одноразовые ссылки «Telegram ulash» (программа): lines = { user_id, hash, exp }
+export const USERS_MODE = "te_tgusers"; // кто чей: lines.links = { <telegram id>: { user_id, tg, at } } (пишет бот)
 export const LOG_MODE = "te_tg";        // скрытая запись журнала: entity «tg:<группа>:<сообщение>», detail — id операции
 
 // ---------- дата и числа ----------
@@ -131,6 +134,8 @@ const CMDS = {
   qarz: ["qarz", "қарз", "карз", "долг", "долги", "qarzlar", "қарзлар", "qarzdorlar"],
   postavshik: ["postavshik", "поставщик", "postavshiklar", "поставщики", "taminotchi", "ta'minotchi"],
   obyekt: ["obyekt", "объект", "obekt", "object", "obyektlar", "объекты"],
+  narx: ["narx", "нарх", "цена", "narxi", "price"],
+  sklad: ["sklad", "склад", "ombor", "омбор"],
   yordam: ["yordam", "ёрдам", "help", "помощь", "start", "buyruqlar"],
   id: ["id"],
 };
@@ -172,7 +177,7 @@ export function parseSlash(text) {
   const cmd = parseCommand(t);
   const body = slashText(t);
   // «/qarz 500$ oldik», «/obyekt … 1 200 000» — это приход/расход, а не вопрос
-  if (cmd && cmd.name !== "kassa" && cmd.name !== "bugun" && cmd.name !== "yordam" && cmd.name !== "id") { const a = findAmount(cmd.arg); if (a && (a.v >= 1000 || a.cur)) { const m = parseMoney(body); if (m) return { money: m }; } }
+  if (cmd && !["kassa", "bugun", "yordam", "id", "narx", "sklad"].includes(cmd.name)) { const a = findAmount(cmd.arg); if (a && (a.v >= 1000 || a.cur)) { const m = parseMoney(body); if (m) return { money: m }; } }
   if (cmd) return { cmd };
   const money = parseMoney(body);
   return money ? { money } : null;
@@ -180,33 +185,63 @@ export function parseSlash(text) {
 export const HELP = [
   "🤖 <b>Thermo bot</b>",
   "",
-  "Bot faqat <b>/</b> bilan boshlangan xabarlarni o'qiydi.",
-  "",
-  "<b>Rasxod / prixod</b> — / dan keyin summa va nima uchunligini yozing:",
+  "<b>Ishchi guruhda</b> — rasxod / prixod (xabar «/» bilan boshlanadi):",
   "• <code>/taksi 50 000</code> · <code>/obed 120.000 sum</code> · <code>/benzin 200 000 karta</code>",
   "• <code>/prixod 500$ Jamol aka</code> · <code>/+300$ qarz qaytardi</code>",
-  "Bot so'raydi — <b>✅ Kiritish</b> bosilsa, dasturga (Финансы) kiradi. Kategoriya va rasxod/prixodni tugmalar bilan o'zgartirsa bo'ladi.",
-  "So'mdagi summa oxirgi kurs bilan $ ga o'giriladi (boshqa kurs: <code>… kurs 12 650</code>).",
+  "Bot so'raydi — <b>✅ Kiritish</b> bosilsa, dasturga (Финансы) kiradi.",
   "",
-  "<b>Savollar</b> — faqat bot bilan <b>shaxsiy chatda</b> (ishchi guruh a'zolari uchun):",
-  "• /kassa — bugungi kassa (<code>/kassa kecha</code>, <code>/kassa 28.10</code>)",
-  "• /bugun — bugungi kirim-chiqim",
-  "• /qarz — mijozlar qarzi (<code>/qarz Aziz</code> — qidirish)",
-  "• /postavshik — postavshiklarga qarz (<code>/postavshik KAS</code>)",
-  "• /obyekt <i>nomi</i> — obyekt holati",
+  "<b>Shaxsiy chatda</b> — savollar (dasturdagi huquqlaringizga qarab):",
+  "• /kassa — kassa (<code>/kassa kecha</code>, <code>/kassa 28.10</code>) · /bugun — kirim-chiqim",
+  "• /qarz — mijozlar qarzi · /postavshik — postavshiklarga qarz",
+  "• /obyekt — obyektlar (tugmalar bilan) · /narx <i>tovar</i> — narxlar · /sklad <i>tovar</i> — ombor",
+  "• «/» siz oddiy matn — dasturdagi «Заметки»ga zametka bo'lib tushadi",
 ].join("\n");
 
 // меню команд (подсказки после «/»): только в личном чате с ботом; в группах меню нет
 export const MENU = [
-  { command: "kassa", description: "Bugungi kassa (/kassa kecha, /kassa 28.10)" },
+  { command: "kassa", description: "Kassa (/kassa kecha, /kassa 28.10)" },
   { command: "bugun", description: "Bugungi kirim-chiqim" },
   { command: "qarz", description: "Mijozlar qarzi (/qarz Aziz)" },
   { command: "postavshik", description: "Postavshiklarga qarz" },
-  { command: "obyekt", description: "Obyekt holati (/obyekt nomi)" },
+  { command: "obyekt", description: "Obyektlar" },
+  { command: "narx", description: "Tovar narxi (/narx kran 32)" },
+  { command: "sklad", description: "Omborda bormi (/sklad truba 25)" },
   { command: "yordam", description: "Qanday ishlatish" },
 ];
-// кнопки с вопросами внизу личного чата (нажатие отправляет команду)
-export const QKB = { keyboard: [[{ text: "/kassa" }, { text: "/bugun" }], [{ text: "/qarz" }, { text: "/postavshik" }], [{ text: "/obyekt" }, { text: "/yordam" }]], resize_keyboard: true, is_persistent: true };
+// какой раздел программы нужен для вопроса (как вкладки в программе)
+export const NEED = { kassa: "finance", bugun: "finance", qarz: "objects", postavshik: "suppliers", obyekt: "objects", narx: "products", sklad: "wh" };
+export const canAsk = (acc, name) => !NEED[name] || !!acc && (acc.base === "boss" || (acc.tabs || []).includes(NEED[name]));
+export const isFull = (acc) => !!acc && (acc.base === "boss" || C.PERMS.every((p) => acc.perms && acc.perms[p.id]));
+// кнопки с вопросами внизу личного чата — только те, что человеку открыты
+export function qkb(acc) {
+  const b = ["kassa", "bugun", "qarz", "postavshik", "obyekt", "narx", "sklad"].filter((n) => canAsk(acc, n)).concat("yordam").map((n) => ({ text: "/" + n }));
+  const rows = []; for (let i = 0; i < b.length; i += 2) rows.push(b.slice(i, i + 2));
+  return { keyboard: rows, resize_keyboard: true, is_persistent: true };
+}
+export const QKB = qkb({ base: "boss", tabs: [] });
+// быстрая заметка: первая строка — заголовок; длинная — начало по целым словам с «…», текст целиком (как в программе)
+export function noteSplit(t) {
+  const all = String(t || "").trim(); const [first, ...rest] = all.split("\n"); const f = first.trim();
+  if (f.length <= 80) return { title: f, text: rest.join("\n").trim() };
+  const cut = f.slice(0, 80); const sp = cut.lastIndexOf(" ");
+  return { title: (sp > 30 ? cut.slice(0, sp) : cut).replace(/[\s,.;:–-]+$/, "") + "…", text: all };
+}
+// расписание отчётов (Аккаунты → Telegram-бот): ежедневный — касса и кирим-чиқим; в последний день месяца — долги
+const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
+export function repCfg(lines) {
+  const r = (lines && lines.report) || {}, d = r.daily || {}, b = r.debts || {};
+  return { daily: { on: d.on !== false, time: HM.test(d.time || "") ? d.time : "21:30" }, debts: { on: b.on !== false, time: HM.test(b.time || "") ? b.time : "10:00", days: Number(b.days) > 0 ? Number(b.days) : 14 }, to: Array.isArray(r.to) ? r.to.map(String) : null };
+}
+export const tzTime = (d = new Date()) => d.toLocaleTimeString("sv-SE", { timeZone: "Asia/Tashkent", hour: "2-digit", minute: "2-digit" });
+const mins = (hm) => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3, 5));
+export const isDue = (hm, t) => mins(hm) >= mins(t) && mins(hm) - mins(t) < 120; // окно 2 часа: опоздавший запуск всё же отправит
+export const isLastDay = (iso) => addDays(iso, 1).slice(5, 7) !== iso.slice(5, 7);
+export const PROMPTS = [
+  { name: "obyekt", mark: "🔍 Obyekt qidirish", hint: "nomi, mijoz yoki telefonni yozing", ph: "masalan: Yunusobod" },
+  { name: "narx", mark: "💲 Narx qidirish", hint: "tovar nomini yozing", ph: "masalan: kran 32" },
+  { name: "sklad", mark: "📦 Sklad qidirish", hint: "tovar nomini yozing", ph: "masalan: truba 25" },
+];
+export const linkHash = (token) => createHash("sha256").update("tglink:" + token, "utf8").digest("hex");
 export async function setupMenu(tg) {
   for (const scope of [{ type: "default" }, { type: "all_group_chats" }, { type: "all_chat_administrators" }]) await tg("deleteMyCommands", { scope });
   await tg("setMyCommands", { commands: MENU, scope: { type: "all_private_chats" } });
@@ -227,7 +262,7 @@ export function makeBot({ db, tg, now = () => new Date() }) {
   async function addPending(cf, chat) {
     if (cf.pending.some((g) => String(g.id) === String(chat.id))) return false;
     const groups = [...cf.pending, { id: String(chat.id), title: chat.title || "", at: now().toISOString() }].slice(-20);
-    if (cf.p) await db.update("requests", "id=eq." + cf.p.id, { lines: { groups } });
+    if (cf.p) await db.update("requests", "id=eq." + cf.p.id, { lines: { ...(cf.p.lines || {}), groups } });
     else await db.insert("requests", { mode: PEND_MODE, source: "config", lines: { groups } });
     return true;
   }
@@ -236,21 +271,45 @@ export function makeBot({ db, tg, now = () => new Date() }) {
     const allowed = cf.allowed.map((g) => (String(g.id) === String(from) ? { ...g, id: String(to) } : g));
     await db.update("requests", "id=eq." + cf.c.id, { lines: { ...cf.c.lines, allowed } });
   }
-  // состоит ли человек в одной из разрешённых групп (ответ Telegram запоминается на 10 минут)
-  const memberCache = new Map();
-  async function isMember(cf, userId) {
-    if (!userId) return false;
-    const c = memberCache.get(userId);
-    if (c && now().getTime() - c.at < 600e3) return c.ok;
-    let ok = false;
-    for (const g of cf.allowed) {
-      try {
-        const m = await tg("getChatMember", { chat_id: g.id, user_id: userId });
-        if (m && (m.status === "creator" || m.status === "administrator" || m.status === "member" || (m.status === "restricted" && m.is_member))) { ok = true; break; }
-      } catch (e) { /* группа недоступна — следующая */ }
-    }
-    memberCache.set(userId, { ok, at: now().getTime() });
-    return ok;
+  // ---------- кто пишет: Telegram ↔ аккаунт программы (права — как в программе) ----------
+  async function people() {
+    const [rows, users] = await Promise.all([
+      db.select("requests", "mode=in.(" + USERS_MODE + ",te_roles,te_perms)&select=id,mode,lines"),
+      db.select("users", "select=id,username,name,role,status"),
+    ]);
+    const linkRow = rows.find((r) => r.mode === USERS_MODE) || null;
+    const links = (linkRow && linkRow.lines && linkRow.lines.links && typeof linkRow.lines.links === "object" ? linkRow.lines.links : {}) || {};
+    const data = { requests: rows };
+    const roles = C.allRoles(data), uperms = C.userPermsOf(data);
+    const live = (u) => !!u && (!u.status || u.status === "active") && u.role !== "staff";
+    const nm = (u) => String((u && u.name) || "").trim() || (u && u.username) || "—";
+    const accOf = (u) => C.accessOf(u, roles, uperms);
+    const meOf = (tgId) => { const l = links[String(tgId)]; const u = l && users.find((x) => x.id === l.user_id); return live(u) ? { user: u, acc: accOf(u), name: nm(u), tg: String(tgId) } : null; };
+    const all = () => Object.keys(links).map(meOf).filter(Boolean);
+    return { linkRow, links, users, meOf, all, nm, accOf };
+  }
+  async function whoAmI(tgId) { try { return (await people()).meOf(tgId); } catch (e) { return null; } }
+  const LOCKED = "🔒 Botdan foydalanish uchun akkauntingizni ulang: rahbar dasturda <b>Аккаунты → Telegram-бот</b> bo'limidan sizga «Ulash» havolasini beradi.";
+  async function doLink(msg, token) {
+    const chatId = msg.chat.id;
+    const rows = await db.select("requests", "mode=eq." + LINK_MODE + "&select=id,lines");
+    const h = linkHash(token);
+    const row = rows.find((r) => r.lines && r.lines.hash === h);
+    if (!row || !(Date.parse(row.lines.exp || 0) > now().getTime())) return send(chatId, "⛔️ Havola eskirgan yoki noto'g'ri. Rahbardan yangi havola so'rang (Аккаунты → Telegram-бот → «Ulash»).");
+    const P = await people();
+    const u = P.users.find((x) => x.id === row.lines.user_id);
+    if (!u || (u.status && u.status !== "active")) return send(chatId, "⛔️ Bu akkaunt faol emas.");
+    const tgName = msg.from.username ? "@" + msg.from.username : nameOf(msg.from);
+    const links = {};
+    Object.entries(P.links).forEach(([k, v]) => { if (v && v.user_id !== u.id && k !== String(msg.from.id)) links[k] = v; });
+    links[String(msg.from.id)] = { user_id: u.id, tg: tgName, at: now().toISOString() };
+    try {
+      if (P.linkRow) await db.update("requests", "id=eq." + P.linkRow.id, { lines: { ...(P.linkRow.lines || {}), links } });
+      else await db.insert("requests", { mode: USERS_MODE, source: "config", lines: { links } });
+    } catch (e) { return send(chatId, "⚠️ Ulab bo'lmadi: " + esc(e.message).slice(0, 200)); }
+    try { await db.del("requests", "id=eq." + row.id); } catch (e) {}
+    try { await db.insert("audit_log", { action: "Telegram: подключён", entity: "user:" + u.id, detail: P.nm(u) + " ← Telegram " + tgName, user_name: "Telegram: " + tgName, role: "telegram", ts: now().toISOString() }); } catch (e) {}
+    return send(chatId, "✅ Ulandi: <b>" + esc(P.nm(u)) + "</b>\nSavolni tanlang 👇", { reply_markup: qkb(P.accOf(u)) });
   }
   let meName = null;
   const botMe = async () => { if (meName === null) { try { const r = await tg("getMe", {}); meName = (r && r.username) || ""; } catch (e) { meName = ""; } } return meName; };
@@ -308,17 +367,25 @@ export function makeBot({ db, tg, now = () => new Date() }) {
     const sl = parseSlash(text);
     const cmd = sl && sl.cmd, money = sl && sl.money;
     if (cmd && cmd.name === "id") return send(chat.id, "ID: <code>" + esc(chat.id) + "</code>", { reply_to_message_id: msg.message_id });
-    // личный чат с ботом: только вопросы (касса, долги…) — и только тем, кто состоит в разрешённой группе
+    // личный чат с ботом: вопросы и заметки — только тем, чей Telegram подключён к аккаунту программы
     if (chat.type === "private") {
-      if (!text.startsWith("/") || (msg.from && msg.from.is_bot)) return;
-      if (!cmd) return send(chat.id, money ? "Rasxod / prixod ishchi guruhda yoziladi: <code>/taksi 50 000</code>" : "Savolni tanlang 👇", money ? {} : { reply_markup: QKB });
-      const isStart = /^\/start\b/i.test(text);
-      if (cmd.name === "yordam" && !isStart) return send(chat.id, HELP, { reply_markup: QKB });
-      const cf = await cfg();
-      if (!(await isMember(cf, msg.from && msg.from.id))) return send(chat.id, "⛔️ Savol berish uchun ishchi guruh a'zosi bo'lishingiz kerak.");
-      // «Start» — без инструкции: сразу кнопки с вопросами (инструкция — кнопка «/yordam» среди них)
-      if (isStart) return send(chat.id, "Savolni tanlang 👇", { reply_markup: QKB });
-      return runCommand(chat.id, msg, cmd);
+      if (msg.from && msg.from.is_bot) return;
+      const lk = /^\/start(?:@\w+)?\s+L([A-Za-z0-9_-]{16,64})$/.exec(text);
+      if (lk) return doLink(msg, lk[1]);
+      const me = await whoAmI(msg.from && msg.from.id);
+      if (!me) return text ? send(chat.id, LOCKED) : undefined;
+      if (!text) return;
+      if (!text.startsWith("/")) {
+        // ответ на вопрос бота «🔍 … qidirish» — поиск; остальное — заметка
+        const rq = msg.reply_to_message, pr = rq && rq.from && rq.from.is_bot ? PROMPTS.find((x) => String(rq.text || "").startsWith(x.mark)) : null;
+        if (pr) return runCommand(chat.id, msg, { name: pr.name, arg: text }, me);
+        return saveNote(msg, me);
+      }
+      if (!cmd) return send(chat.id, money ? "Rasxod / prixod ishchi guruhda yoziladi: <code>/taksi 50 000</code>" : "Savolni tanlang 👇", { reply_markup: qkb(me.acc) });
+      if (/^\/start\b/i.test(text)) return send(chat.id, "Savolni tanlang 👇", { reply_markup: qkb(me.acc) });
+      if (cmd.name === "yordam") return send(chat.id, HELP, { reply_markup: qkb(me.acc) });
+      if (!canAsk(me.acc, cmd.name)) return send(chat.id, "🔒 Bu bo'lim sizga ochilmagan.", { reply_markup: qkb(me.acc) });
+      return runCommand(chat.id, msg, cmd, me);
     }
     if (chat.type !== "group" && chat.type !== "supergroup") return;
     if (msg.migrate_to_chat_id) return migrate(await cfg(), chat.id, msg.migrate_to_chat_id);
@@ -345,6 +412,7 @@ export function makeBot({ db, tg, now = () => new Date() }) {
     const m = cq.message || {}, chat = m.chat || {};
     const ans = (text, alert) => tg("answerCallbackQuery", { callback_query_id: cq.id, text: text || "", show_alert: !!alert }).catch(() => {});
     const edit = (text, reply_markup) => tg("editMessageText", { chat_id: chat.id, message_id: m.message_id, text, parse_mode: "HTML", disable_web_page_preview: true, ...(reply_markup ? { reply_markup } : {}) });
+    if (chat.type === "private") return privCallback(cq, ans, edit);
     const cf = await cfg();
     if (!isAllowed(cf, chat.id)) return ans("Bu guruh ruxsat etilmagan", true);
     const who = nameOf(cq.from);
@@ -370,8 +438,11 @@ export function makeBot({ db, tg, now = () => new Date() }) {
     const pl = plan(p, d, c, rate);
     if (!(pl.usdAmt > 0)) return ans("Kurs topilmadi — xabarga «kurs 12 600» qo'shing", true);
     const type = d === "i" ? "company_income" : "company_expense";
+    // нажал человек, подключённый к аккаунту программы, — операция от имени его аккаунта
+    const meC = await whoAmI(cq.from && cq.from.id);
+    const actor = meC ? meC.name : author;
     const note = slashText(orig.text).replace(/\s+/g, " ").trim().slice(0, 200) + " (Telegram: " + author + ")";
-    const row = { type, object_id: null, category: pl.cat, ...(type === "company_expense" ? { size: pl.cat } : {}), ...C.payPatch(pl.pay, type, false), op_date: tgDate(orig.date), note, user: author, user_name: author };
+    const row = { type, object_id: null, category: pl.cat, ...(type === "company_expense" ? { size: pl.cat } : {}), ...C.payPatch(pl.pay, type, false), op_date: tgDate(orig.date), note, user: actor, user_name: actor };
     let op;
     try { op = (await db.insert("finance_ops", row))[0]; }
     catch (e) { await ans("Xato: dasturga yozilmadi", true); await send(chat.id, "⚠️ Dasturga yozilmadi: " + esc(e.message).slice(0, 300), { reply_to_message_id: orig.message_id }); return; }
@@ -379,7 +450,7 @@ export function makeBot({ db, tg, now = () => new Date() }) {
     const ts = now().toISOString();
     try {
       await db.insert("audit_log", [
-        { action: d === "i" ? "Telegram: приход" : "Telegram: расход", entity: "company:" + pl.cat, detail: amt.replace(/so'm/g, "сум") + " · " + note + " · подтвердил " + who, user_name: "Telegram: " + who, role: "telegram", ts },
+        { action: d === "i" ? "Telegram: приход" : "Telegram: расход", entity: "company:" + pl.cat, detail: amt.replace(/so'm/g, "сум") + " · " + note + " · подтвердил " + who, user_name: meC ? meC.name : "Telegram: " + who, role: "telegram", ts },
         { action: LOG_MODE, entity: key, detail: (op && op.id) || "", user_name: "Telegram: " + who, role: "telegram", ts },
       ]);
     } catch (e) { /* журнал не обязателен для операции */ }
@@ -463,21 +534,79 @@ export function makeBot({ db, tg, now = () => new Date() }) {
     return ["🚚 <b>Postavshiklarga qarz</b>" + (q ? " · «" + esc(q) + "»" : "") + ": <b>" + usd(total) + "</b>", "",
       ...rows.slice(0, 20).map((r, i) => (i + 1) + ". " + esc(r.s.name) + " — " + (r.st.balance > 0.004 ? "<b>" + usd(r.st.balance) + "</b>" : r.st.balance < -0.004 ? "avans " + usd(-r.st.balance) : "qarz yo'q"))].join("\n");
   }
-  async function objects(q) {
-    if (!q) return "Obyekt nomini yozing: <code>obyekt Yunusabad</code>";
-    const data = await loadData(["objects", "finance_ops", "masters"]);
-    const mName = (id) => ((data.masters || []).find((m) => m.id === id) || {}).name || "";
-    const rows = data.objects.filter((o) => hitAll(hay([o.name, o.client, o.phone, o.master, o.address]), q)).slice(0, 5);
-    if (!rows.length) return "«" + esc(q) + "» bo'yicha obyekt topilmadi.";
-    return rows.map((o) => {
-      const f = C.calcObject(o, data.finance_ops), st = C.stById(o.status);
-      return ["🏠 <b>" + esc(o.name) + "</b> · " + esc(st.label),
-        "Mijoz: " + esc([o.client, o.phone].filter(Boolean).join(", ") || "—") + (o.master || o.master_id ? " · Usta: " + esc(o.master || mName(o.master_id)) : ""),
-        "Summa: " + usd(f.saleNet) + " · To'langan: " + usd(f.paidClient) + " · " + (f.clientDebt > 0.004 ? "<b>Qarz: " + usd(f.clientDebt) + "</b>" : f.clientDebt < -0.004 ? "Ortiqcha: " + usd(-f.clientDebt) : "Qarz yo'q") + (C.isLive(o) ? "" : " (hisobga olinmaydi)")].join("\n");
-    }).join("\n\n");
+  // ---------- объекты: список кнопками → карточка → оплаты / материалы ----------
+  const cut = (t, n) => { t = String(t || ""); return t.length > n ? t.slice(0, n - 1) + "…" : t; };
+  function objList(data, q) {
+    const list = q ? data.objects.filter((o) => hitAll(hay([o.name, o.client, o.phone, o.master, o.address]), q))
+      : data.objects.filter((o) => C.isLive(o)).sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
+    const top = list.slice(0, 10);
+    const text = q ? (top.length ? "🔍 «" + esc(q) + "»: " + list.length + " ta" + (list.length > 10 ? " (birinchi 10 tasi)" : "") : "🔍 «" + esc(q) + "» bo'yicha obyekt topilmadi.")
+      : top.length ? "🏠 <b>Obyektlar</b> — oxirgi o'zgarganlar" : "Faol obyektlar yo'q.";
+    const kb = top.map((o) => [{ text: cut((o.name || "—") + (o.client ? " · " + o.client : ""), 60), callback_data: "o:" + o.id }]);
+    kb.push([{ text: "🔍 Qidirish", callback_data: "oq" }].concat(q ? [{ text: "🏠 Oxirgilar", callback_data: "ol" }] : []));
+    return { text, reply_markup: { inline_keyboard: kb } };
   }
-  async function runCommand(chatId, msg, cmd) {
+  const money$ = (acc) => !!acc && acc.base !== "driver"; // доставщик — без сумм
+  function objCard(o, data, acc) {
+    const st = C.stById(o.status);
+    const mName = o.master || (((data.masters || []).find((m) => m.id === o.master_id) || {}).name || "");
+    const lines = ["🏠 <b>" + esc(o.name || "—") + "</b> · " + esc(st.label),
+      "Mijoz: " + esc([o.client, o.phone].filter(Boolean).join(", ") || "—") + (mName ? "\nUsta: " + esc(mName) : "") + (o.address ? "\nManzil: " + esc(o.address) : "")];
+    if (money$(acc)) {
+      const f = C.calcObject(o, data.finance_ops);
+      lines.push("", "Summa: <b>" + usd(f.saleNet) + "</b>", "To'langan: " + usd(f.paidClient), f.clientDebt > 0.004 ? "<b>Qarz: " + usd(f.clientDebt) + "</b>" : f.clientDebt < -0.004 ? "Ortiqcha to'lov: " + usd(-f.clientDebt) : "Qarz yo'q");
+      if (!C.isLive(o)) lines.push("<i>(hisobga olinmaydi)</i>");
+    }
+    const kb = [[...(money$(acc) ? [{ text: "💳 To'lovlar", callback_data: "op:" + o.id }] : []), { text: "📦 Materiallar", callback_data: "om:" + o.id }], [{ text: "⬅️ Orqaga", callback_data: "ol" }]];
+    return { text: lines.join("\n"), reply_markup: { inline_keyboard: kb } };
+  }
+  const back = (id) => ({ inline_keyboard: [[{ text: "⬅️ Obyektga", callback_data: "o:" + id }, { text: "🏠 Ro'yxat", callback_data: "ol" }]] });
+  function objPays(o, data) {
+    const ops = data.finance_ops.filter((x) => x.object_id === o.id && ["client_payment", "return", "discount"].includes(x.type))
+      .sort((a, b) => String(a.op_date || a.created_at || "").localeCompare(String(b.op_date || b.created_at || "")));
+    const lines = ops.slice(-30).map((x) => "• " + dt(String(x.op_date || x.created_at || "").slice(0, 10)) + " · " + esc(C.opName(x)) + " · <b>" + usd(Number(x.amount) || 0) + "</b>" + (x.reason ? " <i>" + esc(cut(x.reason, 50)) + "</i>" : ""));
+    return { text: "💳 <b>" + esc(o.name || "—") + "</b> — to'lovlar\n\n" + (lines.length ? (ops.length > 30 ? "… oldingi " + (ops.length - 30) + " ta\n" : "") + lines.join("\n") : "To'lovlar yo'q."), reply_markup: back(o.id) };
+  }
+  function objMats(o, acc) {
+    const items = (Array.isArray(o.items) ? o.items : []).filter((i) => i && i.name);
+    const by = new Map();
+    items.forEach((i) => { const k = Number(i.batch_no) || 1; if (!by.has(k)) by.set(k, []); by.get(k).push(i); });
+    const out = ["📦 <b>" + esc(o.name || "—") + "</b> — materiallar"];
+    [...by.keys()].sort((a, b) => a - b).forEach((k) => {
+      const list = by.get(k), d0 = list.map((i) => i.batch_date).filter(Boolean).sort()[0];
+      out.push("", "<b>" + k + "-postavka</b>" + (d0 ? " · " + dt(String(d0).slice(0, 10)) : ""));
+      list.forEach((i) => out.push("• " + esc(cut(i.name, 70)) + " — " + C.fmt(Number(i.qty) || 0) + " " + esc(i.unit || "шт") + (money$(acc) && Number(i.price) ? " · " + usd((Number(i.price) || 0) * (Number(i.qty) || 0)) : "")));
+    });
+    if (!items.length) out.push("", "Materiallar yo'q.");
+    let text = out.join("\n"); if (text.length > 3900) text = text.slice(0, 3890) + "\n…";
+    return { text, reply_markup: back(o.id) };
+  }
+  // ---------- цены и склад ----------
+  async function prices(q, acc) {
+    const [prods, sups, wh] = await Promise.all([db.all("products", "", "id,name,brand,size,unit,cost,price,supplier_id,status"), db.all("suppliers", "", "id,name"), db.all("warehouse", "", "id,product_id,qty")]);
+    const sn = new Map(sups.map((x) => [x.id, x.name]));
+    const wq = new Map(); wh.forEach((w) => { if (w.product_id && Number(w.qty) > 0) wq.set(w.product_id, (wq.get(w.product_id) || 0) + Number(w.qty)); });
+    const fin = acc.base === "boss" || !!(acc.perms && acc.perms.fin);
+    const val = (p) => (fin ? Number(p.cost) || 0 : C.retailOf(p));
+    const list = prods.filter((p) => p.status !== "archive" && hitAll(hay([p.name, p.brand, p.size, sn.get(p.supplier_id)]), q))
+      .sort((a, b) => (val(a) > 0 ? 0 : 1) - (val(b) > 0 ? 0 : 1) || val(a) - val(b));
+    if (!list.length) return "💲 «" + esc(q) + "» bo'yicha tovar topilmadi.";
+    return ["💲 <b>«" + esc(q) + "»</b> — " + (fin ? "zakup narxi" : "sotuv narxi") + ", arzonidan:", "",
+      ...list.slice(0, 10).map((p, i) => (i + 1) + ". " + esc(cut(p.name, 80)) + " — " + esc(sn.get(p.supplier_id) || "—") + " · <b>" + (val(p) > 0 ? usd(val(p)) : "narx yo'q") + "</b>" + (wq.get(p.id) ? " · 📦 skladda: " + C.fmt(wq.get(p.id)) : "")),
+      list.length > 10 ? "\n… yana " + (list.length - 10) + " ta — aniqroq yozing" : ""].filter((x) => x !== "").join("\n");
+  }
+  async function stock(q) {
+    const [wh, sups] = await Promise.all([db.all("warehouse", "", "id,name,qty,unit,supplier_id,product_id"), db.all("suppliers", "", "id,name")]);
+    const sn = new Map(sups.map((x) => [x.id, x.name]));
+    const list = wh.filter((w) => Number(w.qty) > 0 && hitAll(hay([w.name, sn.get(w.supplier_id)]), q)).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    if (!list.length) return "📦 «" + esc(q) + "» — omborda yo'q.";
+    return ["📦 <b>Sklad Thermo · «" + esc(q) + "»</b>", "", ...list.slice(0, 25).map((w) => "• " + esc(cut(w.name, 80)) + " — <b>" + C.fmt(Number(w.qty)) + " " + esc(w.unit || "шт") + "</b>" + (sn.get(w.supplier_id) ? " · " + esc(sn.get(w.supplier_id)) : "")), list.length > 25 ? "\n… yana " + (list.length - 25) + " ta" : ""].filter((x) => x !== "").join("\n");
+  }
+  // вопросы, на которые бот просит дописать слово (ответ на его сообщение — поиск)
+  const ask = (chatId, pr) => send(chatId, pr.mark + ": " + pr.hint, { reply_markup: { force_reply: true, input_field_placeholder: pr.ph } });
+  async function runCommand(chatId, msg, cmd, me) {
     const day = tzDate(now());
+    const acc = me && me.acc;
     let text;
     try {
       if (cmd.name === "yordam") text = HELP;
@@ -485,18 +614,110 @@ export function makeBot({ db, tg, now = () => new Date() }) {
       else if (cmd.name === "bugun") text = await today(parseDay(cmd.arg, day));
       else if (cmd.name === "qarz") text = await debts(cmd.arg);
       else if (cmd.name === "postavshik") text = await supDebts(cmd.arg);
-      else if (cmd.name === "obyekt") text = await objects(cmd.arg);
+      else if (cmd.name === "obyekt") { const v = objList(await loadData(["objects"]), cmd.arg); return send(chatId, v.text, { reply_markup: v.reply_markup }); }
+      else if (cmd.name === "narx" || cmd.name === "sklad") {
+        if (!cmd.arg) return ask(chatId, PROMPTS.find((x) => x.name === cmd.name));
+        text = cmd.name === "narx" ? await prices(cmd.arg, acc) : await stock(cmd.arg);
+      }
       else return;
     } catch (e) { text = "⚠️ Hisoblab bo'lmadi: " + esc(String(e.message || e)).slice(0, 300); }
     if (text.length > 4000) text = text.slice(0, 3990) + "\n…";
     return send(chatId, text, { reply_to_message_id: msg.message_id });
   }
+  // ---------- заметки из личного чата ----------
+  const noteKb = (id, shared) => ({ inline_keyboard: [[{ text: shared ? "🔒 Faqat menga" : "👥 Hammaga ko'rinsin", callback_data: "ns:" + id }, { text: "🗑 O'chirish", callback_data: "nd:" + id }]] });
+  async function saveNote(msg, me) {
+    const { title, text } = noteSplit(msg.text);
+    if (!title && !text) return;
+    const lines = { title, text, color: "", pinned: false, shared: false, user_id: me.user.id, author: me.name, updated_at: now().toISOString(), via: "tg" };
+    let row;
+    try { row = (await db.insert("requests", { mode: "te_note", source: "note", lines }))[0]; }
+    catch (e) { return send(msg.chat.id, "⚠️ Zametka saqlanmadi: " + esc(e.message).slice(0, 200), { reply_to_message_id: msg.message_id }); }
+    return send(msg.chat.id, "📝 <b>Saqlandi</b> — dasturdagi «Заметки»da · 🔒 faqat sizga", { reply_to_message_id: msg.message_id, reply_markup: row && row.id ? noteKb(row.id, false) : undefined });
+  }
+  async function privCallback(cq, ans, edit) {
+    const me = await whoAmI(cq.from && cq.from.id);
+    if (!me) return ans("Akkaunt ulanmagan", true);
+    const data0 = String(cq.data || ""), i = data0.indexOf(":");
+    const act = i < 0 ? data0 : data0.slice(0, i), id = i < 0 ? "" : data0.slice(i + 1);
+    if (act === "ns" || act === "nd") {
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return ans();
+      const row = (await db.select("requests", "id=eq." + id + "&mode=eq.te_note&select=id,lines"))[0];
+      if (!row || !row.lines || row.lines.user_id !== me.user.id) { await edit("📝 Zametka topilmadi (o'chirilgan)."); return ans(); }
+      try {
+        if (act === "nd") { await db.del("requests", "id=eq." + id); await edit("🗑 Zametka o'chirildi."); return ans("O'chirildi"); }
+        const shared = !row.lines.shared;
+        await db.update("requests", "id=eq." + id, { lines: { ...row.lines, shared, updated_at: now().toISOString() } });
+        await edit("📝 <b>Saqlandi</b> — dasturdagi «Заметки»da · " + (shared ? "👥 hammaga ko'rinadi" : "🔒 faqat sizga"), noteKb(id, shared));
+        return ans(shared ? "Hammaga ko'rinadi" : "Faqat sizga");
+      } catch (e) { return ans("Xato: " + String(e.message || e).slice(0, 150), true); }
+    }
+    if (!["ol", "oq", "o", "op", "om"].includes(act)) return ans();
+    if (!canAsk(me.acc, "obyekt")) return ans("Bu bo'lim sizga ochilmagan", true);
+    if (act === "oq") { await ask(cq.message.chat.id, PROMPTS[0]); return ans(); }
+    const data = await loadData(act === "ol" ? ["objects"] : ["objects", "finance_ops", "masters"]);
+    if (act === "ol") { const v = objList(data, ""); await edit(v.text, v.reply_markup); return ans(); }
+    const o = data.objects.find((x) => x.id === id);
+    if (!o) { await edit("Obyekt topilmadi (o'chirilgan bo'lishi mumkin).", { inline_keyboard: [[{ text: "🏠 Ro'yxat", callback_data: "ol" }]] }); return ans(); }
+    const v = act === "o" ? objCard(o, data, me.acc) : act === "op" ? (money$(me.acc) ? objPays(o, data) : objCard(o, data, me.acc)) : objMats(o, me.acc);
+    await edit(v.text, v.reply_markup);
+    return ans();
+  }
+  // ---------- отчёты по расписанию (GitHub Actions будит функцию каждые 10 минут) ----------
+  async function debtReport(days) {
+    const data = await loadData(["objects", "finance_ops", "suppliers", "wh_moves"]);
+    const day = tzDate(now()), dnum = (iso) => Date.parse(String(iso).slice(0, 10) + "T12:00:00Z");
+    const cl = data.objects.filter((o) => C.isLive(o)).map((o) => {
+      const f = C.calcObject(o, data.finance_ops);
+      const last = [String(o.created_at || "").slice(0, 10), ...data.finance_ops.filter((x) => x.object_id === o.id && x.type === "client_payment").map((x) => String(x.op_date || x.created_at || "").slice(0, 10))].filter(Boolean).sort().pop() || day;
+      return { o, debt: f.clientDebt, age: Math.round((dnum(day) - dnum(last)) / 864e5) };
+    }).filter((r) => r.debt > 0.004 && r.age >= days).sort((a, b) => b.debt - a.debt);
+    const sp = data.suppliers.map((s) => ({ s, st: C.supplierStats(s, data.objects, data.finance_ops, data.wh_moves) })).filter((r) => r.st.debt > 0.004).sort((a, b) => b.st.balance - a.st.balance);
+    const t1 = cl.reduce((a, r) => a + r.debt, 0), t2 = sp.reduce((a, r) => a + r.st.debt, 0);
+    return ["🗓 <b>Oy yakuni · qarzlar · " + dt(day) + "</b>", "",
+      "💳 <b>Mijozlar</b> (" + days + " kundan oshgan): <b>" + usd(t1) + "</b>", ...(cl.length ? cl.slice(0, 25).map((r, i) => (i + 1) + ". " + esc(r.o.name) + (r.o.client ? " (" + esc(r.o.client) + ")" : "") + " — <b>" + usd(r.debt) + "</b> · " + r.age + " kun") : ["✅ yo'q"]),
+      "", "🚚 <b>Postavshiklar</b>: <b>" + usd(t2) + "</b>", ...(sp.length ? sp.slice(0, 25).map((r, i) => (i + 1) + ". " + esc(r.s.name) + " — <b>" + usd(r.st.balance) + "</b>") : ["✅ yo'q"])].join("\n");
+  }
+  async function markOnce(key) {
+    const done = await db.select("audit_log", "action=eq." + LOG_MODE + "&entity=eq." + encodeURIComponent(key) + "&select=id&limit=1");
+    if (done.length) return false;
+    await db.insert("audit_log", { action: LOG_MODE, entity: key, detail: "", user_name: "Telegram-бот", role: "telegram", ts: now().toISOString() });
+    return true;
+  }
+  async function tick() {
+    const cf = await cfg();
+    const rp = repCfg(cf.c && cf.c.lines);
+    const day = tzDate(now()), hm = tzTime(now());
+    const sent = [];
+    const wantDaily = rp.daily.on && isDue(hm, rp.daily.time), wantDebts = rp.debts.on && isLastDay(day) && isDue(hm, rp.debts.time);
+    if (!wantDaily && !wantDebts) return sent;
+    const P = await people();
+    const to = (need) => P.all().filter((m) => (rp.to ? rp.to.includes(String(m.user.id)) : isFull(m.acc)) && canAsk(m.acc, need));
+    const blast = async (list, text) => { for (const m of list) { try { await send(m.tg, text.length > 4000 ? text.slice(0, 3990) + "\n…" : text); sent.push(m.tg); } catch (e) { /* человек остановил бота */ } } };
+    if (wantDaily && (await markOnce("rep:daily:" + day))) {
+      const list = to("kassa");
+      if (list.length) await blast(list, "📊 <b>Kunlik hisobot</b>\n\n" + (await kassa(day)) + "\n\n" + (await today(day)));
+    }
+    if (wantDebts && (await markOnce("rep:debts:" + day.slice(0, 7)))) {
+      const list = to("qarz");
+      if (list.length) await blast(list, await debtReport(rp.debts.days));
+    }
+    return sent;
+  }
 
-  // меню команд выставляется само один раз (после выкладки новой версии)
+  // меню команд выставляется само один раз (после выкладки новой версии); имя бота — для ссылок «Ulash» в программе
   let menuDone = false;
+  async function saveBotName() {
+    const me = await botMe(); if (!me) return;
+    const cf = await cfg();
+    if (cf.p && cf.p.lines && cf.p.lines.bot === me) return;
+    if (cf.p) await db.update("requests", "id=eq." + cf.p.id, { lines: { ...(cf.p.lines || {}), bot: me } });
+    else await db.insert("requests", { mode: PEND_MODE, source: "config", lines: { groups: [], bot: me } });
+  }
   return {
     async handle(upd) {
-      if (!menuDone) { menuDone = true; try { await setupMenu(tg); } catch (e) { menuDone = false; } }
+      if (upd && upd.te_cron) return tick();
+      if (!menuDone) { menuDone = true; try { await setupMenu(tg); await saveBotName(); } catch (e) { menuDone = false; } }
       if (upd.callback_query) return onCallback(upd.callback_query);
       if (upd.message) return onMessage(upd.message);
       if (upd.my_chat_member) {

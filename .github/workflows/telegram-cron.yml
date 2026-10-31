@@ -1,0 +1,36 @@
+# Telegram-бот: отчёты по расписанию. Каждые 10 минут будит функцию бота — она сама решает, пора ли отправлять
+# (время и получатели — в программе: Аккаунты → Telegram-бот → «Отчёты в личный чат»; каждый отчёт уходит один раз).
+# Нужен только секрет TELEGRAM_BOT_TOKEN (он уже есть); по нему считается тот же секрет, что у вебхука Telegram.
+name: "Telegram-бот: отчёты"
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: telegram-cron
+  cancel-in-progress: false
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: .env.txt
+          sparse-checkout-cone-mode: false
+      - name: Bot
+        run: |
+          [ -n "$TELEGRAM_BOT_TOKEN" ] || { echo "::warning::TELEGRAM_BOT_TOKEN yo'q"; exit 0; }
+          URL=$(grep -E '^VITE_SUPABASE_URL=' .env.txt | head -1 | cut -d= -f2- | tr -d '\r" ')
+          REF=$(printf '%s' "$URL" | sed -E 's#https://([a-z0-9]+)\.supabase\.co.*#\1#')
+          echo "::add-mask::$REF"
+          TOKEN=$(printf '%s' "$TELEGRAM_BOT_TOKEN" | tr -d '[:space:]"'"'"'`' | sed -E 's/^bot([0-9])/\1/')
+          SECRET=$(printf 'thermo-tg:%s' "$TOKEN" | sha256sum | cut -c1-48)
+          echo "::add-mask::$SECRET"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -m 120 -X POST "https://$REF.supabase.co/functions/v1/tg" -H "content-type: application/json" -H "x-telegram-bot-api-secret-token: $SECRET" -d '{"te_cron":1}')
+          echo "bot: $code"
+          [ "$code" = "200" ] || { echo "::error::Bot javob bermadi ($code)"; exit 1; }

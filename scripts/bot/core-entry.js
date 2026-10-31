@@ -1,2 +1,2 @@
 // Точка входа для сборки расчётов программы под Node (Telegram-бот, api/tg.js): тот же код, что в программе.
-export { kassaOps, kassaBal, kassaText, KASSA_KEYS, isoAddDays, calcObject, isLive, supplierStats, normFinOp, payInfo, payText, payPatch, opName, fmt, fmt2, fmtDot, round2, EXPENSE_CATEGORIES, INCOME_CATEGORIES, SALARY_CAT, stById, PAY_METHODS, LOG_HIDDEN, translit, normPName } from "../../src/App.jsx";
+export { kassaOps, kassaBal, kassaText, KASSA_KEYS, isoAddDays, calcObject, isLive, supplierStats, normFinOp, payInfo, payText, payPatch, opName, fmt, fmt2, fmtDot, round2, EXPENSE_CATEGORIES, INCOME_CATEGORIES, SALARY_CAT, stById, PAY_METHODS, LOG_HIDDEN, translit, normPName, allRoles, accessOf, userPermsOf, retailOf, PERMS } from "../../src/App.jsx";

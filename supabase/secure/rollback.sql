@@ -22,6 +22,8 @@ drop function if exists public.te_session_driver_only();
 drop function if exists public.te_actor_guard();
 drop function if exists public.te_requests_guard();
 drop function if exists public.te_session_accounts();
+drop function if exists public.te_session_tgbot();
+drop function if exists public.te_tg_linked(text);
 drop function if exists public.te_session_name();
 
 drop trigger if exists te_users_guard on public.users;

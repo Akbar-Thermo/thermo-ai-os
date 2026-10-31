@@ -163,7 +163,9 @@ const CLOUD_MODE = "te_2fa";
 const MIGR_MODE = "te_migr"; // отметки о разовых переходах данных
 const NOTE_ORD_MODE = "te_noteord"; // свой порядок заметок у каждого сотрудника: lines = { user_id, ids }
 const TG_MODE = "te_tg", TG_PEND_MODE = "te_tgpend"; // Telegram-бот: разрешённые группы (руководитель) / куда бота добавили (бот)
-const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note", MIGR_MODE, NOTE_ORD_MODE, TG_MODE, TG_PEND_MODE];
+// Telegram ↔ аккаунт: одноразовые ссылки «Подключить» (хэш, 10 минут) и список подключённых (пишет бот)
+const TG_LINK_MODE = "te_tglink", TG_USERS_MODE = "te_tgusers";
+const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note", MIGR_MODE, NOTE_ORD_MODE, TG_MODE, TG_PEND_MODE, TG_LINK_MODE, TG_USERS_MODE];
 // служебная запись-словарь в requests: прочитать свежую и поменять один ключ
 async function cfgSetKey(mode, key, value) {
   const r0 = await db.from("requests").select().eq("mode", mode);
@@ -645,6 +647,7 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 @media(min-width:821px){.te.fine .npanel-head{cursor:move;user-select:none}}
 .npanel-bg.free{background:none;backdrop-filter:none;pointer-events:none}
 .npanel{position:relative}
+.tg-h{font-size:var(--fs-xs);font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 2px}
 .fw-grip{position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:nwse-resize;z-index:2;border-radius:0 0 var(--r-xl) 0;background:linear-gradient(135deg,transparent 50%,var(--line2) 50%,var(--line2) 58%,transparent 58%,transparent 70%,var(--line2) 70%,var(--line2) 78%,transparent 78%);opacity:.8}
 .fw-grip:hover{opacity:1}
 body.fw-busy,body.fw-busy *{user-select:none!important}
@@ -969,6 +972,10 @@ async function restoreSnap(snap) {
     }
   }
   return { n, skip };
+}
+async function sha256hex(t) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 async function hashPass(pw) {
   try {
@@ -9501,27 +9508,91 @@ function AdminTab({ data, reload, toast, currentUser, isBoss = true }) {
           </div>
         </Modal>
       )}
-      <TelegramCard data={data} reload={reload} toast={toast} />
+      <TelegramCard data={data} reload={reload} toast={toast} users={users} roles={roles} uperms={uperms} />
     </div>
   );
 }
-/* Telegram-бот (api/tg.js): в каких группах он работает. Бота добавляют в группу — группа появляется здесь,
-   руководитель нажимает «Разрешить». Бот вносит расходы/приходы группы (после «✅») и отвечает на /kassa /qarz … */
-function TelegramCard({ data, reload, toast }) {
+/* Telegram-бот: группы, где он вносит расходы (бота добавили — группа появилась — «Разрешить»);
+   аккаунт, под которым бот входит в программу; кто из сотрудников подключён (одноразовая ссылка — бот сам
+   привязывает Telegram к аккаунту; в личном чате бот отвечает по правам аккаунта); отчёты по расписанию. */
+const TG_FULL = (a) => !!a && (a.base === "boss" || PERMS.every((p) => a.perms && a.perms[p.id]));
+function TelegramCard({ data, reload, toast, users = [], roles = [], uperms = {} }) {
   const reqs = data.requests || [];
   const cfgRow = reqs.find((r) => r.mode === TG_MODE) || null;
   const pendRow = reqs.find((r) => r.mode === TG_PEND_MODE) || null;
-  const allowed = (cfgRow && cfgRow.lines && Array.isArray(cfgRow.lines.allowed) ? cfgRow.lines.allowed : []);
+  const linkRow = reqs.find((r) => r.mode === TG_USERS_MODE) || null;
+  const cfg = (cfgRow && cfgRow.lines && !Array.isArray(cfgRow.lines) ? cfgRow.lines : {}) || {};
+  const allowed = Array.isArray(cfg.allowed) ? cfg.allowed : [];
   const pending = (pendRow && pendRow.lines && Array.isArray(pendRow.lines.groups) ? pendRow.lines.groups : []).filter((g) => !allowed.some((a) => String(a.id) === String(g.id)));
+  const botName = (pendRow && pendRow.lines && pendRow.lines.bot) || "";
+  const links = (linkRow && linkRow.lines && linkRow.lines.links && typeof linkRow.lines.links === "object" ? linkRow.lines.links : {}) || {};
+  const tgOf = (uid) => { const e = Object.entries(links).find(([, v]) => v && v.user_id === uid); return e ? { id: e[0], ...e[1] } : null; };
+  const people = users.filter((u) => u.id !== cfg.bot_user && (!u.status || u.status === "active"));
+  const accOf = (u) => accessOf(u, roles, uperms);
   const [busy, setBusy] = useState(false);
+  const [show, setShow] = useState(null); // { u, url, cmd, exp }
+  const saveCfg = async (patch) => {
+    const r0 = await db.from("requests").select().eq("mode", TG_MODE);
+    const row = ((r0 && r0.data) || [])[0] || cfgRow;
+    const lines = { ...((row && row.lines && !Array.isArray(row.lines) ? row.lines : {}) || {}), ...patch };
+    const r = row ? await db.from("requests").update({ lines }).eq("id", row.id) : await db.from("requests").insert({ mode: TG_MODE, source: "config", lines });
+    return !r.error;
+  };
   const save = async (list, what, g) => {
     setBusy(true);
-    const lines = { ...(cfgRow && cfgRow.lines), allowed: list };
-    const r = cfgRow ? await db.from("requests").update({ lines }).eq("id", cfgRow.id) : await db.from("requests").insert({ mode: TG_MODE, source: "config", lines });
+    const ok = await saveCfg({ allowed: list });
     setBusy(false);
-    if (r.error) return;
+    if (!ok) return;
     await logAction(what, "telegram", (g.title || "") + " (" + g.id + ")");
     await reload(["requests"]); toast(what + ": " + (g.title || g.id));
+  };
+  const setBot = async (id) => {
+    setBusy(true); const ok = await saveCfg({ bot_user: id || null }); setBusy(false);
+    if (!ok) return;
+    const u = users.find((x) => x.id === id);
+    await logAction("Telegram: аккаунт бота", "telegram", u ? u.username : "—");
+    await reload(["requests"]); toast("Аккаунт бота: " + (u ? u.name || u.username : "не выбран"));
+  };
+  // одноразовая ссылка: в базе только хэш; ссылка живёт 10 минут; старые ссылки этого сотрудника удаляются
+  const makeLink = async (u) => {
+    setBusy(true);
+    try {
+      const b = crypto.getRandomValues(new Uint8Array(18));
+      const token = btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      const hash = await sha256hex("tglink:" + token);
+      for (const r of reqs.filter((x) => x.mode === TG_LINK_MODE && x.lines && (x.lines.user_id === u.id || Date.parse(x.lines.exp || 0) < Date.now()))) await db.from("requests").delete().eq("id", r.id);
+      const exp = new Date(Date.now() + 10 * 60e3).toISOString();
+      const r = await db.from("requests").insert({ mode: TG_LINK_MODE, source: "config", lines: { user_id: u.id, hash, exp } });
+      if (r.error) return;
+      await logAction("Telegram: ссылка для подключения", "user:" + u.username, u.name || "");
+      setShow({ u, url: botName ? "https://t.me/" + botName + "?start=L" + token : "", cmd: "/start L" + token, exp });
+      await reload(["requests"]);
+    } finally { setBusy(false); }
+  };
+  const unlink = async (u) => {
+    const t = tgOf(u.id); if (!t) return;
+    if (!(await askConfirm({ title: "Отключить Telegram?", text: (u.name || u.username) + " — " + (t.tg || t.id), ok: "Отключить" }))) return;
+    setBusy(true);
+    const r0 = await db.from("requests").select().eq("mode", TG_USERS_MODE);
+    const row = ((r0 && r0.data) || [])[0];
+    if (row) {
+      const nl = {}; Object.entries((row.lines && row.lines.links) || {}).forEach(([k, v]) => { if (!v || v.user_id !== u.id) nl[k] = v; });
+      const r = await db.from("requests").update({ lines: { ...row.lines, links: nl } }).eq("id", row.id);
+      if (!r.error) { await logAction("Telegram: отключён", "user:" + u.username, (u.name || "") + " · " + (t.tg || t.id)); toast("Telegram отключён: " + (u.name || u.username)); }
+    }
+    setBusy(false); await reload(["requests"]);
+  };
+  // отчёты: ежедневный (касса + кирим-чиқим) и в последний день месяца (долги); кому — галочки (по умолчанию все с полными правами)
+  const rep0 = cfg.report || {};
+  const [rp, setRp] = useState(() => ({ dOn: !(rep0.daily && rep0.daily.on === false), dT: (rep0.daily && rep0.daily.time) || "21:30", bOn: !(rep0.debts && rep0.debts.on === false), bT: (rep0.debts && rep0.debts.time) || "10:00", bD: String((rep0.debts && rep0.debts.days) || 14), to: Array.isArray(rep0.to) ? rep0.to : null }));
+  const linked = people.filter((u) => tgOf(u.id));
+  const toSet = new Set(rp.to || linked.filter((u) => TG_FULL(accOf(u))).map((u) => u.id));
+  const saveRep = async () => {
+    const report = { daily: { on: rp.dOn, time: rp.dT || "21:30" }, debts: { on: rp.bOn, time: rp.bT || "10:00", days: Math.max(1, parseInt(rp.bD, 10) || 14) }, to: rp.to };
+    setBusy(true); const ok = await saveCfg({ report }); setBusy(false);
+    if (!ok) return;
+    await logAction("Telegram: отчёты", "telegram", (rp.dOn ? "ежедневно " + report.daily.time : "без ежедневного") + " · " + (rp.bOn ? "долги в конце месяца " + report.debts.time + " (> " + report.debts.days + " дн.)" : "без долгов"));
+    await reload(["requests"]); toast("Отчёты сохранены");
   };
   const Row = ({ g, on }) => (
     <div className="row tg-row" style={{ gap: 10, padding: "8px 0", borderTop: "1px solid var(--line)" }}>
@@ -9530,12 +9601,55 @@ function TelegramCard({ data, reload, toast }) {
         : <button className="btn xs pri" disabled={busy} onClick={() => save([...allowed, { id: String(g.id), title: g.title || "", at: new Date().toISOString() }], "Telegram: группа разрешена", g)}>Разрешить</button>}
     </div>
   );
+  const H = ({ children }) => <div className="tg-h">{children}</div>;
   return (
     <div className="card sect tg-card" style={{ marginTop: 16 }}>
-      <div className="row" style={{ marginBottom: 6 }}><h3 style={{ marginRight: "auto" }}>Telegram-бот</h3><span className="xs mut">группы, где бот вносит расходы и отвечает на /kassa, /qarz…</span></div>
+      <div className="row" style={{ marginBottom: 6 }}><h3 style={{ marginRight: "auto" }}>Telegram-бот</h3>{botName && <a className="xs" href={"https://t.me/" + botName} target="_blank" rel="noreferrer">@{botName}</a>}</div>
+      <H>Группы</H>
       {allowed.map((g) => <Row key={"a" + g.id} g={g} on />)}
       {pending.map((g) => <Row key={"p" + g.id} g={g} />)}
       {!allowed.length && !pending.length && <div className="sm mut" style={{ padding: "8px 0", borderTop: "1px solid var(--line)" }}>Групп пока нет: добавьте бота в группу и сделайте его админом — группа появится здесь.</div>}
+      <H>Аккаунт бота</H>
+      <div className="row" style={{ gap: 10, padding: "8px 0", borderTop: "1px solid var(--line)" }}>
+        <span className="sm" style={{ marginRight: "auto" }}>Под каким аккаунтом бот входит в программу</span>
+        <select className="inp tg-botuser" style={{ maxWidth: 240 }} value={cfg.bot_user || ""} disabled={busy} onChange={(e) => setBot(e.target.value)}>
+          <option value="">— не выбран —</option>
+          {users.map((u) => <option key={u.id} value={u.id}>{(u.name || u.username) + " (" + u.username + ")"}</option>)}
+        </select>
+      </div>
+      <H>Сотрудники в Telegram</H>
+      {people.map((u) => {
+        const t = tgOf(u.id);
+        return (
+          <div key={u.id} className="row tg-user" style={{ gap: 10, padding: "7px 0", borderTop: "1px solid var(--line)" }}>
+            <div style={{ marginRight: "auto" }}><b>{u.name || u.username}</b> <span className="xs mut">{roleLabel(u.role)}</span></div>
+            {t ? <><span className="xs" style={{ color: "var(--ok)", fontWeight: 700 }}>✓ {t.tg || "подключён"}</span><button className="btn xs" disabled={busy} onClick={() => unlink(u)}>Отключить</button></>
+              : <button className="btn xs pri" disabled={busy} onClick={() => makeLink(u)}>Подключить</button>}
+          </div>
+        );
+      })}
+      <H>Отчёты в личный чат</H>
+      <div className="tg-rep" style={{ borderTop: "1px solid var(--line)", paddingTop: 8 }}>
+        <label className="row clk sm" style={{ gap: 8 }}><input type="checkbox" checked={rp.dOn} onChange={(e) => setRp({ ...rp, dOn: e.target.checked })} /> Каждый день — касса и приход/расход за день, в <input className="inp tg-dt" type="time" style={{ width: 120 }} value={rp.dT} onChange={(e) => setRp({ ...rp, dT: e.target.value })} /></label>
+        <label className="row clk sm" style={{ gap: 8, marginTop: 6 }}><input type="checkbox" checked={rp.bOn} onChange={(e) => setRp({ ...rp, bOn: e.target.checked })} /> В последний день месяца — долги клиентов старше <input className="inp tg-bd" inputMode="numeric" style={{ width: 60 }} value={rp.bD} onChange={(e) => setRp({ ...rp, bD: e.target.value.replace(/\D/g, "") })} /> дн. и долги поставщикам, в <input className="inp tg-bt" type="time" style={{ width: 120 }} value={rp.bT} onChange={(e) => setRp({ ...rp, bT: e.target.value })} /></label>
+        <div className="xs mut" style={{ margin: "10px 0 4px" }}>Кому (только подключённые к Telegram):</div>
+        {linked.length ? linked.map((u) => (
+          <label key={u.id} className="row clk sm tg-to" style={{ gap: 8 }}><input type="checkbox" checked={toSet.has(u.id)} onChange={(e) => { const nx = new Set(toSet); if (e.target.checked) nx.add(u.id); else nx.delete(u.id); setRp({ ...rp, to: [...nx] }); }} /> {u.name || u.username} <span className="xs mut">{roleLabel(u.role)}</span></label>
+        )) : <div className="sm mut">Пока никто не подключён.</div>}
+        <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}><button className="btn xs pri tg-rep-save" disabled={busy} onClick={saveRep}>Сохранить отчёты</button></div>
+      </div>
+      {show && (
+        <Modal title={"Подключить Telegram · " + (show.u.name || show.u.username)} onClose={() => setShow(null)} w={520}>
+          {show.url ? <>
+            <p className="sm" style={{ marginTop: 0 }}>Отправьте ссылку сотруднику — он откроет её в Telegram и нажмёт «Start». Ссылка одноразовая, действует 10 минут (до {new Date(show.exp).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}).</p>
+            <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}><input className="inp mono tg-link" readOnly value={show.url} onFocus={(e) => e.target.select()} /><button className="btn pri" onClick={async () => { try { await navigator.clipboard.writeText(show.url); toast("Ссылка скопирована"); } catch (e) {} }}>Копировать</button></div>
+          </> : <>
+            <p className="sm" style={{ marginTop: 0 }}>Имя бота пока неизвестно. Сотрудник открывает бота в Telegram и отправляет ему (10 минут):</p>
+            <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}><input className="inp mono tg-link" readOnly value={show.cmd} onFocus={(e) => e.target.select()} /><button className="btn pri" onClick={async () => { try { await navigator.clipboard.writeText(show.cmd); toast("Скопировано"); } catch (e) {} }}>Копировать</button></div>
+          </>}
+          <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}><button className="btn" onClick={() => setShow(null)}>Готово</button></div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -11126,7 +11240,7 @@ function archiveBook(T, who) {
 // для ночного бэкапа на сервере (scripts/nightly) — тот же Excel-архив, что и в программе
 export { archiveBook };
 // для Telegram-бота (api/tg.js, сборка scripts/bot/build-core.mjs) — те же расчёты кассы, долгов и способов оплаты, что в программе
-export { kassaOps, kassaBal, kassaText, KASSA_KEYS, isoAddDays, calcObject, isLive, supplierStats, normFinOp, payInfo, payText, payPatch, opName, fmt, fmt2, fmtDot, round2, EXPENSE_CATEGORIES, INCOME_CATEGORIES, SALARY_CAT, stById, PAY_METHODS, LOG_HIDDEN, translit, normPName };
+export { kassaOps, kassaBal, kassaText, KASSA_KEYS, isoAddDays, calcObject, isLive, supplierStats, normFinOp, payInfo, payText, payPatch, opName, fmt, fmt2, fmtDot, round2, EXPENSE_CATEGORIES, INCOME_CATEGORIES, SALARY_CAT, stById, PAY_METHODS, LOG_HIDDEN, translit, normPName, allRoles, accessOf, userPermsOf, retailOf, PERMS };
 async function downloadArchive(who) {
   const dump = await freshDump();
   const blob = archiveBook(dump.tables, who);

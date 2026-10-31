@@ -41,12 +41,12 @@ export function makeRest({ url, anon, login, password, fetchImpl = globalThis.fe
   }
   const fail = (what, r) => { const e = new Error(what + ": " + ((r.data && (r.data.message || r.data.hint)) || r.text || r.status)); e.status = r.status; e.body = r.data; return e; };
   // все строки таблицы — страницами по 1000 (больше REST за раз не отдаёт)
-  async function all(table, query = "") {
+  async function all(table, query = "", cols = "*") {
     let out = [];
     for (let from = 0; from < 2000000; from += 1000) {
-      const q = table + "?select=*" + (query ? "&" + query : "") + "&order=created_at.asc,id.asc&offset=" + from + "&limit=1000";
+      const q = table + "?select=" + cols + (query ? "&" + query : "") + "&order=created_at.asc,id.asc&offset=" + from + "&limit=1000";
       let r = await call("GET", q);
-      if (!r.ok && r.status === 400 && /created_at/.test(r.text)) r = await call("GET", table + "?select=*" + (query ? "&" + query : "") + "&order=id.asc&offset=" + from + "&limit=1000");
+      if (!r.ok && r.status === 400 && /created_at/.test(r.text)) r = await call("GET", table + "?select=" + cols + (query ? "&" + query : "") + "&order=id.asc&offset=" + from + "&limit=1000");
       if (!r.ok) throw fail(table, r);
       out = out.concat(r.data || []);
       if (!r.data || r.data.length < 1000) break;

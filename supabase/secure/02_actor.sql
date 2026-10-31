@@ -12,6 +12,9 @@
 --     (облачный пароль руководителя — только он сам);
 --   · служебные записи (права, роли, облачные пароли) удаляет только руководитель;
 --   · группы Telegram-бота (te_tg) разрешает руководитель или право «Аккаунты»;
+--   · Telegram ↔ аккаунт: одноразовые ссылки (te_tglink) создаёт руководитель или право «Аккаунты», а список
+--     подключённых (te_tgusers) меняют они же или аккаунт бота (Аккаунты → Telegram-бот → «Аккаунт бота»);
+--     аккаунт бота пишет операции и заметки от имени подключённого к нему человека (его заметки, «кто» в операции);
 --   · доставщик (если ему не открыты другие разделы, кроме «Доставка» и «Склад Thermo»): меняет только
 --     отметки отгрузки в объектах, пишет в журнал и свои заметки — остальное в базе ему недоступно.
 -- Руководитель не ограничивается: ему нужно восстанавливать базу из бэкапа (там имена из прошлых записей).
@@ -34,6 +37,19 @@ language sql stable security definer set search_path = public as $$
     from public.requests x where x.mode = 'te_perms' and jsonb_typeof(x.lines) = 'object' limit 1), false)
 $$;
 
+-- вошёл аккаунт Telegram-бота (его выбирает руководитель: te_tg.lines.bot_user)
+create or replace function public.te_session_tgbot() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select (x.lines ->> 'bot_user') = public.te_session_user()::text
+    from public.requests x where x.mode = 'te_tg' and jsonb_typeof(x.lines) = 'object' limit 1), false)
+$$;
+-- аккаунт программы подключён к Telegram (бот может писать от его имени)
+create or replace function public.te_tg_linked(uid text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select uid is not null and exists (select 1 from public.requests t, jsonb_each(case when jsonb_typeof(t.lines -> 'links') = 'object' then t.lines -> 'links' else '{}'::jsonb end) e
+    where t.mode = 'te_tgusers' and e.value ->> 'user_id' = uid)
+$$;
+
 -- «кто» в записи: при вставке — вошедший, при изменении — прежнее значение
 create or replace function public.te_actor_guard() returns trigger
 language plpgsql security definer set search_path = public as $$
@@ -46,6 +62,8 @@ begin
     raise exception 'te_forbidden: журнал действий нельзя менять или удалять' using errcode = '42501';
   end if;
   if tg_op = 'DELETE' then return old; end if;
+  -- бот: «кто» — подключённый человек, нажавший «✅» (бот сам подставляет его имя)
+  if public.te_session_tgbot() then return new; end if;
   nm := coalesce(public.te_session_name(), '—');
   foreach c in array array['user', 'user_name'] loop
     if to_jsonb(new) ? c then
@@ -60,13 +78,14 @@ end $$;
 -- служебные записи и заметки в requests
 create or replace function public.te_requests_guard() returns trigger
 language plpgsql security definer set search_path = public as $$
-declare r text; uid text; acc boolean; m text; o jsonb; n jsonb; k text; boss_ids text[];
+declare r text; uid text; acc boolean; bot boolean; m text; o jsonb; n jsonb; k text; boss_ids text[];
 begin
   if not public.te_via_api() then return case when tg_op = 'DELETE' then old else new end; end if;
   r := public.te_session_role();
   if r = 'boss' then return case when tg_op = 'DELETE' then old else new end; end if;
   uid := public.te_session_user()::text;
   acc := public.te_session_accounts();
+  bot := public.te_session_tgbot();
   m := case when tg_op = 'DELETE' then old.mode else new.mode end;
   if tg_op = 'UPDATE' and old.mode is distinct from new.mode then
     raise exception 'te_forbidden: нельзя менять вид записи' using errcode = '42501';
@@ -77,7 +96,24 @@ begin
     raise exception 'te_forbidden: группы Telegram-бота разрешает только руководитель' using errcode = '42501';
   end if;
 
+  -- ссылки «Telegram ulash»: создаёт руководитель / право «Аккаунты»; бот удаляет использованную
+  if m = 'te_tglink' then
+    if tg_op = 'DELETE' and (acc or bot) then return old; end if;
+    if not acc then raise exception 'te_forbidden: ссылки Telegram создаёт только руководитель' using errcode = '42501'; end if;
+    return case when tg_op = 'DELETE' then old else new end;
+  end if;
+  -- кто чей в Telegram: бот (подключение по ссылке) или руководитель / право «Аккаунты» (отключить)
+  if m = 'te_tgusers' and not (acc or bot) then
+    raise exception 'te_forbidden: подключения Telegram меняет только руководитель' using errcode = '42501';
+  end if;
+
   if m = 'te_note' then
+    -- бот: заметки подключённых людей (из личного чата с ботом) — от их имени
+    if bot then
+      if tg_op = 'INSERT' and public.te_tg_linked(new.lines ->> 'user_id') then return new; end if;
+      if tg_op = 'UPDATE' and public.te_tg_linked(old.lines ->> 'user_id') and (new.lines ->> 'user_id') is not distinct from (old.lines ->> 'user_id') then return new; end if;
+      if tg_op = 'DELETE' and public.te_tg_linked(old.lines ->> 'user_id') then return old; end if;
+    end if;
     if tg_op = 'INSERT' then
       new.lines := coalesce(new.lines, '{}'::jsonb) || jsonb_build_object('user_id', uid, 'author', coalesce(public.te_session_name(), ''));
       return new;
@@ -174,6 +210,7 @@ begin
   end loop;
 end $$;
 
+revoke all on function public.te_session_tgbot(), public.te_tg_linked(text) from public, anon, authenticated;
 revoke all on function public.te_session_name(), public.te_session_accounts(), public.te_actor_guard(), public.te_requests_guard(),
   public.te_session_driver_only(), public.te_driver_guard() from public, anon, authenticated;
 

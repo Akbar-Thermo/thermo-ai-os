@@ -778,6 +778,52 @@ var OP_TYPES = [
   { id: "company_income", label: "\u041F\u0440\u0438\u0445\u043E\u0434 \u043A\u043E\u043C\u043F\u0430\u043D\u0438\u0438" },
   { id: "wh_purchase", label: "\u041F\u0440\u0438\u0445\u043E\u0434 \u043D\u0430 \u0441\u043A\u043B\u0430\u0434 (\u0437\u0430\u043A\u0443\u043F\u043A\u0430)" }
 ];
+var ROLES = [
+  { id: "manager", label: "\u041C\u0435\u043D\u0435\u0434\u0436\u0435\u0440", tabs: ["request", "objects", "products", "wh", "suppliers", "masters", "finance"] },
+  { id: "boss", label: "\u0420\u0443\u043A\u043E\u0432\u043E\u0434\u0438\u0442\u0435\u043B\u044C", tabs: ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "admin"] },
+  // доставщик: только объекты для доставки (без цен) и Склад Thermo (без цен)
+  { id: "driver", label: "\u0414\u043E\u0441\u0442\u0430\u0432\u0449\u0438\u043A", tabs: ["delivery", "wh"] }
+];
+var ROLE_CFG_MODE = "te_roles";
+var GRANT_TABS = ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "delivery"];
+var PERMS = [
+  { id: "fin", label: "\u0421\u0435\u0431\u0435\u0441\u0442\u043E\u0438\u043C\u043E\u0441\u0442\u044C, \u043F\u0440\u0438\u0431\u044B\u043B\u044C, \u0432\u0441\u0435 \u0444\u0438\u043D\u0430\u043D\u0441\u043E\u0432\u044B\u0435 \u043E\u043F\u0435\u0440\u0430\u0446\u0438\u0438" },
+  { id: "del", label: "\u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435: \u043E\u0431\u044A\u0435\u043A\u0442\u044B \u0441 \u043E\u043F\u043B\u0430\u0442\u0430\u043C\u0438, \u043E\u043F\u0435\u0440\u0430\u0446\u0438\u0438, \u043C\u0430\u0441\u0442\u0435\u0440\u0430" },
+  { id: "salary", label: "\u0417\u0430\u0440\u043F\u043B\u0430\u0442\u0430 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432" },
+  { id: "backup", label: "\u0411\u044D\u043A\u0430\u043F \u0431\u0430\u0437\u044B \u0438 Excel-\u0430\u0440\u0445\u0438\u0432" },
+  { id: "accounts", label: "\u0410\u043A\u043A\u0430\u0443\u043D\u0442\u044B: \u0441\u043E\u0437\u0434\u0430\u0432\u0430\u0442\u044C \u0438 \u043C\u0435\u043D\u044F\u0442\u044C (\u043A\u0440\u043E\u043C\u0435 \u0440\u0443\u043A\u043E\u0432\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439)" }
+];
+var ALL_PERMS = { fin: true, del: true, salary: true, backup: true, accounts: true };
+var rolesCfgRow = (data) => (data && data.requests || []).find((x) => x.mode === ROLE_CFG_MODE) || null;
+function allRoles(data) {
+  const row = rolesCfgRow(data);
+  const saved = row && Array.isArray(row.lines) ? row.lines : [];
+  const get = (id) => saved.find((x) => x && x.id === id);
+  const out = [{ ...ROLES[1], base: "boss", perms: ALL_PERMS, fixed: true }];
+  ["manager", "driver"].forEach((id) => {
+    const b = ROLES.find((x) => x.id === id), o = get(id) || {};
+    out.push({ id, base: id, builtin: true, label: o.label || b.label, tabs: Array.isArray(o.tabs) ? o.tabs.filter((t) => GRANT_TABS.includes(t)) : b.tabs, perms: { ...o.perms || {} } });
+  });
+  saved.forEach((r) => {
+    if (r && r.id && !["boss", "manager", "driver"].includes(r.id)) out.push({ id: r.id, label: r.label || "\u0420\u043E\u043B\u044C", base: r.base === "driver" ? "driver" : "manager", tabs: (r.tabs || []).filter((t) => GRANT_TABS.includes(t)), perms: { ...r.perms || {} }, custom: true });
+  });
+  return out;
+}
+var PERMS_MODE = "te_perms";
+var userPermsOf = (data) => {
+  const r = (data && data.requests || []).find((x) => x.mode === PERMS_MODE);
+  return r && r.lines && !Array.isArray(r.lines) && r.lines || {};
+};
+function accessOf(u, roles, uperms) {
+  const r = u && roles.find((x) => x.id === u.role) || roles.find((x) => x.id === "manager");
+  const own = r.base !== "boss" && u && uperms && uperms[u.id];
+  const t0 = own && Array.isArray(own.tabs) ? own.tabs.filter((t) => GRANT_TABS.includes(t)) : r.tabs;
+  const tabs0 = r.base === "boss" ? r.tabs : t0.length ? t0 : r.base === "driver" ? ["delivery"] : ["objects"];
+  const perms = r.base === "boss" ? ALL_PERMS : own ? own.perms || {} : r.perms || {};
+  const tabs1 = r.base !== "boss" && perms.accounts && !tabs0.includes("admin") ? [...tabs0, "admin"] : tabs0;
+  const tabs = tabs1.filter((t) => t !== "notes");
+  return { id: r.id, label: r.label, base: r.base, tabs, perms };
+}
 var EXPENSE_CATEGORIES = ["\u0417\u0430\u0440\u043F\u043B\u0430\u0442\u0430", "\u0410\u0440\u0435\u043D\u0434\u0430", "\u041A\u043E\u043C\u043C\u0443\u043D\u0430\u043B\u044C\u043D\u044B\u0435", "\u041E\u0431\u0435\u0434", "\u0414\u043E\u0441\u0442\u0430\u0432\u043A\u0430", "\u0417\u0430\u043F\u0440\u0430\u0432\u043A\u0430 \u0442\u0440\u0430\u043D\u0441\u043F\u043E\u0440\u0442\u0430", "\u041E\u0441\u0432\u0435\u0436\u0435\u043D\u0438\u044F", "\u0414\u043B\u044F showroom", "\u0421\u0432\u044F\u0437\u044C / \u0438\u043D\u0442\u0435\u0440\u043D\u0435\u0442", "\u041D\u0430\u043B\u043E\u0433\u0438", "\u0420\u0435\u043A\u043B\u0430\u043C\u0430", "\u0425\u043E\u0437\u0440\u0430\u0441\u0445\u043E\u0434\u044B", "\u041F\u0440\u043E\u0447\u0435\u0435"];
 var SALARY_CAT = "\u0417\u0430\u0440\u043F\u043B\u0430\u0442\u0430";
 var isSalary = (o) => o && o.type === "company_expense" && o.category === SALARY_CAT;
@@ -1214,7 +1260,10 @@ export {
   KASSA_KEYS,
   LOG_HIDDEN,
   PAY_METHODS,
+  PERMS,
   SALARY_CAT,
+  accessOf,
+  allRoles,
   calcObject,
   fmt,
   fmt2,
@@ -1230,10 +1279,12 @@ export {
   payInfo,
   payPatch,
   payText,
+  retailOf,
   round2,
   stById,
   supplierStats,
-  translit
+  translit,
+  userPermsOf
 };
 /*! Bundled license information:
 
