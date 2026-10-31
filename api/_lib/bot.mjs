@@ -205,6 +205,8 @@ export const MENU = [
   { command: "obyekt", description: "Obyekt holati (/obyekt nomi)" },
   { command: "yordam", description: "Qanday ishlatish" },
 ];
+// кнопки с вопросами внизу личного чата (нажатие отправляет команду)
+export const QKB = { keyboard: [[{ text: "/kassa" }, { text: "/bugun" }], [{ text: "/qarz" }, { text: "/postavshik" }], [{ text: "/obyekt" }, { text: "/yordam" }]], resize_keyboard: true, is_persistent: true };
 export async function setupMenu(tg) {
   for (const scope of [{ type: "default" }, { type: "all_group_chats" }, { type: "all_chat_administrators" }]) await tg("deleteMyCommands", { scope });
   await tg("setMyCommands", { commands: MENU, scope: { type: "all_private_chats" } });
@@ -309,9 +311,13 @@ export function makeBot({ db, tg, now = () => new Date() }) {
     // личный чат с ботом: только вопросы (касса, долги…) — и только тем, кто состоит в разрешённой группе
     if (chat.type === "private") {
       if (!text.startsWith("/") || (msg.from && msg.from.is_bot)) return;
-      if (!cmd || cmd.name === "yordam") return send(chat.id, money ? "Rasxod / prixod ishchi guruhda yoziladi: <code>/taksi 50 000</code>" : HELP);
+      if (!cmd) return send(chat.id, money ? "Rasxod / prixod ishchi guruhda yoziladi: <code>/taksi 50 000</code>" : "Savolni tanlang 👇", money ? {} : { reply_markup: QKB });
+      const isStart = /^\/start\b/i.test(text);
+      if (cmd.name === "yordam" && !isStart) return send(chat.id, HELP, { reply_markup: QKB });
       const cf = await cfg();
       if (!(await isMember(cf, msg.from && msg.from.id))) return send(chat.id, "⛔️ Savol berish uchun ishchi guruh a'zosi bo'lishingiz kerak.");
+      // «Start» — без инструкции: сразу кнопки с вопросами (инструкция — кнопка «/yordam» среди них)
+      if (isStart) return send(chat.id, "Savolni tanlang 👇", { reply_markup: QKB });
       return runCommand(chat.id, msg, cmd);
     }
     if (chat.type !== "group" && chat.type !== "supergroup") return;
