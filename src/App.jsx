@@ -165,8 +165,9 @@ const NOTE_ORD_MODE = "te_noteord"; // свой порядок заметок у
 const TG_MODE = "te_tg", TG_PEND_MODE = "te_tgpend"; // Telegram-бот: разрешённые группы (руководитель) / куда бота добавили (бот)
 // Telegram ↔ аккаунт: одноразовые ссылки «Подключить» (хэш, 10 минут) и список подключённых (пишет бот)
 const TG_LINK_MODE = "te_tglink", TG_USERS_MODE = "te_tgusers";
-const TG_AI_MODE = "te_tgai"; // расход ИИ бота за месяц (пишет бот): lines = { month, usd, claude, speech, calls, sec, … }
-const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note", MIGR_MODE, NOTE_ORD_MODE, TG_MODE, TG_PEND_MODE, TG_LINK_MODE, TG_USERS_MODE, TG_AI_MODE];
+const TG_AI_MODE = "te_tgai";
+const ZK_MODE = "te_zk", ZK_PEND_MODE = "te_zkpend"; // бот поставщиков: группы ↔ поставщики + группа расходов (руководитель) / группы бота (пишет бот) // расход ИИ бота за месяц (пишет бот): lines = { month, usd, claude, speech, calls, sec, … }
+const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note", MIGR_MODE, NOTE_ORD_MODE, TG_MODE, TG_PEND_MODE, TG_LINK_MODE, TG_USERS_MODE, TG_AI_MODE, ZK_MODE, ZK_PEND_MODE];
 // служебная запись-словарь в requests: прочитать свежую и поменять один ключ
 async function cfgSetKey(mode, key, value) {
   const r0 = await db.from("requests").select().eq("mode", mode);
@@ -9572,6 +9573,7 @@ function AdminTab({ data, reload, toast, currentUser, isBoss = true }) {
         </Modal>
       )}
       <TelegramCard data={data} reload={reload} toast={toast} users={users} roles={roles} uperms={uperms} />
+      <ZakazCard data={data} reload={reload} toast={toast} />
     </div>
   );
 }
@@ -9579,6 +9581,50 @@ function AdminTab({ data, reload, toast, currentUser, isBoss = true }) {
    аккаунт, под которым бот входит в программу; кто из сотрудников подключён (одноразовая ссылка — бот сам
    привязывает Telegram к аккаунту; в личном чате бот отвечает по правам аккаунта); отчёты по расписанию. */
 const TG_FULL = (a) => !!a && (a.base === "boss" || PERMS.every((p) => a.perms && a.perms[p.id]));
+// Бот поставщиков: группа каждого поставщика (туда — заказы, оттуда — накладные) и группа расходов (туда — накладные с объектом)
+function ZakazCard({ data, reload, toast }) {
+  const reqs = data.requests || [];
+  const cfgRow = reqs.find((r) => r.mode === ZK_MODE) || null, pendRow = reqs.find((r) => r.mode === ZK_PEND_MODE) || null;
+  const cfg = (cfgRow && cfgRow.lines && !Array.isArray(cfgRow.lines) ? cfgRow.lines : {}) || {};
+  const groups = (pendRow && pendRow.lines && Array.isArray(pendRow.lines.groups) ? pendRow.lines.groups : []);
+  const botName = (pendRow && pendRow.lines && pendRow.lines.bot) || "";
+  const sups = (data.suppliers || []).filter((x) => x.status !== "archive").slice().sort((a, b) => translit(a.name || "").toLowerCase().localeCompare(translit(b.name || "").toLowerCase()));
+  const init = () => { const m = {}; Object.entries(cfg.sup || {}).forEach(([c, sid]) => { m[c] = sid; }); if (cfg.exp) m[cfg.exp] = "__exp"; return m; };
+  const [v, setV] = useState(init);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    const sup = {}; let exp = "";
+    Object.entries(v).forEach(([c, x]) => { if (x === "__exp") exp = c; else if (x) sup[c] = x; });
+    setBusy(true);
+    const r0 = await db.from("requests").select().eq("mode", ZK_MODE);
+    const row = ((r0 && r0.data) || [])[0] || cfgRow;
+    const lines = { ...((row && row.lines && !Array.isArray(row.lines) ? row.lines : {}) || {}), sup, exp };
+    const r = row ? await db.from("requests").update({ lines }).eq("id", row.id) : await db.from("requests").insert({ mode: ZK_MODE, source: "config", lines });
+    setBusy(false);
+    if (r.error) return;
+    const sn = (id) => (sups.find((x) => x.id === id) || {}).name || "?";
+    await logAction("Бот поставщиков: группы", "telegram", Object.entries(sup).map(([c, id]) => ((groups.find((g) => String(g.id) === c) || {}).title || c) + " → " + sn(id)).join("; ") + (exp ? " · расходы: " + ((groups.find((g) => String(g.id) === exp) || {}).title || exp) : ""));
+    await reload(["requests"]); toast("Группы бота поставщиков сохранены");
+  };
+  const dupExp = Object.values(v).filter((x) => x === "__exp").length > 1;
+  return (
+    <div className="card sect zk-card" style={{ marginTop: 16 }}>
+      <div className="row" style={{ marginBottom: 6 }}><h3 style={{ marginRight: "auto" }}>Бот поставщиков</h3>{botName && <a className="xs" href={"https://t.me/" + botName} target="_blank" rel="noreferrer">@{botName}</a>}</div>
+      {!groups.length && <div className="sm mut" style={{ padding: "8px 0", borderTop: "1px solid var(--line)" }}>Групп пока нет: добавьте бота в группы поставщиков и в группу расходов (админом) — группы появятся здесь.</div>}
+      {groups.map((g) => (
+        <div key={g.id} className="row zk-row" style={{ gap: 10, padding: "7px 0", borderTop: "1px solid var(--line)" }}>
+          <div style={{ marginRight: "auto" }}><b>{g.title || "Группа"}</b> <span className="xs mut mono">{g.id}</span></div>
+          <select className="inp zk-sel" style={{ maxWidth: 260 }} value={v[String(g.id)] || ""} disabled={busy} onChange={(e) => setV({ ...v, [String(g.id)]: e.target.value })}>
+            <option value="">— не используется</option>
+            <option value="__exp">💸 Группа расходов (накладные)</option>
+            {sups.map((x) => <option key={x.id} value={x.id}>{"Поставщик: " + x.name}</option>)}
+          </select>
+        </div>
+      ))}
+      {groups.length > 0 && <div className="row" style={{ justifyContent: "flex-end", marginTop: 8, gap: 10 }}>{dupExp && <span className="xs" style={{ color: "var(--bad)" }}>Группа расходов — только одна</span>}<button className="btn xs pri zk-save" disabled={busy || dupExp} onClick={save}>Сохранить</button></div>}
+    </div>
+  );
+}
 function TelegramCard({ data, reload, toast, users = [], roles = [], uperms = {} }) {
   const reqs = data.requests || [];
   const cfgRow = reqs.find((r) => r.mode === TG_MODE) || null;

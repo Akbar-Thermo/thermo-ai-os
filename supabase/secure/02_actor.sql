@@ -96,6 +96,13 @@ begin
   end if;
 
   -- группы Telegram-бота (где он вносит расходы и показывает кассу) разрешает руководитель или право «Аккаунты»
+  -- бот поставщиков: какие группы чьи и группа расходов — руководитель / «Аккаунты»; его служебные записи — бот
+  if m = 'te_zk' and not acc then
+    raise exception 'te_forbidden: группы бота поставщиков настраивает только руководитель' using errcode = '42501';
+  end if;
+  if m in ('te_zkpend', 'te_zkst', 'te_zkord', 'te_zkinv') and not (acc or bot) then
+    raise exception 'te_forbidden: эту запись меняет только Telegram-бот' using errcode = '42501';
+  end if;
   if m = 'te_tg' and not acc then
     raise exception 'te_forbidden: группы Telegram-бота разрешает только руководитель' using errcode = '42501';
   end if;

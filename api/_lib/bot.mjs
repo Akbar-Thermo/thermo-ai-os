@@ -18,6 +18,8 @@ export const AIU_MODE = "te_tgai";      // расход ИИ за месяц: li
 export const QUEUE_MODE = "te_tgq";     // сообщения группы с суммой (для «что не внесено»): lines = { chat, msg, date, from, text }
 export const ACT_MODE = "te_tgact";
 export const SMETA_BOT = "@thermo_smeta_bot"; // смета — только в отдельном боте
+// бот поставщиков: группы ↔ поставщики и группа расходов (руководитель), группы бота, что уже предложено/отправлено, заказы, накладные
+export const ZK_CFG = "te_zk", ZK_PEND = "te_zkpend", ZK_ST = "te_zkst", ZK_ORD = "te_zkord", ZK_INV = "te_zkinv";
 export const MATCH_MODE = "te_tgmatch";  // память смет: «как написали» → какой товар взяли: lines.m = { ключ: [product_id, раз, дата] }
 export const RULES_MODE = "te_tgrules";  // правила «что у кого брать»: lines.rules = [{ id, q, sup, by, at }]
 // ключ памяти: слова названия без порядка, латиница/кириллица одинаково («Труба PPR 20» = «ppr truba 20»)
@@ -352,7 +354,8 @@ export async function setupMenu(tg) {
 // voice — makeVoice (voice.mjs): распознавание голосовых и ответ голосом; memKey — ключ шифрования памяти диалога
 // reader — makeGemini (gemini.mjs): чтение списков для сметы (бесплатно), при ошибке — Claude
 // smeta: true — отдельный бот смет (@…smeta_bot): только личный чат, любой текст / фото / PDF / голос → смета
-export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = null, file = null, voice = null, memKey = "", reader = null, smeta = false }) {
+// zakaz: true — бот поставщиков (@…: заказы в группы поставщиков, их накладные → группа расходов)
+export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = null, file = null, voice = null, memKey = "", reader = null, smeta = false, zakaz = false }) {
   const nameOf = (u) => (u ? [u.first_name, u.last_name].filter(Boolean).join(" ") || (u.username ? "@" + u.username : "") : "") || "—";
   const send = (chat, text, extra = {}) => tg("sendMessage", { chat_id: chat, text, parse_mode: "HTML", disable_web_page_preview: true, ...extra });
   async function cfg() {
@@ -465,6 +468,238 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   }
   const tgDate = (unix) => tzDate(new Date((unix || 0) * 1000 || now().getTime()));
 
+  // ---------- бот поставщиков (zakaz): заказы в группы поставщиков, их накладные → группа расходов ----------
+  async function zkCfg() {
+    const rows = await db.select("requests", "mode=in.(" + ZK_CFG + "," + ZK_PEND + "," + ZK_ST + ")&select=id,mode,lines");
+    const c = rows.find((r) => r.mode === ZK_CFG), p = rows.find((r) => r.mode === ZK_PEND), st = rows.find((r) => r.mode === ZK_ST);
+    const L = (c && c.lines && typeof c.lines === "object" && !Array.isArray(c.lines) ? c.lines : {}) || {};
+    return { c, p, st, sup: L.sup || {}, exp: L.exp ? String(L.exp) : "", to: Array.isArray(L.to) ? L.to.map(String) : null, groups: (p && p.lines && Array.isArray(p.lines.groups) ? p.lines.groups : []), k: (st && st.lines && st.lines.k) || {} };
+  }
+  async function zkPending(z, chat) {
+    const gs = z.groups.filter((g) => String(g.id) !== String(chat.id));
+    const groups = [...gs, { id: String(chat.id), title: chat.title || "", at: now().toISOString() }].slice(-60);
+    if (z.p) await db.update("requests", "id=eq." + z.p.id, { lines: { ...(z.p.lines || {}), groups } });
+    else await db.insert("requests", { mode: ZK_PEND, source: "config", lines: { groups } });
+  }
+  async function zkSaveName() {
+    const me = await botMe(); if (!me) return;
+    const z = await zkCfg();
+    if (z.p && z.p.lines && z.p.lines.bot === me) return;
+    if (z.p) await db.update("requests", "id=eq." + z.p.id, { lines: { ...(z.p.lines || {}), bot: me } });
+    else await db.insert("requests", { mode: ZK_PEND, source: "config", lines: { groups: [], bot: me } });
+  }
+  const zkWho = (P, z) => P.all().filter((m) => (z.to ? z.to.includes(String(m.user.id)) : isFull(m.acc)) && canAsk(m.acc, "obyekt") && money$(m.acc));
+  const zkItems = (b, sup) => b.items.filter((i) => i && i.supplier_id && !i.from_warehouse && !C.isShipped(i) && (!sup || i.supplier_id === sup));
+  async function zkSetK(key, val) {
+    const z = await zkCfg();
+    const k = { ...z.k, [key]: val };
+    if (z.st) await db.update("requests", "id=eq." + z.st.id, { lines: { ...z.st.lines, k } }); else await db.insert("requests", { mode: ZK_ST, source: "config", lines: { k, init_at: now().toISOString() } });
+  }
+  // раз в 5 минут: новые поставки согласованных объектов → предложение «отправить поставщикам?» (в первый раз — всё старое помечается)
+  async function zkTick() {
+    const z = await zkCfg();
+    const [objs, sups] = await Promise.all([db.all("objects"), db.all("suppliers", "", "id,name")]);
+    const sn = new Map(sups.map((s) => [s.id, s.name]));
+    const groupOf = new Map(Object.entries(z.sup).map(([chat, sid]) => [sid, chat]));
+    const title = (chat) => ((z.groups.find((g) => String(g.id) === String(chat)) || {}).title || "guruh");
+    const k = { ...z.k }, init = !z.st, fresh = [];
+    for (const o of objs) {
+      if (!C.isLive(o) || o.status === "closed") continue;
+      for (const b of C.objBatches(o)) {
+        const key = o.id + ":" + b.no;
+        if (k[key] || !zkItems(b).length) continue;
+        if (init) k[key] = "o"; else fresh.push({ o, b, key });
+      }
+    }
+    if (init) { await db.insert("requests", { mode: ZK_ST, source: "config", lines: { k, init_at: now().toISOString() } }); return []; }
+    if (!fresh.length) return [];
+    const P = await people(), who = zkWho(P, z), sent = [];
+    for (const f of fresh.slice(0, 5)) {
+      const bySup = new Map(); zkItems(f.b).forEach((i) => { if (!bySup.has(i.supplier_id)) bySup.set(i.supplier_id, []); bySup.get(i.supplier_id).push(i); });
+      const L = ["📦 <b>Yangi postavka</b> · " + esc(f.o.name || "—") + " · " + f.b.no + "-postavka" + (f.b.date ? " (" + dt(String(f.b.date).slice(0, 10)) + ")" : ""), "", "Postavshiklarga buyurtma yuboraymi?",
+        ...[...bySup].map(([sid, its]) => "• " + esc(sn.get(sid) || "?") + " — " + its.length + " poz. → " + (groupOf.get(sid) ? "«" + esc(title(groupOf.get(sid))) + "»" : "⚠️ guruhi ulanmagan"))];
+      let got = 0;
+      for (const m of who) { try { await send(m.tg, L.join("\n"), { reply_markup: { inline_keyboard: [[{ text: "✅ Yuborish", callback_data: "zs:" + f.o.id + ":" + f.b.no }, { text: "❌ Kerak emas", callback_data: "zx:" + f.o.id + ":" + f.b.no }]] } }); got++; sent.push(m.tg); } catch (e) { /* человек ещё не открыл бота */ } }
+      if (got) { k[f.key] = "p"; await zkSetK(f.key, "p"); }
+    }
+    return sent;
+  }
+  async function zkSend(oid, no, me) {
+    const z = await zkCfg(), key = oid + ":" + no;
+    if (z.k[key] === "s") return { already: true };
+    const o = (await db.select("objects", "id=eq." + oid + "&select=*"))[0];
+    if (!o) throw new Error("obyekt topilmadi");
+    const b = C.objBatches(o).find((x) => x.no === no);
+    if (!b) throw new Error("postavka topilmadi");
+    const [sups, prods] = await Promise.all([db.all("suppliers", "", "id,name"), db.all("products", "", "id,code")]);
+    const sn = new Map(sups.map((s) => [s.id, s.name])), code = new Map(prods.map((p) => [p.id, p.code]));
+    const groupOf = new Map(Object.entries(z.sup).map(([chat, sid]) => [sid, chat]));
+    const bySup = new Map(); zkItems(b).forEach((i) => { if (!bySup.has(i.supplier_id)) bySup.set(i.supplier_id, []); bySup.get(i.supplier_id).push(i); });
+    const ok = [], miss = [];
+    for (const [sid, its] of bySup) {
+      const chat = groupOf.get(sid);
+      if (!chat) { miss.push(sn.get(sid) || "?"); continue; }
+      const t = ["🧾 <b>Buyurtma · Thermo Engineering</b>", "Obyekt: <b>" + esc(o.name || "—") + "</b> · №" + esc(o.id.slice(0, 4).toUpperCase()) + "-" + no, "",
+        ...its.map((i, n) => (n + 1) + ". " + esc(i.name) + (i.size && !String(i.name).includes(i.size) ? " " + esc(i.size) : "") + " — <b>" + C.fmt(Number(i.qty) || 0) + " " + esc(i.unit || "шт") + "</b>" + (code.get(i.product_id) ? " <i>(kod " + esc(code.get(i.product_id)) + ")</i>" : "")),
+        "", "Nakladnoyni shu xabarga <b>javob qilib</b> yuboring 🙏"].join("\n");
+      try {
+        const r = await send(chat, cut(t, 4000));
+        await db.insert("requests", { mode: ZK_ORD, source: "config", lines: { obj: o.id, name: o.name || "", batch: no, sup: sid, chat: String(chat), msg: r && r.message_id, items: its.map((i) => ({ id: i.id, product_id: i.product_id || null, name: i.name, qty: Number(i.qty) || 0, unit: i.unit || "шт" })), at: now().toISOString(), by: me.name } });
+        ok.push(sn.get(sid) || "?");
+      } catch (e) { miss.push((sn.get(sid) || "?") + " (" + String(e.message || e).slice(0, 60) + ")"); }
+    }
+    await zkSetK(key, "s");
+    try { await db.insert("audit_log", { action: "Telegram: заказ поставщикам", entity: "object:" + (o.name || ""), detail: "поставка №" + no + " → " + (ok.join(", ") || "—") + (miss.length ? "; не отправлено: " + miss.join(", ") : ""), user_name: me.name, role: "telegram", ts: now().toISOString() }); } catch (e) {}
+    return { ok, miss, name: o.name || "" };
+  }
+  // накладная из группы поставщика → читаем (ИИ), находим объект → в группу расходов с «✅ Kiritish»
+  function zkCaption(L) {
+    const it = L.items || [];
+    const tot = it.reduce((a, x) => a + (Number(x.qty) || 0) * (Number(x.price) || 0), 0);
+    const totU = it.reduce((a, x) => a + (Number(x.qty) || 0) * (Number(x.cost) || 0), 0);
+    const lines = ["🧾 <b>Nakladnoy</b> · " + esc(L.supName || "?") + (L.number ? " · №" + esc(L.number) : "") + (/^\d{4}-\d{2}-\d{2}$/.test(L.date || "") ? " · " + dt(L.date) : ""),
+      L.obj ? "🏠 <b>" + esc(L.name || "—") + "</b> · " + L.batch + "-postavka" : "🏠 Obyekt: ❓ — pastdan tanlang",
+      it.length ? "Summa: <b>" + (L.cur === "uzs" ? sum(tot) + "</b> ≈ " + usd(totU) : usd(tot) + "</b>") + " · " + it.length + " poz." : "Summa: o'qilmadi (rasmni ko'ring)"];
+    if (L.diff && L.diff.length) lines.push("⚠️ " + L.diff.slice(0, 4).join("; "));
+    if (L.done) lines.push("✅ Kiritildi (" + esc(L.done) + ")" + (L.res ? ": " + esc(L.res) : ""));
+    if (L.skip) lines.push("❌ Kiritilmadi (" + esc(L.skip) + ")");
+    return cut(lines.join("\n"), 1000);
+  }
+  const tok = (s) => new Set(mkey(s).split(" ").filter((w) => w.length > 1));
+  const simil = (a, b) => { const A = tok(a), B = tok(b); if (!A.size || !B.size) return 0; let n = 0; A.forEach((w) => { if (B.has(w)) n++; }); return (2 * n) / (A.size + B.size); };
+  function zkDiff(ordItems, invItems) {
+    const out = [];
+    (ordItems || []).forEach((oi) => {
+      const best = invItems.map((x) => ({ x, s: simil(oi.name, x.name) })).sort((a, b) => b.s - a.s)[0];
+      if (!best || best.s < 0.5) out.push(cut(oi.name, 30) + " — nakladnoyda yo'q");
+      else if (Math.abs((Number(best.x.qty) || 0) - (Number(oi.qty) || 0)) > 0.001) out.push(cut(oi.name, 30) + ": buyurtma " + C.fmt(oi.qty) + ", keldi " + C.fmt(best.x.qty));
+    });
+    return out;
+  }
+  async function zkKb(L, id) {
+    if (L.done || L.skip) return { inline_keyboard: [] };
+    if (!L.obj) {
+      const ords = (await db.select("requests", "mode=eq." + ZK_ORD + "&select=id,lines")).filter((r) => (L.cands || []).includes(r.id));
+      return { inline_keyboard: [...ords.map((r, i) => [{ text: cut("🏠 " + r.lines.name + " · " + r.lines.batch + "-post.", 50), callback_data: "zo:" + id + ":" + i }]), [{ text: "❌ Kerak emas", callback_data: "zn:" + id }]] };
+    }
+    return { inline_keyboard: [[...((L.items || []).length ? [{ text: "✅ Kiritish (tannarx)", callback_data: "zi:" + id }] : []), { text: "❌ Yo'q", callback_data: "zn:" + id }]] };
+  }
+  async function zkInvoice(msg, z, supId) {
+    const chatId = String(msg.chat.id);
+    const sups = await db.all("suppliers", "", "id,name");
+    const supName = (sups.find((s) => s.id === supId) || {}).name || "";
+    const ords = (await db.select("requests", "mode=eq." + ZK_ORD + "&select=id,lines")).filter((r) => r.lines && r.lines.sup === supId);
+    const rq = msg.reply_to_message;
+    let ord = rq ? ords.find((r) => String(r.lines.chat) === chatId && Number(r.lines.msg) === rq.message_id) || null : null;
+    let inv = null;
+    const m = meterNew(), src = mediaSource(msg);
+    if (src && ai && file && (await aiState()).ok) {
+      try {
+        const f = await file(src.id);
+        const block = src.pdf ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64(f.bytes) } } : { type: "image", source: { type: "base64", media_type: src.mime, data: b64(f.bytes) } };
+        inv = await ai.json({ system: NAK_SYS, content: [block, { type: "text", text: "Nakladnoy." + (msg.caption ? " Izoh: " + msg.caption : "") }], maxTokens: 6000, meter: m.fn });
+      } catch (e) { console.error("zk read:", e && e.message); }
+    }
+    await spend(m, null);
+    const raw = normItems(inv && inv.items);
+    const prices0 = raw.map((i) => i.price).filter((x) => x > 0).sort((a, b) => a - b);
+    const cur = inv && inv.currency === "usd" ? "usd" : inv && inv.currency === "uzs" ? "uzs" : (prices0[Math.floor(prices0.length / 2)] || 0) >= 1000 ? "uzs" : "usd";
+    const rate = cur === "uzs" ? await rateAt(tzDate(now())) : 0;
+    const items = raw.map((i) => ({ name: i.name, qty: i.qty, unit: i.unit, price: i.price, cost: cur === "uzs" ? (rate >= 1000 ? C.round2(i.price / rate) : 0) : C.round2(i.price) }));
+    let cands = [];
+    if (!ord) {
+      const recent = ords.filter((r) => now().getTime() - Date.parse(r.lines.at || 0) < 60 * 864e5).sort((a, b) => String(b.lines.at).localeCompare(String(a.lines.at)));
+      if (items.length) {
+        const sc = recent.map((r) => { const oi = r.lines.items || []; const hit = items.filter((x) => oi.some((y) => simil(x.name, y.name) >= 0.5)).length; return { r, s: hit / Math.max(items.length, oi.length, 1) }; }).sort((a, b) => b.s - a.s);
+        if (sc[0] && sc[0].s >= 0.5 && (!sc[1] || sc[1].s < sc[0].s * 0.7)) ord = sc[0].r;
+      }
+      if (!ord) cands = recent.slice(0, 6).map((r) => r.id);
+    }
+    const L = { sup: supId, supName, chat: chatId, msg: msg.message_id, ord: ord ? ord.id : null, obj: ord ? ord.lines.obj : null, name: ord ? ord.lines.name : "", batch: ord ? ord.lines.batch : null, cands, items, cur, rate, number: String((inv && inv.number) || "").slice(0, 40), date: (inv && inv.date) || "", diff: ord ? zkDiff(ord.lines.items, items) : [], at: now().toISOString() };
+    const row = (await db.insert("requests", { mode: ZK_INV, source: "config", lines: L }))[0];
+    if (z.exp) {
+      const cap = zkCaption(L), kb = await zkKb(L, row.id);
+      try { const r = await tg("copyMessage", { chat_id: z.exp, from_chat_id: chatId, message_id: msg.message_id, caption: cap, parse_mode: "HTML", reply_markup: kb }); if (r && r.message_id) await db.update("requests", "id=eq." + row.id, { lines: { ...L, exp: z.exp, expMsg: r.message_id } }); }
+      catch (e) { console.error("zk copy:", e && e.message); try { await send(z.exp, cap, { reply_markup: kb }); } catch (e2) {} }
+    }
+    try { await send(chatId, "✅ Qabul qilindi" + (ord ? " · " + esc(ord.lines.name) : "") + ", rahmat!", { reply_to_message_id: msg.message_id }); } catch (e) {}
+  }
+  async function zkCallback(cq, ans) {
+    const [act, id, n2] = String(cq.data || "").split(":");
+    const me = await whoAmI(cq.from && cq.from.id);
+    if (!me) return ans("Akkauntingiz ulanmagan (Thermo bot orqali ulang)", true);
+    if (!(canAsk(me.acc, "obyekt") && money$(me.acc))) return ans("Bu bo'lim sizga ochilmagan", true);
+    const m = cq.message || {};
+    if (act === "zs" || act === "zx") {
+      const key = id + ":" + n2;
+      const edit = (text) => tg("editMessageText", { chat_id: m.chat.id, message_id: m.message_id, text, parse_mode: "HTML" }).catch(() => {});
+      if (act === "zx") { await zkSetK(key, "x"); await edit("❌ Buyurtma yuborilmadi · " + esc(me.name)); return ans(); }
+      await ans("Yuborilyapti…");
+      try {
+        const r = await zkSend(id, Number(n2), me);
+        if (r.already) return edit("ℹ️ Bu postavka allaqachon yuborilgan.");
+        return edit("✅ <b>Yuborildi</b> · " + esc(r.name) + " · " + n2 + "-postavka\n" + (r.ok.length ? "→ " + esc(r.ok.join(", ")) : "") + (r.miss.length ? "\n⚠️ Yuborilmadi (guruhi ulanmagan): " + esc(r.miss.join(", ")) : "") + "\nYubordi: " + esc(me.name));
+      } catch (e) { return edit("⚠️ Yuborib bo'lmadi: " + esc(String(e.message || e)).slice(0, 200)); }
+    }
+    if (!/^[0-9a-f-]{36}$/i.test(id || "")) return ans();
+    const row = (await db.select("requests", "id=eq." + id + "&mode=eq." + ZK_INV + "&select=id,lines"))[0];
+    if (!row) return ans("Topilmadi", true);
+    let L = row.lines;
+    const editCap = async (LL) => { try { await tg("editMessageCaption", { chat_id: m.chat.id, message_id: m.message_id, caption: zkCaption(LL), parse_mode: "HTML", reply_markup: await zkKb(LL, row.id) }); } catch (e) { await tg("editMessageText", { chat_id: m.chat.id, message_id: m.message_id, text: zkCaption(LL), parse_mode: "HTML", reply_markup: await zkKb(LL, row.id) }).catch(() => {}); } };
+    if (L.done || L.skip) return ans("Allaqachon belgilangan", true);
+    if (act === "zn") { L = { ...L, skip: me.name }; await db.update("requests", "id=eq." + row.id, { lines: L }); await editCap(L); return ans(); }
+    if (act === "zo") {
+      const oid = (L.cands || [])[Number(n2)];
+      const ord = oid && (await db.select("requests", "id=eq." + oid + "&select=id,lines"))[0];
+      if (!ord) return ans("Topilmadi", true);
+      L = { ...L, ord: ord.id, obj: ord.lines.obj, name: ord.lines.name, batch: ord.lines.batch, diff: zkDiff(ord.lines.items, L.items || []) };
+      await db.update("requests", "id=eq." + row.id, { lines: L }); await editCap(L); return ans();
+    }
+    if (act !== "zi" || !L.obj) return ans();
+    // «✅ Kiritish»: цены накладной → себестоимость позиций этой поставки у этого поставщика
+    L = { ...L, done: me.name };
+    await db.update("requests", "id=eq." + row.id, { lines: L }); // сразу — от двойного нажатия
+    try {
+      const o = (await db.select("objects", "id=eq." + L.obj + "&select=id,name,items"))[0];
+      if (!o) throw new Error("obyekt topilmadi");
+      const items = Array.isArray(o.items) ? o.items : [];
+      const mine = items.filter((i) => i && (Number(i.batch_no) || 1) === Number(L.batch) && i.supplier_id === L.sup && !i.from_warehouse);
+      const used = new Set(); let upd = 0, miss = 0;
+      const patch = new Map();
+      for (const x of L.items || []) {
+        const best = mine.filter((i) => !used.has(i.id)).map((i) => ({ i, s: simil(x.name, i.name) })).sort((a, b) => b.s - a.s)[0];
+        if (!best || best.s < 0.5 || !(x.cost > 0)) { miss++; continue; }
+        used.add(best.i.id);
+        if (Math.abs((Number(best.i.cost) || 0) - x.cost) > 0.004) { patch.set(best.i.id, x.cost); upd++; }
+      }
+      if (patch.size) await db.update("objects", "id=eq." + o.id, { items: items.map((i) => (i && patch.has(i.id) ? { ...i, cost: patch.get(i.id) } : i)) });
+      L.res = "tannarx yangilandi: " + upd + " poz." + (miss ? ", mos kelmadi: " + miss : "");
+      await db.update("requests", "id=eq." + row.id, { lines: L });
+      try { await db.insert("audit_log", { action: "Накладная поставщика (Telegram)", entity: "object:" + (o.name || ""), detail: (L.supName || "") + (L.number ? " №" + L.number : "") + " · поставка №" + L.batch + " · " + L.res, user_name: me.name, role: "telegram", ts: now().toISOString() }); } catch (e) {}
+      await editCap(L);
+      return ans("Kiritildi");
+    } catch (e) {
+      L = { ...L, done: null };
+      await db.update("requests", "id=eq." + row.id, { lines: L });
+      return ans("Xato: " + String(e.message || e).slice(0, 150), true);
+    }
+  }
+  async function onZakazMessage(msg) {
+    const chat = msg.chat || {};
+    if (msg.from && msg.from.is_bot) return;
+    if (chat.type === "private") {
+      const me = await whoAmI(msg.from && msg.from.id);
+      return send(chat.id, me ? "📦 <b>Thermo postavka</b>\n\nDasturda yangi postavka saqlanganda sizga shu yerda xabar beraman — «✅ Yuborish» bosilsa, buyurtmani har bir postavshikning guruhiga yuboraman.\nPostavshik nakladnoyni guruhga tashlasa, uni obyekt nomi bilan rasxodlar guruhiga yuboraman; u yerda «✅ Kiritish» — obyekt tannarxini nakladnoy bo'yicha yangilaydi.\n\nGuruhlar: dasturda <b>Аккаунты → Бот поставщиков</b>." : LOCKED);
+    }
+    if (chat.type !== "group" && chat.type !== "supergroup") return;
+    if (msg.new_chat_members || msg.left_chat_member) return;
+    const z = await zkCfg();
+    if (msg.migrate_to_chat_id) return;
+    if (!z.groups.some((g) => String(g.id) === String(chat.id) && g.title === (chat.title || ""))) await zkPending(z, chat);
+    const sup = z.sup[String(chat.id)];
+    if (!sup || !(msg.photo || msg.document)) return;
+    return zkInvoice(msg, z, sup);
+  }
   // ---------- отдельный бот смет ----------
   const SMETA_HELLO = "📋 <b>Thermo smeta</b>\n\nTovarlar ro'yxatini yuboring — bazadagi narxlar bilan smeta va dasturga import qilinadigan Excel qaytaraman.\n\n• matn: <code>truba PPR 20 — 50 m, kran 1/2 — 10 ta</code>\n• 📷 rasm yoki PDF (qo'lda yozilgan ro'yxat ham)\n• 🎙 ovozli xabar\n\nPostavshikni yozsangiz, narxni o'shandan olaman: <i>Water Pro dan, bo'lmasa Akfa</i>.\nTayyor smetani «➕ Obyektga qo'shish» — mavjud obyektga, «🆕 Yangi obyekt» — yangi obyekt yaratib qo'shish mumkin.\n\n🧠 Bot eslab qoladi: qaysi tovar qaysi postavshikdan olingan (dasturdagi obyektlardan va siz tasdiqlagan smetalardan). Qoida ham berish mumkin: <code>eslab qol: PPR truba — Akfa dan, nasos — Wilo dan</code> · ro'yxat: /qoidalar";
   async function onSmetaMessage(msg) {
@@ -504,6 +739,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
 
   async function onMessage(msg) {
     if (smeta) return onSmetaMessage(msg);
+    if (zakaz) return onZakazMessage(msg);
     const chat = msg.chat || {};
     // личный чат: голосовые — распознаём; фото / PDF — только с подписью «/smeta», «/nakladnoy» (или ответом на вопрос бота)
     if (chat.type === "private" && !(msg.from && msg.from.is_bot)) {
@@ -2147,7 +2383,14 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   }
   return {
     async handle(upd) {
-      if (upd && upd.te_cron) return smeta ? undefined : tick();
+      if (upd && upd.te_cron) return smeta ? undefined : zakaz ? zkTick() : tick();
+      if (zakaz) {
+        if (!menuDone) { menuDone = true; try { for (const scope of [{ type: "default" }, { type: "all_group_chats" }, { type: "all_private_chats" }]) await tg("deleteMyCommands", { scope }); await zkSaveName(); } catch (e) { menuDone = false; } }
+        if (upd.callback_query) return /^z[sxnoi]:/.test(String(upd.callback_query.data || "")) ? zkCallback(upd.callback_query, (text, alert) => tg("answerCallbackQuery", { callback_query_id: upd.callback_query.id, text: text || "", show_alert: !!alert }).catch(() => {})) : undefined;
+        if (upd.message) return onZakazMessage(upd.message);
+        if (upd.my_chat_member) { const ch = upd.my_chat_member.chat || {}, st = upd.my_chat_member.new_chat_member && upd.my_chat_member.new_chat_member.status; if ((ch.type === "group" || ch.type === "supergroup") && (st === "member" || st === "administrator")) await zkPending(await zkCfg(), ch); }
+        return;
+      }
       if (!menuDone) { menuDone = true; try { if (smeta) { for (const scope of [{ type: "default" }, { type: "all_group_chats" }]) await tg("deleteMyCommands", { scope }); await tg("setMyCommands", { commands: [{ command: "start", description: "Qanday ishlatish" }, { command: "qoidalar", description: "Qaysi tovar qaysi postavshikdan" }], scope: { type: "all_private_chats" } }); } else { await setupMenu(tg); await saveBotName(); } } catch (e) { menuDone = false; } }
       if (smeta && upd.my_chat_member) return;
       if (upd.callback_query) return onCallback(upd.callback_query);

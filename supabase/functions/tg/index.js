@@ -54,6 +54,11 @@ Deno.serve(async (req) => {
   if (!TOKEN || req.headers.get("x-telegram-bot-api-secret-token") !== SECRET) return json(401, { ok: false });
   let upd = null;
   try { upd = await req.json(); } catch (e) { upd = null; }
+  // расписание будит и бота поставщиков (функция «zakaz»), если он подключён
+  if (upd && upd.te_cron && env("ZAKAZ_BOT_TOKEN")) {
+    const zt = env("ZAKAZ_BOT_TOKEN").replace(/\s+/g, "").replace(/^["'`]+|["'`]+$/g, "").replace(/^bot(?=\d)/i, "");
+    try { await fetch(env("SUPABASE_URL") + "/functions/v1/zakaz", { method: "POST", headers: { "Content-Type": "application/json", "x-telegram-bot-api-secret-token": createHash("sha256").update("thermo-zakaz:" + zt).digest("hex").slice(0, 48) }, body: "{\"te_cron\":1}" }); } catch (e) { console.error("tg→zakaz:", e && e.message); }
+  }
   if (upd) {
     try { await getBot().handle(upd); }
     catch (e) {
