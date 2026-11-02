@@ -337,7 +337,9 @@ export async function setupMenu(tg) {
 // file(file_id) → { bytes, path } — скачать файл из Telegram (голосовое, фото накладной, PDF)
 // ai — makeAI (ai.mjs): свободные вопросы в личном чате и разбор «/…» без суммы цифрами; нет ключа — null
 // voice — makeVoice (voice.mjs): распознавание голосовых и ответ голосом; memKey — ключ шифрования памяти диалога
-export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = null, file = null, voice = null, memKey = "" }) {
+// reader — makeGemini (gemini.mjs): чтение списков для сметы (бесплатно), при ошибке — Claude
+// smeta: true — отдельный бот смет (@…smeta_bot): только личный чат, любой текст / фото / PDF / голос → смета
+export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = null, file = null, voice = null, memKey = "", reader = null, smeta = false }) {
   const nameOf = (u) => (u ? [u.first_name, u.last_name].filter(Boolean).join(" ") || (u.username ? "@" + u.username : "") : "") || "—";
   const send = (chat, text, extra = {}) => tg("sendMessage", { chat_id: chat, text, parse_mode: "HTML", disable_web_page_preview: true, ...extra });
   async function cfg() {
@@ -450,7 +452,42 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   }
   const tgDate = (unix) => tzDate(new Date((unix || 0) * 1000 || now().getTime()));
 
+  // ---------- отдельный бот смет ----------
+  const SMETA_HELLO = "📋 <b>Thermo smeta</b>\n\nTovarlar ro'yxatini yuboring — bazadagi narxlar bilan smeta va dasturga import qilinadigan Excel qaytaraman.\n\n• matn: <code>truba PPR 20 — 50 m, kran 1/2 — 10 ta</code>\n• 📷 rasm yoki PDF (qo'lda yozilgan ro'yxat ham)\n• 🎙 ovozli xabar\n\nPostavshikni yozsangiz, narxni o'shandan olaman: <i>Water Pro dan, bo'lmasa Akfa</i>.\nTayyor smetani «➕ Obyektga qo'shish» bilan obyektga yangi postavka qilib qo'shish mumkin.";
+  async function onSmetaMessage(msg) {
+    const chat = msg.chat || {};
+    if (chat.type !== "private" || (msg.from && msg.from.is_bot)) return;
+    const text = String(msg.text || "").trim();
+    const lk = /^\/start(?:@\w+)?\s+L([A-Za-z0-9_-]{16,64})$/.exec(text);
+    if (lk) return doLink(msg, lk[1]);
+    const me = await whoAmI(msg.from && msg.from.id);
+    if (!me) return send(chat.id, "🔒 Smeta botidan foydalanish uchun avval asosiy Thermo botiga akkauntingizni ulang (rahbar: <b>Аккаунты → Telegram-бот → Подключить</b>). Ulangandan keyin bu bot sizni o'zi taniydi.");
+    if (!canAsk(me.acc, "smeta")) return send(chat.id, "🔒 Smeta sizga ochilmagan (dasturda «Товары» bo'limi kerak).");
+    if (msg.photo || msg.document) return mediaSource(msg) ? onDoc(msg, me, "smeta") : send(chat.id, "Rasm (JPG, PNG) yoki PDF yuboring.");
+    if (msg.voice || msg.audio) {
+      if (!voice || !file) return send(chat.id, "🎙 Ovozni tushunish uchun ovoz xizmati ulanmagan — matn bilan yozing.");
+      const v = msg.voice || msg.audio;
+      if ((Number(v.duration) || 0) > 300) return send(chat.id, "🎙 5 daqiqagacha bo'lgan ovozli xabar yuboring.");
+      typing(chat.id); const m = meterNew();
+      try {
+        const f = await file(v.file_id);
+        const r = await voice.transcribe(f.bytes, { name: msg.audio ? v.file_name || "audio.mp3" : "voice.ogg", mime: v.mime_type || "audio/ogg", sec: Number(v.duration) || 0 });
+        m.speech += r.cost || 0; m.sec += r.sec || 0;
+        if (!r.text) return send(chat.id, "🎙 Tushunmadim — aniqroq gapiring yoki yozing.");
+        await send(chat.id, "🎙 <i>" + esc(cut(r.text, 1500)) + "</i>", { reply_to_message_id: msg.message_id });
+        return await smetaFromText({ ...msg, text: r.text }, me, r.text, m);
+      } catch (e) { console.error("smeta stt:", e && e.message); return send(chat.id, "⚠️ Ovozli xabarni o'qib bo'lmadi — matn bilan yozing."); }
+      finally { await spend(m, me); }
+    }
+    if (!text) return;
+    if (/^\/(start|yordam|help)\b/i.test(text)) return send(chat.id, SMETA_HELLO);
+    const rq = msg.reply_to_message;
+    if (rq && rq.from && rq.from.is_bot && String(rq.text || "").startsWith(OBJ_PICK_MARK)) return actObjSearch(msg, rq, me);
+    return smetaFromText(msg, me, text.replace(/^\/smeta(?:@\w+)?\s*/i, "") || text);
+  }
+
   async function onMessage(msg) {
+    if (smeta) return onSmetaMessage(msg);
     const chat = msg.chat || {};
     // личный чат: голосовые — распознаём; фото / PDF — только с подписью «/smeta», «/nakladnoy» (или ответом на вопрос бота)
     if (chat.type === "private" && !(msg.from && msg.from.is_bot)) {
@@ -956,6 +993,13 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   const canNak = (acc) => (canAsk(acc, "obyekt") && money$(acc)) || canAsk(acc, "sklad");
   const r4 = (x) => Math.round((Number(x) || 0) * 1e4) / 1e4;
   const typing = (chatId, action = "typing") => tg("sendChatAction", { chat_id: chatId, action }).catch(() => {});
+  // смета: сначала бесплатный Gemini (если подключён), не получилось — Claude (в пределах лимита)
+  const canRead = async () => !!reader || (!!ai && (await aiState()).ok);
+  async function readJson(args) {
+    if (reader) { try { const r = await reader.json(args); if (r) return r; } catch (e) { console.error("tg gemini:", e && e.message); } }
+    if (ai && (await aiState()).ok) return ai.json(args);
+    return null;
+  }
 
   // ---- лимит расходов ИИ в месяц (Аккаунты → Telegram-бот) ----
   async function aiState() {
@@ -1318,9 +1362,8 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     if (kind === "auto" && msg.document && !mediaSource(msg)) return; // Excel, Word и т. п. без подписи — не читаем
     const chatId = msg.chat.id;
     if (kind === "auto" ? !canAsk(me.acc, "smeta") && !canNak(me.acc) : kind === "smeta" ? !canAsk(me.acc, "smeta") : !canNak(me.acc)) return send(chatId, "🔒 Bu bo'lim sizga ochilmagan.");
-    if (!ai || !file) return send(chatId, "⚠️ Rasm va PDF'ni o'qish uchun AI ulanmagan.");
-    const st = await aiState();
-    if (!st.ok) return send(chatId, LIMIT_MSG(st));
+    if (!(ai || (reader && kind === "smeta")) || !file) return send(chatId, "⚠️ Rasm va PDF'ni o'qish uchun AI ulanmagan.");
+    if (!(reader && kind === "smeta")) { const st = await aiState(); if (!st.ok) return send(chatId, LIMIT_MSG(st)); }
     const src = mediaSource(msg);
     if (!src) return send(chatId, "Faqat rasm (JPG, PNG) yoki PDF yuboring.");
     if (src.size > 15e6) return send(chatId, "Fayl juda katta — 15 MB gacha.");
@@ -1339,7 +1382,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
         if (!kind) return send(chatId, "Rasmda tovarlar ro'yxati yoki nakladnoy topilmadi.\nSmeta uchun rasm ostiga <code>/smeta</code>, nakladnoy uchun <code>/nakladnoy</code> deb yozing.", { reply_to_message_id: msg.message_id });
       }
       if (kind === "smeta") {
-        const j = await ai.json({ system: SMETA_SYS, content: [block, { type: "text", text: "Ro'yxat shu faylda." + (cap ? " Izoh: " + cap : "") }], maxTokens: 6000, meter: m.fn });
+        const j = await readJson({ system: SMETA_SYS, content: [block, { type: "text", text: "Ro'yxat shu faylda." + (cap ? " Izoh: " + cap : "") }], maxTokens: 6000, meter: m.fn });
         if (!j || !Array.isArray(j.items) || !j.items.length) return send(chatId, "📋 Ro'yxatni o'qib bo'lmadi — aniqroq rasm yuboring yoki matn bilan yozing.");
         await estimate(j.items, String(j.suppliers || "") || cap, me, chatId, m);
       } else await nakladnoy(chatId, me, block, cap, m);
@@ -1351,9 +1394,9 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     if (!canAsk(me.acc, "smeta")) return send(chatId, "🔒 Bu bo'lim sizga ochilmagan.");
     const m = meter || meterNew();
     let items = null, hint = "";
-    if (ai && (await aiState()).ok) {
+    if (await canRead()) {
       typing(chatId);
-      try { const j = await ai.json({ system: SMETA_SYS, text: String(text || ""), maxTokens: 6000, meter: m.fn }); if (j && Array.isArray(j.items) && j.items.length) { items = j.items; hint = String(j.suppliers || ""); } } catch (e) { console.error("tg smeta:", e && e.message); }
+      try { const j = await readJson({ system: SMETA_SYS, text: String(text || ""), maxTokens: 6000, meter: m.fn }); if (j && Array.isArray(j.items) && j.items.length) { items = j.items; hint = String(j.suppliers || ""); } } catch (e) { console.error("tg smeta:", e && e.message); }
     }
     if (!items) { items = parseList(text); hint = String(text || ""); }
     try { await estimate(items, hint, me, chatId, m); } finally { if (!meter) await spend(m, me); }
@@ -1379,9 +1422,9 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       return { it, best, cands: cands.filter((c) => c.score >= C.MATCH_MIN && !seen.has(c.p.id) && seen.add(c.p.id)).sort((a, b) => b.score - a.score).slice(0, 5) };
     });
     const unclear = lines.filter((l) => !l.best && l.cands.length).slice(0, 80);
-    if (unclear.length && ai && m && (await aiState()).ok) {
+    if (unclear.length && m && (await canRead())) {
       try {
-        const j = await ai.json({ system: "You match requested plumbing/heating/construction goods to catalog products. For each numbered line choose the candidate that is the same product (same type, size/diameter, thread, material, power). If none fits, null. Reply with JSON only: {\"pick\":[{\"line\":0,\"cand\":0}]}", maxTokens: 2000, meter: m.fn,
+        const j = await readJson({ system: "You match requested plumbing/heating/construction goods to catalog products. For each numbered line choose the candidate that is the same product (same type, size/diameter, thread, material, power). If none fits, null. Reply with JSON only: {\"pick\":[{\"line\":0,\"cand\":0}]}", maxTokens: 2000, meter: m.fn,
           text: (prefer.length ? "Preferred suppliers (in order): " + prefer.map((s) => s.name).join(", ") + "\n\n" : "") + unclear.map((l, k) => k + ". " + l.it.name + (l.it.unit ? " (" + l.it.unit + ")" : "") + "\n" + l.cands.map((c, ci) => "   " + ci + ") " + c.p.name + (c.p.size ? " " + c.p.size : "") + " · " + (sn.get(c.p.supplier_id) || "")).join("\n")).join("\n") });
         (j && Array.isArray(j.pick) ? j.pick : []).forEach((x) => { const l = unclear[Number(x.line)]; const c = l && x.cand != null && x.cand !== "" ? l.cands[Number(x.cand)] : null; if (c) l.best = { ...c, ai: true }; });
       } catch (e) { console.error("tg match:", e && e.message); }
@@ -1976,8 +2019,9 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   }
   return {
     async handle(upd) {
-      if (upd && upd.te_cron) return tick();
-      if (!menuDone) { menuDone = true; try { await setupMenu(tg); await saveBotName(); } catch (e) { menuDone = false; } }
+      if (upd && upd.te_cron) return smeta ? undefined : tick();
+      if (!menuDone) { menuDone = true; try { if (smeta) { for (const scope of [{ type: "default" }, { type: "all_group_chats" }]) await tg("deleteMyCommands", { scope }); await tg("setMyCommands", { commands: [{ command: "start", description: "Qanday ishlatish" }], scope: { type: "all_private_chats" } }); } else { await setupMenu(tg); await saveBotName(); } } catch (e) { menuDone = false; } }
+      if (smeta && upd.my_chat_member) return;
       if (upd.callback_query) return onCallback(upd.callback_query);
       if (upd.message) return onMessage(upd.message);
       if (upd.my_chat_member) {

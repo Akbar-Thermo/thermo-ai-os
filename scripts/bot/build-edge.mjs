@@ -8,7 +8,9 @@ import { dirname, resolve } from "node:path";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+// второй аргумент — точка входа (по умолчанию бот «tg»; «smeta» — отдельный бот смет)
 const out = process.argv[2] || resolve(root, "supabase/functions/tg/bundle/bot.js");
+const entry = process.argv[3] || resolve(root, "supabase/functions/tg/index.js");
 const tmp = mkdtempSync(resolve(tmpdir(), "tgedge-"));
 // React боту не нужен: расчёты кассы/долгов — обычные функции; компоненты не вызываются
 writeFileSync(resolve(tmp, "react-stub.js"), `const f = () => undefined;
@@ -25,7 +27,7 @@ export default { createElement: f, Fragment: "f", Component, PureComponent };
 const stub = resolve(tmp, "react-stub.js");
 const coreFile = resolve(root, "api/_lib/core.mjs");
 await build({
-  entryPoints: [resolve(root, "supabase/functions/tg/index.js")], outfile: out,
+  entryPoints: [entry], outfile: out,
   bundle: true, format: "esm", platform: "neutral", target: "es2022", minify: true, charset: "utf8", legalComments: "none", jsx: "automatic", logLevel: "warning",
   external: ["node:*", "xlsx"],
   alias: { react: stub, "react/jsx-runtime": stub, "react-dom": stub, "react-dom/client": stub, "@supabase/supabase-js": resolve(root, "scripts/nightly/supabase-stub.js") },
