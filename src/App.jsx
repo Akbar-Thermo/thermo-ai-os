@@ -9641,11 +9641,11 @@ function TelegramCard({ data, reload, toast, users = [], roles = [], uperms = {}
   };
   // отчёты: ежедневный (касса + кирим-чиқим) и в последний день месяца (долги); кому — галочки (по умолчанию все с полными правами)
   const rep0 = cfg.report || {};
-  const [rp, setRp] = useState(() => ({ dOn: !(rep0.daily && rep0.daily.on === false), dT: (rep0.daily && rep0.daily.time) || "21:30", bOn: !(rep0.debts && rep0.debts.on === false), bT: (rep0.debts && rep0.debts.time) || "10:00", bD: String((rep0.debts && rep0.debts.days) || 14), sOn: !(rep0.stock && rep0.stock.on === false), sT: (rep0.stock && rep0.stock.time) || "10:00", to: Array.isArray(rep0.to) ? rep0.to : null }));
+  const [rp, setRp] = useState(() => ({ dOn: !(rep0.daily && rep0.daily.on === false), dT: (rep0.daily && rep0.daily.time) || "21:30", bOn: !(rep0.debts && rep0.debts.on === false), bT: (rep0.debts && rep0.debts.time) || "10:00", bD: String((rep0.debts && rep0.debts.days) || 14), to: Array.isArray(rep0.to) ? rep0.to : null }));
   const linked = people.filter((u) => tgOf(u.id));
   const toSet = new Set(rp.to || linked.filter((u) => TG_FULL(accOf(u))).map((u) => u.id));
   const saveRep = async () => {
-    const report = { daily: { on: rp.dOn, time: rp.dT || "21:30" }, debts: { on: rp.bOn, time: rp.bT || "10:00", days: Math.max(1, parseInt(rp.bD, 10) || 14) }, stock: { on: rp.sOn, time: rp.sT || "10:00" }, to: rp.to };
+    const report = { daily: { on: rp.dOn, time: rp.dT || "21:30" }, debts: { on: rp.bOn, time: rp.bT || "10:00", days: Math.max(1, parseInt(rp.bD, 10) || 14) }, to: rp.to };
     setBusy(true); const ok = await saveCfg({ report }); setBusy(false);
     if (!ok) return;
     await logAction("Telegram: отчёты", "telegram", (rp.dOn ? "ежедневно " + report.daily.time : "без ежедневного") + " · " + (rp.bOn ? "долги в конце месяца " + report.debts.time + " (> " + report.debts.days + " дн.)" : "без долгов"));
@@ -9689,7 +9689,6 @@ function TelegramCard({ data, reload, toast, users = [], roles = [], uperms = {}
       <div className="tg-rep" style={{ borderTop: "1px solid var(--line)", paddingTop: 8 }}>
         <label className="row clk sm" style={{ gap: 8 }}><input type="checkbox" checked={rp.dOn} onChange={(e) => setRp({ ...rp, dOn: e.target.checked })} /> Каждый день — касса и приход/расход за день, в <input className="inp tg-dt" type="time" style={{ width: 120 }} value={rp.dT} onChange={(e) => setRp({ ...rp, dT: e.target.value })} /></label>
         <label className="row clk sm" style={{ gap: 8, marginTop: 6 }}><input type="checkbox" checked={rp.bOn} onChange={(e) => setRp({ ...rp, bOn: e.target.checked })} /> В последний день месяца — долги клиентов старше <input className="inp tg-bd" inputMode="numeric" style={{ width: 60 }} value={rp.bD} onChange={(e) => setRp({ ...rp, bD: e.target.value.replace(/\D/g, "") })} /> дн. и долги поставщикам, в <input className="inp tg-bt" type="time" style={{ width: 120 }} value={rp.bT} onChange={(e) => setRp({ ...rp, bT: e.target.value })} /></label>
-        <label className="row clk sm" style={{ gap: 8, marginTop: 6 }}><input type="checkbox" checked={rp.sOn} onChange={(e) => setRp({ ...rp, sOn: e.target.checked })} /> По понедельникам — товары на «Складе Thermo» ниже мин. остатка (Товары → «Мин. остаток»), в <input className="inp tg-st" type="time" style={{ width: 120 }} value={rp.sT} onChange={(e) => setRp({ ...rp, sT: e.target.value })} /></label>
         <div className="xs mut" style={{ margin: "10px 0 4px" }}>Кому (только подключённые к Telegram):</div>
         {linked.length ? linked.map((u) => (
           <label key={u.id} className="row clk sm tg-to" style={{ gap: 8 }}><input type="checkbox" checked={toSet.has(u.id)} onChange={(e) => { const nx = new Set(toSet); if (e.target.checked) nx.add(u.id); else nx.delete(u.id); setRp({ ...rp, to: [...nx] }); }} /> {u.name || u.username} <span className="xs mut">{roleLabel(u.role)}</span></label>

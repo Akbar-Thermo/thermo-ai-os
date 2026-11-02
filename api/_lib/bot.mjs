@@ -246,9 +246,8 @@ export function noteSplit(t) {
 // расписание отчётов (Аккаунты → Telegram-бот): ежедневный — касса и кирим-чиқим; в последний день месяца — долги
 const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
 export function repCfg(lines) {
-  const r = (lines && lines.report) || {}, d = r.daily || {}, b = r.debts || {}, k = r.stock || {};
-  return { daily: { on: d.on !== false, time: HM.test(d.time || "") ? d.time : "21:30" }, debts: { on: b.on !== false, time: HM.test(b.time || "") ? b.time : "10:00", days: Number(b.days) > 0 ? Number(b.days) : 14 },
-    stock: { on: k.on !== false, time: HM.test(k.time || "") ? k.time : "10:00" }, to: Array.isArray(r.to) ? r.to.map(String) : null };
+  const r = (lines && lines.report) || {}, d = r.daily || {}, b = r.debts || {};
+  return { daily: { on: d.on !== false, time: HM.test(d.time || "") ? d.time : "21:30" }, debts: { on: b.on !== false, time: HM.test(b.time || "") ? b.time : "10:00", days: Number(b.days) > 0 ? Number(b.days) : 14 }, to: Array.isArray(r.to) ? r.to.map(String) : null };
 }
 export const tzTime = (d = new Date()) => d.toLocaleTimeString("sv-SE", { timeZone: "Asia/Tashkent", hour: "2-digit", minute: "2-digit" });
 const mins = (hm) => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3, 5));
@@ -867,15 +866,6 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null }) {
     try { await db.insert("audit_log", { action: "Telegram: курс", entity: "rate", detail: C.fmtDot(r) + " сум · " + me.name, user_name: me.name, role: "telegram", ts: now().toISOString() }); } catch (e) {}
     return "✅ Kurs: <b>" + C.fmtDot(r) + " so'm</b> — bot bundan keyin shu kurs bilan hisoblaydi.";
   }
-  // ---------- склад ниже минимума ----------
-  async function lowStock() {
-    const [prods, wh, sups] = await Promise.all([db.all("products", "", "id,name,unit,min_stock,status,supplier_id"), db.all("warehouse", "", "id,product_id,qty"), db.all("suppliers", "", "id,name")]);
-    const sn = new Map(sups.map((x) => [x.id, x.name]));
-    const q = new Map(); wh.forEach((w) => { if (w.product_id) q.set(w.product_id, (q.get(w.product_id) || 0) + (Number(w.qty) || 0)); });
-    const low = prods.filter((p) => p.status !== "archive" && Number(p.min_stock) > 0 && (q.get(p.id) || 0) < Number(p.min_stock)).sort((a, b) => (q.get(a.id) || 0) / a.min_stock - (q.get(b.id) || 0) / b.min_stock);
-    if (!low.length) return null;
-    return ["📦 <b>Skladda kam qolgan tovarlar</b>: " + low.length + " ta", "", ...low.slice(0, 40).map((p) => "• " + esc(cut(p.name, 70)) + " — <b>" + C.fmt(q.get(p.id) || 0) + "</b> / min " + C.fmt(Number(p.min_stock)) + " " + esc(p.unit || "шт") + (sn.get(p.supplier_id) ? " · " + esc(sn.get(p.supplier_id)) : "")), low.length > 40 ? "… yana " + (low.length - 40) + " ta" : ""].filter((x) => x !== "").join("\n");
-  }
   // ---------- заметки из личного чата ----------
   const noteKb = (id, shared) => ({ inline_keyboard: [[{ text: shared ? "🔒 Faqat menga" : "👥 Hammaga ko'rinsin", callback_data: "ns:" + id }, { text: "🗑 O'chirish", callback_data: "nd:" + id }]] });
   async function saveNote(msg, me) {
@@ -998,19 +988,13 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null }) {
     const rp = repCfg(cf.c && cf.c.lines);
     const day = tzDate(now()), hm = tzTime(now());
     const wantDaily = rp.daily.on && isDue(hm, rp.daily.time), wantDebts = rp.debts.on && isLastDay(day) && isDue(hm, rp.debts.time);
-    const wantStock = rp.stock.on && isMonday(day) && isDue(hm, rp.stock.time);
-    if (!wantDaily && !wantDebts && !wantStock) return sent;
+    if (!wantDaily && !wantDebts) return sent;
     const P = await people();
     const to = (need) => P.all().filter((m) => (rp.to ? rp.to.includes(String(m.user.id)) : isFull(m.acc)) && canAsk(m.acc, need));
     const blast = async (list, text, extra = {}) => { for (const m of list) { try { await send(m.tg, text.length > 4000 ? text.slice(0, 3990) + "\n…" : text, extra); sent.push(m.tg); } catch (e) { /* человек остановил бота */ } } };
     if (wantDaily && (await markOnce("rep:daily:" + day))) {
       const list = to("kassa");
       if (list.length) await blast(list, "📊 <b>Kunlik hisobot</b>\n\n" + (await kassa(day)) + "\n\n" + (await today(day)), { reply_markup: kcKb(day) });
-    }
-    if (wantStock && (await markOnce("rep:stock:" + day))) {
-      const list = to("sklad");
-      const t = list.length ? await lowStock() : null;
-      if (t) await blast(list, t);
     }
     if (wantDebts && (await markOnce("rep:debts:" + day.slice(0, 7)))) {
       const list = to("qarz");
