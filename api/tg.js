@@ -22,8 +22,18 @@ async function tg(method, payload) {
   if (!j.ok && !/message is not modified/.test(j.description || "")) throw new Error(method + ": " + (j.description || r.status));
   return j.result;
 }
+// файл в Telegram (Excel клиенту) — multipart
+async function upload(method, params, file) {
+  const fd = new FormData();
+  Object.entries(params || {}).forEach(([k, v]) => fd.append(k, String(v)));
+  fd.append("document", new Blob([file.bytes], { type: file.mime || "application/octet-stream" }), file.name || "file");
+  const r = await fetch("https://api.telegram.org/bot" + TOKEN + "/" + method, { method: "POST", body: fd });
+  const j = await r.json().catch(() => ({}));
+  if (!j.ok) throw new Error(method + ": " + (j.description || r.status));
+  return j.result;
+}
 let bot = null;
-const getBot = () => bot || (bot = makeBot({ db: makeRest({ url: URL_, anon: ANON, login: LOGIN, password: PASS }), tg }));
+const getBot = () => bot || (bot = makeBot({ db: makeRest({ url: URL_, anon: ANON, login: LOGIN, password: PASS }), tg, upload }));
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
