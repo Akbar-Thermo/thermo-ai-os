@@ -16,7 +16,11 @@ export const LOG_MODE = "te_tg";        // скрытая запись журн�
 export const MEM_MODE = "te_tgmem";     // память диалога с ИИ (зашифрована ключом бота): lines = { tg, user_id, at, enc, voice }
 export const AIU_MODE = "te_tgai";      // расход ИИ за месяц: lines = { month, usd, claude, speech, calls, sec, chars, users, prev }
 export const QUEUE_MODE = "te_tgq";     // сообщения группы с суммой (для «что не внесено»): lines = { chat, msg, date, from, text }
-export const ACT_MODE = "te_tgact";     // действие, предложенное ботом, ждёт «✅»: lines = { tg, user_id, kind, data, exp }
+export const ACT_MODE = "te_tgact";
+export const MATCH_MODE = "te_tgmatch";  // память смет: «как написали» → какой товар взяли: lines.m = { ключ: [product_id, раз, дата] }
+export const RULES_MODE = "te_tgrules";  // правила «что у кого брать»: lines.rules = [{ id, q, sup, by, at }]
+// ключ памяти: слова названия без порядка, латиница/кириллица одинаково («Труба PPR 20» = «ppr truba 20»)
+export const mkey = (s) => [...new Set(low(C.translit(String(s || ""))).replace(/[^\p{L}\p{N}/.]+/gu, " ").split(" ").filter(Boolean))].sort().join(" ");     // действие, предложенное ботом, ждёт «✅»: lines = { tg, user_id, kind, data, exp }
 
 // ---------- дата и числа ----------
 export const tzDate = (d = new Date()) => d.toLocaleDateString("sv-SE", { timeZone: "Asia/Tashkent" });
@@ -158,6 +162,8 @@ const CMDS = {
   nakladnoy: ["nakladnoy", "nakladnaya", "накладная", "накладной", "nakladnoi"],
   yangi: ["yangi", "янги", "new", "reset", "новый"],
   ovoz: ["ovoz", "овоз", "voice", "голос"],
+  qoida: ["qoidalar", "qoida", "rules", "правила"],
+  eslab: ["eslab", "eslabqol", "запомни"],
   tekshir: ["tekshir", "текшир", "tekshirish", "kiritilmagan", "сверка", "проверка"],
   yordam: ["yordam", "ёрдам", "help", "помощь", "start", "buyruqlar"],
   id: ["id"],
@@ -224,6 +230,7 @@ export const HELP = [
   "  eski xabarlar uchun: Telegram Desktop → guruh → ⋮ → Export chat history → JSON → <code>result.json</code> faylini shu chatga yuboring",
   "• 📷 Rasm yoki PDF yuboring — bot o'zi tushunadi: tovarlar ro'yxati → smeta + Excel; nakladnoy → obyektga yoki Sklad Thermo'ga",
   "• /smeta — ro'yxatni matn bilan yozib smeta olish · /nakladnoy — nakladnoy rasmini yuborish",
+  "• /qoidalar — qaysi tovar qaysi postavshikdan olinadi · <code>/eslab PPR truba — Akfa dan</code> — yangi qoida",
   "",
   "<b>AI</b> — «/» siz oddiy so'z yoki 🎙 ovozli xabar bilan:",
   "• <i>Gulnoraning qarzi qancha?</i> · <i>Nega bu oy foyda kam?</i> · <i>PPR 20 truba qaysi postavshikda arzon?</i>",
@@ -249,13 +256,14 @@ export const MENU = [
   { command: "eslat", description: "Eslatma (/eslat 15:00 matn)" },
   { command: "tekshir", description: "Guruhda kiritilmagan rasxodlar (/tekshir 23.10)" },
   { command: "smeta", description: "Ro'yxatdan smeta + Excel" },
+  { command: "qoidalar", description: "Qaysi tovar qaysi postavshikdan" },
   { command: "nakladnoy", description: "Nakladnoy rasmidan kirim" },
   { command: "yangi", description: "Suhbatni yangidan boshlash" },
   { command: "ovoz", description: "Javoblar ovoz bilan: yoqish / o'chirish" },
   { command: "yordam", description: "Qanday ishlatish" },
 ];
 // какой раздел программы нужен для вопроса (как вкладки в программе)
-export const NEED = { kassa: "finance", bugun: "finance", hafta: "finance", oy: "finance", kurs: "finance", qarz: "objects", postavshik: "suppliers", obyekt: "objects", narx: "products", sklad: "wh", dostavka: "delivery", smeta: "products", tekshir: "finance" };
+export const NEED = { kassa: "finance", bugun: "finance", hafta: "finance", oy: "finance", kurs: "finance", qarz: "objects", postavshik: "suppliers", obyekt: "objects", narx: "products", sklad: "wh", dostavka: "delivery", smeta: "products", tekshir: "finance", qoida: "products", eslab: "products" };
 export const canAsk = (acc, name) => !NEED[name] || !!acc && (acc.base === "boss" || (acc.tabs || []).includes(NEED[name]));
 export const isFull = (acc) => !!acc && (acc.base === "boss" || C.PERMS.every((p) => acc.perms && acc.perms[p.id]));
 // кнопки с вопросами внизу личного чата — только те, что человеку открыты
@@ -325,7 +333,14 @@ export const PROMPTS = [
   { name: "sklad", mark: "📦 Sklad qidirish", hint: "tovar nomini yozing", ph: "masalan: truba 25" },
   { name: "q", mark: "🔍 Qidirish", hint: "obyekt, mijoz, tovar yoki postavshik", ph: "masalan: Gulnora" },
 ];
-export const SMETA_MARK = "📋 Smeta:", NAK_MARK = "🧾 Nakladnoy:", OBJ_PICK_MARK = "🏠 Obyektni tanlang";
+export const SMETA_MARK = "📋 Smeta:", NAK_MARK = "🧾 Nakladnoy:", OBJ_PICK_MARK = "🏠 Obyektni tanlang", NEWOBJ_MARK = "🆕 Yangi obyekt";
+// «Yunusobod 5-kv, Gulnora, 90 123 45 67» → { name, client, phone }
+export function parseNewObj(t) {
+  const parts = String(t || "").split(/[,;\n]+/).map((x) => x.trim()).filter(Boolean);
+  const isPh = (x) => /^\+?[\d\s()-]{7,}$/.test(x) && (x.match(/\d/g) || []).length >= 7;
+  const phone = parts.find(isPh) || "", rest = parts.filter((x) => x !== phone);
+  return { name: (rest[0] || "").slice(0, 120), client: (rest[1] || "").slice(0, 80), phone: phone.replace(/\s+/g, " ").slice(0, 30), address: rest.slice(2).join(", ").slice(0, 160) };
+}
 export const linkHash = (token) => createHash("sha256").update("tglink:" + token, "utf8").digest("hex");
 export async function setupMenu(tg) {
   for (const scope of [{ type: "default" }, { type: "all_group_chats" }, { type: "all_chat_administrators" }]) await tg("deleteMyCommands", { scope });
@@ -453,7 +468,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   const tgDate = (unix) => tzDate(new Date((unix || 0) * 1000 || now().getTime()));
 
   // ---------- отдельный бот смет ----------
-  const SMETA_HELLO = "📋 <b>Thermo smeta</b>\n\nTovarlar ro'yxatini yuboring — bazadagi narxlar bilan smeta va dasturga import qilinadigan Excel qaytaraman.\n\n• matn: <code>truba PPR 20 — 50 m, kran 1/2 — 10 ta</code>\n• 📷 rasm yoki PDF (qo'lda yozilgan ro'yxat ham)\n• 🎙 ovozli xabar\n\nPostavshikni yozsangiz, narxni o'shandan olaman: <i>Water Pro dan, bo'lmasa Akfa</i>.\nTayyor smetani «➕ Obyektga qo'shish» bilan obyektga yangi postavka qilib qo'shish mumkin.";
+  const SMETA_HELLO = "📋 <b>Thermo smeta</b>\n\nTovarlar ro'yxatini yuboring — bazadagi narxlar bilan smeta va dasturga import qilinadigan Excel qaytaraman.\n\n• matn: <code>truba PPR 20 — 50 m, kran 1/2 — 10 ta</code>\n• 📷 rasm yoki PDF (qo'lda yozilgan ro'yxat ham)\n• 🎙 ovozli xabar\n\nPostavshikni yozsangiz, narxni o'shandan olaman: <i>Water Pro dan, bo'lmasa Akfa</i>.\nTayyor smetani «➕ Obyektga qo'shish» — mavjud obyektga, «🆕 Yangi obyekt» — yangi obyekt yaratib qo'shish mumkin.\n\n🧠 Bot eslab qoladi: qaysi tovar qaysi postavshikdan olingan (dasturdagi obyektlardan va siz tasdiqlagan smetalardan). Qoida ham berish mumkin: <code>eslab qol: PPR truba — Akfa dan, nasos — Wilo dan</code> · ro'yxat: /qoidalar";
   async function onSmetaMessage(msg) {
     const chat = msg.chat || {};
     if (chat.type !== "private" || (msg.from && msg.from.is_bot)) return;
@@ -483,6 +498,9 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     if (/^\/(start|yordam|help)\b/i.test(text)) return send(chat.id, SMETA_HELLO);
     const rq = msg.reply_to_message;
     if (rq && rq.from && rq.from.is_bot && String(rq.text || "").startsWith(OBJ_PICK_MARK)) return actObjSearch(msg, rq, me);
+    if (rq && rq.from && rq.from.is_bot && String(rq.text || "").startsWith(NEWOBJ_MARK)) return actNewObj(msg, rq, me);
+    if (/^\/(qoidalar|rules)\b/i.test(text)) return rulesList(chat.id, me);
+    if (isTeach(text)) return teachRule(msg, me, text);
     return smetaFromText(msg, me, text.replace(/^\/smeta(?:@\w+)?\s*/i, "") || text);
   }
 
@@ -801,6 +819,8 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
         return send(chatId, NAK_MARK + " nakladnoy rasmini yoki PDF faylini shu xabarga javob qilib yuboring.", { reply_markup: { force_reply: true, input_field_placeholder: "rasm yoki PDF" } });
       }
       else if (cmd.name === "tekshir") { try { return await reconcile(chatId, me, parseDay(cmd.arg, addDays(day, -30)), null); } catch (e) { text = "⚠️ Solishtirib bo'lmadi: " + esc(String(e.message || e)).slice(0, 200); } }
+      else if (cmd.name === "qoida") return rulesList(chatId, me);
+      else if (cmd.name === "eslab") { if (!cmd.arg) return send(chatId, "Masalan: <code>/eslab PPR truba — Akfa dan, nasos — Wilo dan</code>"); return teachRule(msg, me, cmd.arg); }
       else if (cmd.name === "yangi") { await memClear(chatId); text = "🧹 Suhbat yangidan boshlandi — oldingi gaplar unutildi."; }
       else if (cmd.name === "ovoz") {
         if (!voice || !voice.tts) text = "🔇 Ovozli javob uchun ovoz xizmati ulanmagan.";
@@ -1304,6 +1324,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const rq = msg.reply_to_message, fromBot = rq && rq.from && rq.from.is_bot, rt = fromBot ? String(rq.text || "") : "";
     if (rt.startsWith("💳 To'lov qo'shish")) return payReply(msg, rq, me);
     if (rt.startsWith(OBJ_PICK_MARK)) return actObjSearch(msg, rq, me);
+    if (rt.startsWith(NEWOBJ_MARK)) return actNewObj(msg, rq, me);
     if (rt.startsWith(SMETA_MARK)) return smetaFromText(msg, me, msg.text, opts.meter);
     if (rt.startsWith(NAK_MARK)) return send(msg.chat.id, "🧾 Nakladnoyning rasmini yoki PDF faylini yuboring (shu xabarga javob qilib).");
     const pr = fromBot ? PROMPTS.find((x) => rt.startsWith(x.mark)) : null;
@@ -1402,9 +1423,18 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     try { await estimate(items, hint, me, chatId, m); } finally { if (!meter) await spend(m, me); }
   }
   // позиции ↔ товары базы: сначала у названных поставщиков (по порядку), потом во всей базе; спорные — выбирает ИИ
+  // постоянная память смет: что брали раньше (объекты программы), выученные «как написали → товар», правила «что у кого брать»
+  async function smetaMem() {
+    const [rows, objs] = await Promise.all([db.select("requests", "mode=in.(" + MATCH_MODE + "," + RULES_MODE + ")&select=id,mode,lines").catch(() => []), db.all("objects", "", "id,items").catch(() => [])]);
+    const mr = rows.find((r) => r.mode === MATCH_MODE), rr = rows.find((r) => r.mode === RULES_MODE);
+    const used = new Map();
+    objs.forEach((o) => (Array.isArray(o.items) ? o.items : []).forEach((i) => { if (i && i.product_id) used.set(i.product_id, (used.get(i.product_id) || 0) + 1); }));
+    return { map: (mr && mr.lines && mr.lines.m) || {}, rules: (rr && rr.lines && Array.isArray(rr.lines.rules) ? rr.lines.rules : []), used, mr, rr };
+  }
   async function matchItems(items, hint, supId, m) {
-    const [prods, sups] = await Promise.all([db.all("products", "", "id,code,sku,name,brand,size,unit,cost,price,supplier_id,status"), db.all("suppliers", "", "id,name")]);
+    const [prods, sups, mem] = await Promise.all([db.all("products", "", "id,code,sku,name,brand,size,unit,cost,price,supplier_id,status"), db.all("suppliers", "", "id,name"), smetaMem()]);
     const act = prods.filter((p) => p.status !== "archive");
+    const pById = new Map(act.map((p) => [p.id, p])), sById = new Map(sups.map((s) => [s.id, s]));
     const sn = new Map(sups.map((s) => [s.id, s.name]));
     let prefer = [];
     if (supId) prefer = sups.filter((s) => s.id === supId);
@@ -1412,14 +1442,27 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       const h = " " + low(hint) + " ", ht = " " + low(C.translit(hint)) + " ";
       prefer = sups.map((s) => { const k = low(String(s.name || "")).trim(); const i = k.length >= 3 ? Math.max(h.indexOf(k), ht.indexOf(low(C.translit(k)))) : -1; return { s, i }; }).filter((x) => x.i >= 0).sort((a, b) => a.i - b.i).map((x) => x.s);
     }
-    const mk = new Map();
-    const matcher = (sid) => { if (!mk.has(sid)) mk.set(sid, C.buildMatcher(sid ? act.filter((p) => p.supplier_id === sid) : act)); return mk.get(sid); };
+    // латиница и кириллица одинаково: «truba ppr 20» находит «Труба PPR 20 мм» (сравниваем в латинице)
+    const mk = new Map(), lat = (t) => C.translit(String(t || ""));
+    const actL = act.map((p) => ({ ...p, name: lat(p.name), size: lat(p.size) }));
+    const matcher = (sid) => {
+      if (!mk.has(sid)) { const f = C.buildMatcher(sid ? actL.filter((p) => p.supplier_id === sid) : actL); mk.set(sid, (name, code) => f(lat(name), code).map((r) => ({ ...r, p: pById.get(r.p.id) || r.p }))); }
+      return mk.get(sid);
+    };
+    // почти одинаковые совпадения — берём товар, который чаще брали в объекты
+    const pickUsed = (r) => { if (!r.length) return null; const top = r.filter((c) => c.score >= r[0].score - 0.04); return top.sort((a, b) => (mem.used.get(b.p.id) || 0) - (mem.used.get(a.p.id) || 0) || b.score - a.score)[0]; };
     const lines = items.map((it) => {
       let best = null; const cands = [];
-      for (const s of prefer) { const r = matcher(s.id)(it.name, it.code); if (r[0] && r[0].score >= C.MATCH_OK) { best = r[0]; break; } cands.push(...r.slice(0, 3)); }
-      if (!best) { const r = matcher("")(it.name, it.code); if (r[0] && r[0].score >= C.MATCH_OK && !prefer.length) best = r[0]; else cands.push(...r.slice(0, 4)); }
+      // 1) выучено: так уже писали, и взяли этот товар
+      const lp = mem.map[mkey(it.name)] && pById.get(mem.map[mkey(it.name)][0]);
+      if (lp && (!prefer.length || prefer.some((s) => s.id === lp.supplier_id))) return { it, best: { p: lp, score: 1, mem: true }, cands: [] };
+      // 2) поставщики из сообщения, потом правила «что у кого брать»
+      const ruleSups = mem.rules.filter((r) => r.q && hitAll(hay([it.name]), r.q)).map((r) => sById.get(r.sup)).filter(Boolean);
+      const order = [...prefer, ...ruleSups.filter((s) => !prefer.some((x) => x.id === s.id))];
+      for (const s of order) { const r = matcher(s.id)(it.name, it.code); const bp = pickUsed(r); if (bp && bp.score >= C.MATCH_OK) { best = { ...bp, mem: !prefer.some((x) => x.id === s.id) }; break; } cands.push(...r.slice(0, 3)); }
+      if (!best) { const r = matcher("")(it.name, it.code); const bp = pickUsed(r); if (bp && bp.score >= C.MATCH_OK && !order.length) best = { ...bp, mem: (mem.used.get(bp.p.id) || 0) > 0 && bp.p.id !== (r[0] && r[0].p.id) }; else cands.push(...r.slice(0, 4)); }
       const seen = new Set();
-      return { it, best, cands: cands.filter((c) => c.score >= C.MATCH_MIN && !seen.has(c.p.id) && seen.add(c.p.id)).sort((a, b) => b.score - a.score).slice(0, 5) };
+      return { it, best, cands: cands.filter((c) => c.score >= C.MATCH_MIN && !seen.has(c.p.id) && seen.add(c.p.id)).sort((a, b) => b.score - a.score || (mem.used.get(b.p.id) || 0) - (mem.used.get(a.p.id) || 0)).slice(0, 5) };
     });
     const unclear = lines.filter((l) => !l.best && l.cands.length).slice(0, 80);
     if (unclear.length && m && (await canRead())) {
@@ -1444,15 +1487,16 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const miss = rows.filter((r) => !r.p).length, aiN = rows.filter((r) => r.l.best && r.l.best.ai).length;
     const other = (r) => r.p && M.prefer.length && !M.prefer.some((s) => s.id === r.p.supplier_id);
     const L = ["📋 <b>Smeta</b> · " + rows.length + " poz." + (M.prefer.length ? " · " + M.prefer.map((s) => esc(s.name)).join(", ") : ""), "",
-      ...rows.map((r, i) => (i + 1) + ". " + (r.p ? esc(cut(r.p.name, 70)) + (r.l.best.ai ? " 🤖" : "") : "⚠️ " + esc(cut(r.l.it.name, 70)) + " — <i>bazada yo'q</i>") + " — " + C.fmt(r.qty) + " " + esc(r.unit)
+      ...rows.map((r, i) => (i + 1) + ". " + (r.p ? esc(cut(r.p.name, 70)) + (r.l.best.ai ? " 🤖" : r.l.best.mem ? " 🧠" : "") : "⚠️ " + esc(cut(r.l.it.name, 70)) + " — <i>bazada yo'q</i>") + " — " + C.fmt(r.qty) + " " + esc(r.unit)
         + (r.p && r.price > 0 ? " × " + usd(r.price) + " = <b>" + usd(r.qty * r.price) + "</b>" : r.p ? " · narx yo'q" : "") + (other(r) ? " <i>(" + esc(M.sn.get(r.p.supplier_id) || "") + ")</i>" : "")),
       "", "Jami: <b>" + usd(total) + "</b>" + (fin && totalC > 0 ? "\nTannarx: " + usd(totalC) + " · foyda: " + usd(total - totalC) : ""),
+      rows.some((r) => r.l.best && r.l.best.mem) ? "🧠 — oldin shunday olingan (bot eslab qolgan)" : "",
       miss ? "⚠️ Bazada topilmadi: " + miss + " ta — Excel'da narxsiz, dasturda to'g'rilang" : "", aiN ? "🤖 — AI tanlagan (" + aiN + " ta), tekshirib oling" : ""].filter((x, i, a) => x !== "" || (i > 0 && a[i - 1] !== ""));
     let text = L.join("\n"); if (text.length > 4000) text = text.slice(0, 3900) + "\n… (to'liq ro'yxat — Excel'da)";
     let kb;
     if (canAsk(me.acc, "obyekt") && money$(me.acc)) {
-      const row = await actNew(chatId, me, "items", { src: "smeta", items: rows.map((r) => ({ product_id: r.p ? r.p.id : null, name: r.p ? r.p.name : r.l.it.name, size: r.p ? r.p.size || "" : "", unit: r.unit, qty: r.qty, price: r.price, cost: r.cost, supplier_id: r.p ? r.p.supplier_id || null : null })) });
-      if (row) kb = { inline_keyboard: [[{ text: "➕ Obyektga qo'shish", callback_data: "ao:" + row.id }]] };
+      const row = await actNew(chatId, me, "items", { src: "smeta", items: rows.map((r) => ({ product_id: r.p ? r.p.id : null, name: r.p ? r.p.name : r.l.it.name, size: r.p ? r.p.size || "" : "", unit: r.unit, qty: r.qty, price: r.price, cost: r.cost, supplier_id: r.p ? r.p.supplier_id || null : null, q: r.l.it.name })) });
+      if (row) kb = { inline_keyboard: [[{ text: "➕ Obyektga qo'shish", callback_data: "ao:" + row.id }, { text: "🆕 Yangi obyekt", callback_data: "ac:" + row.id }]] };
     }
     await send(chatId, text, kb ? { reply_markup: kb } : {});
     if (upload) {
@@ -1483,7 +1527,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     if (cur === "uzs" && !(rate >= 1000)) return send(chatId, "Kurs topilmadi — /kurs bilan kiriting yoki rasm ostiga «kurs 12 650» deb yozing.");
     const items = raw.map((i) => ({ ...i, cost: cur === "uzs" ? C.round2(i.price / rate) : C.round2(i.price) }));
     const M = await matchItems(items, "", sup ? sup.id : null, m);
-    const rows = M.lines.map((l) => { const p = l.best && l.best.p; return { product_id: p ? p.id : null, name: p ? p.name : l.it.name, size: p ? p.size || "" : "", unit: l.it.unit || (p && p.unit) || "шт", qty: l.it.qty, cost: l.it.cost, price: p ? C.round2(C.retailOf(p)) || l.it.cost : l.it.cost, supplier_id: sup ? sup.id : p ? p.supplier_id || null : null, _p: !!p, _ai: !!(l.best && l.best.ai), _src: l.it.name }; });
+    const rows = M.lines.map((l) => { const p = l.best && l.best.p; return { product_id: p ? p.id : null, name: p ? p.name : l.it.name, size: p ? p.size || "" : "", unit: l.it.unit || (p && p.unit) || "шт", qty: l.it.qty, cost: l.it.cost, price: p ? C.round2(C.retailOf(p)) || l.it.cost : l.it.cost, supplier_id: sup ? sup.id : p ? p.supplier_id || null : null, _p: !!p, _ai: !!(l.best && l.best.ai), _src: l.it.name, q: l.it.name }; });
     const tot = rows.reduce((a, r) => a + r.qty * r.cost, 0), totSrc = raw.reduce((a, i) => a + i.qty * i.price, 0);
     const jt = Number(j.total) || 0;
     const L = ["🧾 <b>Nakladnoy</b> · " + (sup ? esc(sup.name) : "postavshik: " + esc((j && j.supplier) || "?") + " <i>(bazada topilmadi)</i>") + (j.number ? " · №" + esc(j.number) : "") + (/^\d{4}-\d{2}-\d{2}$/.test(j.date || "") ? " · " + dt(j.date) : ""), "",
@@ -1492,7 +1536,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       jt > 0 && Math.abs(jt - totSrc) > Math.max(1, jt * 0.01) ? "⚠️ Nakladnoydagi jami: " + (cur === "uzs" ? sum(jt) : usd(jt)) + " — tekshiring" : "", "", "Qayerga kiritamiz?"].filter((x, i, a) => x !== "" || (i > 0 && a[i - 1] !== ""));
     let text = L.join("\n"); if (text.length > 4000) text = text.slice(0, 3900) + "\n…";
     const row = await actNew(chatId, me, "items", { src: "nak", items: rows.map(({ _p, _ai, _src, ...r }) => r), supplier_id: sup ? sup.id : null, supplier: sup ? sup.name : "", debt: !!sup, number: String(j.number || "").slice(0, 40) });
-    const kb = [[...(canAsk(me.acc, "obyekt") && money$(me.acc) ? [{ text: "🏠 Obyektga", callback_data: "ao:" + row.id }] : []), ...(canAsk(me.acc, "sklad") ? [{ text: "📦 Sklad Thermo'ga", callback_data: "aw:" + row.id }] : [])], [{ text: "❌ Bekor", callback_data: "an:" + row.id }]];
+    const kb = [[...(canAsk(me.acc, "obyekt") && money$(me.acc) ? [{ text: "🏠 Obyektga", callback_data: "ao:" + row.id }, { text: "🆕 Yangi obyekt", callback_data: "ac:" + row.id }] : []), ...(canAsk(me.acc, "sklad") ? [{ text: "📦 Sklad Thermo'ga", callback_data: "aw:" + row.id }] : [])], [{ text: "❌ Bekor", callback_data: "an:" + row.id }]];
     return send(chatId, text, { reply_markup: { inline_keyboard: kb } });
   }
 
@@ -1551,6 +1595,8 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
         reply_markup: { inline_keyboard: [yesNo(row.id), ...(d.supplier_id ? [[{ text: d.debt ? "💳 Qarzga yozmaslik" : "💳 Qarzga yozish", callback_data: "ad:" + row.id }]] : [])] } };
     }
     const noPrice = items.filter((i) => !(Number(i.price) > 0)).length;
+    if (d.newObj && !d.object_id) return { text: "🆕 <b>Yangi obyekt: " + esc(d.newObj.name) + "</b>" + (d.newObj.client ? "\nMijoz: " + esc(d.newObj.client) : "") + (d.newObj.phone ? " · " + esc(d.newObj.phone) : "") + (d.newObj.address ? "\nManzil: " + esc(d.newObj.address) : "") + "\n1-postavka: " + items.length + " poz. · sotuv <b>" + usd(sale) + "</b>" + (fin$(me.acc) && cost > 0 ? " · tannarx " + usd(cost) : "") + (noPrice ? "\n⚠️ Narxsiz: " + noPrice + " ta" : "") + "\nObyekt «qoralama» holatida yaratiladi. Yarataymi?",
+      reply_markup: { inline_keyboard: [[{ text: "✅ Yaratish", callback_data: "ax:" + row.id }, { text: "❌ Yo'q", callback_data: "an:" + row.id }], [{ text: "✏️ Nomini o'zgartirish", callback_data: "ac:" + row.id }]] } };
     return { text: "🏠 <b>" + esc(d.object_name || "—") + "</b> — yangi postavka: " + items.length + " poz.\nSotuv: <b>" + usd(sale) + "</b>" + (fin$(me.acc) && cost > 0 ? " · tannarx " + usd(cost) : "") + (noPrice ? "\n⚠️ Narxsiz: " + noPrice + " ta — dasturda to'g'rilang" : "") + "\nKiritaymi?",
       reply_markup: { inline_keyboard: [yesNo(row.id), [{ text: "⬅️ Boshqa obyekt", callback_data: "ao:" + row.id }]] } };
   }
@@ -1566,19 +1612,93 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     await actSet(row, { cands: list.map((o) => o.id) });
     return send(chatId, OBJ_PICK_MARK + ":", { reply_markup: { inline_keyboard: [...list.map((o, i) => [{ text: objBtn(o), callback_data: "as:" + row.id + ":" + i }]), [{ text: "🔍 Qayta qidirish", callback_data: "aq:" + row.id }]] } });
   }
+  // выучить: «как написали» → какой товар взяли (после «✅» — человек согласился с выбором)
+  async function learn(items) {
+    try {
+      const add = (items || []).filter((i) => i && i.product_id && i.q && mkey(i.q));
+      if (!add.length) return;
+      const row = (await db.select("requests", "mode=eq." + MATCH_MODE + "&select=id,lines&limit=1"))[0];
+      const m = { ...((row && row.lines && row.lines.m) || {}) }, day = tzDate(now());
+      add.forEach((i) => { const k = mkey(i.q), o = m[k]; m[k] = [i.product_id, o && o[0] === i.product_id ? (Number(o[1]) || 0) + 1 : 1, day]; });
+      const keys = Object.keys(m);
+      if (keys.length > 4000) keys.sort((a, b) => String(m[a][2]).localeCompare(String(m[b][2]))).slice(0, keys.length - 4000).forEach((k) => delete m[k]);
+      if (row) await db.update("requests", "id=eq." + row.id, { lines: { ...row.lines, m } }); else await db.insert("requests", { mode: MATCH_MODE, source: "config", lines: { m } });
+    } catch (e) { console.error("tg learn:", e && e.message); }
+  }
   async function itemsToObject(d, me) {
-    const o = (await db.select("objects", "id=eq." + d.object_id + "&select=id,name,items"))[0];
-    if (!o) throw new Error("obyekt topilmadi");
-    const cur = Array.isArray(o.items) ? o.items : [];
-    const nos = cur.map((i) => Number(i && i.batch_no) || 1), no = (nos.length ? Math.max(...nos) : 0) + 1;
     const day = tzDate(now()), at = now().toISOString();
-    const add = (d.items || []).filter((i) => Number(i.qty) > 0).map((i) => ({ id: crypto.randomUUID(), product_id: i.product_id || null, name: i.name, size: i.size || "", unit: i.unit || "шт", qty: Number(i.qty), price: Number(i.price) || 0, cost: Number(i.cost) || 0, supplier_id: i.supplier_id || null,
+    const mkIt = (no) => (d.items || []).filter((i) => Number(i.qty) > 0).map((i) => ({ id: crypto.randomUUID(), product_id: i.product_id || null, name: i.name, size: i.size || "", unit: i.unit || "шт", qty: Number(i.qty), price: Number(i.price) || 0, cost: Number(i.cost) || 0, supplier_id: i.supplier_id || null,
       source_text: d.src === "nak" ? "Telegram: накладная" + (d.number ? " №" + d.number : "") : "Telegram: смета", confidence: 100, batch_no: no, batch_date: day, manual: true, shipped: false, added_at: at }));
-    if (!add.length) throw new Error("pozitsiyalar yo'q");
-    await db.update("objects", "id=eq." + o.id, { items: [...cur, ...add] });
+    let o, no, add;
+    if (d.newObj && !d.object_id) {
+      // новый объект — сразу с позициями (черновик: склад не трогается, как в программе)
+      add = mkIt(1); no = 1;
+      if (!add.length) throw new Error("pozitsiyalar yo'q");
+      o = (await db.insert("objects", { name: d.newObj.name, client: d.newObj.client || "", phone: d.newObj.phone || "", address: d.newObj.address || "", manager: me.name, status: "draft", items: add }))[0];
+      if (!o) throw new Error("obyekt yaratilmadi");
+      try { await db.insert("audit_log", { action: "Создан объект", entity: "object:" + (o.name || ""), detail: "из сметы Telegram · позиций: " + add.length, user_name: me.name, role: "telegram", ts: at }); } catch (e) {}
+    } else {
+      o = (await db.select("objects", "id=eq." + d.object_id + "&select=id,name,items"))[0];
+      if (!o) throw new Error("obyekt topilmadi");
+      const cur = Array.isArray(o.items) ? o.items : [];
+      const nos = cur.map((i) => Number(i && i.batch_no) || 1); no = (nos.length ? Math.max(...nos) : 0) + 1;
+      add = mkIt(no);
+      if (!add.length) throw new Error("pozitsiyalar yo'q");
+      await db.update("objects", "id=eq." + o.id, { items: [...cur, ...add] });
+    }
     const sale = add.reduce((a, i) => a + i.qty * i.price, 0);
     try { await db.insert("audit_log", { action: "Новая поставка", entity: "object:" + (o.name || ""), detail: "поставка №" + no + ", позиций: " + add.length + ", на сумму " + C.fmt2(sale) + " · Telegram (" + (d.src === "nak" ? "накладная" : "смета") + ")", user_name: me.name, role: "telegram", ts: at }); } catch (e) {}
-    return { no, n: add.length, name: o.name || "", sale };
+    await learn(d.items);
+    return { no, n: add.length, name: o.name || "", sale, id: o.id, isNew: !!d.newObj && !d.object_id };
+  }
+  async function actNewObj(msg, rq, me) {
+    const chatId = msg.chat.id;
+    const link = (rq.entities || []).map((e) => e.url || "").find((u) => u.startsWith(ACT_URL));
+    const row = await actGet(link && link.slice(ACT_URL.length), chatId, me);
+    if (!row) return send(chatId, "⌛️ So'rov eskirgan — smetani qaytadan yuboring.");
+    if (!(canAsk(me.acc, "obyekt") && money$(me.acc))) return send(chatId, "🔒 Bu bo'lim sizga ochilmagan.");
+    const no = parseNewObj(msg.text);
+    if (!no.name) return send(chatId, "Obyekt nomini yozing: <code>Yunusobod 5-kv, Gulnora, 90 123 45 67</code>");
+    const r2 = await actSet(row, { newObj: no, object_id: null, target: "obj" });
+    const v = itemsConfirm(r2, me);
+    return send(chatId, v.text, { reply_markup: v.reply_markup });
+  }
+  // ---- правила «что у кого брать» (постоянная память) ----
+  const isTeach = (t) => /^\s*(\/eslab|eslab\s*qol|эслаб\s*қол|запомни|doim|har\s*doim|доим|ҳар\s*доим|всегда)/i.test(String(t || ""));
+  async function rulesRow() { return (await db.select("requests", "mode=eq." + RULES_MODE + "&select=id,lines&limit=1"))[0] || null; }
+  async function rulesList(chatId, me, head = "") {
+    const row = await rulesRow(), rules = (row && row.lines && row.lines.rules) || [];
+    const sups = new Map((await db.all("suppliers", "", "id,name")).map((x) => [x.id, x.name]));
+    const text = (head ? head + "\n\n" : "") + (rules.length ? "🧠 <b>Qaysi tovar qaysi postavshikdan</b>\n\n" + rules.map((r, i) => (i + 1) + ". " + esc(r.q) + " → <b>" + esc(sups.get(r.sup) || "?") + "</b>" + (r.by ? " <i>(" + esc(r.by) + ")</i>" : "")).join("\n")
+      : "🧠 Qoidalar yo'q. Masalan: <code>eslab qol: PPR truba — Akfa dan, nasos — Wilo dan</code>") + "\n\nBundan tashqari bot dasturdagi obyektlarda qaysi tovar ko'p olinganini va siz tasdiqlagan smetalarni ham eslab qoladi.";
+    const kb = rules.slice(0, 30).map((r, i) => [{ text: cut("❌ " + (i + 1) + ". " + r.q, 50), callback_data: "rx:" + r.id }]);
+    return send(chatId, text, kb.length ? { reply_markup: { inline_keyboard: kb } } : {});
+  }
+  async function teachRule(msg, me, text) {
+    const chatId = msg.chat.id;
+    if (!canAsk(me.acc, "smeta")) return send(chatId, "🔒 Bu bo'lim sizga ochilmagan.");
+    const body = String(text).replace(/^\s*\/eslab\S*\s*/i, "").trim();
+    const sups = await db.all("suppliers", "", "id,name");
+    let pairs = null;
+    if (await canRead()) { const m = meterNew(); try { const j = await readJson({ system: "The user tells which supplier to use for which goods. Extract rules. Reply with JSON only: {\"rules\":[{\"match\":\"short key words of the goods as written (1–3 words, e.g. 'PPR truba', 'nasos')\",\"supplier\":\"supplier name as written\"}]}", text: body, maxTokens: 600, meter: m.fn }); if (j && Array.isArray(j.rules)) pairs = j.rules; } catch (e) {} await spend(m, me); }
+    if (!pairs) pairs = body.replace(/^(eslab\s*qol|запомни|har\s*doim|doim|всегда)\s*[:,-]?\s*/i, "").split(/[;,\n]+/).map((x) => { const mm = /^(.*?)\s*[—–:-]+\s*(.+?)(?:\s*(?:dan|дан|от|у))?\s*$/i.exec(x.trim()); return mm ? { match: mm[1], supplier: mm[2] } : null; }).filter(Boolean);
+    const ok = [], bad = [];
+    pairs.forEach((p) => { const q = String((p && p.match) || "").replace(/^(eslab\s*qol|doim|har\s*doim)\s*[:,-]?\s*/i, "").trim().slice(0, 60); const s0 = findSupplier(sups, String((p && p.supplier) || "")); if (q && s0) ok.push({ id: Math.random().toString(36).slice(2, 10), q, sup: s0.id, by: me.name, at: now().toISOString() }); else if (p && p.supplier) bad.push(String(p.supplier)); });
+    if (!ok.length) return send(chatId, "Tushunmadim. Masalan: <code>eslab qol: PPR truba — Akfa dan, nasos — Wilo dan</code>" + (bad.length ? "\n⚠️ Bazada yo'q postavshik: " + esc(bad.join(", ")) : ""));
+    const row = await rulesRow();
+    const old = ((row && row.lines && row.lines.rules) || []).filter((r) => !ok.some((n) => low(n.q) === low(r.q)));
+    const lines = { rules: [...old, ...ok].slice(-200) };
+    if (row) await db.update("requests", "id=eq." + row.id, { lines }); else await db.insert("requests", { mode: RULES_MODE, source: "config", lines });
+    try { await db.insert("audit_log", { action: "Telegram: правило смет", entity: "smeta", detail: ok.map((r) => r.q + " → " + (sups.find((x) => x.id === r.sup) || {}).name).join("; "), user_name: me.name, role: "telegram", ts: now().toISOString() }); } catch (e) {}
+    return rulesList(chatId, me, "✅ Eslab qoldim: " + ok.map((r) => esc(r.q) + " → " + esc((sups.find((x) => x.id === r.sup) || {}).name || "")).join(", ") + (bad.length ? "\n⚠️ Bazada yo'q postavshik: " + esc(bad.join(", ")) : ""));
+  }
+  async function ruleDel(cq, me, rid, ans, edit) {
+    if (!canAsk(me.acc, "smeta")) return ans("Bu bo'lim sizga ochilmagan", true);
+    const row = await rulesRow(); if (!row) return ans();
+    const rules = ((row.lines && row.lines.rules) || []).filter((r) => r.id !== rid);
+    await db.update("requests", "id=eq." + row.id, { lines: { ...row.lines, rules } });
+    await edit("🗑 Qoida o'chirildi. Qolgan: " + rules.length + " ta — /qoidalar");
+    return ans("O'chirildi");
   }
   async function itemsToWh(d, me) {
     const day = tzDate(now());
@@ -1612,13 +1732,18 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       await send(chatId, OBJ_PICK_MARK + " — " + (d.items || []).length + " poz. qaysi obyektga?", { reply_markup: { inline_keyboard: [...list.map((o, i) => [{ text: objBtn(o), callback_data: "as:" + row.id + ":" + i }]), [{ text: "🔍 Qidirish", callback_data: "aq:" + row.id }]] } });
       return ans();
     }
+    if (act === "ac") {
+      if (!objOk) return ans("Bu bo'lim sizga ochilmagan", true);
+      await send(chatId, NEWOBJ_MARK + ': <a href="' + ACT_URL + row.id + '">nomi, mijoz, telefon (vergul bilan)</a>\nMasalan: <code>Yunusobod 5-kv, Gulnora, 90 123 45 67</code>', { reply_markup: { force_reply: true, input_field_placeholder: "Nomi, mijoz, telefon" } });
+      return ans();
+    }
     if (act === "aq") { await send(chatId, OBJ_PICK_MARK + ": <a href=\"" + ACT_URL + row.id + "\">obyekt nomi, mijoz yoki telefonni yozing</a>", { reply_markup: { force_reply: true, input_field_placeholder: "masalan: Yunusobod" } }); return ans(); }
     if (act === "as") {
       if (!objOk) return ans("Bu bo'lim sizga ochilmagan", true);
       const oid = (d.cands || [])[Number(n2)];
       const o = oid && (await db.select("objects", "id=eq." + oid + "&select=id,name"))[0];
       if (!o) return ans("Obyekt topilmadi", true);
-      const r2 = await actSet(row, { object_id: o.id, object_name: o.name || "", target: "obj" });
+      const r2 = await actSet(row, { object_id: o.id, object_name: o.name || "", target: "obj", newObj: null });
       const v = itemsConfirm(r2, me); await edit(v.text, v.reply_markup); return ans();
     }
     if (act === "aw") {
@@ -1637,7 +1762,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     if (act !== "ax") return ans();
     if (kind === "bulk" && !canAsk(me.acc, "kassa")) return ans("Bu bo'lim sizga ochilmagan", true);
     if ((kind === "pay" && !objOk) || (kind === "dlv" && !canAsk(me.acc, "dostavka")) || (kind === "items" && (d.target === "wh" ? !canAsk(me.acc, "sklad") : !objOk))) return ans("Bu bo'lim sizga ochilmagan", true);
-    if (kind === "items" && d.target !== "wh" && !d.object_id) return ans("Avval obyektni tanlang", true);
+    if (kind === "items" && d.target !== "wh" && !d.object_id && !(d.newObj && d.newObj.name)) return ans("Avval obyektni tanlang", true);
     const gone = await db.del("requests", "id=eq." + row.id);
     if (!gone || !gone.length) return ans("Allaqachon bajarilgan", true);
     try {
@@ -1665,12 +1790,13 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       }
       if (kind === "items" && d.target === "wh") {
         const r = await itemsToWh(d, me);
+        await learn(d.items);
         await edit("✅ <b>Sklad Thermo'ga kiritildi</b> · " + r.n + " poz. · " + usd(r.cost) + (d.supplier ? "\n" + esc(d.supplier) + (d.debt && d.supplier_id ? " — qarzga yozildi" : "") : "") + "\nKiritdi: " + esc(me.name));
         return ans("Kiritildi");
       }
       if (kind === "items") {
         const r = await itemsToObject(d, me);
-        await edit("✅ <b>" + esc(r.name) + "</b> — " + r.no + "-postavka: " + r.n + " poz. · " + usd(r.sale) + "\nKiritdi: " + esc(me.name), { inline_keyboard: [[{ text: "⬅️ Obyektga", callback_data: "o:" + d.object_id }]] });
+        await edit("✅ <b>" + esc(r.name) + "</b> — " + (r.isNew ? "yangi obyekt yaratildi (qoralama), " : "") + r.no + "-postavka: " + r.n + " poz. · " + usd(r.sale) + "\nKiritdi: " + esc(me.name), { inline_keyboard: [[{ text: "⬅️ Obyektga", callback_data: "o:" + r.id }]] });
         return ans("Kiritildi");
       }
       return ans();
@@ -1888,7 +2014,8 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     }
     const chatId = cq.message.chat.id;
     const [id1, n2] = id.split(":");
-    if (["ax", "an", "ao", "aq", "as", "aw", "ad", "bt", "ba", "bp"].includes(act)) return actCallback(cq, me, act, id1, n2, ans, edit);
+    if (act === "rx") return ruleDel(cq, me, id, ans, edit);
+    if (["ax", "an", "ao", "aq", "as", "aw", "ad", "bt", "ba", "bp", "ac"].includes(act)) return actCallback(cq, me, act, id1, n2, ans, edit);
     if (act === "undo") return undo(cq, id, me.name, ans, edit);
     if (act === "rd") {
       const row = (await db.select("requests", "id=eq." + id + "&mode=eq." + REMIND_MODE + "&select=id,lines"))[0];
@@ -2020,7 +2147,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   return {
     async handle(upd) {
       if (upd && upd.te_cron) return smeta ? undefined : tick();
-      if (!menuDone) { menuDone = true; try { if (smeta) { for (const scope of [{ type: "default" }, { type: "all_group_chats" }]) await tg("deleteMyCommands", { scope }); await tg("setMyCommands", { commands: [{ command: "start", description: "Qanday ishlatish" }], scope: { type: "all_private_chats" } }); } else { await setupMenu(tg); await saveBotName(); } } catch (e) { menuDone = false; } }
+      if (!menuDone) { menuDone = true; try { if (smeta) { for (const scope of [{ type: "default" }, { type: "all_group_chats" }]) await tg("deleteMyCommands", { scope }); await tg("setMyCommands", { commands: [{ command: "start", description: "Qanday ishlatish" }, { command: "qoidalar", description: "Qaysi tovar qaysi postavshikdan" }], scope: { type: "all_private_chats" } }); } else { await setupMenu(tg); await saveBotName(); } } catch (e) { menuDone = false; } }
       if (smeta && upd.my_chat_member) return;
       if (upd.callback_query) return onCallback(upd.callback_query);
       if (upd.message) return onMessage(upd.message);
