@@ -17,7 +17,7 @@ const URL_ = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const ANON = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "";
 const LOGIN = String(process.env.TG_BOT_LOGIN || "").trim();
 const PASS = String(process.env.TG_BOT_PASSWORD || "");
-const AI = makeAI({ key: process.env.ANTHROPIC_API_KEY, model: process.env.TG_AI_MODEL });
+const AI = makeAI({ key: process.env.ANTHROPIC_API_KEY, model: "claude-haiku-5-5" }); // только Haiku 5.5
 const VOICE = makeVoice({ azureKey: process.env.AZURE_SPEECH_KEY, azureRegion: process.env.AZURE_SPEECH_REGION, groqKey: process.env.GROQ_API_KEY });
 
 async function tg(method, payload) {

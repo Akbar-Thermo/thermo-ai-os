@@ -15,8 +15,8 @@ const SECRET = TOKEN ? createHash("sha256").update("thermo-tg:" + TOKEN).digest(
 const URL_ = env("TG_DB_URL") || env("SUPABASE_URL");
 const ANON = env("TG_DB_KEY") || env("SUPABASE_ANON_KEY");
 const LOGIN = env("TG_BOT_LOGIN"), PASS = Deno.env.get("TG_BOT_PASSWORD") || "";
-// ИИ (Claude): ключ — общий секрет функций проекта ANTHROPIC_API_KEY; модель — TG_AI_MODEL или Claude Haiku 5.5
-const AI = makeAI({ key: env("ANTHROPIC_API_KEY"), model: env("TG_AI_MODEL") });
+// ИИ (Claude): ключ — общий секрет функций проекта ANTHROPIC_API_KEY; модель — только Claude Haiku 5.5
+const AI = makeAI({ key: env("ANTHROPIC_API_KEY"), model: "claude-haiku-5-5" }); // только Haiku 5.5
 // голос: Azure Speech (узбекский — распознавание и ответ голосом) или Groq (только распознавание)
 const VOICE = makeVoice({ azureKey: env("AZURE_SPEECH_KEY"), azureRegion: env("AZURE_SPEECH_REGION"), groqKey: env("GROQ_API_KEY") });
 

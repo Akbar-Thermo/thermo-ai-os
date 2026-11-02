@@ -1,14 +1,13 @@
 // Thermo smeta — отдельный Telegram-бот смет (функция Supabase «smeta»). Тот же код, что у бота «tg» (api/_lib),
 // в режиме smeta: только личный чат; текст / фото / PDF / голос → смета по базе «Товары» + Excel для импорта.
-// Секреты функций (руководитель ставит сам): SMETA_BOT_TOKEN — токен бота от @BotFather; GEMINI_API_KEY — бесплатный
-// Google Gemini для чтения списков (без него — Claude: ANTHROPIC_API_KEY); аккаунт программы и база — те же, что у «tg».
+// Секреты функций (руководитель ставит сам): SMETA_BOT_TOKEN — токен бота от @BotFather. ИИ — только Claude Haiku 5.5
+// (ANTHROPIC_API_KEY, общий лимит расходов); аккаунт программы и база — те же, что у «tg».
 // Подключение: один раз открыть в браузере https://<проект>.supabase.co/functions/v1/smeta?setup=1
 import { createHash } from "node:crypto";
 import { makeRest } from "../tg/_lib/rest.mjs";
 import { makeBot } from "../tg/_lib/bot.mjs";
 import { makeAI } from "../tg/_lib/ai.mjs";
 import { makeVoice } from "../tg/_lib/voice.mjs";
-import { makeGemini } from "../tg/_lib/gemini.mjs";
 
 const env = (k) => (Deno.env.get(k) || "").trim();
 const TOKEN = env("SMETA_BOT_TOKEN").replace(/\s+/g, "").replace(/^["'`]+|["'`]+$/g, "").replace(/^bot(?=\d)/i, "");
@@ -16,8 +15,7 @@ const SECRET = TOKEN ? createHash("sha256").update("thermo-smeta:" + TOKEN).dige
 const URL_ = env("TG_DB_URL") || env("SUPABASE_URL");
 const ANON = env("TG_DB_KEY") || env("SUPABASE_ANON_KEY");
 const LOGIN = env("TG_BOT_LOGIN"), PASS = Deno.env.get("TG_BOT_PASSWORD") || "";
-const AI = makeAI({ key: env("ANTHROPIC_API_KEY"), model: env("TG_AI_MODEL") });
-const GEM = makeGemini({ key: env("GEMINI_API_KEY"), model: env("GEMINI_MODEL") });
+const AI = makeAI({ key: env("ANTHROPIC_API_KEY"), model: "claude-haiku-5-5" }); // только Haiku 5.5
 const VOICE = makeVoice({ azureKey: env("AZURE_SPEECH_KEY"), azureRegion: env("AZURE_SPEECH_REGION"), groqKey: env("GROQ_API_KEY") });
 
 async function tg(method, payload) {
@@ -44,12 +42,12 @@ async function download(fileId) {
   return { bytes: new Uint8Array(await r.arrayBuffer()), path: f.file_path };
 }
 let bot = null;
-const getBot = () => bot || (bot = makeBot({ db: makeRest({ url: URL_, anon: ANON, login: LOGIN, password: PASS }), tg, upload, ai: AI, file: download, voice: VOICE, memKey: TOKEN, reader: GEM, smeta: true }));
+const getBot = () => bot || (bot = makeBot({ db: makeRest({ url: URL_, anon: ANON, login: LOGIN, password: PASS }), tg, upload, ai: AI, file: download, voice: VOICE, memKey: TOKEN, smeta: true }));
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
-    const st = { ok: true, bot: !!TOKEN, db: !!(URL_ && ANON), account: !!(LOGIN && PASS), gemini: !!GEM, claude: !!AI, voice: !!VOICE };
+    const st = { ok: true, bot: !!TOKEN, db: !!(URL_ && ANON), account: !!(LOGIN && PASS), model: AI ? AI.model : false, voice: !!VOICE };
     // ?setup=1 — подключить вебхук этого бота к этой функции (токен не показывается)
     if (TOKEN && new URL(req.url).searchParams.get("setup") === "1") {
       const base = env("SUPABASE_URL");
