@@ -647,7 +647,7 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 @media(min-width:821px){.te.fine .npanel-head{cursor:move;user-select:none}}
 .npanel-bg.free{background:none;backdrop-filter:none;pointer-events:none}
 .npanel{position:relative}
-.modal-bg,.modal-bg *,.npanel,.npanel *,.nwin,.nwin *,.calc,.calc *,.sup-pop,.sup-pop *,.brand-fly,.brand-fly *{overscroll-behavior:contain}
+.modal-bg,.npanel,.nwin,.calc,.sup-pop,.brand-fly{overscroll-behavior:contain}
 .tg-h{font-size:var(--fs-xs);font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 2px}
 .fw-grip{position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:nwse-resize;z-index:2;border-radius:0 0 var(--r-xl) 0;background:linear-gradient(135deg,transparent 50%,var(--line2) 50%,var(--line2) 58%,transparent 58%,transparent 70%,var(--line2) 70%,var(--line2) 78%,transparent 78%);opacity:.8}
 .fw-grip:hover{opacity:1}
