@@ -4,6 +4,7 @@
 // Группы разрешает руководитель в программе (Аккаунты → Telegram-бот); бот сам записывает группы, куда его добавили.
 import * as C from "./core.mjs";
 import { createHash } from "node:crypto";
+import { VOICES, DEF_VOICE } from "./voice.mjs";
 
 export const CFG_MODE = "te_tg";        // разрешённые группы — меняет руководитель (lines.allowed = [{ id, title }])
 export const PEND_MODE = "te_tgpend";   // группы, куда добавили бота, — пишет бот (lines.groups = [{ id, title, at }])
@@ -12,6 +13,9 @@ export const USERS_MODE = "te_tgusers"; // кто чей: lines.links = { <teleg
 export const REMIND_MODE = "te_tgremind"; // напоминания «/eslat»: lines = { tg, user_id, at, text } (пишет бот)
 export const RATE_MODE = "te_rate";       // курс для бота «/kurs 12 650»: lines = { rate, at, by }
 export const LOG_MODE = "te_tg";        // скрытая запись журнала: entity «tg:<группа>:<сообщение>», detail — id операции
+export const MEM_MODE = "te_tgmem";     // память диалога с ИИ (зашифрована ключом бота): lines = { tg, user_id, at, enc, voice }
+export const AIU_MODE = "te_tgai";      // расход ИИ за месяц: lines = { month, usd, claude, speech, calls, sec, chars, users, prev }
+export const ACT_MODE = "te_tgact";     // действие, предложенное ботом, ждёт «✅»: lines = { tg, user_id, kind, data, exp }
 
 // ---------- дата и числа ----------
 export const tzDate = (d = new Date()) => d.toLocaleDateString("sv-SE", { timeZone: "Asia/Tashkent" });
@@ -144,6 +148,10 @@ const CMDS = {
   hafta: ["hafta", "ҳафта", "хафта", "неделя", "week"],
   oy: ["oy", "ой", "месяц", "month"],
   kurs: ["kurs", "курс", "rate"],
+  smeta: ["smeta", "смета", "estimate"],
+  nakladnoy: ["nakladnoy", "nakladnaya", "накладная", "накладной", "nakladnoi"],
+  yangi: ["yangi", "янги", "new", "reset", "новый"],
+  ovoz: ["ovoz", "овоз", "voice", "голос"],
   yordam: ["yordam", "ёрдам", "help", "помощь", "start", "buyruqlar"],
   id: ["id"],
 };
@@ -205,8 +213,14 @@ export const HELP = [
   "• /dostavka — yetkazishlar, «✅ Yetkazildi» · /narx <i>tovar</i> — narxlar · /sklad <i>tovar</i> — ombor",
   "• /q <i>so'z</i> — hamma joydan qidirish · /hafta, /oy — davr hisoboti · /kurs — kurs (<code>/kurs 12 650</code>)",
   "• /eslat <code>15:00 matn</code> — eslatma (<code>ertaga 10:00 …</code>, <code>30 daqiqa …</code>, <code>05.11 9:00 …</code>)",
-  "• «/» siz oddiy so'z bilan savol bering (AI): <i>Gulnoraning qarzi qancha?</i>, <i>bugun kassada qancha pul bor?</i>",
-  "  savol bo'lmasa — «Заметки»ga zametka bo'lib tushadi; <i>ertaga 10 da Akmalga qo'ng'iroq qilishni eslat</i> — eslatma",
+  "• /smeta — ro'yxatdan smeta + Excel (matn, rasm yoki PDF; rasm ostiga <code>/smeta</code> deb yozing)",
+  "• /nakladnoy — nakladnoy rasmini o'qib, obyektga yoki Sklad Thermo'ga qo'shish (rasm ostiga <code>/nakladnoy</code>)",
+  "",
+  "<b>AI</b> — «/» siz oddiy so'z yoki 🎙 ovozli xabar bilan:",
+  "• <i>Gulnoraning qarzi qancha?</i> · <i>Nega bu oy foyda kam?</i> · <i>PPR 20 truba qaysi postavshikda arzon?</i>",
+  "• <i>Akmalga 500$ naqd to'lov qo'sh</i> · <i>Sergeli obyekti yetkazildi</i> — bot kartochka ko'rsatadi, ✅ bosilmaguncha hech narsa yozilmaydi",
+  "• <i>Gulnoraga qarz haqida ruscha xabar yoz</i> · <i>ertaga 10 da Akmalga qo'ng'iroq qilishni eslat</i>",
+  "• savol bo'lmasa — «Заметки»ga zametka bo'lib tushadi · /yangi — suhbatni yangidan boshlash · /ovoz — javoblar ovoz bilan",
 ].join("\n");
 
 // меню команд (подсказки после «/»): только в личном чате с ботом; в группах меню нет
@@ -224,15 +238,19 @@ export const MENU = [
   { command: "oy", description: "Shu oy: kirim-chiqim" },
   { command: "kurs", description: "Kurs (/kurs 12 650 — yangisi)" },
   { command: "eslat", description: "Eslatma (/eslat 15:00 matn)" },
+  { command: "smeta", description: "Ro'yxatdan smeta + Excel" },
+  { command: "nakladnoy", description: "Nakladnoy rasmidan kirim" },
+  { command: "yangi", description: "Suhbatni yangidan boshlash" },
+  { command: "ovoz", description: "Javoblar ovoz bilan: yoqish / o'chirish" },
   { command: "yordam", description: "Qanday ishlatish" },
 ];
 // какой раздел программы нужен для вопроса (как вкладки в программе)
-export const NEED = { kassa: "finance", bugun: "finance", hafta: "finance", oy: "finance", kurs: "finance", qarz: "objects", postavshik: "suppliers", obyekt: "objects", narx: "products", sklad: "wh", dostavka: "delivery" };
+export const NEED = { kassa: "finance", bugun: "finance", hafta: "finance", oy: "finance", kurs: "finance", qarz: "objects", postavshik: "suppliers", obyekt: "objects", narx: "products", sklad: "wh", dostavka: "delivery", smeta: "products" };
 export const canAsk = (acc, name) => !NEED[name] || !!acc && (acc.base === "boss" || (acc.tabs || []).includes(NEED[name]));
 export const isFull = (acc) => !!acc && (acc.base === "boss" || C.PERMS.every((p) => acc.perms && acc.perms[p.id]));
 // кнопки с вопросами внизу личного чата — только те, что человеку открыты
 export function qkb(acc) {
-  const b = ["kassa", "bugun", "qarz", "postavshik", "obyekt", "dostavka", "narx", "sklad", "q"].filter((n) => canAsk(acc, n)).concat("yordam").map((n) => ({ text: "/" + n }));
+  const b = ["kassa", "bugun", "qarz", "postavshik", "obyekt", "dostavka", "narx", "sklad", "smeta", "q"].filter((n) => canAsk(acc, n)).concat("yordam").map((n) => ({ text: "/" + n }));
   const rows = []; for (let i = 0; i < b.length; i += 2) rows.push(b.slice(i, i + 2));
   return { keyboard: rows, resize_keyboard: true, is_persistent: true };
 }
@@ -247,9 +265,16 @@ export function noteSplit(t) {
 // расписание отчётов (Аккаунты → Telegram-бот): ежедневный — касса и кирим-чиқим; в последний день месяца — долги
 const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
 export function repCfg(lines) {
-  const r = (lines && lines.report) || {}, d = r.daily || {}, b = r.debts || {};
-  return { daily: { on: d.on !== false, time: HM.test(d.time || "") ? d.time : "21:30" }, debts: { on: b.on !== false, time: HM.test(b.time || "") ? b.time : "10:00", days: Number(b.days) > 0 ? Number(b.days) : 14 }, to: Array.isArray(r.to) ? r.to.map(String) : null };
+  const r = (lines && lines.report) || {}, d = r.daily || {}, b = r.debts || {}, k = r.risk || {};
+  return { daily: { on: d.on !== false, time: HM.test(d.time || "") ? d.time : "21:30", ai: d.ai !== false }, debts: { on: b.on !== false, time: HM.test(b.time || "") ? b.time : "10:00", days: Number(b.days) > 0 ? Number(b.days) : 14 },
+    risk: { on: k.on !== false, dow: Number(k.dow) >= 0 && Number(k.dow) <= 6 ? Number(k.dow) : 1, time: HM.test(k.time || "") ? k.time : "09:00" }, to: Array.isArray(r.to) ? r.to.map(String) : null };
 }
+// ИИ (Аккаунты → Telegram-бот): лимит расходов в месяц ($), голос ответа, когда отвечать голосом
+export function aiCfg(lines) {
+  const a = (lines && lines.ai) || {}, lim = Number(a.limit);
+  return { limit: a.limit == null || a.limit === "" || !(lim >= 0) ? 5 : lim, voice: VOICES[a.voice] ? a.voice : DEF_VOICE, speak: a.speak === "never" ? "never" : "voice" };
+}
+export const dowOf = (iso) => new Date(iso + "T12:00:00Z").getUTCDay();
 export const tzTime = (d = new Date()) => d.toLocaleTimeString("sv-SE", { timeZone: "Asia/Tashkent", hour: "2-digit", minute: "2-digit" });
 const mins = (hm) => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3, 5));
 export const isDue = (hm, t) => mins(hm) >= mins(t) && mins(hm) - mins(t) < 120; // окно 2 часа: опоздавший запуск всё же отправит
@@ -273,6 +298,16 @@ export function parseRemind(arg, nowD = new Date()) {
   if (at.getTime() <= nowD.getTime() && day === today && !/^(bugun|бугун|сегодня)/i.test(String(arg).trim())) at = new Date(at.getTime() + 864e5); // время прошло — завтра
   return at.getTime() > nowD.getTime() ? { at, text: m[3].trim() } : null;
 }
+// base64 (память диалога, фото и PDF для ИИ) — работает и в Node, и в Deno
+export const b64 = (u8) => { let s = ""; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+export const unb64 = (s) => Uint8Array.from(atob(String(s)), (c) => c.charCodeAt(0));
+// список без ИИ: «truba PPR 20 — 50 m», «kran 1/2 10 ta» → { name, qty, unit }
+export function parseList(text) {
+  return String(text || "").split(/\n|;/).map((l) => l.replace(/^\s*(\d+[.)]|[-•*])\s+/, "").trim()).filter(Boolean).map((l) => {
+    const m = /^(.*?)[\s—–:-]+(\d+(?:[.,]\d+)?)\s*(ta|та|шт|dona|дона|m|м|metr|метр|kg|кг|pcs)?\.?\s*$/i.exec(l);
+    return m && m[1].trim() ? { name: m[1].replace(/[\s—–:-]+$/, "").trim(), qty: toNum(m[2]), unit: (m[3] || "").toLowerCase() } : { name: l, qty: 1, unit: "" };
+  });
+}
 export const isLastDay = (iso) => addDays(iso, 1).slice(5, 7) !== iso.slice(5, 7);
 export const PROMPTS = [
   { name: "obyekt", mark: "🔍 Obyekt qidirish", hint: "nomi, mijoz yoki telefonni yozing", ph: "masalan: Yunusobod" },
@@ -280,6 +315,7 @@ export const PROMPTS = [
   { name: "sklad", mark: "📦 Sklad qidirish", hint: "tovar nomini yozing", ph: "masalan: truba 25" },
   { name: "q", mark: "🔍 Qidirish", hint: "obyekt, mijoz, tovar yoki postavshik", ph: "masalan: Gulnora" },
 ];
+export const SMETA_MARK = "📋 Smeta:", NAK_MARK = "🧾 Nakladnoy:", OBJ_PICK_MARK = "🏠 Obyektni tanlang";
 export const linkHash = (token) => createHash("sha256").update("tglink:" + token, "utf8").digest("hex");
 export async function setupMenu(tg) {
   for (const scope of [{ type: "default" }, { type: "all_group_chats" }, { type: "all_chat_administrators" }]) await tg("deleteMyCommands", { scope });
@@ -287,9 +323,11 @@ export async function setupMenu(tg) {
 }
 
 // ---------- бот ----------
-// upload(method, params, { name, bytes, mime }) — отправка файла в Telegram (Excel клиенту)
+// upload(method, params, { name, bytes, mime, field }) — отправка файла в Telegram (Excel клиенту, голосовое)
+// file(file_id) → { bytes, path } — скачать файл из Telegram (голосовое, фото накладной, PDF)
 // ai — makeAI (ai.mjs): свободные вопросы в личном чате и разбор «/…» без суммы цифрами; нет ключа — null
-export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = null }) {
+// voice — makeVoice (voice.mjs): распознавание голосовых и ответ голосом; memKey — ключ шифрования памяти диалога
+export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = null, file = null, voice = null, memKey = "" }) {
   const nameOf = (u) => (u ? [u.first_name, u.last_name].filter(Boolean).join(" ") || (u.username ? "@" + u.username : "") : "") || "—";
   const send = (chat, text, extra = {}) => tg("sendMessage", { chat_id: chat, text, parse_mode: "HTML", disable_web_page_preview: true, ...extra });
   async function cfg() {
@@ -404,6 +442,16 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
 
   async function onMessage(msg) {
     const chat = msg.chat || {};
+    // личный чат: голосовые — распознаём; фото / PDF — только с подписью «/smeta», «/nakladnoy» (или ответом на вопрос бота)
+    if (chat.type === "private" && !(msg.from && msg.from.is_bot)) {
+      if (msg.voice || msg.audio || msg.video_note) { const me = await whoAmI(msg.from && msg.from.id); return me ? onVoice(msg, me) : send(chat.id, LOCKED); }
+      if (msg.photo || msg.document) {
+        const kind = mediaKind(msg);
+        if (!kind) return;
+        const me = await whoAmI(msg.from && msg.from.id);
+        return me ? onDoc(msg, me, kind) : send(chat.id, LOCKED);
+      }
+    }
     // фото, файлы, видео, голосовые — бот не читает и не отвечает (даже если есть подпись)
     if (msg.photo || msg.document || msg.video || msg.animation || msg.voice || msg.audio || msg.video_note || msg.sticker) return;
     const text = String(msg.text || "").trim();
@@ -419,21 +467,13 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       const me = await whoAmI(msg.from && msg.from.id);
       if (!me) return text ? send(chat.id, LOCKED) : undefined;
       if (!text) return;
-      if (!text.startsWith("/")) {
-        // ответ на вопрос бота «🔍 … qidirish» — поиск; остальное — заметка
-        const rq = msg.reply_to_message, fromBot = rq && rq.from && rq.from.is_bot;
-        if (fromBot && String(rq.text || "").startsWith("💳 To'lov qo'shish")) return payReply(msg, rq, me);
-        const pr = fromBot ? PROMPTS.find((x) => String(rq.text || "").startsWith(x.mark)) : null;
-        if (pr) return runCommand(chat.id, msg, { name: pr.name, arg: text }, me);
-        // ИИ: вопрос обычными словами — ответ по данным программы (по правам), иначе заметка / напоминание
-        if (ai) return aiAnswer(msg, me);
-        return saveNote(msg, me);
-      }
-      if (!cmd) return send(chat.id, money ? "Rasxod / prixod ishchi guruhda yoziladi: <code>/taksi 50 000</code>" : "Savolni tanlang 👇", { reply_markup: qkb(me.acc) });
+      if (!text.startsWith("/")) return handleText(msg, me);
+      const pc = parseCommand(text); // в личном чате «/smeta … 1 500» — команда, а не расход
+      if (!pc) return send(chat.id, money ? "Rasxod / prixod ishchi guruhda yoziladi: <code>/taksi 50 000</code>" : "Savolni tanlang 👇", { reply_markup: qkb(me.acc) });
       if (/^\/start\b/i.test(text)) return send(chat.id, "Savolni tanlang 👇", { reply_markup: qkb(me.acc) });
-      if (cmd.name === "yordam") return send(chat.id, HELP, { reply_markup: qkb(me.acc) });
-      if (!canAsk(me.acc, cmd.name)) return send(chat.id, "🔒 Bu bo'lim sizga ochilmagan.", { reply_markup: qkb(me.acc) });
-      return runCommand(chat.id, msg, cmd, me);
+      if (pc.name === "yordam") return send(chat.id, HELP, { reply_markup: qkb(me.acc) });
+      if (!canAsk(me.acc, pc.name)) return send(chat.id, "🔒 Bu bo'lim sizga ochilmagan.", { reply_markup: qkb(me.acc) });
+      return runCommand(chat.id, msg, pc, me);
     }
     if (chat.type !== "group" && chat.type !== "supergroup") return;
     if (msg.migrate_to_chat_id) return migrate(await cfg(), chat.id, msg.migrate_to_chat_id);
@@ -442,8 +482,10 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     let money2 = money;
     if (!cmd && !money2 && ai && text.startsWith("/") && hasWords(slashText(text)) && slashText(text).length > 3) {
       const cf0 = await cfg();
-      if (isAllowed(cf0, chat.id)) {
-        try { money2 = await aiMoney(text); } catch (e) { money2 = null; }
+      if (isAllowed(cf0, chat.id) && (await aiState()).ok) {
+        const m0 = meterNew();
+        try { money2 = await aiMoney(text, m0); } catch (e) { money2 = null; }
+        await spend(m0, null);
         if (money2) { try { await db.insert("audit_log", { action: LOG_MODE, entity: "tgai:" + chat.id + ":" + msg.message_id, detail: JSON.stringify(money2), user_name: "Telegram-бот", role: "telegram", ts: now().toISOString() }); } catch (e) { money2 = null; } }
       }
     }
@@ -699,6 +741,19 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       else if (cmd.name === "q") { if (!cmd.arg) return ask(chatId, PROMPTS.find((x) => x.name === "q")); const v = await search(cmd.arg, acc); return send(chatId, cut(v.text, 4000), { reply_to_message_id: msg.message_id, ...(v.reply_markup ? { reply_markup: v.reply_markup } : {}) }); }
       else if (cmd.name === "hafta" || cmd.name === "oy") text = await period(cmd.name, acc);
       else if (cmd.name === "kurs") text = await kurs(cmd.arg, me);
+      else if (cmd.name === "smeta") {
+        if (!cmd.arg) return send(chatId, SMETA_MARK + " ro'yxatni yuboring — matn, rasm yoki PDF.\nPostavshikni yozsangiz, o'shandan hisoblayman (masalan: <i>Water Pro dan</i>).", { reply_markup: { force_reply: true, input_field_placeholder: "truba PPR 20 — 50 m, kran 1/2 — 10 ta…" } });
+        return smetaFromText(msg, me, cmd.arg);
+      }
+      else if (cmd.name === "nakladnoy") {
+        if (!canNak(acc)) return send(chatId, "🔒 Bu bo'lim sizga ochilmagan.");
+        return send(chatId, NAK_MARK + " nakladnoy rasmini yoki PDF faylini shu xabarga javob qilib yuboring.", { reply_markup: { force_reply: true, input_field_placeholder: "rasm yoki PDF" } });
+      }
+      else if (cmd.name === "yangi") { await memClear(chatId); text = "🧹 Suhbat yangidan boshlandi — oldingi gaplar unutildi."; }
+      else if (cmd.name === "ovoz") {
+        if (!voice || !voice.tts) text = "🔇 Ovozli javob uchun ovoz xizmati ulanmagan.";
+        else { const on = await memVoice(chatId, me); text = on ? "🔊 Endi javoblar ovoz bilan ham keladi. O'chirish: /ovoz" : "🔇 Ovozli javob o'chirildi — faqat ovozli xabaringizga ovoz bilan javob beraman. Yoqish: /ovoz"; }
+      }
       else if (cmd.name === "narx" || cmd.name === "sklad") {
         if (!cmd.arg) return ask(chatId, PROMPTS.find((x) => x.name === cmd.name));
         text = cmd.name === "narx" ? await prices(cmd.arg, acc) : await stock(cmd.arg);
@@ -882,12 +937,94 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   // ---------- ИИ ----------
   const untag = (t) => String(t || "").replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
   const WEEK_UZ = ["yakshanba", "dushanba", "seshanba", "chorshanba", "payshanba", "juma", "shanba"];
+  const fin$ = (acc) => !!acc && (acc.base === "boss" || !!(acc.perms && acc.perms.fin));
+  const canNak = (acc) => (canAsk(acc, "obyekt") && money$(acc)) || canAsk(acc, "sklad");
+  const r4 = (x) => Math.round((Number(x) || 0) * 1e4) / 1e4;
+  const typing = (chatId, action = "typing") => tg("sendChatAction", { chat_id: chatId, action }).catch(() => {});
+
+  // ---- лимит расходов ИИ в месяц (Аккаунты → Telegram-бот) ----
+  async function aiState() {
+    let rows = [];
+    try { rows = await db.select("requests", "mode=in.(" + CFG_MODE + "," + AIU_MODE + ")&select=id,mode,lines"); } catch (e) { rows = []; }
+    const c = rows.find((r) => r.mode === CFG_MODE), u = rows.find((r) => r.mode === AIU_MODE);
+    const cf = aiCfg(c && c.lines), month = tzDate(now()).slice(0, 7);
+    const spent = u && u.lines && u.lines.month === month ? Number(u.lines.usd) || 0 : 0;
+    return { cfg: cf, spent, ok: spent < cf.limit };
+  }
+  const meterNew = () => { const m = { claude: 0, speech: 0, calls: 0, sec: 0, chars: 0 }; m.fn = (c) => { m.claude += c; m.calls++; }; return m; };
+  async function spend(m, me) {
+    const cl = m.claude, sp = m.speech, calls = m.calls, sec = m.sec, chars = m.chars, add = r4(cl + sp);
+    if (!(add > 0)) return;
+    m.claude = 0; m.speech = 0; m.calls = 0; m.sec = 0; m.chars = 0; // один счётчик не записывается дважды
+    try {
+      const month = tzDate(now()).slice(0, 7);
+      const u = (await db.select("requests", "mode=eq." + AIU_MODE + "&select=id,lines&limit=1"))[0];
+      const old = u && u.lines && typeof u.lines === "object" && !Array.isArray(u.lines) ? u.lines : {};
+      const prev = old.month && old.month !== month ? Object.fromEntries(Object.entries({ ...(old.prev || {}), [old.month]: r4(old.usd) }).slice(-6)) : old.prev || {};
+      const cur = old.month === month ? old : { month, usd: 0, claude: 0, speech: 0, calls: 0, sec: 0, chars: 0, users: {}, prev };
+      const users = { ...(cur.users || {}) };
+      if (me && me.user) users[me.user.id] = r4((users[me.user.id] || 0) + add);
+      const lines = { ...cur, usd: r4((cur.usd || 0) + add), claude: r4((cur.claude || 0) + cl), speech: r4((cur.speech || 0) + sp), calls: (cur.calls || 0) + calls, sec: Math.round((cur.sec || 0) + sec), chars: (cur.chars || 0) + chars, users, at: now().toISOString() };
+      if (u) await db.update("requests", "id=eq." + u.id, { lines }); else await db.insert("requests", { mode: AIU_MODE, source: "config", lines });
+    } catch (e) { console.error("tg ai usage:", e && e.message); }
+  }
+  const LIMIT_MSG = (st) => "⚠️ AI'ning oylik limiti tugadi (" + usd(st.cfg.limit) + ") — rahbar dasturda oshirishi mumkin: <b>Аккаунты → Telegram-бот</b>. Buyruqlar ishlayveradi — /yordam";
+
+  // ---- память диалога: последние 12 реплик за 6 часов; в базе хранится только зашифрованной ----
+  const MEM_TTL = 6 * 3600e3, MEM_N = 12;
+  let memK = null;
+  const memKeyP = () => memK || (memK = memKey ? crypto.subtle.digest("SHA-256", new TextEncoder().encode("thermo-mem:" + memKey)).then((h) => crypto.subtle.importKey("raw", h, "AES-GCM", false, ["encrypt", "decrypt"])) : Promise.resolve(null));
+  async function seal(obj) {
+    const k = await memKeyP(); if (!k) return null;
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, k, new TextEncoder().encode(JSON.stringify(obj))));
+    const out = new Uint8Array(12 + ct.length); out.set(iv); out.set(ct, 12);
+    return b64(out);
+  }
+  async function unseal(s) {
+    try {
+      const k = await memKeyP(); if (!k || !s) return null;
+      const u = unb64(s);
+      return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: u.subarray(0, 12) }, k, u.subarray(12))));
+    } catch (e) { return null; }
+  }
+  async function memRow(chatId) { const rows = await db.select("requests", "mode=eq." + MEM_MODE + "&select=id,lines"); return rows.find((r) => r.lines && String(r.lines.tg) === String(chatId)) || null; }
+  async function memLoad(chatId, me) {
+    try {
+      const row = await memRow(chatId);
+      if (!row) return { row: null, turns: [], voice: false };
+      const mine = row.lines.user_id === me.user.id;
+      const d = mine && now().getTime() - Date.parse(row.lines.at || 0) < MEM_TTL ? await unseal(row.lines.enc) : null;
+      return { row, turns: d && Array.isArray(d.t) ? d.t : [], voice: mine && !!row.lines.voice };
+    } catch (e) { return { row: null, turns: [], voice: false }; }
+  }
+  async function memSave(chatId, me, mem, turn) {
+    try {
+      const enc = await seal({ t: [...mem.turns, turn].slice(-MEM_N) });
+      if (!enc) return;
+      const lines = { tg: String(chatId), user_id: me.user.id, at: now().toISOString(), enc, voice: !!mem.voice };
+      if (mem.row) await db.update("requests", "id=eq." + mem.row.id, { lines }); else await db.insert("requests", { mode: MEM_MODE, source: "config", lines });
+    } catch (e) { console.error("tg mem:", e && e.message); }
+  }
+  async function memClear(chatId) {
+    const row = await memRow(chatId); if (!row) return;
+    if (row.lines.voice) await db.update("requests", "id=eq." + row.id, { lines: { ...row.lines, enc: "" } }); else await db.del("requests", "id=eq." + row.id);
+  }
+  async function memVoice(chatId, me) {
+    const row = await memRow(chatId);
+    const mine = !!row && row.lines.user_id === me.user.id;
+    const on = !(mine && row.lines.voice);
+    const lines = { ...(row ? row.lines : {}), tg: String(chatId), user_id: me.user.id, voice: on, ...(mine ? {} : { enc: "", at: now().toISOString() }) };
+    if (row) await db.update("requests", "id=eq." + row.id, { lines }); else await db.insert("requests", { mode: MEM_MODE, source: "config", lines });
+    return on;
+  }
+
   // «/taksiga ellik ming berdim» — сумма словами: ИИ достаёт сумму, валюту, приход/расход, статью
-  async function aiMoney(text) {
+  async function aiMoney(text, m) {
     const j = await ai.json({ system: ["Extract one money operation from a short message of a company's expense chat in Uzbekistan (Uzbek Latin/Cyrillic or Russian).",
       "Reply with JSON only: {\"ok\":true,\"amount\":number,\"currency\":\"uzs\"|\"usd\",\"direction\":\"out\"|\"in\",\"category\":\"<exact name from a list>\",\"method\":\"cash\"|\"card\"|\"transfer\"} or {\"ok\":false} when there is no clear amount of money.",
       "Words: ming/минг/тысяча = 1000, mln/million/миллион = 1 000 000, yarim = 0.5, so'm/сум = UZS, $/dollar = USD; a number ≥ 1000 without currency is UZS. direction in only for money received (prixod, kirim, tushdi, keldi, qarz qaytardi).",
-      "Expense categories: " + expCats().join(" | "), "Income categories: " + incCats().join(" | ")].join("\n"), text: slashText(text) });
+      "Expense categories: " + expCats().join(" | "), "Income categories: " + incCats().join(" | ")].join("\n"), text: slashText(text), meter: m && m.fn });
     if (!j || !j.ok || !(Number(j.amount) > 0)) return null;
     const dir = j.direction === "in" ? "i" : "e", list = dir === "i" ? incCats() : expCats();
     let c = list.indexOf(String(j.category || "")); if (c < 0) c = guessCat(text, dir);
@@ -897,29 +1034,43 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const T = [];
     const add = (need, name, description, props = {}, required = []) => { if (!need || canAsk(acc, need)) T.push({ name, description, input_schema: { type: "object", properties: props, required } }); };
     const dayP = { day: { type: "string", description: "YYYY-MM-DD (bo'sh — bugun)" } };
+    const S = { type: "string" };
     add("kassa", "kassa", "Kassa hisoboti (naqd so'm, $, karta): ostatka, kirim, chiqim, yakun — bir kun uchun.", dayP);
     add("bugun", "day_flow", "Bir kundagi barcha kirim-chiqim operatsiyalari ro'yxati.", dayP);
     add("hafta", "period", "Shu hafta yoki shu oy: kirim, chiqim, rasxodlar turlari bo'yicha, sof natija.", { kind: { type: "string", enum: ["week", "month"] } }, ["kind"]);
+    add("hafta", "compare_months", "Oxirgi oylarni solishtirish: kirim (mijozlar, kompaniya), chiqim turlari, kompaniya rasxodlari kategoriyalar bo'yicha, sof oqim" + (fin$(acc) ? ", shu oyda ochilgan obyektlar foydasi" : "") + ". «Nega bu oy foyda/kirim kam?» kabi savollar uchun.", { months: { type: "integer", description: "2–12, odatda 3" } });
+    add("hafta", "top_expenses", "Davr ichidagi eng katta chiqimlar (kompaniya rasxodlari, postavshiklarga, obyekt rasxodlari, bonuslar) va kompaniya rasxodlari kategoriyalar bo'yicha.", { from: { type: "string", description: "YYYY-MM-DD (bo'sh — oy boshi)" }, to: { type: "string", description: "YYYY-MM-DD (bo'sh — bugun)" }, limit: { type: "integer" } });
     add("kurs", "rate", "Joriy dollar kursi (so'm).");
-    add("qarz", "client_debts", "Mijozlar qarzi (obyektlar bo'yicha). query — obyekt/mijoz nomi bo'yicha filtr.", { query: { type: "string" } });
-    add("postavshik", "supplier_debts", "Postavshiklarga qarzlar. query — postavshik nomi.", { query: { type: "string" } });
-    add("obyekt", "find_objects", "Obyektlarni qidirish (nomi, mijoz, telefon, usta, manzil). Natija: id, nomi, mijoz, holati, qarz.", { query: { type: "string" } }, ["query"]);
-    add("obyekt", "object_details", "Bitta obyekt: summary — holati va summalar; payments — to'lovlar; materials — postavkalar va tovarlar.", { id: { type: "string" }, part: { type: "string", enum: ["summary", "payments", "materials"] } }, ["id"]);
-    add("narx", "product_prices", "Tovar narxlari postavshiklar bo'yicha (arzonidan), skladdagi soni bilan.", { query: { type: "string" } }, ["query"]);
-    add("sklad", "warehouse_stock", "Sklad Thermo'da bor tovarlar va qoldiq.", { query: { type: "string" } }, ["query"]);
+    add("qarz", "client_debts", "Mijozlar qarzi (obyektlar bo'yicha). query — obyekt/mijoz nomi bo'yicha filtr.", { query: S });
+    add("postavshik", "supplier_debts", "Postavshiklarga qarzlar. query — postavshik nomi.", { query: S });
+    add("obyekt", "find_objects", "Obyektlarni qidirish (nomi, mijoz, telefon, usta, manzil). Natija: id, nomi, mijoz, holati, qarz.", { query: S }, ["query"]);
+    add("obyekt", "object_details", "Bitta obyekt: summary — holati va summalar; payments — to'lovlar; materials — postavkalar va tovarlar.", { id: S, part: { type: "string", enum: ["summary", "payments", "materials"] } }, ["id"]);
+    if (fin$(acc)) add("obyekt", "object_profit", "Obyektlar foydasi: sotuv, tannarx, foyda, marja %, qarz. sort: margin — eng past marja; profit — eng kam foyda; debt — eng katta qarz.", { sort: { type: "string", enum: ["margin", "profit", "debt"] }, limit: { type: "integer" }, all: { type: "boolean", description: "yopilgan obyektlar ham" } });
+    if (money$(acc)) add("obyekt", "client_facts", "Mijozga xabar yozish uchun faktlar: obyekt, mijoz, jami, to'langan, qarz ($ va so'mda), oxirgi to'lov sanasi.", { id: S }, ["id"]);
+    if (money$(acc)) add("obyekt", "propose_client_payment", "Mijoz to'lovini kiritish: foydalanuvchiga tasdiqlash kartochkasi yuboriladi, ✅ bosilgandan keyin dasturga yoziladi.", { object_id: S, amount: { type: "number" }, currency: { type: "string", enum: ["usd", "uzs"] }, method: { type: "string", enum: ["cash", "card", "transfer"] }, rate: { type: "number", description: "so'm kursi (agar aytilgan bo'lsa)" } }, ["object_id", "amount", "currency"]);
+    add("narx", "product_prices", "Tovar narxlari postavshiklar bo'yicha (arzonidan), skladdagi soni bilan.", { query: S }, ["query"]);
+    add("narx", "compare_prices", "Narxlarni solishtirish (40 tagacha tovar): nomi, brend, o'lcham, postavshik, narx, skladda. analogs=true — shu tovarning boshqa postavshiklardagi o'xshashlari.", { query: S, analogs: { type: "boolean" } }, ["query"]);
+    add("sklad", "warehouse_stock", "Sklad Thermo'da bor tovarlar va qoldiq.", { query: S }, ["query"]);
     add("dostavka", "deliveries", "Yetkazilmagan tovarlari bor obyektlar va ular.");
-    add(null, "save_note", "Foydalanuvchining eslab qolinadigan gapini dasturdagi «Заметки»ga saqlash (savol bo'lmasa).", { title: { type: "string" }, text: { type: "string" } }, ["text"]);
-    add(null, "set_reminder", "Belgilangan vaqtda Telegram'da eslatma yuborish.", { at: { type: "string", description: "ISO vaqt, Toshkent: 2026-11-02T15:00:00+05:00" }, text: { type: "string" } }, ["at", "text"]);
+    add("dostavka", "propose_delivered", "Obyekt tovarlarini «yetkazildi» deb belgilash: tasdiqlash kartochkasi yuboriladi. batch_no — postavka raqami (bo'sh — hammasi).", { object_id: S, batch_no: { type: "integer" } }, ["object_id"]);
+    add("smeta", "make_estimate", "Tovarlar ro'yxatidan smeta: bazadagi tovarlarga moslab narx va jami summa; dasturga import qilinadigan Excel ham yuboriladi. suppliers — qaysi postavshik(lar)dan, foydalanuvchi aytgan tartibda (ixtiyoriy).", { items: { type: "array", items: { type: "object", properties: { name: S, qty: { type: "number" }, unit: S, code: S }, required: ["name"] } }, suppliers: S }, ["items"]);
+    add(null, "save_note", "Foydalanuvchining eslab qolinadigan gapini dasturdagi «Заметки»ga saqlash (savol bo'lmasa).", { title: S, text: S }, ["text"]);
+    add(null, "set_reminder", "Belgilangan vaqtda Telegram'da eslatma yuborish.", { at: { type: "string", description: "ISO vaqt, Toshkent: 2026-11-02T15:00:00+05:00" }, text: S }, ["at", "text"]);
     return T;
   }
-  async function aiRun(name, a, me, msg) {
+  const TOOL_NEED = { kassa: "kassa", day_flow: "bugun", period: "hafta", compare_months: "hafta", top_expenses: "hafta", rate: "kurs", client_debts: "qarz", supplier_debts: "postavshik", find_objects: "obyekt", object_details: "obyekt", object_profit: "obyekt", client_facts: "obyekt", propose_client_payment: "obyekt", product_prices: "narx", compare_prices: "narx", warehouse_stock: "sklad", deliveries: "dostavka", propose_delivered: "dostavka", make_estimate: "smeta" };
+  async function aiRun(name, a, me, msg, m) {
     const acc = me.acc, d0 = tzDate(now());
     const day = /^\d{4}-\d{2}-\d{2}$/.test(String(a.day || "")) ? a.day : d0;
-    const toolNeed = { kassa: "kassa", day_flow: "bugun", period: "hafta", rate: "kurs", client_debts: "qarz", supplier_debts: "postavshik", find_objects: "obyekt", object_details: "obyekt", product_prices: "narx", warehouse_stock: "sklad", deliveries: "dostavka" };
-    if (toolNeed[name] && !canAsk(acc, toolNeed[name])) return "Bu ma'lumot foydalanuvchiga ochilmagan.";
+    const NO = "Bu ma'lumot foydalanuvchiga ochilmagan.";
+    if (TOOL_NEED[name] && !canAsk(acc, TOOL_NEED[name])) return NO;
+    if (name === "object_profit" && !fin$(acc)) return NO;
+    if ((name === "client_facts" || name === "propose_client_payment") && !money$(acc)) return NO;
     if (name === "kassa") return untag(await kassa(day));
     if (name === "day_flow") return untag(await today(day));
     if (name === "period") return untag(await period(a.kind === "month" ? "oy" : "hafta", acc));
+    if (name === "compare_months") return compareMonths(Math.min(12, Math.max(2, Number(a.months) || 3)), acc);
+    if (name === "top_expenses") return topExpenses(a.from, a.to, Math.min(40, Math.max(5, Number(a.limit) || 15)), acc);
     if (name === "rate") { const r = await lastRate(); return r ? "Kurs: " + r + " so'm" : "Kurs topilmadi"; }
     if (name === "client_debts") { const r = await debts(a.query || ""); return untag(typeof r === "string" ? r : r.text); }
     if (name === "supplier_debts") return untag(await supDebts(a.query || ""));
@@ -936,13 +1087,19 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       const v = a.part === "payments" ? (money$(acc) ? objPays(o, data) : objCard(o, data, acc)) : a.part === "materials" ? objMats(o, acc) : objCard(o, data, acc);
       return untag(v.text);
     }
+    if (name === "object_profit") return objProfit(a.sort, Math.min(40, Math.max(5, Number(a.limit) || 15)), !!a.all);
+    if (name === "client_facts") return clientFacts(a.id);
+    if (name === "propose_client_payment") return proposePay(msg.chat.id, me, a);
     if (name === "product_prices") return untag(await prices(a.query || "", acc));
+    if (name === "compare_prices") return comparePrices(a.query || "", !!a.analogs, acc);
     if (name === "warehouse_stock") return untag(await stock(a.query || ""));
     if (name === "deliveries") {
       const data = await loadData(["objects", "masters", "suppliers"]);
       const list = data.objects.filter((o) => C.isLive(o) && o.status !== "closed" && pendingItems(o).length);
-      return list.length ? list.slice(0, 10).map((o) => untag(delivCard(o, data).text)).join("\n\n") : "Hammasi yetkazilgan.";
+      return list.length ? list.slice(0, 10).map((o) => "id " + o.id + "\n" + untag(delivCard(o, data).text)).join("\n\n") : "Hammasi yetkazilgan.";
     }
+    if (name === "propose_delivered") return proposeDeliv(msg.chat.id, me, a);
+    if (name === "make_estimate") return (await estimate(a.items, a.suppliers || "", me, msg.chat.id, m)).summary;
     if (name === "save_note") { await saveNote({ ...msg, text: [a.title, a.text].filter(Boolean).join("\n") }, me); return "Saqlandi (foydalanuvchiga tasdiq va tugmalar yuborildi)."; }
     if (name === "set_reminder") {
       const at = new Date(String(a.at || ""));
@@ -953,36 +1110,545 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     }
     return "Noma'lum funksiya.";
   }
-  async function aiAnswer(msg, me) {
+  // ---- данные для анализа ----
+  const opDay = (x) => String(x.op_date || x.created_at || "").slice(0, 10);
+  async function compareMonths(n, acc) {
+    const fin = fin$(acc), salary = acc.base === "boss" || !!(acc.perms && acc.perms.salary);
+    const data = await loadData(fin ? ["finance_ops", "objects"] : ["finance_ops"]);
+    const day = tzDate(now()), months = [];
+    let y = Number(day.slice(0, 4)), mo = Number(day.slice(5, 7));
+    for (let i = 0; i < n; i++) { months.unshift(y + "-" + String(mo).padStart(2, "0")); if (--mo === 0) { mo = 12; y--; } }
+    return months.map((mm) => {
+      const ops = data.finance_ops.filter((x) => !x.voided && opDay(x).slice(0, 7) === mm);
+      const s = (f) => C.round2(ops.filter(f).reduce((a, x) => a + (Number(x.amount) || 0), 0));
+      const cats = new Map();
+      ops.filter((x) => x.type === "company_expense").forEach((x) => { const c = !salary && x.category === C.SALARY_CAT ? "Boshqa" : x.category || "Прочее"; cats.set(c, (cats.get(c) || 0) + (Number(x.amount) || 0)); });
+      const inCl = s((x) => x.type === "client_payment"), inCo = s((x) => x.type === "company_income"), sup = s((x) => x.type === "supplier_payment"), obj = s((x) => x.type === "expense"), bon = s((x) => x.type === "bonus_payment"), co = s((x) => x.type === "company_expense");
+      let t = mm + (mm === day.slice(0, 7) ? " (joriy oy, " + Number(day.slice(8)) + "-kungacha)" : "") + ": kirim — mijozlardan " + inCl + " $, kompaniya prixodi " + inCo + " $; chiqim — postavshiklarga " + sup + " $, obyekt rasxodlari " + obj + " $, ustalarga bonus " + bon + " $, kompaniya rasxodlari " + co + " $" + (cats.size ? " (" + [...cats].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([c, v]) => c + " " + C.round2(v)).join(", ") + ")" : "") + "; sof pul oqimi " + C.round2(inCl + inCo - sup - obj - bon - co) + " $";
+      if (fin) {
+        const ob = data.objects.filter((o) => C.isLive(o) && String(o.created_at || "").slice(0, 7) === mm).map((o) => C.calcObject(o, data.finance_ops));
+        const sale = ob.reduce((a, f) => a + f.saleNet, 0), gross = ob.reduce((a, f) => a + f.gross, 0);
+        t += "; shu oyda ochilgan obyektlar: " + ob.length + " ta, sotuv " + C.round2(sale) + " $, foyda " + C.round2(gross) + " $" + (sale > 0 ? " (marja " + C.round2((gross / sale) * 100) + "%)" : "");
+      }
+      return t;
+    }).join("\n");
+  }
+  async function topExpenses(from, to, limit, acc) {
+    const day = tzDate(now());
+    const f = /^\d{4}-\d{2}-\d{2}$/.test(from || "") ? from : day.slice(0, 8) + "01", t = /^\d{4}-\d{2}-\d{2}$/.test(to || "") ? to : day;
+    const salary = acc.base === "boss" || !!(acc.perms && acc.perms.salary);
+    const data = await loadData(["finance_ops", "objects", "suppliers"]);
+    const on = new Map(data.objects.map((o) => [o.id, o.name])), sn = new Map(data.suppliers.map((s) => [s.id, s.name]));
+    const ops = data.finance_ops.filter((x) => !x.voided && ["company_expense", "supplier_payment", "expense", "bonus_payment"].includes(x.type) && opDay(x) >= f && opDay(x) <= t && (salary || x.category !== C.SALARY_CAT));
+    const cats = new Map();
+    ops.filter((x) => x.type === "company_expense").forEach((x) => cats.set(x.category || "Прочее", (cats.get(x.category || "Прочее") || 0) + (Number(x.amount) || 0)));
+    const tot = ops.reduce((a, x) => a + (Number(x.amount) || 0), 0);
+    return [f + " — " + t + ": jami chiqim " + C.round2(tot) + " $",
+      "Kompaniya rasxodlari kategoriyalar bo'yicha: " + ([...cats].sort((a, b) => b[1] - a[1]).map(([c, v]) => c + " " + C.round2(v) + " $").join(", ") || "yo'q"),
+      "Eng kattalari:", ...ops.sort((a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0)).slice(0, limit).map((x) => dt(opDay(x)) + " · " + C.opName(x) + " · " + C.round2(x.amount) + " $" + [x.category, on.get(x.object_id), sn.get(x.supplier_id)].filter(Boolean).map((v) => " · " + v).join("") + (x.note ? " · " + cut(x.note, 60) : ""))].join("\n");
+  }
+  async function objProfit(sort, limit, all) {
+    const data = await loadData(["objects", "finance_ops"]);
+    const rows = data.objects.filter((o) => C.isLive(o) && (all || o.status !== "closed")).map((o) => ({ o, f: C.calcObject(o, data.finance_ops) })).filter((r) => r.f.saleNet > 0.004);
+    rows.sort(sort === "profit" ? (a, b) => a.f.gross - b.f.gross : sort === "debt" ? (a, b) => b.f.clientDebt - a.f.clientDebt : (a, b) => a.f.margin - b.f.margin);
+    const S = rows.reduce((a, r) => a + r.f.saleNet, 0), G = rows.reduce((a, r) => a + r.f.gross, 0);
+    return ["Obyektlar: " + rows.length + " ta, sotuv " + C.round2(S) + " $, foyda " + C.round2(G) + " $" + (S > 0 ? ", o'rtacha marja " + C.round2((G / S) * 100) + "%" : ""),
+      ...rows.slice(0, limit).map((r) => r.o.name + (r.o.client ? " (" + r.o.client + ")" : "") + " · " + C.stById(r.o.status).label + " · sotuv " + C.round2(r.f.saleNet) + " $ · tannarx " + C.round2(r.f.costNet) + " $ · foyda " + C.round2(r.f.gross) + " $ · marja " + C.round2(r.f.margin) + "% · qarz " + C.round2(r.f.clientDebt) + " $ · id " + r.o.id)].join("\n");
+  }
+  async function comparePrices(q, analogs, acc) {
+    const [prods, sups, wh] = await Promise.all([db.all("products", "", "id,code,sku,name,brand,size,unit,cost,price,supplier_id,status"), db.all("suppliers", "", "id,name"), db.all("warehouse", "", "id,product_id,qty")]);
+    const act = prods.filter((p) => p.status !== "archive");
+    const sn = new Map(sups.map((s) => [s.id, s.name]));
+    const wq = new Map(); wh.forEach((w) => { if (w.product_id && Number(w.qty) > 0) wq.set(w.product_id, (wq.get(w.product_id) || 0) + Number(w.qty)); });
+    const fin = fin$(acc);
+    let list;
+    if (analogs) { const base = act.filter((p) => hitAll(hay([p.name, p.brand, p.size]), q))[0]; list = C.buildMatcher(act)(base ? base.name + " " + (base.size || "") : q).map((r) => r.p); if (base && !list.includes(base)) list.unshift(base); }
+    else list = act.filter((p) => hitAll(hay([p.name, p.brand, p.size, sn.get(p.supplier_id)]), q));
+    if (!list.length) return "Topilmadi.";
+    list.sort((a, b) => (C.retailOf(a) || 1e9) - (C.retailOf(b) || 1e9));
+    return list.slice(0, 40).map((p) => [p.name, p.brand || "", p.size || "", sn.get(p.supplier_id) || "—", (fin ? "zakup " + C.round2(Number(p.cost) || 0) + " $, " : "") + "sotuv " + C.round2(C.retailOf(p)) + " $", wq.get(p.id) ? "skladda " + C.fmt(wq.get(p.id)) : ""].join(" | ")).join("\n") + (list.length > 40 ? "\n… yana " + (list.length - 40) : "");
+  }
+  async function clientFacts(id) {
+    const data = await loadData(["objects", "finance_ops"]);
+    const o = data.objects.find((x) => x.id === id);
+    if (!o) return "Obyekt topilmadi.";
+    const f = C.calcObject(o, data.finance_ops), rate = await lastRate();
+    const last = data.finance_ops.filter((x) => x.object_id === o.id && x.type === "client_payment" && !x.voided).map(opDay).sort().pop();
+    return ["Obyekt: " + (o.name || ""), "Mijoz: " + (o.client || "—"), o.address ? "Manzil: " + o.address : "", "Jami summa: " + C.round2(f.saleNet) + " $", "To'langan: " + C.round2(f.paidClient) + " $",
+      "Qarz: " + C.round2(f.clientDebt) + " $" + (rate >= 1000 && f.clientDebt > 0 ? " ≈ " + C.fmtDot(Math.round((f.clientDebt * rate) / 1000) * 1000) + " so'm (kurs " + C.fmtDot(rate) + ")" : ""),
+      "Oxirgi to'lov: " + (last ? dt(last) : "yo'q"), "Kompaniya: Thermo Engineering"].filter(Boolean).join("\n");
+  }
+  const AI_SYS = [
+    "Sen Thermo Engineering kompaniyasining (Toshkent: isitish, suv ta'minoti, kanalizatsiya montaji) Telegram yordamchisisan. Kompaniya dasturidagi ma'lumotlar bilan ishlaysan.",
+    "Qoidalar:",
+    "- Raqam va faktlarni faqat funksiyalardan ol, o'zingdan to'qima. Kerakli funksiya yo'q bo'lsa — bu ma'lumot uning akkauntiga ochilmaganini ayt.",
+    "- Dasturda summalar $ da; naqd pul so'mda ham bo'ladi.",
+    "- Aniq obyekt yoki mijoz haqida so'ralsa: avval find_objects, keyin kerakli funksiya. Oldingi javoblardagi [ ] qavs ichidagi yozuvlar — sening ichki eslatmalaring (id va so'rovlar); ulardan foydalan, foydalanuvchiga ko'rsatma.",
+    "- Pul kiritish yoki «yetkazildi» belgilash so'ralsa — propose_client_payment / propose_delivered: ular tasdiqlash kartochkasini yuboradi, foydalanuvchi ✅ bosmaguncha hech narsa yozilmaydi. «Kiritildi» dema. Kompaniya rasxodi/prixodi faqat ishchi guruhda «/» bilan yoziladi (masalan /taksi 50 000).",
+    "- Mijozga xabar yozish so'ralsa: client_facts dan faktlarni ol va mijozga yuborishga tayyor, xushmuomala xabar yoz (so'ralgan tilda, 3–6 jumla, oxirida «Hurmat bilan, Thermo Engineering» yoki «С уважением, Thermo Engineering»). Ichki ma'lumot (tannarx, foyda, marja, postavshik) mijoz xabariga yozilmaydi.",
+    "- Tovarlar ro'yxati berilib smeta, hisob yoki narx so'ralsa — make_estimate (Excel ham yuboriladi).",
+    "- Tahlil savollarida (nega foyda kam, pul qayerga ketdi, qaysi obyekt foydasiz) — compare_months, top_expenses, object_profit dan raqam olib, qisqa xulosa ber: asosiy 2–3 sabab, raqamlar bilan.",
+    "- Narx solishtirishda compare_prices: eng arzonini va farqini ayt; analog so'ralsa analogs=true.",
+    "- Xabar savol emas, eslab qolinadigan gap (vazifa, g'oya, ma'lumot) bo'lsa — save_note. Belgilangan vaqtda eslatish so'ralsa — set_reminder (vaqt Toshkent, +05:00).",
+    "- Javob: foydalanuvchi tilida (odatda o'zbekcha lotin), qisqa, oddiy matn — Markdown, jadval va ** belgilarsiz. Raqamlar: 1 250,50 $.",
+    "- save_note, set_reminder, propose_*, make_estimate dan keyin kartochka foydalanuvchiga allaqachon yuborilgan — qo'shimcha javob yozma yoki bitta qisqa jumla yoz.",
+  ].join("\n");
+  const CARD_TOOLS = ["save_note", "set_reminder", "propose_client_payment", "propose_delivered", "make_estimate"];
+  async function aiAnswer(msg, me, opts = {}) {
     const chatId = msg.chat.id;
-    tg("sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => {});
+    const own = !opts.meter, m = opts.meter || meterNew();
+    const st = await aiState();
+    if (!st.ok) { if (own) await spend(m, me); await saveNote(msg, me); return send(chatId, LIMIT_MSG(st)); }
+    typing(chatId);
+    const mem = await memLoad(chatId, me);
     const nowD = now(), day = tzDate(nowD);
-    const system = [
-      "Sen Thermo Engineering kompaniyasining (Toshkent: isitish, suv ta'minoti, kanalizatsiya montaji) Telegram yordamchisisan. Kompaniya dasturidagi ma'lumotlar bilan ishlaysan.",
-      "Foydalanuvchi: " + me.name + " (" + (me.acc.label || me.acc.id || "") + "). Bugun " + dt(day) + ", " + WEEK_UZ[new Date(day + "T12:00:00Z").getUTCDay()] + ", soat " + tzTime(nowD) + " (Toshkent).",
-      "Qoidalar:",
-      "- Raqam va faktlarni faqat funksiyalardan ol, o'zingdan to'qima. Kerakli funksiya yo'q bo'lsa — bu ma'lumot uning akkauntiga ochilmaganini ayt.",
-      "- Dasturda summalar $ da; naqd pul so'mda ham bo'ladi.",
-      "- Aniq obyekt yoki mijoz haqida so'ralsa: avval find_objects, keyin object_details.",
-      "- Xabar savol emas, eslab qolinadigan gap (vazifa, g'oya, ma'lumot) bo'lsa — save_note.",
-      "- Belgilangan vaqtda eslatish so'ralsa — set_reminder (vaqt Toshkent, +05:00).",
-      "- Javob: foydalanuvchi tilida (odatda o'zbekcha lotin), qisqa, oddiy matn — Markdown, jadval va ** belgilarsiz. Raqamlar: 1 250,50 $.",
-      "- save_note yoki set_reminder dan keyin tasdiq foydalanuvchiga allaqachon yuborilgan — qo'shimcha javob yozma yoki juda qisqa yoz.",
-    ].join("\n");
+    const dyn = ["Foydalanuvchi: " + me.name + " (" + (me.acc.label || me.acc.id || "") + "). Bugun " + dt(day) + ", " + WEEK_UZ[dowOf(day)] + ", soat " + tzTime(nowD) + " (Toshkent).",
+      opts.spoken ? "Bu xabar ovozdan matnga o'girilgan (so'zlarda xato bo'lishi mumkin — ma'nosiga qarab tushun). Javobing ovoz bilan ham o'qiladi: 1–4 qisqa jumla, ro'yxat va belgilarsiz." : ""].filter(Boolean).join("\n");
+    const hist = [];
+    mem.turns.forEach((t) => { hist.push({ role: "user", content: String(t.u || "…") }); hist.push({ role: "assistant", content: String(t.a || "…") + (t.x ? "\n[" + t.x + "]" : "") }); });
     const parts = [];
     const rq = msg.reply_to_message;
     if (rq && rq.text) parts.push("(Foydalanuvchi quyidagi xabarga javob yozyapti: «" + cut(untag(rq.text), 1500) + "»)");
     parts.push(String(msg.text || ""));
     let r;
-    try { r = await ai.chat({ system, messages: [{ role: "user", content: parts.join("\n\n") }], tools: aiTools(me.acc), runTool: (n, a) => aiRun(n, a, me, msg) }); }
+    try { r = await ai.chat({ system: [AI_SYS, dyn], messages: [...hist, { role: "user", content: parts.join("\n\n") }], tools: aiTools(me.acc), runTool: (n, a) => aiRun(n, a, me, msg, m), meter: m.fn }); }
     catch (e) {
       console.error("tg ai:", e && e.message);
-      return send(chatId, "⚠️ AI javob bermadi" + (e && /^AI (401|403)/.test(e.message || "") ? " (kalit ishlamayapti)" : "") + ". Buyruqlar ishlayveradi — /yordam", { reply_markup: qkb(me.acc) });
+      if (own) await spend(m, me);
+      return send(chatId, "⚠️ AI javob bermadi" + (e && /^AI (401|403)/.test(e.message || "") ? " (kalit ishlamayapti)" : e && /^AI 429/.test(e.message || "") ? " (juda ko'p so'rov — birozdan keyin)" : "") + ". Buyruqlar ishlayveradi — /yordam", { reply_markup: qkb(me.acc) });
     }
     const t = String(r.text || "").replace(/\*\*/g, "").trim();
-    if (!t) return r.used.length ? undefined : send(chatId, "Tushunmadim. /yordam");
-    if (r.used.some((u) => u === "save_note" || u === "set_reminder") && t.length < 120) return; // тасдиқ уже отправлен
-    return tg("sendMessage", { chat_id: chatId, text: cut(t, 4000), reply_to_message_id: msg.message_id, disable_web_page_preview: true });
+    const quiet = r.used.some((u) => CARD_TOOLS.includes(u.name)) && t.length < 160;
+    if (t && !quiet) await tg("sendMessage", { chat_id: chatId, text: cut(t, 4000), reply_to_message_id: msg.message_id, disable_web_page_preview: true });
+    else if (!t && !r.used.length) await send(chatId, "Tushunmadim. /yordam");
+    // голосом: на голосовое — всегда; на текст — если человек включил /ovoz
+    if (t && !quiet && voice && voice.tts && upload && st.cfg.speak !== "never" && (opts.spoken || mem.voice)) {
+      try {
+        typing(chatId, "record_voice");
+        const v = await voice.speak(t, st.cfg.voice);
+        if (v) { m.speech += v.cost; m.chars += v.chars; await upload("sendVoice", { chat_id: chatId, reply_to_message_id: msg.message_id }, { name: "javob.ogg", bytes: v.bytes, mime: "audio/ogg", field: "voice" }); }
+      } catch (e) { console.error("tg tts:", e && e.message); }
+    }
+    const x = r.used.filter((u) => u.input && (u.input.id || u.input.object_id || u.input.query)).map((u) => u.name + " " + JSON.stringify(u.input)).join("; ").slice(0, 600);
+    await memSave(chatId, me, mem, { u: cut(String(msg.text || ""), 1200), a: cut(t || (r.used.length ? "(kartochka yuborildi: " + r.used.map((u) => u.name).join(", ") + ")" : "…"), 1500), x, at: now().toISOString() });
+    if (own) await spend(m, me);
+  }
+  // ---- текст в личном чате: ответ на вопрос бота, иначе ИИ / заметка ----
+  async function handleText(msg, me, opts = {}) {
+    const rq = msg.reply_to_message, fromBot = rq && rq.from && rq.from.is_bot, rt = fromBot ? String(rq.text || "") : "";
+    if (rt.startsWith("💳 To'lov qo'shish")) return payReply(msg, rq, me);
+    if (rt.startsWith(OBJ_PICK_MARK)) return actObjSearch(msg, rq, me);
+    if (rt.startsWith(SMETA_MARK)) return smetaFromText(msg, me, msg.text, opts.meter);
+    if (rt.startsWith(NAK_MARK)) return send(msg.chat.id, "🧾 Nakladnoyning rasmini yoki PDF faylini yuboring (shu xabarga javob qilib).");
+    const pr = fromBot ? PROMPTS.find((x) => rt.startsWith(x.mark)) : null;
+    if (pr) return runCommand(msg.chat.id, msg, { name: pr.name, arg: msg.text }, me);
+    if (ai) return aiAnswer(msg, me, opts);
+    return saveNote(msg, me);
+  }
+  // ---- голосовые: речь → текст → как обычное сообщение; ответ — и голосом ----
+  async function onVoice(msg, me) {
+    const chatId = msg.chat.id, v = msg.voice || msg.audio || msg.video_note;
+    if (!voice || !file) return send(chatId, "🎙 Ovozli xabarni tushunish uchun ovoz xizmati hali ulanmagan — matn bilan yozing.");
+    if ((Number(v.duration) || 0) > 300) return send(chatId, "🎙 5 daqiqagacha bo'lgan ovozli xabar yuboring.");
+    if ((Number(v.file_size) || 0) > 20e6) return send(chatId, "🎙 Fayl juda katta.");
+    const st = await aiState();
+    if (!st.ok) return send(chatId, LIMIT_MSG(st));
+    typing(chatId);
+    const m = meterNew();
+    let r;
+    try {
+      const f = await file(v.file_id);
+      r = await voice.transcribe(f.bytes, { name: msg.video_note ? "video.mp4" : msg.audio ? v.file_name || "audio.mp3" : "voice.ogg", mime: v.mime_type || (msg.video_note ? "video/mp4" : "audio/ogg"), sec: Number(v.duration) || 0 });
+    } catch (e) {
+      console.error("tg stt:", e && e.message);
+      return send(chatId, "⚠️ Ovozli xabarni o'qib bo'lmadi" + (/STT (401|403)/.test((e && e.message) || "") ? " (ovoz kaliti ishlamayapti)" : "") + " — matn bilan yozing.");
+    }
+    m.speech += r.cost || 0; m.sec += r.sec || 0;
+    if (!r.text) { await spend(m, me); return send(chatId, "🎙 Tushunmadim — aniqroq gapiring yoki yozing."); }
+    await send(chatId, "🎙 <i>" + esc(cut(r.text, 1500)) + "</i>", { reply_to_message_id: msg.message_id });
+    try { return await handleText({ ...msg, text: r.text }, me, { spoken: true, meter: m }); }
+    finally { await spend(m, me); }
+  }
+
+  // ---------- смета и накладная (фото / PDF / текст) ----------
+  function mediaKind(msg) {
+    const cap = String(msg.caption || "").trim();
+    const pc = cap.startsWith("/") ? parseCommand(cap) : null;
+    if (pc && pc.name === "smeta") return "smeta";
+    if (pc && pc.name === "nakladnoy") return "nak";
+    const rq = msg.reply_to_message, t = rq && rq.from && rq.from.is_bot ? String(rq.text || "") : "";
+    return t.startsWith(SMETA_MARK) ? "smeta" : t.startsWith(NAK_MARK) ? "nak" : null;
+  }
+  const IMG = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+  function mediaSource(msg) {
+    if (msg.photo && msg.photo.length) { const p = msg.photo[msg.photo.length - 1]; return { id: p.file_id, size: p.file_size || 0, mime: "image/jpeg" }; }
+    const d = msg.document; if (!d) return null;
+    const mt = String(d.mime_type || "").toLowerCase(), nm = String(d.file_name || "").toLowerCase();
+    if (mt === "application/pdf" || nm.endsWith(".pdf")) return { id: d.file_id, size: d.file_size || 0, pdf: true };
+    if (IMG.includes(mt)) return { id: d.file_id, size: d.file_size || 0, mime: mt };
+    if (/\.(jpe?g)$/.test(nm)) return { id: d.file_id, size: d.file_size || 0, mime: "image/jpeg" };
+    if (/\.png$/.test(nm)) return { id: d.file_id, size: d.file_size || 0, mime: "image/png" };
+    return null;
+  }
+  const SMETA_SYS = "From the user's message or document (Uzbek/Russian), extract the list of goods for a price estimate (plumbing, heating, construction materials). Reply with JSON only: {\"suppliers\":\"supplier names the user asked to use, in the same order, or empty\",\"items\":[{\"name\":\"item name as written, with size/diameter\",\"qty\":number,\"unit\":\"шт|м|кг|компл|...\",\"code\":\"article/code if written, else empty\"}]}. qty default 1. Keep the original order, do not invent or merge items.";
+  const NAK_SYS = "Extract a supplier invoice (накладная / hisob-faktura / счёт) from the image or PDF. Reply with JSON only: {\"supplier\":\"seller company name\",\"number\":\"invoice number or empty\",\"date\":\"YYYY-MM-DD or empty\",\"currency\":\"uzs\"|\"usd\",\"items\":[{\"name\":\"goods name with size\",\"qty\":number,\"unit\":\"шт|м|кг|...\",\"price\":number}],\"total\":number}. price — price per unit (without VAT if both are given). Numbers like «1 250 000,00» → 1250000. Use exactly what is written; do not invent lines.";
+  async function onDoc(msg, me, kind) {
+    const chatId = msg.chat.id;
+    if (kind === "smeta" ? !canAsk(me.acc, "smeta") : !canNak(me.acc)) return send(chatId, "🔒 Bu bo'lim sizga ochilmagan.");
+    if (!ai || !file) return send(chatId, "⚠️ Rasm va PDF'ni o'qish uchun AI ulanmagan.");
+    const st = await aiState();
+    if (!st.ok) return send(chatId, LIMIT_MSG(st));
+    const src = mediaSource(msg);
+    if (!src) return send(chatId, "Faqat rasm (JPG, PNG) yoki PDF yuboring.");
+    if (src.size > 15e6) return send(chatId, "Fayl juda katta — 15 MB gacha.");
+    typing(chatId);
+    let f;
+    try { f = await file(src.id); } catch (e) { console.error("tg file:", e && e.message); return send(chatId, "⚠️ Faylni olib bo'lmadi — qaytadan yuboring."); }
+    const block = src.pdf ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64(f.bytes) } } : { type: "image", source: { type: "base64", media_type: src.mime, data: b64(f.bytes) } };
+    const cap = String(msg.caption || "").replace(/^\/\S+\s*/, "").trim();
+    const m = meterNew();
+    try {
+      if (kind === "smeta") {
+        const j = await ai.json({ system: SMETA_SYS, content: [block, { type: "text", text: "Ro'yxat shu faylda." + (cap ? " Izoh: " + cap : "") }], maxTokens: 6000, meter: m.fn });
+        if (!j || !Array.isArray(j.items) || !j.items.length) return send(chatId, "📋 Ro'yxatni o'qib bo'lmadi — aniqroq rasm yuboring yoki matn bilan yozing.");
+        await estimate(j.items, String(j.suppliers || "") || cap, me, chatId, m);
+      } else await nakladnoy(chatId, me, block, cap, m);
+    } catch (e) { console.error("tg doc:", e && e.message); await send(chatId, "⚠️ O'qib bo'lmadi: " + esc(String((e && e.message) || e)).slice(0, 200)); }
+    finally { await spend(m, me); }
+  }
+  async function smetaFromText(msg, me, text, meter = null) {
+    const chatId = msg.chat.id;
+    if (!canAsk(me.acc, "smeta")) return send(chatId, "🔒 Bu bo'lim sizga ochilmagan.");
+    const m = meter || meterNew();
+    let items = null, hint = "";
+    if (ai && (await aiState()).ok) {
+      typing(chatId);
+      try { const j = await ai.json({ system: SMETA_SYS, text: String(text || ""), maxTokens: 6000, meter: m.fn }); if (j && Array.isArray(j.items) && j.items.length) { items = j.items; hint = String(j.suppliers || ""); } } catch (e) { console.error("tg smeta:", e && e.message); }
+    }
+    if (!items) { items = parseList(text); hint = String(text || ""); }
+    try { await estimate(items, hint, me, chatId, m); } finally { if (!meter) await spend(m, me); }
+  }
+  // позиции ↔ товары базы: сначала у названных поставщиков (по порядку), потом во всей базе; спорные — выбирает ИИ
+  async function matchItems(items, hint, supId, m) {
+    const [prods, sups] = await Promise.all([db.all("products", "", "id,code,sku,name,brand,size,unit,cost,price,supplier_id,status"), db.all("suppliers", "", "id,name")]);
+    const act = prods.filter((p) => p.status !== "archive");
+    const sn = new Map(sups.map((s) => [s.id, s.name]));
+    let prefer = [];
+    if (supId) prefer = sups.filter((s) => s.id === supId);
+    else if (hint) {
+      const h = " " + low(hint) + " ", ht = " " + low(C.translit(hint)) + " ";
+      prefer = sups.map((s) => { const k = low(String(s.name || "")).trim(); const i = k.length >= 3 ? Math.max(h.indexOf(k), ht.indexOf(low(C.translit(k)))) : -1; return { s, i }; }).filter((x) => x.i >= 0).sort((a, b) => a.i - b.i).map((x) => x.s);
+    }
+    const mk = new Map();
+    const matcher = (sid) => { if (!mk.has(sid)) mk.set(sid, C.buildMatcher(sid ? act.filter((p) => p.supplier_id === sid) : act)); return mk.get(sid); };
+    const lines = items.map((it) => {
+      let best = null; const cands = [];
+      for (const s of prefer) { const r = matcher(s.id)(it.name, it.code); if (r[0] && r[0].score >= C.MATCH_OK) { best = r[0]; break; } cands.push(...r.slice(0, 3)); }
+      if (!best) { const r = matcher("")(it.name, it.code); if (r[0] && r[0].score >= C.MATCH_OK && !prefer.length) best = r[0]; else cands.push(...r.slice(0, 4)); }
+      const seen = new Set();
+      return { it, best, cands: cands.filter((c) => c.score >= C.MATCH_MIN && !seen.has(c.p.id) && seen.add(c.p.id)).sort((a, b) => b.score - a.score).slice(0, 5) };
+    });
+    const unclear = lines.filter((l) => !l.best && l.cands.length).slice(0, 80);
+    if (unclear.length && ai && m && (await aiState()).ok) {
+      try {
+        const j = await ai.json({ system: "You match requested plumbing/heating/construction goods to catalog products. For each numbered line choose the candidate that is the same product (same type, size/diameter, thread, material, power). If none fits, null. Reply with JSON only: {\"pick\":[{\"line\":0,\"cand\":0}]}", maxTokens: 2000, meter: m.fn,
+          text: (prefer.length ? "Preferred suppliers (in order): " + prefer.map((s) => s.name).join(", ") + "\n\n" : "") + unclear.map((l, k) => k + ". " + l.it.name + (l.it.unit ? " (" + l.it.unit + ")" : "") + "\n" + l.cands.map((c, ci) => "   " + ci + ") " + c.p.name + (c.p.size ? " " + c.p.size : "") + " · " + (sn.get(c.p.supplier_id) || "")).join("\n")).join("\n") });
+        (j && Array.isArray(j.pick) ? j.pick : []).forEach((x) => { const l = unclear[Number(x.line)]; const c = l && x.cand != null && x.cand !== "" ? l.cands[Number(x.cand)] : null; if (c) l.best = { ...c, ai: true }; });
+      } catch (e) { console.error("tg match:", e && e.message); }
+    }
+    return { lines, prefer, sn, sups };
+  }
+  const UNIT = { ta: "шт", та: "шт", dona: "шт", дона: "шт", pcs: "шт", m: "м", metr: "м", метр: "м", kg: "кг" };
+  const normItems = (items0) => (Array.isArray(items0) ? items0 : []).map((i) => ({ name: String((i && i.name) || "").replace(/\s+/g, " ").trim().slice(0, 200), qty: Number(i && i.qty) > 0 ? C.round2(Number(i.qty)) : 1, unit: (() => { const u = String((i && i.unit) || "").trim().toLowerCase().replace(/\.$/, ""); return UNIT[u] || u.slice(0, 12); })(), code: String((i && i.code) || "").trim().slice(0, 40), price: Number(i && i.price) > 0 ? Number(i.price) : 0 })).filter((i) => i.name).slice(0, 150);
+  async function estimate(items0, hint, me, chatId, m) {
+    const items = normItems(items0);
+    if (!items.length) { await send(chatId, "📋 Ro'yxatda tovar topilmadi. Har qatorga bittadan yozing: <code>truba PPR 20 — 50 m</code>"); return { summary: "Ro'yxat bo'sh — foydalanuvchiga yozildi." }; }
+    typing(chatId);
+    const M = await matchItems(items, hint, null, m);
+    const fin = fin$(me.acc);
+    const rows = M.lines.map((l) => { const p = l.best && l.best.p; return { l, p, qty: l.it.qty, unit: l.it.unit || (p && p.unit) || "шт", price: p ? C.round2(C.retailOf(p)) : 0, cost: p ? Number(p.cost) || 0 : 0 }; });
+    const total = rows.reduce((a, r) => a + r.qty * r.price, 0), totalC = rows.reduce((a, r) => a + r.qty * r.cost, 0);
+    const miss = rows.filter((r) => !r.p).length, aiN = rows.filter((r) => r.l.best && r.l.best.ai).length;
+    const other = (r) => r.p && M.prefer.length && !M.prefer.some((s) => s.id === r.p.supplier_id);
+    const L = ["📋 <b>Smeta</b> · " + rows.length + " poz." + (M.prefer.length ? " · " + M.prefer.map((s) => esc(s.name)).join(", ") : ""), "",
+      ...rows.map((r, i) => (i + 1) + ". " + (r.p ? esc(cut(r.p.name, 70)) + (r.l.best.ai ? " 🤖" : "") : "⚠️ " + esc(cut(r.l.it.name, 70)) + " — <i>bazada yo'q</i>") + " — " + C.fmt(r.qty) + " " + esc(r.unit)
+        + (r.p && r.price > 0 ? " × " + usd(r.price) + " = <b>" + usd(r.qty * r.price) + "</b>" : r.p ? " · narx yo'q" : "") + (other(r) ? " <i>(" + esc(M.sn.get(r.p.supplier_id) || "") + ")</i>" : "")),
+      "", "Jami: <b>" + usd(total) + "</b>" + (fin && totalC > 0 ? "\nTannarx: " + usd(totalC) + " · foyda: " + usd(total - totalC) : ""),
+      miss ? "⚠️ Bazada topilmadi: " + miss + " ta — Excel'da narxsiz, dasturda to'g'rilang" : "", aiN ? "🤖 — AI tanlagan (" + aiN + " ta), tekshirib oling" : ""].filter((x, i, a) => x !== "" || (i > 0 && a[i - 1] !== ""));
+    let text = L.join("\n"); if (text.length > 4000) text = text.slice(0, 3900) + "\n… (to'liq ro'yxat — Excel'da)";
+    let kb;
+    if (canAsk(me.acc, "obyekt") && money$(me.acc)) {
+      const row = await actNew(chatId, me, "items", { src: "smeta", items: rows.map((r) => ({ product_id: r.p ? r.p.id : null, name: r.p ? r.p.name : r.l.it.name, size: r.p ? r.p.size || "" : "", unit: r.unit, qty: r.qty, price: r.price, cost: r.cost, supplier_id: r.p ? r.p.supplier_id || null : null })) });
+      if (row) kb = { inline_keyboard: [[{ text: "➕ Obyektga qo'shish", callback_data: "ao:" + row.id }]] };
+    }
+    await send(chatId, text, kb ? { reply_markup: kb } : {});
+    if (upload) {
+      try {
+        const table = [["Код", "Наименование", "Количество", "Ед. изм.", "Цена продажи", "Сумма", "Поставщик"],
+          ...rows.map((r) => [r.p ? String(r.p.code || "") : "", r.p ? r.p.name : r.l.it.name, r.qty, r.unit, r.p && r.price > 0 ? r.price : "", r.p && r.price > 0 ? C.round2(r.qty * r.price) : "", r.p ? M.sn.get(r.p.supplier_id) || "" : ""])];
+        const bytes = await C.tableXlsxBytes("Смета", table);
+        await upload("sendDocument", { chat_id: chatId, caption: "📋 Smeta — dasturga: obyekt → «Импорт Excel»" }, { name: "Smeta_" + dt(tzDate(now())).replace(/\./g, "-") + ".xlsx", bytes, mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      } catch (e) { console.error("tg smeta xlsx:", e && e.message); }
+    }
+    return { summary: "Smeta yuborildi (Excel bilan): " + rows.length + " poz., jami " + C.round2(total) + " $" + (miss ? ", bazada topilmadi: " + miss : "") + "." };
+  }
+  function findSupplier(sups, text) {
+    const h = " " + low(text) + " ", ht = " " + low(C.translit(text)) + " ";
+    const hits = sups.map((s) => ({ s, k: low(String(s.name || "")).trim() })).filter((x) => x.k.length >= 3 && (h.includes(x.k) || ht.includes(low(C.translit(x.k)))));
+    const h0 = hits.sort((a, b) => b.k.length - a.k.length)[0];
+    return h0 ? h0.s : null;
+  }
+  async function nakladnoy(chatId, me, block, cap, m) {
+    const j = await ai.json({ system: NAK_SYS, content: [block, { type: "text", text: "Nakladnoy." + (cap ? " Izoh: " + cap : "") }], maxTokens: 6000, meter: m.fn });
+    const raw = normItems(j && j.items);
+    if (!raw.length) return send(chatId, "🧾 Nakladnoyni o'qib bo'lmadi — aniqroq rasm yuboring.");
+    const sups = await db.all("suppliers", "", "id,name");
+    const sup = findSupplier(sups, String((j && j.supplier) || "") + " " + cap);
+    const prices0 = raw.map((i) => i.price).filter((x) => x > 0).sort((a, b) => a - b);
+    const cur = j.currency === "usd" ? "usd" : j.currency === "uzs" ? "uzs" : (prices0[Math.floor(prices0.length / 2)] || 0) >= 1000 ? "uzs" : "usd";
+    const rate = cur === "uzs" ? findRate(cap) || (await lastRate()) : 0;
+    if (cur === "uzs" && !(rate >= 1000)) return send(chatId, "Kurs topilmadi — /kurs bilan kiriting yoki rasm ostiga «kurs 12 650» deb yozing.");
+    const items = raw.map((i) => ({ ...i, cost: cur === "uzs" ? C.round2(i.price / rate) : C.round2(i.price) }));
+    const M = await matchItems(items, "", sup ? sup.id : null, m);
+    const rows = M.lines.map((l) => { const p = l.best && l.best.p; return { product_id: p ? p.id : null, name: p ? p.name : l.it.name, size: p ? p.size || "" : "", unit: l.it.unit || (p && p.unit) || "шт", qty: l.it.qty, cost: l.it.cost, price: p ? C.round2(C.retailOf(p)) || l.it.cost : l.it.cost, supplier_id: sup ? sup.id : p ? p.supplier_id || null : null, _p: !!p, _ai: !!(l.best && l.best.ai), _src: l.it.name }; });
+    const tot = rows.reduce((a, r) => a + r.qty * r.cost, 0), totSrc = raw.reduce((a, i) => a + i.qty * i.price, 0);
+    const jt = Number(j.total) || 0;
+    const L = ["🧾 <b>Nakladnoy</b> · " + (sup ? esc(sup.name) : "postavshik: " + esc((j && j.supplier) || "?") + " <i>(bazada topilmadi)</i>") + (j.number ? " · №" + esc(j.number) : "") + (/^\d{4}-\d{2}-\d{2}$/.test(j.date || "") ? " · " + dt(j.date) : ""), "",
+      ...rows.map((r, i) => (i + 1) + ". " + esc(cut(r.name, 70)) + (r._ai ? " 🤖" : "") + (r._p ? "" : " <i>(bazada yo'q — yangi)</i>") + " — " + C.fmt(r.qty) + " " + esc(r.unit) + " × " + usd(r.cost) + " = <b>" + usd(r.qty * r.cost) + "</b>"),
+      "", "Jami: <b>" + usd(tot) + "</b>" + (cur === "uzs" ? " (" + sum(totSrc) + ", kurs " + C.fmtDot(rate) + ")" : ""),
+      jt > 0 && Math.abs(jt - totSrc) > Math.max(1, jt * 0.01) ? "⚠️ Nakladnoydagi jami: " + (cur === "uzs" ? sum(jt) : usd(jt)) + " — tekshiring" : "", "", "Qayerga kiritamiz?"].filter((x, i, a) => x !== "" || (i > 0 && a[i - 1] !== ""));
+    let text = L.join("\n"); if (text.length > 4000) text = text.slice(0, 3900) + "\n…";
+    const row = await actNew(chatId, me, "items", { src: "nak", items: rows.map(({ _p, _ai, _src, ...r }) => r), supplier_id: sup ? sup.id : null, supplier: sup ? sup.name : "", debt: !!sup, number: String(j.number || "").slice(0, 40) });
+    const kb = [[...(canAsk(me.acc, "obyekt") && money$(me.acc) ? [{ text: "🏠 Obyektga", callback_data: "ao:" + row.id }] : []), ...(canAsk(me.acc, "sklad") ? [{ text: "📦 Sklad Thermo'ga", callback_data: "aw:" + row.id }] : [])], [{ text: "❌ Bekor", callback_data: "an:" + row.id }]];
+    return send(chatId, text, { reply_markup: { inline_keyboard: kb } });
+  }
+
+  // ---------- действия с подтверждением «✅» (ИИ, смета, накладная) ----------
+  const ACT_TTL = 2 * 864e5, ACT_URL = "https://thermo-ai-os.vercel.app/#a=";
+  async function actNew(chatId, me, kind, data) {
+    return (await db.insert("requests", { mode: ACT_MODE, source: "config", lines: { tg: String(chatId), user_id: me.user.id, kind, data, exp: new Date(now().getTime() + ACT_TTL).toISOString() } }))[0] || null;
+  }
+  async function actGet(id, chatId, me) {
+    if (!/^[0-9a-f-]{36}$/i.test(id || "")) return null;
+    const row = (await db.select("requests", "id=eq." + id + "&mode=eq." + ACT_MODE + "&select=id,lines"))[0];
+    if (!row || !row.lines || String(row.lines.tg) !== String(chatId) || row.lines.user_id !== me.user.id) return null;
+    if (!(Date.parse(row.lines.exp || 0) > now().getTime())) { try { await db.del("requests", "id=eq." + row.id); } catch (e) {} return null; }
+    return row;
+  }
+  async function actSet(row, patch) {
+    const lines = { ...row.lines, data: { ...(row.lines.data || {}), ...patch } };
+    await db.update("requests", "id=eq." + row.id, { lines });
+    return { ...row, lines };
+  }
+  async function actCleanup() {
+    try { for (const r of await db.select("requests", "mode=eq." + ACT_MODE + "&select=id,lines")) if (!(Date.parse((r.lines && r.lines.exp) || 0) > now().getTime())) await db.del("requests", "id=eq." + r.id); } catch (e) {}
+  }
+  const yesNo = (id) => [{ text: "✅ Kiritish", callback_data: "ax:" + id }, { text: "❌ Yo'q", callback_data: "an:" + id }];
+  const PM_UZ = { usd: "naqd $", uzs: "naqd so'm", card: "karta", transfer: "perechisleniye" };
+  async function proposePay(chatId, me, a) {
+    const o = /^[0-9a-f-]{36}$/i.test(String(a.object_id || "")) ? (await db.select("objects", "id=eq." + a.object_id + "&select=id,name,client"))[0] : null;
+    if (!o) return "Obyekt topilmadi — avval find_objects bilan id ni top.";
+    const v = Number(a.amount);
+    if (!(v > 0)) return "Summa noto'g'ri.";
+    const cur = a.currency === "uzs" ? "uzs" : "usd";
+    const method = a.method === "card" ? "card" : a.method === "transfer" ? "transfer" : cur;
+    const rate = cur === "uzs" ? (Number(a.rate) >= 1000 ? Number(a.rate) : await lastRate()) : 0;
+    const usdAmt = cur === "usd" ? C.round2(v) : rate >= 1000 ? C.round2(v / rate) : 0;
+    if (!usdAmt) return "Kurs topilmadi — foydalanuvchidan kursni so'ra.";
+    const row = await actNew(chatId, me, "pay", { object_id: o.id, name: o.name || "", v, cur, m: method, rate });
+    await send(chatId, "💳 <b>To'lov</b> · " + esc(o.name || "—") + (o.client ? " (" + esc(o.client) + ")" : "") + "\n<b>" + (cur === "uzs" ? sum(v) + "</b> ≈ " + usd(usdAmt) + " (kurs " + C.fmtDot(rate) + ")" : usd(v) + "</b>") + " · " + PM_UZ[method] + "\nKiritaymi?", { reply_markup: { inline_keyboard: [yesNo(row.id)] } });
+    return "Tasdiqlash kartochkasi yuborildi: " + (o.name || "") + ", " + (cur === "uzs" ? v + " so'm" : v + " $") + ". Foydalanuvchi ✅ bosishi kerak.";
+  }
+  async function proposeDeliv(chatId, me, a) {
+    const data = await loadData(["objects"]);
+    const o = data.objects.find((x) => x.id === a.object_id);
+    if (!o) return "Obyekt topilmadi — avval deliveries yoki find_objects.";
+    const no = Number(a.batch_no) || 0;
+    const pend = pendingItems(o).filter((i) => !no || (Number(i.batch_no) || 1) === no);
+    if (!pend.length) return "Bu obyektda yetkazilmagan tovar yo'q.";
+    const row = await actNew(chatId, me, "dlv", { object_id: o.id, name: o.name || "", no });
+    await send(chatId, "🚚 <b>" + esc(o.name || "—") + "</b>" + (no ? " · " + no + "-postavka" : "") + " — yetkazildi deb belgilaymi? " + pend.length + " poz.:\n" + pend.slice(0, 12).map((i) => "• " + esc(cut(i.name, 60)) + " — " + C.fmt(Number(i.qty) || 0) + " " + esc(i.unit || "шт")).join("\n") + (pend.length > 12 ? "\n…" : ""), { reply_markup: { inline_keyboard: [[{ text: "✅ Yetkazildi", callback_data: "ax:" + row.id }, { text: "❌ Yo'q", callback_data: "an:" + row.id }]] } });
+    return "Tasdiqlash kartochkasi yuborildi (" + pend.length + " poz.). Foydalanuvchi ✅ bosishi kerak.";
+  }
+  function itemsConfirm(row, me) {
+    const d = row.lines.data || {}, items = d.items || [];
+    const sale = items.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0), cost = items.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.cost) || 0), 0);
+    if (d.target === "wh") {
+      return { text: "📦 <b>Sklad Thermo'ga kirim</b> · " + items.length + " poz." + (d.supplier ? " · " + esc(d.supplier) : "") + "\nTannarx: <b>" + usd(cost) + "</b>" + (d.supplier_id ? "\nPostavshikka qarz: " + (d.debt ? "<b>yoziladi</b> (+" + usd(cost) + ")" : "yozilmaydi") : "") + "\nKiritaymi?",
+        reply_markup: { inline_keyboard: [yesNo(row.id), ...(d.supplier_id ? [[{ text: d.debt ? "💳 Qarzga yozmaslik" : "💳 Qarzga yozish", callback_data: "ad:" + row.id }]] : [])] } };
+    }
+    const noPrice = items.filter((i) => !(Number(i.price) > 0)).length;
+    return { text: "🏠 <b>" + esc(d.object_name || "—") + "</b> — yangi postavka: " + items.length + " poz.\nSotuv: <b>" + usd(sale) + "</b>" + (fin$(me.acc) && cost > 0 ? " · tannarx " + usd(cost) : "") + (noPrice ? "\n⚠️ Narxsiz: " + noPrice + " ta — dasturda to'g'rilang" : "") + "\nKiritaymi?",
+      reply_markup: { inline_keyboard: [yesNo(row.id), [{ text: "⬅️ Boshqa obyekt", callback_data: "ao:" + row.id }]] } };
+  }
+  const objBtn = (o) => cut((o.name || "—") + (o.client ? " · " + o.client : ""), 60);
+  async function actObjSearch(msg, rq, me) {
+    const chatId = msg.chat.id;
+    const link = (rq.entities || []).map((e) => e.url || "").find((u) => u.startsWith(ACT_URL));
+    const row = await actGet(link && link.slice(ACT_URL.length), chatId, me);
+    if (!row) return send(chatId, "⌛️ So'rov eskirgan — qaytadan yuboring.");
+    const data = await loadData(["objects"]);
+    const list = data.objects.filter((o) => hitAll(hay([o.name, o.client, o.phone, o.master, o.address]), msg.text || "")).slice(0, 8);
+    if (!list.length) return send(chatId, "🔍 «" + esc(msg.text || "") + "» bo'yicha obyekt topilmadi.", { reply_markup: { inline_keyboard: [[{ text: "🔍 Qayta qidirish", callback_data: "aq:" + row.id }]] } });
+    await actSet(row, { cands: list.map((o) => o.id) });
+    return send(chatId, OBJ_PICK_MARK + ":", { reply_markup: { inline_keyboard: [...list.map((o, i) => [{ text: objBtn(o), callback_data: "as:" + row.id + ":" + i }]), [{ text: "🔍 Qayta qidirish", callback_data: "aq:" + row.id }]] } });
+  }
+  async function itemsToObject(d, me) {
+    const o = (await db.select("objects", "id=eq." + d.object_id + "&select=id,name,items"))[0];
+    if (!o) throw new Error("obyekt topilmadi");
+    const cur = Array.isArray(o.items) ? o.items : [];
+    const nos = cur.map((i) => Number(i && i.batch_no) || 1), no = (nos.length ? Math.max(...nos) : 0) + 1;
+    const day = tzDate(now()), at = now().toISOString();
+    const add = (d.items || []).filter((i) => Number(i.qty) > 0).map((i) => ({ id: crypto.randomUUID(), product_id: i.product_id || null, name: i.name, size: i.size || "", unit: i.unit || "шт", qty: Number(i.qty), price: Number(i.price) || 0, cost: Number(i.cost) || 0, supplier_id: i.supplier_id || null,
+      source_text: d.src === "nak" ? "Telegram: накладная" + (d.number ? " №" + d.number : "") : "Telegram: смета", confidence: 100, batch_no: no, batch_date: day, manual: true, shipped: false, added_at: at }));
+    if (!add.length) throw new Error("pozitsiyalar yo'q");
+    await db.update("objects", "id=eq." + o.id, { items: [...cur, ...add] });
+    const sale = add.reduce((a, i) => a + i.qty * i.price, 0);
+    try { await db.insert("audit_log", { action: "Новая поставка", entity: "object:" + (o.name || ""), detail: "поставка №" + no + ", позиций: " + add.length + ", на сумму " + C.fmt2(sale) + " · Telegram (" + (d.src === "nak" ? "накладная" : "смета") + ")", user_name: me.name, role: "telegram", ts: at }); } catch (e) {}
+    return { no, n: add.length, name: o.name || "", sale };
+  }
+  async function itemsToWh(d, me) {
+    const day = tzDate(now());
+    let n = 0, cost = 0;
+    for (const i of d.items || []) {
+      const q = Number(i.qty) || 0, c = Number(i.cost) || 0;
+      if (!(q > 0)) continue;
+      const ex = i.product_id ? await db.select("warehouse", "product_id=eq." + i.product_id + "&select=id,qty")
+        : (await db.select("warehouse", "name=eq." + encodeURIComponent(i.name) + "&select=id,qty,product_id,size")).filter((w) => !w.product_id && !String(w.size || ""));
+      if (ex[0]) await db.update("warehouse", "id=eq." + ex[0].id, { qty: C.round2((Number(ex[0].qty) || 0) + q), cost: c, price: Number(i.price) || 0, ...(i.supplier_id ? { supplier_id: i.supplier_id } : {}) });
+      else await db.insert("warehouse", { product_id: i.product_id || null, name: i.name, qty: q, cost: c, price: Number(i.price) || 0, unit: i.unit || "шт", size: "", supplier_id: i.supplier_id || null });
+      await db.insert("wh_moves", { product_id: i.product_id || null, name: i.name, qty: q, dir: "in", object_id: null, object_name: null, op_date: day, user: me.name, note: "приход (Telegram, накладная" + (d.number ? " №" + d.number : "") + ")" });
+      if (d.debt && i.supplier_id) await db.insert("finance_ops", { type: "wh_purchase", object_id: null, supplier_id: i.supplier_id, product_id: i.product_id || null, product_name: i.name, unit: i.unit || "шт", qty: q, cost_amount: C.round2(q * c), amount: C.round2(q * c), op_date: day, note: "Telegram: накладная" + (d.number ? " №" + d.number : ""), user: me.name });
+      n++; cost += q * c;
+    }
+    try { await db.insert("audit_log", { action: "Склад: приход (Telegram)", entity: "warehouse", detail: "позиций: " + n + ", себест. " + C.fmt2(cost) + (d.supplier ? ", поставщик " + d.supplier + (d.debt ? " (в долг)" : "") : ""), user_name: me.name, role: "telegram", ts: now().toISOString() }); } catch (e) {}
+    return { n, cost };
+  }
+  async function actCallback(cq, me, act, id, n2, ans, edit) {
+    const chatId = cq.message.chat.id;
+    const row = await actGet(id, chatId, me);
+    if (!row) { await edit("⌛️ Bu so'rov eskirgan yoki allaqachon bajarilgan."); return ans(); }
+    const d = row.lines.data || {}, kind = row.lines.kind;
+    const objOk = canAsk(me.acc, "obyekt") && money$(me.acc);
+    if (act === "an") { await db.del("requests", "id=eq." + row.id); await edit("❌ Bekor qilindi."); return ans(); }
+    if (act === "ao") {
+      if (!objOk) return ans("Bu bo'lim sizga ochilmagan", true);
+      const data = await loadData(["objects"]);
+      const list = data.objects.filter((o) => C.isLive(o) && o.status !== "closed").sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || ""))).slice(0, 8);
+      await actSet(row, { cands: list.map((o) => o.id) });
+      await send(chatId, OBJ_PICK_MARK + " — " + (d.items || []).length + " poz. qaysi obyektga?", { reply_markup: { inline_keyboard: [...list.map((o, i) => [{ text: objBtn(o), callback_data: "as:" + row.id + ":" + i }]), [{ text: "🔍 Qidirish", callback_data: "aq:" + row.id }]] } });
+      return ans();
+    }
+    if (act === "aq") { await send(chatId, OBJ_PICK_MARK + ": <a href=\"" + ACT_URL + row.id + "\">obyekt nomi, mijoz yoki telefonni yozing</a>", { reply_markup: { force_reply: true, input_field_placeholder: "masalan: Yunusobod" } }); return ans(); }
+    if (act === "as") {
+      if (!objOk) return ans("Bu bo'lim sizga ochilmagan", true);
+      const oid = (d.cands || [])[Number(n2)];
+      const o = oid && (await db.select("objects", "id=eq." + oid + "&select=id,name"))[0];
+      if (!o) return ans("Obyekt topilmadi", true);
+      const r2 = await actSet(row, { object_id: o.id, object_name: o.name || "", target: "obj" });
+      const v = itemsConfirm(r2, me); await edit(v.text, v.reply_markup); return ans();
+    }
+    if (act === "aw") {
+      if (!canAsk(me.acc, "sklad")) return ans("Bu bo'lim sizga ochilmagan", true);
+      const r2 = await actSet(row, { target: "wh" });
+      const v = itemsConfirm(r2, me); await send(chatId, v.text, { reply_markup: v.reply_markup }); return ans();
+    }
+    if (act === "ad") { const r2 = await actSet(row, { debt: !d.debt }); const v = itemsConfirm(r2, me); await edit(v.text, v.reply_markup); return ans(!d.debt ? "Qarzga yoziladi" : "Qarzga yozilmaydi"); }
+    if (act !== "ax") return ans();
+    if ((kind === "pay" && !objOk) || (kind === "dlv" && !canAsk(me.acc, "dostavka")) || (kind === "items" && (d.target === "wh" ? !canAsk(me.acc, "sklad") : !objOk))) return ans("Bu bo'lim sizga ochilmagan", true);
+    if (kind === "items" && d.target !== "wh" && !d.object_id) return ans("Avval obyektni tanlang", true);
+    const gone = await db.del("requests", "id=eq." + row.id);
+    if (!gone || !gone.length) return ans("Allaqachon bajarilgan", true);
+    try {
+      if (kind === "pay") {
+        const o = (await db.select("objects", "id=eq." + d.object_id + "&select=id,name"))[0];
+        if (!o) { await edit("Obyekt topilmadi (o'chirilgan)."); return ans(); }
+        const usdAmt = d.cur === "usd" ? C.round2(d.v) : C.round2(d.v / d.rate);
+        const pay = { method: d.m, cur: d.cur, usd: d.cur === "usd" ? d.v : "", uzs: d.cur === "uzs" ? d.v : "", rate: d.cur === "uzs" ? d.rate : "" };
+        const op = (await db.insert("finance_ops", { type: "client_payment", object_id: o.id, ...C.payPatch(pay, "client_payment", false), op_date: tzDate(now()), note: "Telegram (AI)", user: me.name, user_name: me.name }))[0];
+        const amt = d.cur === "uzs" ? sum(d.v) + " (" + usd(usdAmt) + ")" : usd(d.v);
+        try { await db.insert("audit_log", { action: "Telegram: оплата клиента", entity: "object:" + (o.name || ""), detail: amt.replace(/so'm/g, "сум") + " · " + PM_UZ[d.m] + " · " + me.name, user_name: me.name, role: "telegram", ts: now().toISOString() }); } catch (e) {}
+        await edit("✅ <b>To'lov kiritildi</b> · " + esc(o.name || "") + "\n" + amt + " · " + PM_UZ[d.m] + " · " + dt(tzDate(now())) + "\nKiritdi: " + esc(me.name), { inline_keyboard: [[...(op && op.id ? [{ text: "↩️ Bekor qilish", callback_data: "undo:" + op.id }] : []), { text: "⬅️ Obyektga", callback_data: "o:" + o.id }]] });
+        return ans("Kiritildi");
+      }
+      if (kind === "dlv") {
+        const n = await delivDo({ id: d.object_id }, Number(d.no) || 0, me);
+        await edit(n ? "✅ <b>Yetkazildi</b> · " + esc(d.name || "") + " — " + n + " poz. · " + esc(me.name) : "Hammasi allaqachon belgilangan.");
+        return ans(n ? "Belgilandi" : "");
+      }
+      if (kind === "items" && d.target === "wh") {
+        const r = await itemsToWh(d, me);
+        await edit("✅ <b>Sklad Thermo'ga kiritildi</b> · " + r.n + " poz. · " + usd(r.cost) + (d.supplier ? "\n" + esc(d.supplier) + (d.debt && d.supplier_id ? " — qarzga yozildi" : "") : "") + "\nKiritdi: " + esc(me.name));
+        return ans("Kiritildi");
+      }
+      if (kind === "items") {
+        const r = await itemsToObject(d, me);
+        await edit("✅ <b>" + esc(r.name) + "</b> — " + r.no + "-postavka: " + r.n + " poz. · " + usd(r.sale) + "\nKiritdi: " + esc(me.name), { inline_keyboard: [[{ text: "⬅️ Obyektga", callback_data: "o:" + d.object_id }]] });
+        return ans("Kiritildi");
+      }
+      return ans();
+    } catch (e) {
+      console.error("tg act:", e && e.message);
+      await edit("⚠️ Yozilmadi: " + esc(String((e && e.message) || e)).slice(0, 300));
+      return ans("Xato", true);
+    }
+  }
+  // ---------- письмо клиенту (ИИ) ----------
+  async function clientMsgAI(chatId, me, oid, lang, ans) {
+    if (!ai) return ans("AI ulanmagan", true);
+    const st = await aiState();
+    if (!st.ok) return ans("AI oylik limiti tugagan", true);
+    await ans("Yozyapman…");
+    typing(chatId);
+    const facts = await clientFacts(oid);
+    if (/^Obyekt topilmadi/.test(facts)) return send(chatId, "Obyekt topilmadi.");
+    const m = meterNew();
+    try {
+      const t = await ai.text({ system: "Sen Thermo Engineering kompaniyasi menejerisan. Mijozga Telegram/SMS uchun xabar yoz: xushmuomala, qisqa (3–6 jumla), aniq qarz summasi bilan, to'lovni muloyim so'rab. Faqat berilgan faktlardan foydalan. Ichki ma'lumot (tannarx, foyda, postavshik) yozma. Markdown'siz, faqat xabar matni; oxirida imzo: «Hurmat bilan, Thermo Engineering» (ruscha bo'lsa «С уважением, Thermo Engineering»).", prompt: (lang === "ru" ? "Til: rus tili." : "Til: o'zbek tili (lotin).") + "\n\n" + facts, maxTokens: 700, meter: m.fn });
+      if (t) await tg("sendMessage", { chat_id: chatId, text: cut(t.replace(/\*\*/g, ""), 4000) });
+    } catch (e) { await send(chatId, "⚠️ AI javob bermadi."); }
+    finally { await spend(m, me); }
+  }
+  // ---------- еженедельные риски и комментарий к дневному отчёту ----------
+  async function riskReport() {
+    const data = await loadData(["objects", "finance_ops"]);
+    const day = tzDate(now()), dnum = (iso) => Date.parse(String(iso).slice(0, 10) + "T12:00:00Z"), age = (iso) => Math.round((dnum(day) - dnum(iso)) / 864e5);
+    const live = data.objects.filter((o) => C.isLive(o) && o.status !== "closed");
+    const below = [];
+    live.forEach((o) => (Array.isArray(o.items) ? o.items : []).forEach((i) => { const p = Number(i && i.price) || 0, c = Number(i && i.cost) || 0, q = Number(i && i.qty) || 0; if (p > 0 && c > 0 && q > 0 && p < c - 0.004) below.push({ o, i, loss: (c - p) * q }); }));
+    below.sort((a, b) => b.loss - a.loss);
+    const late = live.map((o) => { const old = pendingItems(o).filter((i) => i.batch_date && age(i.batch_date) >= 7); return { o, n: old.length, d: old.length ? Math.max(...old.map((i) => age(i.batch_date))) : 0 }; }).filter((r) => r.n).sort((a, b) => b.d - a.d);
+    const lowM = live.map((o) => ({ o, f: C.calcObject(o, data.finance_ops) })).filter((r) => r.f.saleNet > 0.004 && r.f.margin < 10).sort((a, b) => a.f.margin - b.f.margin);
+    const stale = data.objects.filter((o) => C.isLive(o)).map((o) => {
+      const f = C.calcObject(o, data.finance_ops);
+      const last = [String(o.created_at || "").slice(0, 10), ...data.finance_ops.filter((x) => x.object_id === o.id && x.type === "client_payment" && !x.voided).map(opDay)].filter(Boolean).sort().pop() || day;
+      return { o, debt: f.clientDebt, d: age(last) };
+    }).filter((r) => r.debt > 0.004 && r.d >= 30).sort((a, b) => b.debt - a.debt);
+    if (!below.length && !late.length && !lowM.length && !stale.length) return null;
+    const L = ["⚠️ <b>Haftalik nazorat · " + dt(day) + "</b>"];
+    if (below.length) L.push("", "📉 <b>Tannarxdan arzon sotilgan</b> (" + below.length + " poz., zarar " + usd(below.reduce((a, r) => a + r.loss, 0)) + "):", ...below.slice(0, 10).map((r) => "• " + esc(r.o.name || "") + ": " + esc(cut(r.i.name, 50)) + " — sotuv " + usd(r.i.price) + " < tannarx " + usd(r.i.cost)));
+    if (late.length) L.push("", "🚚 <b>7 kundan ko'p yetkazilmagan</b>:", ...late.slice(0, 10).map((r) => "• " + esc(r.o.name || "") + " — " + r.n + " poz., " + r.d + " kun"));
+    if (lowM.length) L.push("", "💸 <b>Marjasi past (10% dan kam)</b>:", ...lowM.slice(0, 10).map((r) => "• " + esc(r.o.name || "") + " — marja " + C.round2(r.f.margin) + "%, foyda " + usd(r.f.gross)));
+    if (stale.length) L.push("", "⏳ <b>Qarz bor, 30 kundan beri to'lov yo'q</b> (" + usd(stale.reduce((a, r) => a + r.debt, 0)) + "):", ...stale.slice(0, 10).map((r) => "• " + esc(r.o.name || "") + (r.o.client ? " (" + esc(r.o.client) + ")" : "") + " — " + usd(r.debt) + " · " + r.d + " kun"));
+    return L.join("\n");
+  }
+  async function dailyComment(day) {
+    try {
+      if (!ai) return "";
+      const st = await aiState(); if (!st.ok) return "";
+      const data = await loadData(["finance_ops"]);
+      const ops = data.finance_ops.filter((x) => !x.voided);
+      const IN = ["client_payment", "company_income"], OUT = ["company_expense", "supplier_payment", "expense", "bonus_payment"];
+      const per = (d, types) => ops.filter((x) => opDay(x) === d && types.includes(x.type)).reduce((a, x) => a + (Number(x.amount) || 0), 0);
+      let si = 0, so = 0, n = 0;
+      for (let k = 1; k <= 30; k++) { const d = addDays(day, -k); if (dowOf(d) === 0) continue; si += per(d, IN); so += per(d, OUT); n++; }
+      const big = ops.filter((x) => opDay(x) === day && [...IN, ...OUT].includes(x.type) && x.category !== C.SALARY_CAT).sort((a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0)).slice(0, 3).map((x) => C.opName(x) + " " + C.round2(x.amount) + " $" + (x.category ? " (" + x.category + ")" : ""));
+      const m = meterNew();
+      const t = await ai.text({ system: "Sen kompaniya rahbari uchun kunlik hisobotga izoh yozasan. O'zbek tilida (lotin), 1–2 qisqa jumla, oddiy matn, Markdown'siz. Faqat berilgan raqamlardan foydalan, taxmin qilma. Odatdagidan sezilarli farq (±30%) yoki katta operatsiya bo'lsa — shuni ayt; hammasi odatdagidek bo'lsa — qisqa shuni ayt.",
+        prompt: "Bugun " + dt(day) + ": kirim " + C.round2(per(day, IN)) + " $, chiqim " + C.round2(per(day, OUT)) + " $.\nOxirgi 30 kun (yakshanbasiz) o'rtacha kunlik: kirim " + C.round2(si / Math.max(1, n)) + " $, chiqim " + C.round2(so / Math.max(1, n)) + " $.\nBugungi eng katta operatsiyalar: " + (big.join("; ") || "yo'q"), maxTokens: 400, meter: m.fn });
+      await spend(m, null);
+      return String(t || "").replace(/\*\*/g, "").trim().slice(0, 500);
+    } catch (e) { console.error("tg daily ai:", e && e.message); return ""; }
   }
   // ---------- заметки из личного чата ----------
   const noteKb = (id, shared) => ({ inline_keyboard: [[{ text: shared ? "🔒 Faqat menga" : "👥 Hammaga ko'rinsin", callback_data: "ns:" + id }, { text: "🗑 O'chirish", callback_data: "nd:" + id }]] });
@@ -1014,6 +1680,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     }
     const chatId = cq.message.chat.id;
     const [id1, n2] = id.split(":");
+    if (["ax", "an", "ao", "aq", "as", "aw", "ad"].includes(act)) return actCallback(cq, me, act, id1, n2, ans, edit);
     if (act === "undo") return undo(cq, id, me.name, ans, edit);
     if (act === "rd") {
       const row = (await db.select("requests", "id=eq." + id + "&mode=eq." + REMIND_MODE + "&select=id,lines"))[0];
@@ -1039,7 +1706,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       const v = delivCard(o2, d2); await edit(v.text, v.reply_markup);
       return ans(n ? "Yetkazildi: " + n + " poz." : "Hammasi allaqachon belgilangan");
     }
-    if (["pa", "pk", "pm", "px", "ox", "mx"].includes(act)) {
+    if (["pa", "pk", "pm", "px", "ox", "mx", "mxa"].includes(act)) {
       if (!canAsk(me.acc, "obyekt") || !money$(me.acc)) return ans("Bu bo'lim sizga ochilmagan", true);
       if (act === "px") { await edit("❌ Kiritilmadi."); return ans(); }
       const data = await loadData(act === "pa" || act === "pk" || act === "pm" ? ["objects"] : ["objects", "finance_ops"]);
@@ -1048,7 +1715,8 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       if (act === "pa") { await send(chatId, "💳 To'lov qo'shish · <a href=\"" + OBJ_URL + o.id + "\">" + esc(o.name || "—") + "</a>\nSummani yozing: <code>500$</code>, <code>1 200 000 so'm</code>, <code>300$ karta</code>", { reply_markup: { force_reply: true, input_field_placeholder: "masalan: 500$" } }); return ans(); }
       if (act === "pm") { const orig = cq.message.reply_to_message; const v = orig && (await payView(o, orig.text || "", Number(n2) || 0)); if (v) await edit(v.text, v.reply_markup); return ans(); }
       if (act === "pk") return payDo(cq, me, o.id, Number(n2) || 0, ans, edit);
-      if (act === "mx") { const t = await clientMsg(o, data); if (!t) return ans("Qarz yo'q", true); await send(chatId, t); return ans("Matn tayyor — nusxa oling yoki forward qiling"); }
+      if (act === "mx") { const t = await clientMsg(o, data); if (!t) return ans("Qarz yo'q", true); await send(chatId, t, ai ? { reply_markup: { inline_keyboard: [[{ text: "✨ AI: o'zbekcha", callback_data: "mxa:" + o.id + ":uz" }, { text: "✨ AI: ruscha", callback_data: "mxa:" + o.id + ":ru" }]] } } : {}); return ans("Matn tayyor — nusxa oling yoki forward qiling"); }
+      if (act === "mxa") return clientMsgAI(chatId, me, o.id, n2 === "ru" ? "ru" : "uz", ans);
       if (act === "ox") {
         if (!upload) return ans("Fayl yuborib bo'lmadi", true);
         const prods = await db.all("products", "", "id,code,name");
@@ -1106,13 +1774,23 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const rp = repCfg(cf.c && cf.c.lines);
     const day = tzDate(now()), hm = tzTime(now());
     const wantDaily = rp.daily.on && isDue(hm, rp.daily.time), wantDebts = rp.debts.on && isLastDay(day) && isDue(hm, rp.debts.time);
-    if (!wantDaily && !wantDebts) return sent;
+    const wantRisk = rp.risk.on && dowOf(day) === rp.risk.dow && isDue(hm, rp.risk.time);
+    if (hm.slice(3) < "10") await actCleanup(); // раз в час: старые неподтверждённые действия
+    if (!wantDaily && !wantDebts && !wantRisk) return sent;
     const P = await people();
     const to = (need) => P.all().filter((m) => (rp.to ? rp.to.includes(String(m.user.id)) : isFull(m.acc)) && canAsk(m.acc, need));
     const blast = async (list, text, extra = {}) => { for (const m of list) { try { await send(m.tg, text.length > 4000 ? text.slice(0, 3990) + "\n…" : text, extra); sent.push(m.tg); } catch (e) { /* человек остановил бота */ } } };
     if (wantDaily && (await markOnce("rep:daily:" + day))) {
       const list = to("kassa");
-      if (list.length) await blast(list, "📊 <b>Kunlik hisobot</b>\n\n" + (await kassa(day)) + "\n\n" + (await today(day)), { reply_markup: kcKb(day) });
+      if (list.length) {
+        const note = rp.daily.ai ? await dailyComment(day) : "";
+        await blast(list, "📊 <b>Kunlik hisobot</b>\n\n" + (await kassa(day)) + "\n\n" + (await today(day)) + (note ? "\n\n🤖 " + esc(note) : ""), { reply_markup: kcKb(day) });
+      }
+    }
+    if (wantRisk && (await markOnce("rep:risk:" + day))) {
+      const list = to("obyekt").filter((m) => fin$(m.acc));
+      const t = list.length ? await riskReport() : null;
+      if (t) await blast(list, t);
     }
     if (wantDebts && (await markOnce("rep:debts:" + day.slice(0, 7)))) {
       const list = to("qarz");

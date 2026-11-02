@@ -165,7 +165,8 @@ const NOTE_ORD_MODE = "te_noteord"; // свой порядок заметок у
 const TG_MODE = "te_tg", TG_PEND_MODE = "te_tgpend"; // Telegram-бот: разрешённые группы (руководитель) / куда бота добавили (бот)
 // Telegram ↔ аккаунт: одноразовые ссылки «Подключить» (хэш, 10 минут) и список подключённых (пишет бот)
 const TG_LINK_MODE = "te_tglink", TG_USERS_MODE = "te_tgusers";
-const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note", MIGR_MODE, NOTE_ORD_MODE, TG_MODE, TG_PEND_MODE, TG_LINK_MODE, TG_USERS_MODE];
+const TG_AI_MODE = "te_tgai"; // расход ИИ бота за месяц (пишет бот): lines = { month, usd, claude, speech, calls, sec, … }
+const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note", MIGR_MODE, NOTE_ORD_MODE, TG_MODE, TG_PEND_MODE, TG_LINK_MODE, TG_USERS_MODE, TG_AI_MODE];
 // служебная запись-словарь в requests: прочитать свежую и поменять один ключ
 async function cfgSetKey(mode, key, value) {
   const r0 = await db.from("requests").select().eq("mode", mode);
@@ -1760,6 +1761,11 @@ function clientSheetRows(obj, ops, products, f) {
 async function clientSheetBytes(obj, ops, products) {
   const rows = clientSheetRows(obj, ops, products, calcObject(obj, ops));
   const blob = styledXlsxBook([{ name: "Клиенту", rows, cols: fitTextCols(rows, CLIENT_XL_COLS, CLIENT_XL_TYPES), types: CLIENT_XL_TYPES }]);
+  return new Uint8Array(await blob.arrayBuffer());
+}
+// простая таблица → байты .xlsx (Telegram-бот: смета для импорта «Импорт позиций на объект из Excel»)
+async function tableXlsxBytes(name, table) {
+  const blob = styledXlsxBook([xlFromTable(name, table)]);
   return new Uint8Array(await blob.arrayBuffer());
 }
 function downloadBlob(filename, blob) {
@@ -9641,11 +9647,13 @@ function TelegramCard({ data, reload, toast, users = [], roles = [], uperms = {}
   };
   // отчёты: ежедневный (касса + кирим-чиқим) и в последний день месяца (долги); кому — галочки (по умолчанию все с полными правами)
   const rep0 = cfg.report || {};
-  const [rp, setRp] = useState(() => ({ dOn: !(rep0.daily && rep0.daily.on === false), dT: (rep0.daily && rep0.daily.time) || "21:30", bOn: !(rep0.debts && rep0.debts.on === false), bT: (rep0.debts && rep0.debts.time) || "10:00", bD: String((rep0.debts && rep0.debts.days) || 14), to: Array.isArray(rep0.to) ? rep0.to : null }));
+  const rk0 = rep0.risk || {};
+  const [rp, setRp] = useState(() => ({ dOn: !(rep0.daily && rep0.daily.on === false), dT: (rep0.daily && rep0.daily.time) || "21:30", dAi: !(rep0.daily && rep0.daily.ai === false), bOn: !(rep0.debts && rep0.debts.on === false), bT: (rep0.debts && rep0.debts.time) || "10:00", bD: String((rep0.debts && rep0.debts.days) || 14),
+    rOn: rk0.on !== false, rDow: String(Number(rk0.dow) >= 0 && Number(rk0.dow) <= 6 && rk0.dow !== "" && rk0.dow != null ? Number(rk0.dow) : 1), rT: rk0.time || "09:00", to: Array.isArray(rep0.to) ? rep0.to : null }));
   const linked = people.filter((u) => tgOf(u.id));
   const toSet = new Set(rp.to || linked.filter((u) => TG_FULL(accOf(u))).map((u) => u.id));
   const saveRep = async () => {
-    const report = { daily: { on: rp.dOn, time: rp.dT || "21:30" }, debts: { on: rp.bOn, time: rp.bT || "10:00", days: Math.max(1, parseInt(rp.bD, 10) || 14) }, to: rp.to };
+    const report = { daily: { on: rp.dOn, time: rp.dT || "21:30", ai: rp.dAi }, debts: { on: rp.bOn, time: rp.bT || "10:00", days: Math.max(1, parseInt(rp.bD, 10) || 14) }, risk: { on: rp.rOn, dow: Number(rp.rDow) || 0, time: rp.rT || "09:00" }, to: rp.to };
     setBusy(true); const ok = await saveCfg({ report }); setBusy(false);
     if (!ok) return;
     await logAction("Telegram: отчёты", "telegram", (rp.dOn ? "ежедневно " + report.daily.time : "без ежедневного") + " · " + (rp.bOn ? "долги в конце месяца " + report.debts.time + " (> " + report.debts.days + " дн.)" : "без долгов"));
@@ -9658,6 +9666,19 @@ function TelegramCard({ data, reload, toast, users = [], roles = [], uperms = {}
         : <button className="btn xs pri" disabled={busy} onClick={() => save([...allowed, { id: String(g.id), title: g.title || "", at: new Date().toISOString() }], "Telegram: группа разрешена", g)}>Разрешить</button>}
     </div>
   );
+  // ИИ: лимит расходов в месяц, голос ответа
+  const ai0 = cfg.ai || {};
+  const [aiv, setAiv] = useState(() => ({ limit: ai0.limit == null || ai0.limit === "" ? "5" : String(ai0.limit), voice: ai0.voice === "uz-UZ-SardorNeural" ? "uz-UZ-SardorNeural" : "uz-UZ-MadinaNeural", speak: ai0.speak === "never" ? "never" : "voice" }));
+  const useRow = reqs.find((r) => r.mode === TG_AI_MODE) || null;
+  const curMonth = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Tashkent" }).slice(0, 7);
+  const use = useRow && useRow.lines && useRow.lines.month === curMonth ? useRow.lines : null;
+  const saveAi = async () => {
+    const limit = Math.max(0, Number(String(aiv.limit).replace(",", ".")) || 0);
+    setBusy(true); const ok = await saveCfg({ ai: { limit, voice: aiv.voice, speak: aiv.speak } }); setBusy(false);
+    if (!ok) return;
+    await logAction("Telegram: ИИ", "telegram", "лимит $" + limit + "/мес · голос " + (aiv.voice === "uz-UZ-SardorNeural" ? "Sardor" : "Madina") + (aiv.speak === "never" ? " · без голосовых ответов" : ""));
+    await reload(["requests"]); toast("Настройки ИИ сохранены");
+  };
   const H = ({ children }) => <div className="tg-h">{children}</div>;
   return (
     <div className="card sect tg-card" style={{ marginTop: 16 }}>
@@ -9688,12 +9709,25 @@ function TelegramCard({ data, reload, toast, users = [], roles = [], uperms = {}
       <H>Отчёты в личный чат</H>
       <div className="tg-rep" style={{ borderTop: "1px solid var(--line)", paddingTop: 8 }}>
         <label className="row clk sm" style={{ gap: 8 }}><input type="checkbox" checked={rp.dOn} onChange={(e) => setRp({ ...rp, dOn: e.target.checked })} /> Каждый день — касса и приход/расход за день, в <input className="inp tg-dt" type="time" style={{ width: 120 }} value={rp.dT} onChange={(e) => setRp({ ...rp, dT: e.target.value })} /></label>
+        <label className="row clk sm" style={{ gap: 8, marginTop: 6, paddingLeft: 24 }}><input type="checkbox" className="tg-dai" checked={rp.dAi} onChange={(e) => setRp({ ...rp, dAi: e.target.checked })} /> с коротким комментарием ИИ</label>
+        <label className="row clk sm" style={{ gap: 8, marginTop: 6 }}><input type="checkbox" className="tg-ron" checked={rp.rOn} onChange={(e) => setRp({ ...rp, rOn: e.target.checked })} /> Раз в неделю — контроль: ниже себестоимости, не доставлено 7+ дней, низкая маржа, долги без оплаты 30+ дней —
+          <select className="inp tg-rdow" style={{ width: 130 }} value={rp.rDow} onChange={(e) => setRp({ ...rp, rDow: e.target.value })}>{["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"].map((d, i) => <option key={i} value={String(i)}>{d}</option>)}</select>
+          в <input className="inp tg-rt" type="time" style={{ width: 120 }} value={rp.rT} onChange={(e) => setRp({ ...rp, rT: e.target.value })} /></label>
         <label className="row clk sm" style={{ gap: 8, marginTop: 6 }}><input type="checkbox" checked={rp.bOn} onChange={(e) => setRp({ ...rp, bOn: e.target.checked })} /> В последний день месяца — долги клиентов старше <input className="inp tg-bd" inputMode="numeric" style={{ width: 60 }} value={rp.bD} onChange={(e) => setRp({ ...rp, bD: e.target.value.replace(/\D/g, "") })} /> дн. и долги поставщикам, в <input className="inp tg-bt" type="time" style={{ width: 120 }} value={rp.bT} onChange={(e) => setRp({ ...rp, bT: e.target.value })} /></label>
         <div className="xs mut" style={{ margin: "10px 0 4px" }}>Кому (только подключённые к Telegram):</div>
         {linked.length ? linked.map((u) => (
           <label key={u.id} className="row clk sm tg-to" style={{ gap: 8 }}><input type="checkbox" checked={toSet.has(u.id)} onChange={(e) => { const nx = new Set(toSet); if (e.target.checked) nx.add(u.id); else nx.delete(u.id); setRp({ ...rp, to: [...nx] }); }} /> {u.name || u.username} <span className="xs mut">{roleLabel(u.role)}</span></label>
         )) : <div className="sm mut">Пока никто не подключён.</div>}
         <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}><button className="btn xs pri tg-rep-save" disabled={busy} onClick={saveRep}>Сохранить отчёты</button></div>
+      </div>
+      <H>ИИ и голос</H>
+      <div className="tg-ai" style={{ borderTop: "1px solid var(--line)", paddingTop: 8 }}>
+        <div className="row sm" style={{ gap: 8 }}>Лимит в месяц, $ <input className="inp tg-ailim" inputMode="decimal" style={{ width: 80 }} value={aiv.limit} onChange={(e) => setAiv({ ...aiv, limit: e.target.value.replace(/[^\d.,]/g, "") })} />
+          <span className="xs mut tg-aiuse">в этом месяце: ${fmt2(Number(use && use.usd) || 0)}{use && Number(use.speech) > 0 ? " (голос ~$" + fmt2(Number(use.speech) || 0) + ")" : ""}{use && use.calls ? " · запросов " + use.calls : ""}{use && use.sec ? " · голосовых " + Math.round(use.sec / 60) + " мин" : ""}</span></div>
+        <div className="row sm" style={{ gap: 8, marginTop: 6 }}>Голос ответа
+          <select className="inp tg-aivoice" style={{ width: 170 }} value={aiv.voice} onChange={(e) => setAiv({ ...aiv, voice: e.target.value })}><option value="uz-UZ-MadinaNeural">Madina (женский)</option><option value="uz-UZ-SardorNeural">Sardor (мужской)</option></select>
+          <select className="inp tg-aispeak" style={{ width: 260 }} value={aiv.speak} onChange={(e) => setAiv({ ...aiv, speak: e.target.value })}><option value="voice">на голосовые — голосом (и кто включил /ovoz)</option><option value="never">только текстом</option></select></div>
+        <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}><button className="btn xs pri tg-ai-save" disabled={busy} onClick={saveAi}>Сохранить</button></div>
       </div>
       {show && (
         <Modal title={"Подключить Telegram · " + (show.u.name || show.u.username)} onClose={() => setShow(null)} w={520}>
@@ -11300,7 +11334,7 @@ function archiveBook(T, who) {
 // для ночного бэкапа на сервере (scripts/nightly) — тот же Excel-архив, что и в программе
 export { archiveBook };
 // для Telegram-бота (api/tg.js, сборка scripts/bot/build-core.mjs) — те же расчёты кассы, долгов и способов оплаты, что в программе
-export { kassaOps, kassaBal, kassaText, KASSA_KEYS, isoAddDays, calcObject, isLive, supplierStats, normFinOp, payInfo, payText, payPatch, opName, fmt, fmt2, fmtDot, round2, EXPENSE_CATEGORIES, INCOME_CATEGORIES, SALARY_CAT, stById, PAY_METHODS, LOG_HIDDEN, translit, normPName, allRoles, accessOf, userPermsOf, retailOf, PERMS, clientSheetBytes, isShipped, objBatches };
+export { kassaOps, kassaBal, kassaText, KASSA_KEYS, isoAddDays, calcObject, isLive, supplierStats, normFinOp, payInfo, payText, payPatch, opName, fmt, fmt2, fmtDot, round2, EXPENSE_CATEGORIES, INCOME_CATEGORIES, SALARY_CAT, stById, PAY_METHODS, LOG_HIDDEN, translit, normPName, allRoles, accessOf, userPermsOf, retailOf, PERMS, clientSheetBytes, isShipped, objBatches, buildMatcher, MATCH_OK, MATCH_MIN, tableXlsxBytes };
 async function downloadArchive(who) {
   const dump = await freshDump();
   const blob = archiveBook(dump.tables, who);

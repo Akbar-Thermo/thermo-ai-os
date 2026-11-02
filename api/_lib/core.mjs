@@ -1132,6 +1132,22 @@ function styledXlsxBook(sheets) {
     ...sheets.map((sh, i) => ["xl/worksheets/sheet" + (i + 1) + ".xml", xlSheetXml(sh.rows, sh.cols, sh.types, sh.opt)])
   ]);
 }
+function xlFromTable(name, table) {
+  const n = Math.max(1, ...table.map((r) => r.length));
+  const types = [], cols = [];
+  for (let c = 0; c < n; c++) {
+    const nums = table.slice(1).map((r) => r[c]).filter((x) => typeof x === "number");
+    types.push(nums.length ? nums.some((x) => !Number.isInteger(x)) ? "m" : "n" : "t");
+    cols.push(Math.min(48, Math.max(10, ...table.map((r) => String(r[c] == null ? "" : r[c]).length + 3))));
+  }
+  const rows = table.map((r, i) => {
+    if (!r.length) return { k: "blank" };
+    if (r.length === 1 && i > 0) return { k: "section", v: [r[0]] };
+    if (i === 0) return { k: "head", v: [...r, ...Array(n - r.length).fill("")] };
+    return { k: "row", v: r };
+  });
+  return { name, rows, cols, types };
+}
 var CLIENT_XL_COLS = [6, 60, 10, 7, 13, 15];
 var CLIENT_XL_TYPES = ["c", "t", "n", "c", "m", "m"];
 function clientSheetRows(obj, ops, products, f) {
@@ -1234,6 +1250,10 @@ function clientSheetRows(obj, ops, products, f) {
 async function clientSheetBytes(obj, ops, products) {
   const rows = clientSheetRows(obj, ops, products, calcObject(obj, ops));
   const blob = styledXlsxBook([{ name: "\u041A\u043B\u0438\u0435\u043D\u0442\u0443", rows, cols: fitTextCols(rows, CLIENT_XL_COLS, CLIENT_XL_TYPES), types: CLIENT_XL_TYPES }]);
+  return new Uint8Array(await blob.arrayBuffer());
+}
+async function tableXlsxBytes(name, table) {
+  const blob = styledXlsxBook([xlFromTable(name, table)]);
   return new Uint8Array(await blob.arrayBuffer());
 }
 function fitTextCols(rows, cols, types) {
@@ -1356,6 +1376,65 @@ var ProductRow = (0, import_react.memo)(function ProductRow2({ p, checked, sup, 
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn xs", onClick: () => onEdit(p), children: "\u0440\u0435\u0434." }) })
   ] });
 });
+var mtNorm = (s) => String(s == null ? "" : s).toLowerCase().replace(/ё/g, "\u0435").replace(/["'«»“”„`]/g, " ").replace(/([a-zа-я])(\d)/g, "$1 $2").replace(/(\d)([a-zа-я])/g, "$1 $2").replace(/[^a-zа-я0-9/.,]+/g, " ").replace(/(^|\s)[.,/]+|[.,/]+(\s|$)/g, " ").trim();
+var MT_LAT = { a: "\u0430", b: "\u0432", c: "\u0441", e: "\u0435", h: "\u043D", k: "\u043A", m: "\u043C", o: "\u043E", p: "\u0440", t: "\u0442", x: "\u0445", y: "\u0443" };
+var MT_STOP = /* @__PURE__ */ new Set(["\u043C\u043C", "\u0441\u043C", "\u0448\u0442", "\u043A\u0433", "\u043C\u043C.", "\u0441\u043C.", "\u0448\u0442.", "\u0434\u043B\u044F", "\u0438\u0437"]);
+var mtTokens = (s) => [...new Set(mtNorm(s).split(/\s+/).map((t) => /^[abcehkmoptxy]+$/.test(t) ? t.replace(/./g, (ch) => MT_LAT[ch]) : t).filter((t) => t && !MT_STOP.has(t) && (/\d/.test(t) || t.length >= 2)))];
+function buildMatcher(products) {
+  const toks = products.map((p) => mtTokens(p.name + " " + (p.size || "")));
+  const index = /* @__PURE__ */ new Map();
+  toks.forEach((ts, i) => ts.forEach((t) => {
+    let a = index.get(t);
+    if (!a) index.set(t, a = []);
+    a.push(i);
+  }));
+  const byCode = /* @__PURE__ */ new Map();
+  products.forEach((p, i) => {
+    [p.code, p.sku].forEach((c) => {
+      const k = String(c == null ? "" : c).trim().toLowerCase();
+      if (k && !byCode.has(k)) byCode.set(k, i);
+    });
+  });
+  const byName = /* @__PURE__ */ new Map();
+  products.forEach((p, i) => {
+    const k = mtNorm(p.name);
+    if (k && !byName.has(k)) byName.set(k, i);
+  });
+  return (name, code) => {
+    const k = String(code == null ? "" : code).trim().toLowerCase();
+    if (k && byCode.has(k)) return [{ p: products[byCode.get(k)], score: 1, by: "\u043A\u043E\u0434" }];
+    const exact = byName.get(mtNorm(name));
+    const rt = mtTokens(name);
+    if (!rt.length) return exact != null ? [{ p: products[exact], score: 1 }] : [];
+    const hits = /* @__PURE__ */ new Map();
+    rt.forEach((t) => {
+      const a = index.get(t);
+      if (!a || a.length > 3e3) return;
+      a.forEach((i) => hits.set(i, (hits.get(i) || 0) + 1));
+    });
+    const res = [];
+    hits.forEach((common, i) => {
+      const pt = toks[i];
+      let score = 2 * common / (rt.length + pt.length);
+      const nums = rt.filter((t) => /\d/.test(t));
+      if (nums.length && nums.some((n) => !pt.includes(n))) score *= 0.8;
+      res.push({ p: products[i], score });
+    });
+    if (exact != null) res.push({ p: products[exact], score: 1 });
+    res.sort((a, b) => b.score - a.score);
+    const out = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const r of res) {
+      if (seen.has(r.p.id)) continue;
+      seen.add(r.p.id);
+      out.push(r);
+      if (out.length >= 6) break;
+    }
+    return out;
+  };
+}
+var MATCH_OK = 0.75;
+var MATCH_MIN = 0.45;
 var INCOME_CATEGORIES = ["\u0418\u043D\u0432\u0435\u0441\u0442\u0438\u0446\u0438\u044F / \u0432\u043B\u043E\u0436\u0435\u043D\u0438\u0435", "\u0417\u0430\u0439\u043C", "\u0412\u043E\u0437\u0432\u0440\u0430\u0442 \u0434\u043E\u043B\u0433\u0430", "\u0410\u0440\u0435\u043D\u0434\u0430 (\u0434\u043E\u0445\u043E\u0434)", "\u041F\u0440\u043E\u0434\u0430\u0436\u0430 \u0438\u043C\u0443\u0449\u0435\u0441\u0442\u0432\u0430", "\u041F\u0440\u043E\u0447\u0435\u0435"];
 var KASSA_TYPES = ["company_income", "client_payment", "company_expense", "expense", "bonus_payment", "supplier_payment"];
 var KASSA_IN_T = ["company_income", "client_payment"];
@@ -1512,11 +1591,14 @@ export {
   INCOME_CATEGORIES,
   KASSA_KEYS,
   LOG_HIDDEN,
+  MATCH_MIN,
+  MATCH_OK,
   PAY_METHODS,
   PERMS,
   SALARY_CAT,
   accessOf,
   allRoles,
+  buildMatcher,
   calcObject,
   clientSheetBytes,
   fmt,
@@ -1539,6 +1621,7 @@ export {
   round2,
   stById,
   supplierStats,
+  tableXlsxBytes,
   translit,
   userPermsOf
 };
