@@ -76,5 +76,22 @@ case "$step" in
       else say "«Никто от имени другого» (02): выключено — запустите ВКЛЮЧИТЬ"; fi
     else say "Защита: выключена (старый режим)"; fi
     ;;
+  tgcron)
+    # расписание Telegram-бота внутри Supabase (pg_cron + pg_net): каждые 5 минут будит функцию «tg» —
+    # отчёты и напоминания приходят вовремя (расписание GitHub Actions запускается с опозданием на часы).
+    # Секрет запроса считается из TELEGRAM_BOT_TOKEN (как у вебхука Telegram); в логах не печатается.
+    if [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then echo "::warning::Нет секрета TELEGRAM_BOT_TOKEN — расписание бота не ставлю"; exit 0; fi
+    TOKEN=$(printf '%s' "$TELEGRAM_BOT_TOKEN" | tr -d '[:space:]"'"'"'`' | sed -E 's/^bot([0-9])/\1/')
+    SECRET=$(printf 'thermo-tg:%s' "$TOKEN" | sha256sum | cut -c1-48)
+    echo "::add-mask::$SECRET"
+    REF=$(printf '%s' "$URL" | sed -E 's#https://([a-z0-9]+)\.supabase\.co.*#\1#')
+    BOT="https://$REF.supabase.co/functions/v1/tg"
+    q -c "create extension if not exists pg_net" >/dev/null || { echo "::warning::pg_net не включился — Supabase → Database → Extensions → pg_net"; exit 0; }
+    q -c "create extension if not exists pg_cron" >/dev/null || { echo "::warning::pg_cron не включился — Supabase → Database → Extensions → pg_cron"; exit 0; }
+    q -c "select cron.unschedule(jobid) from cron.job where jobname = 'te-tg-tick'" >/dev/null || true
+    q -c "select cron.schedule('te-tg-tick', '*/5 * * * *', \$c\$ select net.http_post(url := '$BOT', body := '{\"te_cron\":1}'::jsonb, headers := '{\"content-type\":\"application/json\",\"x-telegram-bot-api-secret-token\":\"$SECRET\"}'::jsonb, timeout_milliseconds := 60000) \$c\$)" >/dev/null \
+      && say "Telegram-бот: расписание каждые 5 минут (pg_cron) — отчёты и напоминания вовремя" \
+      || echo "::warning::Расписание бота не поставилось (pg_cron)"
+    ;;
   *) fail "неизвестный шаг: $step" ;;
 esac

@@ -985,7 +985,9 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null }) {
     const rows = await db.select("requests", "mode=eq." + REMIND_MODE + "&select=id,lines");
     for (const r of rows) {
       if (!r.lines || !(Date.parse(r.lines.at) <= now().getTime())) continue;
-      try { await db.del("requests", "id=eq." + r.id); } catch (e) { continue; } // удалили — значит отправляем один раз
+      let gone = [];
+      try { gone = await db.del("requests", "id=eq." + r.id); } catch (e) { continue; }
+      if (!gone || !gone.length) continue; // уже отправил другой запуск
       try { await send(r.lines.tg, "⏰ <b>Eslatma</b>\n" + esc(r.lines.text || "")); sent.push(r.lines.tg); } catch (e) {}
     }
   }

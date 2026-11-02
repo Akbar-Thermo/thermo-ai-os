@@ -34,6 +34,12 @@ jobs:
       - name: Включить защиту
         if: inputs.action == 'ВКЛЮЧИТЬ'
         run: bash supabase/secure/run.sh apply
+      - name: Telegram-бот — расписание (каждые 5 минут)
+        if: inputs.action == 'ВКЛЮЧИТЬ'
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: bash supabase/secure/run.sh tgcron
       - name: Откат
         if: inputs.action == 'ОТКАТ'
         run: bash supabase/secure/run.sh rollback
