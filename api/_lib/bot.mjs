@@ -17,6 +17,7 @@ export const MEM_MODE = "te_tgmem";     // память диалога с ИИ (
 export const AIU_MODE = "te_tgai";      // расход ИИ за месяц: lines = { month, usd, claude, speech, calls, sec, chars, users, prev }
 export const QUEUE_MODE = "te_tgq";     // сообщения группы с суммой (для «что не внесено»): lines = { chat, msg, date, from, text }
 export const ACT_MODE = "te_tgact";
+export const SMETA_BOT = "@thermo_smeta_bot"; // смета — только в отдельном боте
 export const MATCH_MODE = "te_tgmatch";  // память смет: «как написали» → какой товар взяли: lines.m = { ключ: [product_id, раз, дата] }
 export const RULES_MODE = "te_tgrules";  // правила «что у кого брать»: lines.rules = [{ id, q, sup, by, at }]
 // ключ памяти: слова названия без порядка, латиница/кириллица одинаково («Труба PPR 20» = «ppr truba 20»)
@@ -228,9 +229,8 @@ export const HELP = [
   "• /eslat <code>15:00 matn</code> — eslatma (<code>ertaga 10:00 …</code>, <code>30 daqiqa …</code>, <code>05.11 9:00 …</code>)",
   "• /tekshir <code>23.10</code> — guruhda yozilgan, lekin dasturga kiritilmagan rasxod/prixodlar → belgilab, bitta tugma bilan kiritish",
   "  eski xabarlar uchun: Telegram Desktop → guruh → ⋮ → Export chat history → JSON → <code>result.json</code> faylini shu chatga yuboring",
-  "• 📷 Rasm yoki PDF yuboring — bot o'zi tushunadi: tovarlar ro'yxati → smeta + Excel; nakladnoy → obyektga yoki Sklad Thermo'ga",
-  "• /smeta — ro'yxatni matn bilan yozib smeta olish · /nakladnoy — nakladnoy rasmini yuborish",
-  "• /qoidalar — qaysi tovar qaysi postavshikdan olinadi · <code>/eslab PPR truba — Akfa dan</code> — yangi qoida",
+  "• 📷 Nakladnoy rasmi yoki PDF — o'qib, obyektga yoki Sklad Thermo'ga qo'shadi (/nakladnoy)",
+  "• 📋 Smeta — alohida botda: " + SMETA_BOT,
   "",
   "<b>AI</b> — «/» siz oddiy so'z yoki 🎙 ovozli xabar bilan:",
   "• <i>Gulnoraning qarzi qancha?</i> · <i>Nega bu oy foyda kam?</i> · <i>PPR 20 truba qaysi postavshikda arzon?</i>",
@@ -255,8 +255,6 @@ export const MENU = [
   { command: "kurs", description: "Kurs (/kurs 12 650 — yangisi)" },
   { command: "eslat", description: "Eslatma (/eslat 15:00 matn)" },
   { command: "tekshir", description: "Guruhda kiritilmagan rasxodlar (/tekshir 23.10)" },
-  { command: "smeta", description: "Ro'yxatdan smeta + Excel" },
-  { command: "qoidalar", description: "Qaysi tovar qaysi postavshikdan" },
   { command: "nakladnoy", description: "Nakladnoy rasmidan kirim" },
   { command: "yangi", description: "Suhbatni yangidan boshlash" },
   { command: "ovoz", description: "Javoblar ovoz bilan: yoqish / o'chirish" },
@@ -268,7 +266,7 @@ export const canAsk = (acc, name) => !NEED[name] || !!acc && (acc.base === "boss
 export const isFull = (acc) => !!acc && (acc.base === "boss" || C.PERMS.every((p) => acc.perms && acc.perms[p.id]));
 // кнопки с вопросами внизу личного чата — только те, что человеку открыты
 export function qkb(acc) {
-  const b = ["kassa", "bugun", "qarz", "postavshik", "obyekt", "dostavka", "narx", "sklad", "smeta", "q"].filter((n) => canAsk(acc, n)).concat("yordam").map((n) => ({ text: "/" + n }));
+  const b = ["kassa", "bugun", "qarz", "postavshik", "obyekt", "dostavka", "narx", "sklad", "q"].filter((n) => canAsk(acc, n)).concat("yordam").map((n) => ({ text: "/" + n }));
   const rows = []; for (let i = 0; i < b.length; i += 2) rows.push(b.slice(i, i + 2));
   return { keyboard: rows, resize_keyboard: true, is_persistent: true };
 }
@@ -810,6 +808,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       else if (cmd.name === "q") { if (!cmd.arg) return ask(chatId, PROMPTS.find((x) => x.name === "q")); const v = await search(cmd.arg, acc); return send(chatId, cut(v.text, 4000), { reply_to_message_id: msg.message_id, ...(v.reply_markup ? { reply_markup: v.reply_markup } : {}) }); }
       else if (cmd.name === "hafta" || cmd.name === "oy") text = await period(cmd.name, acc);
       else if (cmd.name === "kurs") text = await kurs(cmd.arg, me);
+      else if (!smeta && ["smeta", "qoida", "eslab"].includes(cmd.name)) text = "📋 Smeta, qoidalar va postavshik xotirasi — alohida botda: " + SMETA_BOT;
       else if (cmd.name === "smeta") {
         if (!cmd.arg) return send(chatId, SMETA_MARK + " ro'yxatni yuboring — matn, rasm yoki PDF.\nPostavshikni yozsangiz, o'shandan hisoblayman (masalan: <i>Water Pro dan</i>).", { reply_markup: { force_reply: true, input_field_placeholder: "truba PPR 20 — 50 m, kran 1/2 — 10 ta…" } });
         return smetaFromText(msg, me, cmd.arg);
@@ -1133,7 +1132,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     add("sklad", "warehouse_stock", "Sklad Thermo'da bor tovarlar va qoldiq.", { query: S }, ["query"]);
     add("dostavka", "deliveries", "Yetkazilmagan tovarlari bor obyektlar va ular.");
     add("dostavka", "propose_delivered", "Obyekt tovarlarini «yetkazildi» deb belgilash: tasdiqlash kartochkasi yuboriladi. batch_no — postavka raqami (bo'sh — hammasi).", { object_id: S, batch_no: { type: "integer" } }, ["object_id"]);
-    add("smeta", "make_estimate", "Tovarlar ro'yxatidan smeta: bazadagi tovarlarga moslab narx va jami summa; dasturga import qilinadigan Excel ham yuboriladi. suppliers — qaysi postavshik(lar)dan, foydalanuvchi aytgan tartibda (ixtiyoriy).", { items: { type: "array", items: { type: "object", properties: { name: S, qty: { type: "number" }, unit: S, code: S }, required: ["name"] } }, suppliers: S }, ["items"]);
+    if (smeta) add("smeta", "make_estimate", "Tovarlar ro'yxatidan smeta: bazadagi tovarlarga moslab narx va jami summa; dasturga import qilinadigan Excel ham yuboriladi. suppliers — qaysi postavshik(lar)dan, foydalanuvchi aytgan tartibda (ixtiyoriy).", { items: { type: "array", items: { type: "object", properties: { name: S, qty: { type: "number" }, unit: S, code: S }, required: ["name"] } }, suppliers: S }, ["items"]);
     add(null, "save_note", "Foydalanuvchining eslab qolinadigan gapini dasturdagi «Заметки»ga saqlash (savol bo'lmasa).", { title: S, text: S }, ["text"]);
     add(null, "set_reminder", "Belgilangan vaqtda Telegram'da eslatma yuborish.", { at: { type: "string", description: "ISO vaqt, Toshkent: 2026-11-02T15:00:00+05:00" }, text: S }, ["at", "text"]);
     return T;
@@ -1272,7 +1271,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     "- Guruhdagi kiritilmagan rasxodlar haqida so'ralsa (masalan «23-dan beri kiritilmaganlarni kirit») — unentered_expenses: bot guruh xabarlarini o'zi eslab qoladi va kartochka yuboradi. «Qila olmayman» dema.",
     "- Pul kiritish yoki «yetkazildi» belgilash so'ralsa — propose_client_payment / propose_delivered: ular tasdiqlash kartochkasini yuboradi, foydalanuvchi ✅ bosmaguncha hech narsa yozilmaydi. «Kiritildi» dema. Kompaniya rasxodi/prixodi faqat ishchi guruhda «/» bilan yoziladi (masalan /taksi 50 000).",
     "- Mijozga xabar yozish so'ralsa: client_facts dan faktlarni ol va mijozga yuborishga tayyor, xushmuomala xabar yoz (so'ralgan tilda, 3–6 jumla, oxirida «Hurmat bilan, Thermo Engineering» yoki «С уважением, Thermo Engineering»). Ichki ma'lumot (tannarx, foyda, marja, postavshik) mijoz xabariga yozilmaydi.",
-    "- Tovarlar ro'yxati berilib smeta, hisob yoki narx so'ralsa — make_estimate (Excel ham yuboriladi).",
+    "- Tovarlar ro'yxatidan smeta so'ralsa — bu alohida botda: " + SMETA_BOT + " (ro'yxatni o'sha botga yuborishni ayt). Bitta tovar narxi so'ralsa — product_prices.",
     "- Tahlil savollarida (nega foyda kam, pul qayerga ketdi, qaysi obyekt foydasiz) — compare_months, top_expenses, object_profit dan raqam olib, qisqa xulosa ber: asosiy 2–3 sabab, raqamlar bilan.",
     "- Narx solishtirishda compare_prices: eng arzonini va farqini ayt; analog so'ralsa analogs=true.",
     "- Xabar savol emas, eslab qolinadigan gap (vazifa, g'oya, ma'lumot) bo'lsa — save_note. Belgilangan vaqtda eslatish so'ralsa — set_reminder (vaqt Toshkent, +05:00).",
@@ -1325,7 +1324,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     if (rt.startsWith("💳 To'lov qo'shish")) return payReply(msg, rq, me);
     if (rt.startsWith(OBJ_PICK_MARK)) return actObjSearch(msg, rq, me);
     if (rt.startsWith(NEWOBJ_MARK)) return actNewObj(msg, rq, me);
-    if (rt.startsWith(SMETA_MARK)) return smetaFromText(msg, me, msg.text, opts.meter);
+    if (rt.startsWith(SMETA_MARK)) return smeta ? smetaFromText(msg, me, msg.text, opts.meter) : send(msg.chat.id, "📋 Smeta — alohida botda: " + SMETA_BOT);
     if (rt.startsWith(NAK_MARK)) return send(msg.chat.id, "🧾 Nakladnoyning rasmini yoki PDF faylini yuboring (shu xabarga javob qilib).");
     const pr = fromBot ? PROMPTS.find((x) => rt.startsWith(x.mark)) : null;
     if (pr) return runCommand(msg.chat.id, msg, { name: pr.name, arg: msg.text }, me);
@@ -1382,6 +1381,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   async function onDoc(msg, me, kind) {
     if (kind === "auto" && msg.document && !mediaSource(msg)) return; // Excel, Word и т. п. без подписи — не читаем
     const chatId = msg.chat.id;
+    if (!smeta && kind === "smeta") return send(chatId, "📋 Smeta — alohida botda: " + SMETA_BOT + " (rasmni o'sha botga yuboring).");
     if (kind === "auto" ? !canAsk(me.acc, "smeta") && !canNak(me.acc) : kind === "smeta" ? !canAsk(me.acc, "smeta") : !canNak(me.acc)) return send(chatId, "🔒 Bu bo'lim sizga ochilmagan.");
     if (!(ai || (reader && kind === "smeta")) || !file) return send(chatId, "⚠️ Rasm va PDF'ni o'qish uchun AI ulanmagan.");
     if (!(reader && kind === "smeta")) { const st = await aiState(); if (!st.ok) return send(chatId, LIMIT_MSG(st)); }
@@ -1400,6 +1400,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
         const j = await ai.json({ system: "Look at the image/PDF. Is it a supplier invoice (накладная, счёт-фактура, hisob-faktura: a seller's document with prices and totals) — \"invoice\"; a list of goods/materials to price (request, list, estimate, handwritten list) — \"list\"; or something else — \"other\". Reply with JSON only: {\"type\":\"invoice\"|\"list\"|\"other\"}", content: [block, { type: "text", text: cap || "?" }], maxTokens: 300, meter: m.fn });
         const t = j && j.type;
         kind = t === "invoice" && canNak(me.acc) ? "nak" : t === "list" && canAsk(me.acc, "smeta") ? "smeta" : t === "invoice" && canAsk(me.acc, "smeta") ? "smeta" : t === "list" && canNak(me.acc) ? "nak" : null;
+        if (!smeta && kind === "smeta") return send(chatId, t === "list" ? "📋 Bu tovarlar ro'yxati — smeta uchun rasmni " + SMETA_BOT + " ga yuboring." : "Rasmda nakladnoy topilmadi.", { reply_to_message_id: msg.message_id });
         if (!kind) return send(chatId, "Rasmda tovarlar ro'yxati yoki nakladnoy topilmadi.\nSmeta uchun rasm ostiga <code>/smeta</code>, nakladnoy uchun <code>/nakladnoy</code> deb yozing.", { reply_to_message_id: msg.message_id });
       }
       if (kind === "smeta") {
