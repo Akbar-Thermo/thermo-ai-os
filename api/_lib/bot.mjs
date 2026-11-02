@@ -213,8 +213,8 @@ export const HELP = [
   "• /dostavka — yetkazishlar, «✅ Yetkazildi» · /narx <i>tovar</i> — narxlar · /sklad <i>tovar</i> — ombor",
   "• /q <i>so'z</i> — hamma joydan qidirish · /hafta, /oy — davr hisoboti · /kurs — kurs (<code>/kurs 12 650</code>)",
   "• /eslat <code>15:00 matn</code> — eslatma (<code>ertaga 10:00 …</code>, <code>30 daqiqa …</code>, <code>05.11 9:00 …</code>)",
-  "• /smeta — ro'yxatdan smeta + Excel (matn, rasm yoki PDF; rasm ostiga <code>/smeta</code> deb yozing)",
-  "• /nakladnoy — nakladnoy rasmini o'qib, obyektga yoki Sklad Thermo'ga qo'shish (rasm ostiga <code>/nakladnoy</code>)",
+  "• 📷 Rasm yoki PDF yuboring — bot o'zi tushunadi: tovarlar ro'yxati → smeta + Excel; nakladnoy → obyektga yoki Sklad Thermo'ga",
+  "• /smeta — ro'yxatni matn bilan yozib smeta olish · /nakladnoy — nakladnoy rasmini yuborish",
   "",
   "<b>AI</b> — «/» siz oddiy so'z yoki 🎙 ovozli xabar bilan:",
   "• <i>Gulnoraning qarzi qancha?</i> · <i>Nega bu oy foyda kam?</i> · <i>PPR 20 truba qaysi postavshikda arzon?</i>",
@@ -446,8 +446,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     if (chat.type === "private" && !(msg.from && msg.from.is_bot)) {
       if (msg.voice || msg.audio || msg.video_note) { const me = await whoAmI(msg.from && msg.from.id); return me ? onVoice(msg, me) : send(chat.id, LOCKED); }
       if (msg.photo || msg.document) {
-        const kind = mediaKind(msg);
-        if (!kind) return;
+        const kind = mediaKind(msg); // «/smeta», «/nakladnoy» или ответ на вопрос бота; иначе ИИ сам поймёт, что на фото
         const me = await whoAmI(msg.from && msg.from.id);
         return me ? onDoc(msg, me, kind) : send(chat.id, LOCKED);
       }
@@ -1277,7 +1276,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     if (pc && pc.name === "smeta") return "smeta";
     if (pc && pc.name === "nakladnoy") return "nak";
     const rq = msg.reply_to_message, t = rq && rq.from && rq.from.is_bot ? String(rq.text || "") : "";
-    return t.startsWith(SMETA_MARK) ? "smeta" : t.startsWith(NAK_MARK) ? "nak" : null;
+    return t.startsWith(SMETA_MARK) ? "smeta" : t.startsWith(NAK_MARK) ? "nak" : "auto";
   }
   const IMG = ["image/jpeg", "image/png", "image/webp", "image/gif"];
   function mediaSource(msg) {
@@ -1293,8 +1292,9 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   const SMETA_SYS = "From the user's message or document (Uzbek/Russian), extract the list of goods for a price estimate (plumbing, heating, construction materials). Reply with JSON only: {\"suppliers\":\"supplier names the user asked to use, in the same order, or empty\",\"items\":[{\"name\":\"item name as written, with size/diameter\",\"qty\":number,\"unit\":\"шт|м|кг|компл|...\",\"code\":\"article/code if written, else empty\"}]}. qty default 1. Keep the original order, do not invent or merge items.";
   const NAK_SYS = "Extract a supplier invoice (накладная / hisob-faktura / счёт) from the image or PDF. Reply with JSON only: {\"supplier\":\"seller company name\",\"number\":\"invoice number or empty\",\"date\":\"YYYY-MM-DD or empty\",\"currency\":\"uzs\"|\"usd\",\"items\":[{\"name\":\"goods name with size\",\"qty\":number,\"unit\":\"шт|м|кг|...\",\"price\":number}],\"total\":number}. price — price per unit (without VAT if both are given). Numbers like «1 250 000,00» → 1250000. Use exactly what is written; do not invent lines.";
   async function onDoc(msg, me, kind) {
+    if (kind === "auto" && msg.document && !mediaSource(msg)) return; // Excel, Word и т. п. без подписи — не читаем
     const chatId = msg.chat.id;
-    if (kind === "smeta" ? !canAsk(me.acc, "smeta") : !canNak(me.acc)) return send(chatId, "🔒 Bu bo'lim sizga ochilmagan.");
+    if (kind === "auto" ? !canAsk(me.acc, "smeta") && !canNak(me.acc) : kind === "smeta" ? !canAsk(me.acc, "smeta") : !canNak(me.acc)) return send(chatId, "🔒 Bu bo'lim sizga ochilmagan.");
     if (!ai || !file) return send(chatId, "⚠️ Rasm va PDF'ni o'qish uchun AI ulanmagan.");
     const st = await aiState();
     if (!st.ok) return send(chatId, LIMIT_MSG(st));
@@ -1308,6 +1308,13 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const cap = String(msg.caption || "").replace(/^\/\S+\s*/, "").trim();
     const m = meterNew();
     try {
+      // без подписи-команды: накладная поставщика или список товаров — определяет ИИ
+      if (kind === "auto") {
+        const j = await ai.json({ system: "Look at the image/PDF. Is it a supplier invoice (накладная, счёт-фактура, hisob-faktura: a seller's document with prices and totals) — \"invoice\"; a list of goods/materials to price (request, list, estimate, handwritten list) — \"list\"; or something else — \"other\". Reply with JSON only: {\"type\":\"invoice\"|\"list\"|\"other\"}", content: [block, { type: "text", text: cap || "?" }], maxTokens: 300, meter: m.fn });
+        const t = j && j.type;
+        kind = t === "invoice" && canNak(me.acc) ? "nak" : t === "list" && canAsk(me.acc, "smeta") ? "smeta" : t === "invoice" && canAsk(me.acc, "smeta") ? "smeta" : t === "list" && canNak(me.acc) ? "nak" : null;
+        if (!kind) return send(chatId, "Rasmda tovarlar ro'yxati yoki nakladnoy topilmadi.\nSmeta uchun rasm ostiga <code>/smeta</code>, nakladnoy uchun <code>/nakladnoy</code> deb yozing.", { reply_to_message_id: msg.message_id });
+      }
       if (kind === "smeta") {
         const j = await ai.json({ system: SMETA_SYS, content: [block, { type: "text", text: "Ro'yxat shu faylda." + (cap ? " Izoh: " + cap : "") }], maxTokens: 6000, meter: m.fn });
         if (!j || !Array.isArray(j.items) || !j.items.length) return send(chatId, "📋 Ro'yxatni o'qib bo'lmadi — aniqroq rasm yuboring yoki matn bilan yozing.");
