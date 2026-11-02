@@ -15,6 +15,7 @@ export const RATE_MODE = "te_rate";       // курс для бота «/kurs 12
 export const LOG_MODE = "te_tg";        // скрытая запись журнала: entity «tg:<группа>:<сообщение>», detail — id операции
 export const MEM_MODE = "te_tgmem";     // память диалога с ИИ (зашифрована ключом бота): lines = { tg, user_id, at, enc, voice }
 export const AIU_MODE = "te_tgai";      // расход ИИ за месяц: lines = { month, usd, claude, speech, calls, sec, chars, users, prev }
+export const QUEUE_MODE = "te_tgq";     // сообщения группы с суммой (для «что не внесено»): lines = { chat, msg, date, from, text }
 export const ACT_MODE = "te_tgact";     // действие, предложенное ботом, ждёт «✅»: lines = { tg, user_id, kind, data, exp }
 
 // ---------- дата и числа ----------
@@ -124,6 +125,11 @@ export function guessCat(text, dir) {
 }
 // в сообщении кроме суммы должно быть слово (за что / приход): «50000» или «50 000 сум» — не спрашиваем
 const AMOUNT_WORDS = /(?<![\p{L}])(sum|so'?m|сум|сўм|som|usd|dollar|доллар|долл|у\.?е|k|к|ming|минг|тыс|тысяч|mln|млн|million|миллион)(?![\p{L}])/giu;
+// сумма явно есть: валюта / «ming», «mln» / число от 1000 — «2 ta truba 50» не считается
+export function moneyLike(text) {
+  const p = parseMoney(text); if (!p) return null;
+  return /\$/.test(text) || new RegExp(AMOUNT_WORDS.source, "iu").test(low(text)) || p.v >= 1000 ? p : null;
+}
 export const hasWords = (text) => /\p{L}{2,}/u.test(low(text).replace(AMOUNT_WORDS, " "));
 export function parseMoney(text) {
   if (!hasWords(text)) return null;
@@ -152,6 +158,7 @@ const CMDS = {
   nakladnoy: ["nakladnoy", "nakladnaya", "накладная", "накладной", "nakladnoi"],
   yangi: ["yangi", "янги", "new", "reset", "новый"],
   ovoz: ["ovoz", "овоз", "voice", "голос"],
+  tekshir: ["tekshir", "текшир", "tekshirish", "kiritilmagan", "сверка", "проверка"],
   yordam: ["yordam", "ёрдам", "help", "помощь", "start", "buyruqlar"],
   id: ["id"],
 };
@@ -213,6 +220,8 @@ export const HELP = [
   "• /dostavka — yetkazishlar, «✅ Yetkazildi» · /narx <i>tovar</i> — narxlar · /sklad <i>tovar</i> — ombor",
   "• /q <i>so'z</i> — hamma joydan qidirish · /hafta, /oy — davr hisoboti · /kurs — kurs (<code>/kurs 12 650</code>)",
   "• /eslat <code>15:00 matn</code> — eslatma (<code>ertaga 10:00 …</code>, <code>30 daqiqa …</code>, <code>05.11 9:00 …</code>)",
+  "• /tekshir <code>23.10</code> — guruhda yozilgan, lekin dasturga kiritilmagan rasxod/prixodlar → belgilab, bitta tugma bilan kiritish",
+  "  eski xabarlar uchun: Telegram Desktop → guruh → ⋮ → Export chat history → JSON → <code>result.json</code> faylini shu chatga yuboring",
   "• 📷 Rasm yoki PDF yuboring — bot o'zi tushunadi: tovarlar ro'yxati → smeta + Excel; nakladnoy → obyektga yoki Sklad Thermo'ga",
   "• /smeta — ro'yxatni matn bilan yozib smeta olish · /nakladnoy — nakladnoy rasmini yuborish",
   "",
@@ -238,6 +247,7 @@ export const MENU = [
   { command: "oy", description: "Shu oy: kirim-chiqim" },
   { command: "kurs", description: "Kurs (/kurs 12 650 — yangisi)" },
   { command: "eslat", description: "Eslatma (/eslat 15:00 matn)" },
+  { command: "tekshir", description: "Guruhda kiritilmagan rasxodlar (/tekshir 23.10)" },
   { command: "smeta", description: "Ro'yxatdan smeta + Excel" },
   { command: "nakladnoy", description: "Nakladnoy rasmidan kirim" },
   { command: "yangi", description: "Suhbatni yangidan boshlash" },
@@ -245,7 +255,7 @@ export const MENU = [
   { command: "yordam", description: "Qanday ishlatish" },
 ];
 // какой раздел программы нужен для вопроса (как вкладки в программе)
-export const NEED = { kassa: "finance", bugun: "finance", hafta: "finance", oy: "finance", kurs: "finance", qarz: "objects", postavshik: "suppliers", obyekt: "objects", narx: "products", sklad: "wh", dostavka: "delivery", smeta: "products" };
+export const NEED = { kassa: "finance", bugun: "finance", hafta: "finance", oy: "finance", kurs: "finance", qarz: "objects", postavshik: "suppliers", obyekt: "objects", narx: "products", sklad: "wh", dostavka: "delivery", smeta: "products", tekshir: "finance" };
 export const canAsk = (acc, name) => !NEED[name] || !!acc && (acc.base === "boss" || (acc.tabs || []).includes(NEED[name]));
 export const isFull = (acc) => !!acc && (acc.base === "boss" || C.PERMS.every((p) => acc.perms && acc.perms[p.id]));
 // кнопки с вопросами внизу личного чата — только те, что человеку открыты
@@ -445,6 +455,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     // личный чат: голосовые — распознаём; фото / PDF — только с подписью «/smeta», «/nakladnoy» (или ответом на вопрос бота)
     if (chat.type === "private" && !(msg.from && msg.from.is_bot)) {
       if (msg.voice || msg.audio || msg.video_note) { const me = await whoAmI(msg.from && msg.from.id); return me ? onVoice(msg, me) : send(chat.id, LOCKED); }
+      if (msg.document && /\.json$/i.test(String(msg.document.file_name || ""))) { const me = await whoAmI(msg.from && msg.from.id); return me ? onExport(msg, me) : send(chat.id, LOCKED); }
       if (msg.photo || msg.document) {
         const kind = mediaKind(msg); // «/smeta», «/nakladnoy» или ответ на вопрос бота; иначе ИИ сам поймёт, что на фото
         const me = await whoAmI(msg.from && msg.from.id);
@@ -478,6 +489,8 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     if (msg.migrate_to_chat_id) return migrate(await cfg(), chat.id, msg.migrate_to_chat_id);
     if (msg.new_chat_members || msg.left_chat_member) return; // добавление бота — в my_chat_member
     if (!text || msg.from && msg.from.is_bot) return;
+    // «/» siz xabar: javob yo'q, lekin summa bo'lsa — eslab qoladi («/tekshir» — kiritilmaganlarni topish uchun)
+    if (!text.startsWith("/")) { if (moneyLike(text)) { const cfq = await cfg(); if (isAllowed(cfq, chat.id)) await queueAdd(chat, msg, text); } return; }
     let money2 = money;
     if (!cmd && !money2 && ai && text.startsWith("/") && hasWords(slashText(text)) && slashText(text).length > 3) {
       const cf0 = await cfg();
@@ -500,6 +513,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       const me = await botMe();
       return send(chat.id, "🔒 Savollarni bot bilan shaxsiy chatda bering" + (me ? ": @" + esc(me) : "") + ".", { reply_to_message_id: msg.message_id, ...(me ? { reply_markup: { inline_keyboard: [[{ text: "Botga yozish", url: "https://t.me/" + me }]] } } : {}) });
     }
+    await queueAdd(chat, msg, text);
     const rate = money2.cur === "uzs" ? money2.rate || (await lastRate()) : 0;
     const v = view(money2, money2.dir, money2.cat, rate, nameOf(msg.from));
     return send(chat.id, v.text, { reply_to_message_id: msg.message_id, reply_markup: v.reply_markup });
@@ -748,6 +762,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
         if (!canNak(acc)) return send(chatId, "🔒 Bu bo'lim sizga ochilmagan.");
         return send(chatId, NAK_MARK + " nakladnoy rasmini yoki PDF faylini shu xabarga javob qilib yuboring.", { reply_markup: { force_reply: true, input_field_placeholder: "rasm yoki PDF" } });
       }
+      else if (cmd.name === "tekshir") return reconcile(chatId, me, parseDay(cmd.arg, addDays(day, -30)), null);
       else if (cmd.name === "yangi") { await memClear(chatId); text = "🧹 Suhbat yangidan boshlandi — oldingi gaplar unutildi."; }
       else if (cmd.name === "ovoz") {
         if (!voice || !voice.tts) text = "🔇 Ovozli javob uchun ovoz xizmati ulanmagan.";
@@ -1039,6 +1054,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     add("hafta", "period", "Shu hafta yoki shu oy: kirim, chiqim, rasxodlar turlari bo'yicha, sof natija.", { kind: { type: "string", enum: ["week", "month"] } }, ["kind"]);
     add("hafta", "compare_months", "Oxirgi oylarni solishtirish: kirim (mijozlar, kompaniya), chiqim turlari, kompaniya rasxodlari kategoriyalar bo'yicha, sof oqim" + (fin$(acc) ? ", shu oyda ochilgan obyektlar foydasi" : "") + ". «Nega bu oy foyda/kirim kam?» kabi savollar uchun.", { months: { type: "integer", description: "2–12, odatda 3" } });
     add("hafta", "top_expenses", "Davr ichidagi eng katta chiqimlar (kompaniya rasxodlari, postavshiklarga, obyekt rasxodlari, bonuslar) va kompaniya rasxodlari kategoriyalar bo'yicha.", { from: { type: "string", description: "YYYY-MM-DD (bo'sh — oy boshi)" }, to: { type: "string", description: "YYYY-MM-DD (bo'sh — bugun)" }, limit: { type: "integer" } });
+    add("tekshir", "unentered_expenses", "Ishchi guruhda yozilgan, lekin dasturga kiritilmagan rasxod/prixodlarni topadi va foydalanuvchiga belgilab kiritish kartochkasini yuboradi (✅ bilan kiritiladi). from — qaysi sanadan (YYYY-MM-DD).", { from: { type: "string" } });
     add("kurs", "rate", "Joriy dollar kursi (so'm).");
     add("qarz", "client_debts", "Mijozlar qarzi (obyektlar bo'yicha). query — obyekt/mijoz nomi bo'yicha filtr.", { query: S });
     add("postavshik", "supplier_debts", "Postavshiklarga qarzlar. query — postavshik nomi.", { query: S });
@@ -1057,7 +1073,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     add(null, "set_reminder", "Belgilangan vaqtda Telegram'da eslatma yuborish.", { at: { type: "string", description: "ISO vaqt, Toshkent: 2026-11-02T15:00:00+05:00" }, text: S }, ["at", "text"]);
     return T;
   }
-  const TOOL_NEED = { kassa: "kassa", day_flow: "bugun", period: "hafta", compare_months: "hafta", top_expenses: "hafta", rate: "kurs", client_debts: "qarz", supplier_debts: "postavshik", find_objects: "obyekt", object_details: "obyekt", object_profit: "obyekt", client_facts: "obyekt", propose_client_payment: "obyekt", product_prices: "narx", compare_prices: "narx", warehouse_stock: "sklad", deliveries: "dostavka", propose_delivered: "dostavka", make_estimate: "smeta" };
+  const TOOL_NEED = { kassa: "kassa", day_flow: "bugun", period: "hafta", compare_months: "hafta", top_expenses: "hafta", rate: "kurs", client_debts: "qarz", supplier_debts: "postavshik", find_objects: "obyekt", object_details: "obyekt", object_profit: "obyekt", client_facts: "obyekt", propose_client_payment: "obyekt", product_prices: "narx", compare_prices: "narx", warehouse_stock: "sklad", deliveries: "dostavka", propose_delivered: "dostavka", make_estimate: "smeta", unentered_expenses: "tekshir" };
   async function aiRun(name, a, me, msg, m) {
     const acc = me.acc, d0 = tzDate(now());
     const day = /^\d{4}-\d{2}-\d{2}$/.test(String(a.day || "")) ? a.day : d0;
@@ -1098,6 +1114,11 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       return list.length ? list.slice(0, 10).map((o) => "id " + o.id + "\n" + untag(delivCard(o, data).text)).join("\n\n") : "Hammasi yetkazilgan.";
     }
     if (name === "propose_delivered") return proposeDeliv(msg.chat.id, me, a);
+    if (name === "unentered_expenses") {
+      const from = /^\d{4}-\d{2}-\d{2}$/.test(String(a.from || "")) ? a.from : addDays(d0, -30);
+      const r = await reconcile(msg.chat.id, me, from, null);
+      return r && r.n ? "Kartochka yuborildi: " + r.n + " ta kiritilmagan topildi; foydalanuvchi belgilab ✅ bosadi." : "Natija foydalanuvchiga yuborildi (kiritilmagani yo'q yoki eski xabarlar uchun eksport fayli kerak).";
+    }
     if (name === "make_estimate") return (await estimate(a.items, a.suppliers || "", me, msg.chat.id, m)).summary;
     if (name === "save_note") { await saveNote({ ...msg, text: [a.title, a.text].filter(Boolean).join("\n") }, me); return "Saqlandi (foydalanuvchiga tasdiq va tugmalar yuborildi)."; }
     if (name === "set_reminder") {
@@ -1183,6 +1204,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     "- Raqam va faktlarni faqat funksiyalardan ol, o'zingdan to'qima. Kerakli funksiya yo'q bo'lsa — bu ma'lumot uning akkauntiga ochilmaganini ayt.",
     "- Dasturda summalar $ da; naqd pul so'mda ham bo'ladi.",
     "- Aniq obyekt yoki mijoz haqida so'ralsa: avval find_objects, keyin kerakli funksiya. Oldingi javoblardagi [ ] qavs ichidagi yozuvlar — sening ichki eslatmalaring (id va so'rovlar); ulardan foydalan, foydalanuvchiga ko'rsatma.",
+    "- Guruhdagi kiritilmagan rasxodlar haqida so'ralsa (masalan «23-dan beri kiritilmaganlarni kirit») — unentered_expenses: bot guruh xabarlarini o'zi eslab qoladi va kartochka yuboradi. «Qila olmayman» dema.",
     "- Pul kiritish yoki «yetkazildi» belgilash so'ralsa — propose_client_payment / propose_delivered: ular tasdiqlash kartochkasini yuboradi, foydalanuvchi ✅ bosmaguncha hech narsa yozilmaydi. «Kiritildi» dema. Kompaniya rasxodi/prixodi faqat ishchi guruhda «/» bilan yoziladi (masalan /taksi 50 000).",
     "- Mijozga xabar yozish so'ralsa: client_facts dan faktlarni ol va mijozga yuborishga tayyor, xushmuomala xabar yoz (so'ralgan tilda, 3–6 jumla, oxirida «Hurmat bilan, Thermo Engineering» yoki «С уважением, Thermo Engineering»). Ichki ma'lumot (tannarx, foyda, marja, postavshik) mijoz xabariga yozilmaydi.",
     "- Tovarlar ro'yxati berilib smeta, hisob yoki narx so'ralsa — make_estimate (Excel ham yuboriladi).",
@@ -1192,7 +1214,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     "- Javob: foydalanuvchi tilida (odatda o'zbekcha lotin), qisqa, oddiy matn — Markdown, jadval va ** belgilarsiz. Raqamlar: 1 250,50 $.",
     "- save_note, set_reminder, propose_*, make_estimate dan keyin kartochka foydalanuvchiga allaqachon yuborilgan — qo'shimcha javob yozma yoki bitta qisqa jumla yoz.",
   ].join("\n");
-  const CARD_TOOLS = ["save_note", "set_reminder", "propose_client_payment", "propose_delivered", "make_estimate"];
+  const CARD_TOOLS = ["save_note", "set_reminder", "propose_client_payment", "propose_delivered", "make_estimate", "unentered_expenses"];
   async function aiAnswer(msg, me, opts = {}) {
     const chatId = msg.chat.id;
     const own = !opts.meter, m = opts.meter || meterNew();
@@ -1560,8 +1582,15 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       const r2 = await actSet(row, { target: "wh" });
       const v = itemsConfirm(r2, me); await send(chatId, v.text, { reply_markup: v.reply_markup }); return ans();
     }
+    if (act === "bt" || act === "ba") {
+      if (!canAsk(me.acc, "kassa")) return ans("Bu bo'lim sizga ochilmagan", true);
+      const it = d.items || [], allOn = it.every((x) => x.on), k = Number(n2);
+      const r2 = await actSet(row, { items: it.map((x, i) => (act === "ba" ? { ...x, on: !allOn } : i === k ? { ...x, on: !x.on } : x)) });
+      const v = bulkView(r2); await edit(v.text, v.reply_markup); return ans();
+    }
     if (act === "ad") { const r2 = await actSet(row, { debt: !d.debt }); const v = itemsConfirm(r2, me); await edit(v.text, v.reply_markup); return ans(!d.debt ? "Qarzga yoziladi" : "Qarzga yozilmaydi"); }
     if (act !== "ax") return ans();
+    if (kind === "bulk" && !canAsk(me.acc, "kassa")) return ans("Bu bo'lim sizga ochilmagan", true);
     if ((kind === "pay" && !objOk) || (kind === "dlv" && !canAsk(me.acc, "dostavka")) || (kind === "items" && (d.target === "wh" ? !canAsk(me.acc, "sklad") : !objOk))) return ans("Bu bo'lim sizga ochilmagan", true);
     if (kind === "items" && d.target !== "wh" && !d.object_id) return ans("Avval obyektni tanlang", true);
     const gone = await db.del("requests", "id=eq." + row.id);
@@ -1577,6 +1606,12 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
         try { await db.insert("audit_log", { action: "Telegram: оплата клиента", entity: "object:" + (o.name || ""), detail: amt.replace(/so'm/g, "сум") + " · " + PM_UZ[d.m] + " · " + me.name, user_name: me.name, role: "telegram", ts: now().toISOString() }); } catch (e) {}
         await edit("✅ <b>To'lov kiritildi</b> · " + esc(o.name || "") + "\n" + amt + " · " + PM_UZ[d.m] + " · " + dt(tzDate(now())) + "\nKiritdi: " + esc(me.name), { inline_keyboard: [[...(op && op.id ? [{ text: "↩️ Bekor qilish", callback_data: "undo:" + op.id }] : []), { text: "⬅️ Obyektga", callback_data: "o:" + o.id }]] });
         return ans("Kiritildi");
+      }
+      if (kind === "bulk") {
+        await ans("Kiritilyapti…");
+        const r = await bulkDo(d, me);
+        await edit("✅ <b>Dasturga kiritildi: " + r.n + " ta</b> · " + usd(r.tot) + (r.skip ? "\n(" + r.skip + " tasi o'tkazildi: allaqachon kiritilgan yoki kurs topilmadi)" : "") + "\nKiritdi: " + esc(me.name) + "\nBekor qilish — dasturda (Финансы).");
+        return;
       }
       if (kind === "dlv") {
         const n = await delivDo({ id: d.object_id }, Number(d.no) || 0, me);
@@ -1599,6 +1634,112 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       await edit("⚠️ Yozilmadi: " + esc(String((e && e.message) || e)).slice(0, 300));
       return ans("Xato", true);
     }
+  }
+  // ---------- «что из группы не внесено»: сообщения с суммой → сверка с программой → ✅ всё сразу ----------
+  async function queueAdd(chat, msg, text) {
+    try { await db.insert("requests", { mode: QUEUE_MODE, source: "config", lines: { chat: String(chat.id), title: chat.title || "", msg: msg.message_id, date: tgDate(msg.date), from: nameOf(msg.from), text: String(text).slice(0, 500) } }); }
+    catch (e) { console.error("tg queue:", e && e.message); }
+  }
+  // курс на дату: последняя операция программы с курсом не позже этого дня
+  async function rateAt(day) {
+    try { const r = (await db.select("finance_ops", "select=pay_rate,op_date&pay_rate=gte.1000&op_date=lte." + day + "&order=op_date.desc&limit=1"))[0]; if (r && Number(r.pay_rate) >= 1000) return Number(r.pay_rate); } catch (e) {}
+    return lastRate();
+  }
+  const BULK_MAX = 40;
+  // list: [{ chat, msg, date, from, text }] → кандидаты, которых нет в программе
+  async function unentered(list) {
+    const [done, ops] = await Promise.all([db.all("audit_log", "action=eq." + LOG_MODE, "entity"), db.all("finance_ops", "type=in.(company_expense,company_income)", "type,op_date,amount,pay_amount,pay_currency")]);
+    const keys = new Set(done.map((r) => r.entity));
+    const seen = new Set(), out = [];
+    for (const q of list) {
+      const key = "tg:" + q.chat + ":" + q.msg;
+      if (keys.has(key) || seen.has(key)) continue;
+      seen.add(key);
+      const p = moneyLike(slashText(q.text));
+      if (!p) continue;
+      const type = p.dir === "i" ? "company_income" : "company_expense";
+      const dup = ops.some((x) => x.type === type && String(x.op_date || "").slice(0, 10) === q.date && (p.cur === "uzs" ? String(x.pay_currency).toUpperCase() === "UZS" && Math.abs((Number(x.pay_amount) || 0) - p.v) < 1 : Math.abs((Number(x.amount) || 0) - p.v) < 0.01));
+      out.push({ chat: q.chat, msg: q.msg, date: q.date, from: q.from || "", text: String(q.text).slice(0, 300), v: p.v, cur: p.cur, dir: p.dir, cat: p.cat, method: p.method, rate: p.rate || 0, dup, on: !dup });
+    }
+    return out.sort((a, b) => a.date.localeCompare(b.date) || Number(a.msg) - Number(b.msg));
+  }
+  function bulkView(row) {
+    const d = row.lines.data || {}, it = d.items || [];
+    const on = it.filter((x) => x.on);
+    const L = ["📋 <b>Dasturga kiritilmagan</b> · " + dt(d.from) + " dan · " + it.length + " ta" + (d.more ? " (birinchi " + it.length + " tasi)" : ""), "",
+      ...it.map((x, i) => (i + 1) + ". " + (x.on ? "☑" : "☐") + " " + dt(x.date).slice(0, 5) + " · " + (x.dir === "i" ? "💰" : "💸") + " " + esc(((x.dir === "i" ? incCats() : expCats())[x.cat]) || "") + " · <b>" + (x.cur === "uzs" ? sum(x.v) : usd(x.v)) + "</b> · " + esc(cut(x.from, 20)) + " — <i>" + esc(cut(slashText(x.text).replace(/\s+/g, " "), 60)) + "</i>" + (x.dup ? " ⚠️ <i>dasturda o'xshashi bor</i>" : "")),
+      "", "Belgilangan: <b>" + on.length + " ta</b>" + (on.length ? " — ✅ bosilsa, dasturga (Финансы) kiradi" : "")];
+    let text = L.join("\n"); if (text.length > 4000) text = text.slice(0, 3900) + "\n…";
+    const nums = it.map((x, i) => ({ text: (x.on ? "☑" : "☐") + (i + 1), callback_data: "bt:" + row.id + ":" + i }));
+    const kb = []; for (let i = 0; i < nums.length; i += 5) kb.push(nums.slice(i, i + 5));
+    kb.push([{ text: on.length === it.length ? "☐ Hammasini olib tashlash" : "☑ Hammasini belgilash", callback_data: "ba:" + row.id }]);
+    kb.push([...(on.length ? [{ text: "✅ Kiritish (" + on.length + ")", callback_data: "ax:" + row.id }] : []), { text: "❌ Yopish", callback_data: "an:" + row.id }]);
+    return { text, reply_markup: { inline_keyboard: kb } };
+  }
+  // from — с какого дня; list — из выгрузки чата (JSON) или null — из запомненных ботом сообщений
+  async function reconcile(chatId, me, from, list) {
+    if (!canAsk(me.acc, "kassa")) return send(chatId, "🔒 Bu bo'lim sizga ochilmagan.");
+    typing(chatId);
+    let src = list;
+    let first = null;
+    if (!src) {
+      const rows = await db.select("requests", "mode=eq." + QUEUE_MODE + "&select=id,lines");
+      src = rows.map((r) => r.lines || {}).filter((l) => l.date >= from);
+      const all = rows.map((r) => (r.lines || {}).date).filter(Boolean).sort();
+      first = all[0] || tzDate(now());
+    } else src = src.filter((l) => l.date >= from);
+    const cand = await unentered(src);
+    const note = !list && first > from ? "\n\nℹ️ Bot guruh xabarlarini " + dt(first) + " dan beri eslab qoladi. Undan oldingilari uchun: Telegram Desktop → guruh → ⋮ → <b>Export chat history</b> → faqat matn, format <b>JSON</b> → <code>result.json</code> faylini shu chatga yuboring." : "";
+    if (!cand.length) return send(chatId, "✅ " + dt(from) + " dan beri guruhda yozilgan rasxod/prixodlarning hammasi dasturda." + note);
+    const items = cand.slice(0, BULK_MAX);
+    const row = await actNew(chatId, me, "bulk", { from, items, more: cand.length > BULK_MAX });
+    const v = bulkView(row);
+    await send(chatId, v.text, { reply_markup: v.reply_markup });
+    if (note) await send(chatId, note.trim());
+    return { n: cand.length, on: items.filter((x) => x.on).length };
+  }
+  async function bulkDo(d, me) {
+    const keysDone = new Set((await db.all("audit_log", "action=eq." + LOG_MODE, "entity")).map((r) => r.entity));
+    let n = 0, tot = 0, skip = 0;
+    for (const x of (d.items || []).filter((i) => i.on)) {
+      const key = "tg:" + x.chat + ":" + x.msg;
+      if (keysDone.has(key)) { skip++; continue; }
+      const rate = x.cur === "uzs" ? x.rate || (await rateAt(x.date)) : 0;
+      const pl = plan(x, x.dir, x.cat, rate);
+      if (!(pl.usdAmt > 0)) { skip++; continue; }
+      const type = x.dir === "i" ? "company_income" : "company_expense";
+      const note = slashText(x.text).replace(/\s+/g, " ").trim().slice(0, 200) + " (Telegram: " + (x.from || "—") + ", " + dt(x.date) + ")";
+      const op = (await db.insert("finance_ops", { type, object_id: null, category: pl.cat, ...(type === "company_expense" ? { size: pl.cat } : {}), ...C.payPatch(pl.pay, type, false), op_date: x.date, note, user: me.name, user_name: me.name }))[0];
+      const ts = now().toISOString();
+      try { await db.insert("audit_log", [{ action: x.dir === "i" ? "Telegram: приход" : "Telegram: расход", entity: "company:" + pl.cat, detail: (x.cur === "uzs" ? C.fmtDot(x.v) + " сум (" + C.fmt2(pl.usdAmt) + " $)" : C.fmt2(x.v) + " $") + " · " + note + " · сверка, внёс " + me.name, user_name: me.name, role: "telegram", ts }, { action: LOG_MODE, entity: key, detail: (op && op.id) || "", user_name: me.name, role: "telegram", ts }]); } catch (e) {}
+      try { await db.del("requests", "mode=eq." + QUEUE_MODE + "&lines->>chat=eq." + encodeURIComponent(x.chat) + "&lines->>msg=eq." + x.msg); } catch (e) {}
+      n++; tot += pl.usdAmt;
+    }
+    return { n, tot, skip };
+  }
+  // выгрузка истории группы из Telegram Desktop (result.json) — старые сообщения, которых бот не видел
+  async function onExport(msg, me) {
+    const chatId = msg.chat.id;
+    if (!canAsk(me.acc, "kassa")) return send(chatId, "🔒 Bu bo'lim sizga ochilmagan.");
+    if (!file) return send(chatId, "⚠️ Faylni olib bo'lmadi.");
+    if ((Number(msg.document.file_size) || 0) > 20e6) return send(chatId, "Fayl 20 MB dan katta. Eksportda faqat matnni tanlang (rasm, video — yo'q) yoki davrni qisqartiring.");
+    typing(chatId);
+    let j;
+    try { const f = await file(msg.document.file_id); j = JSON.parse(new TextDecoder().decode(f.bytes)); } catch (e) { return send(chatId, "⚠️ Faylni o'qib bo'lmadi. Telegram Desktop → Export chat history → format: <b>JSON</b> bo'lsin."); }
+    if (!j || !Array.isArray(j.messages)) return send(chatId, "⚠️ Bu Telegram eksporti emas (result.json kerak).");
+    const cf = await cfg();
+    const eid = String(j.id || "");
+    const g = cf.allowed.find((x) => [eid, "-" + eid, "-100" + eid].includes(String(x.id))) || cf.allowed.find((x) => x.title && j.name && low(x.title) === low(j.name)) || (cf.allowed.length === 1 ? cf.allowed[0] : null);
+    if (!g) return send(chatId, "⚠️ Bu guruh dasturda ruxsat etilgan guruhlar ro'yxatida yo'q (Аккаунты → Telegram-бот).");
+    const botId = String(memKey || "").split(":")[0];
+    const txt = (t) => (Array.isArray(t) ? t.map((x) => (typeof x === "string" ? x : (x && x.text) || "")).join("") : String(t || ""));
+    const list = j.messages.filter((m) => m && m.type === "message" && m.id && m.date && !(botId && m.from_id === "user" + botId))
+      .map((m) => ({ chat: String(g.id), msg: m.id, date: String(m.date).slice(0, 10), from: String(m.from || ""), text: txt(m.text).trim() }))
+      .filter((m) => m.text && !/^[💸💰✅❌↩️⛔🔒ℹ📊🧾⚠🗓]/u.test(m.text));
+    const cap = String(msg.caption || "").trim();
+    const dates = list.map((m) => m.date).sort();
+    const from = cap ? parseDay(cap, tzDate(now())) : dates[0] || tzDate(now());
+    return reconcile(chatId, me, from, list);
   }
   // ---------- письмо клиенту (ИИ) ----------
   async function clientMsgAI(chatId, me, oid, lang, ans) {
@@ -1687,7 +1828,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     }
     const chatId = cq.message.chat.id;
     const [id1, n2] = id.split(":");
-    if (["ax", "an", "ao", "aq", "as", "aw", "ad"].includes(act)) return actCallback(cq, me, act, id1, n2, ans, edit);
+    if (["ax", "an", "ao", "aq", "as", "aw", "ad", "bt", "ba"].includes(act)) return actCallback(cq, me, act, id1, n2, ans, edit);
     if (act === "undo") return undo(cq, id, me.name, ans, edit);
     if (act === "rd") {
       const row = (await db.select("requests", "id=eq." + id + "&mode=eq." + REMIND_MODE + "&select=id,lines"))[0];
@@ -1783,6 +1924,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const wantDaily = rp.daily.on && isDue(hm, rp.daily.time), wantDebts = rp.debts.on && isLastDay(day) && isDue(hm, rp.debts.time);
     const wantRisk = rp.risk.on && dowOf(day) === rp.risk.dow && isDue(hm, rp.risk.time);
     if (hm.slice(3) < "10") await actCleanup(); // раз в час: старые неподтверждённые действия
+    if (hm === "03:00" || hm === "03:05") { try { await db.del("requests", "mode=eq." + QUEUE_MODE + "&created_at=lt." + new Date(now().getTime() - 120 * 864e5).toISOString()); } catch (e) {} }
     if (!wantDaily && !wantDebts && !wantRisk) return sent;
     const P = await people();
     const to = (need) => P.all().filter((m) => (rp.to ? rp.to.includes(String(m.user.id)) : isFull(m.acc)) && canAsk(m.acc, need));
