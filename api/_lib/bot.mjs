@@ -288,7 +288,7 @@ export function repCfg(lines) {
 // ИИ (Аккаунты → Telegram-бот): лимит расходов в месяц ($), голос ответа, когда отвечать голосом
 export function aiCfg(lines) {
   const a = (lines && lines.ai) || {}, lim = Number(a.limit);
-  return { limit: a.limit == null || a.limit === "" || !(lim >= 0) ? 5 : lim, voice: VOICES[a.voice] ? a.voice : DEF_VOICE, speak: a.speak === "never" ? "never" : "voice" };
+  return { limit: a.limit == null || a.limit === "" || !(lim >= 0) ? 10 : lim, voice: VOICES[a.voice] ? a.voice : DEF_VOICE, speak: a.speak === "never" ? "never" : "voice" };
 }
 export const dowOf = (iso) => new Date(iso + "T12:00:00Z").getUTCDay();
 export const tzTime = (d = new Date()) => d.toLocaleTimeString("sv-SE", { timeZone: "Asia/Tashkent", hour: "2-digit", minute: "2-digit" });

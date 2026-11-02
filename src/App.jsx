@@ -9668,7 +9668,7 @@ function TelegramCard({ data, reload, toast, users = [], roles = [], uperms = {}
   );
   // ИИ: лимит расходов в месяц, голос ответа
   const ai0 = cfg.ai || {};
-  const [aiv, setAiv] = useState(() => ({ limit: ai0.limit == null || ai0.limit === "" ? "5" : String(ai0.limit), voice: ai0.voice === "uz-UZ-SardorNeural" ? "uz-UZ-SardorNeural" : "uz-UZ-MadinaNeural", speak: ai0.speak === "never" ? "never" : "voice" }));
+  const [aiv, setAiv] = useState(() => ({ limit: ai0.limit == null || ai0.limit === "" ? "10" : String(ai0.limit), voice: ai0.voice === "uz-UZ-SardorNeural" ? "uz-UZ-SardorNeural" : "uz-UZ-MadinaNeural", speak: ai0.speak === "never" ? "never" : "voice" }));
   const useRow = reqs.find((r) => r.mode === TG_AI_MODE) || null;
   const curMonth = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Tashkent" }).slice(0, 7);
   const use = useRow && useRow.lines && useRow.lines.month === curMonth ? useRow.lines : null;
