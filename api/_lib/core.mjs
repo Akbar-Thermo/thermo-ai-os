@@ -862,6 +862,13 @@ var marginK = (pct) => {
   return p >= 99.99 ? 1 : 1 / (1 - p / 100);
 };
 var retailOf = (p) => Number(p && p.price) > 0 ? Number(p.price) : Math.round((Number(p && p.cost) || 0) * marginK(DEFAULT_MARKUP) * 100) / 100;
+var dt = (s) => {
+  if (!s) return "\u2014";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s));
+  if (m) return m[3] + "." + m[2] + "." + m[1];
+  const d = new Date(s);
+  return isNaN(d) ? String(s) : d.toLocaleDateString("ru-RU");
+};
 var localIso = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 var isShipped = (i) => !!i && i.shipped !== false;
 var OLD_STATUSES = [
@@ -991,6 +998,14 @@ function supplierStats(sup, objects, ops, whMoves) {
   const balance = round2(purchases - returns - paid);
   return { purchases: round2(purchases), paid: round2(paid), returns: round2(returns), balance, debt: Math.max(0, balance) };
 }
+var objBatches = (obj) => {
+  const map = {};
+  (obj.items || []).forEach((i) => {
+    const no = i.batch_no || 1;
+    (map[no] = map[no] || { no, date: i.batch_date || obj.created_at, items: [] }).items.push(i);
+  });
+  return Object.values(map).sort((a, b) => String(a.date || "").slice(0, 10).localeCompare(String(b.date || "").slice(0, 10)) || a.no - b.no);
+};
 var XL_CRC = (() => {
   const t = new Uint32Array(256);
   for (let n = 0; n < 256; n++) {
@@ -1000,11 +1015,237 @@ var XL_CRC = (() => {
   }
   return t;
 })();
+var xlCrc32 = (b) => {
+  let c = 4294967295;
+  for (let i = 0; i < b.length; i++) c = XL_CRC[(c ^ b[i]) & 255] ^ c >>> 8;
+  return (c ^ 4294967295) >>> 0;
+};
+function xlZip(files) {
+  const enc = new TextEncoder(), parts = [], central = [];
+  let off = 0;
+  const u16 = (v) => [v & 255, v >>> 8 & 255], u32 = (v) => [v & 255, v >>> 8 & 255, v >>> 16 & 255, v >>> 24 & 255];
+  files.forEach(([name, text]) => {
+    const nb = enc.encode(name), data = enc.encode(text), crc = xlCrc32(data);
+    const head = [...u32(67324752), ...u16(20), ...u16(2048), ...u16(0), ...u16(0), ...u16(33), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nb.length), ...u16(0)];
+    parts.push(new Uint8Array(head), nb, data);
+    central.push([...u32(33639248), ...u16(20), ...u16(20), ...u16(2048), ...u16(0), ...u16(0), ...u16(33), ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nb.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(off)], nb);
+    off += head.length + nb.length + data.length;
+  });
+  let cenLen = 0;
+  central.forEach((c, i) => {
+    const a = i % 2 === 0 ? new Uint8Array(c) : c;
+    parts.push(a);
+    cenLen += a.length;
+  });
+  parts.push(new Uint8Array([...u32(101010256), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(cenLen), ...u32(off), ...u16(0)]));
+  return new Blob(parts, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+var xlEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "");
+var xlCol = (c) => {
+  let s = "";
+  c++;
+  while (c) {
+    const m = (c - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    c = Math.floor((c - 1) / 26);
+  }
+  return s;
+};
 var XL_FONT = (name, b, sz, red, it) => "<font>" + (b ? "<b/>" : "") + (it ? "<i/>" : "") + '<sz val="' + sz + '"/>' + (red === 2 ? '<color rgb="FF00873C"/>' : red ? '<color rgb="FFC00000"/>' : "") + '<name val="' + name + '"/></font>';
 var XL_TXT = "Baskerville Old Face";
 var XL_NUM = "Times New Roman";
 var XL_XF = (num, font, border, extra = "", align = "") => '<xf numFmtId="' + num + '" fontId="' + font + '" fillId="' + (extra === "fill" ? 2 : 0) + '" borderId="' + border + '" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">' + (align ? "<alignment " + align + "/>" : "") + "</xf>";
 var XL_STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0.00"/><numFmt numFmtId="165" formatCode="#,##0.00##"/></numFmts><fonts count="12">' + XL_FONT(XL_TXT, 0, 11) + XL_FONT(XL_TXT, 1, 11) + XL_FONT(XL_TXT, 1, 14) + XL_FONT(XL_NUM, 0, 11) + XL_FONT(XL_NUM, 1, 11) + XL_FONT(XL_TXT, 0, 11, 1) + XL_FONT(XL_NUM, 0, 11, 1) + XL_FONT(XL_TXT, 1, 11, 1) + XL_FONT(XL_NUM, 1, 11, 1) + XL_FONT(XL_NUM, 0, 11, 2) + XL_FONT(XL_NUM, 1, 11, 2) + XL_FONT(XL_TXT, 1, 28, 1, 1) + '</fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE8E8E8"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color auto="1"/></left><right style="thin"><color auto="1"/></right><top style="thin"><color auto="1"/></top><bottom style="thin"><color auto="1"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="32">' + XL_XF(0, 0, 0) + XL_XF(0, 2, 0) + XL_XF(0, 1, 0) + XL_XF(0, 1, 1, "fill", 'horizontal="center" vertical="center" wrapText="1"') + XL_XF(0, 0, 1, "", 'vertical="center" wrapText="1"') + XL_XF(0, 0, 1, "", 'horizontal="center" vertical="center"') + XL_XF(164, 0, 1, "", 'vertical="center"') + XL_XF(0, 1, 1, "", 'horizontal="right" vertical="center"') + XL_XF(164, 1, 1) + XL_XF(0, 0, 1, "", 'horizontal="center" vertical="center"') + XL_XF(0, 3, 1, "", 'horizontal="center" vertical="center"') + XL_XF(164, 3, 1, "", 'vertical="center"') + XL_XF(164, 4, 1) + XL_XF(0, 3, 1, "", 'horizontal="center" vertical="center"') + XL_XF(0, 3, 0) + XL_XF(0, 5, 1, "", 'vertical="center" wrapText="1"') + XL_XF(0, 6, 1, "", 'horizontal="center" vertical="center"') + XL_XF(164, 6, 1, "", 'vertical="center"') + XL_XF(0, 7, 1, "", 'horizontal="right" vertical="center"') + XL_XF(164, 8, 1) + XL_XF(0, 6, 1, "", 'horizontal="center" vertical="center"') + XL_XF(0, 5, 1, "", 'horizontal="center" vertical="center"') + XL_XF(0, 7, 0) + XL_XF(164, 9, 1, "", 'vertical="center"') + XL_XF(164, 10, 1) + XL_XF(0, 11, 1, "", 'horizontal="center" vertical="center"') + XL_XF(165, 3, 1, "", 'vertical="center"') + XL_XF(165, 6, 1, "", 'vertical="center"') + XL_XF(0, 1, 0, "", 'horizontal="center" vertical="center"') + XL_XF(164, 4, 0, "", 'vertical="center"') + XL_XF(0, 7, 0, "", 'horizontal="center" vertical="center"') + XL_XF(164, 8, 0, "", 'vertical="center"') + '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+var XL_NUMSTYLE = { 0: 14, 5: 10, 6: 11, 8: 12, 9: 13 };
+var XL_REDSTYLE = { 2: 22, 4: 15, 9: 21, 7: 18, 10: 16, 11: 17, 12: 19, 13: 20, 26: 27, 28: 30, 29: 31 };
+var XL_GREENSTYLE = { 11: 23, 12: 24 };
+var XL_BRAND = "Thermo Engineering";
+function xlSheetXml(rows0, cols, types, opt = {}) {
+  const rows = [{ k: "brand" }, ...rows0];
+  const n = cols.length, merges = [];
+  const green = new Set(opt.green || []);
+  let red = false;
+  const cell = (r, c, v, s) => {
+    const ref = xlCol(c) + (r + 1);
+    const isNum = typeof v === "number" && isFinite(v);
+    if ((isNum || typeof v === "string" && /^[\d\s.,:\/+\-−]+$/.test(v) && /\d/.test(v)) && XL_NUMSTYLE[s] != null) s = XL_NUMSTYLE[s];
+    if (red && XL_REDSTYLE[s] != null) s = XL_REDSTYLE[s];
+    else if (!red && green.has(c) && XL_GREENSTYLE[s] != null && !(typeof v === "number" && v < 0)) s = XL_GREENSTYLE[s];
+    if (v === "" || v == null) return '<c r="' + ref + '" s="' + s + '"/>';
+    if (isNum) return '<c r="' + ref + '" s="' + s + '"><v>' + v + "</v></c>";
+    return '<c r="' + ref + '" s="' + s + '" t="inlineStr"><is><t xml:space="preserve">' + xlEsc(v) + "</t></is></c>";
+  };
+  const body = rows.map((row, r) => {
+    const k = row.k, v = row.v || [];
+    red = !!row.red;
+    let cs = "";
+    if (k === "title" || k === "info" || k === "section") {
+      cs = cell(r, 0, v[0], k === "title" ? 1 : k === "section" ? 2 : 0);
+      if (n > 1) merges.push("A" + (r + 1) + ":" + xlCol(n - 1) + (r + 1));
+    } else if (k === "brand") {
+      cs = cols.map((_, c) => cell(r, c, c === 0 ? XL_BRAND : "", 25)).join("");
+      if (n > 1) merges.push("A" + (r + 1) + ":" + xlCol(n - 1) + (r + 1));
+    } else if (k === "head") {
+      cs = v.map((x, c) => cell(r, c, x, 3)).join("");
+    } else if (k === "row") {
+      cs = cols.map((_, c) => {
+        const t = types[c] || "t";
+        return cell(r, c, v[c], t === "p" ? typeof v[c] === "number" ? 26 : 6 : t === "m" ? 6 : t === "n" ? 5 : t === "c" ? 9 : 4);
+      }).join("");
+    } else if (k === "sum") {
+      cs = cols.map((_, c) => {
+        const x = v[c];
+        return cell(r, c, x, typeof x === "number" ? 8 : x ? 7 : 0);
+      }).join("");
+    } else if (k === "ftotal") {
+      cs = cell(r, 0, "", 0) + cell(r, 1, "", 0);
+      for (let c = 2; c < n - 1; c++) cs += cell(r, c, c === 2 ? v[0] : "", 28);
+      cs += cell(r, n - 1, v[1], 29);
+      if (n > 4) merges.push("C" + (r + 1) + ":" + xlCol(n - 2) + (r + 1));
+    } else if (k === "total") {
+      cs = "";
+      for (let c = 0; c < n - 1; c++) cs += cell(r, c, c === 0 ? v[0] : "", 7);
+      cs += cell(r, n - 1, v[1], 8);
+      if (n > 2) merges.push("A" + (r + 1) + ":" + xlCol(n - 2) + (r + 1));
+    }
+    if ((k === "head" || k === "row" || k === "sum") && row.merge) row.merge.forEach(([a, b]) => merges.push(xlCol(a) + (r + 1) + ":" + xlCol(b) + (r + 1)));
+    const ht = k === "brand" ? ' ht="42" customHeight="1"' : k === "title" ? ' ht="22" customHeight="1"' : "";
+    return '<row r="' + (r + 1) + '"' + ht + ">" + cs + "</row>";
+  }).join("");
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><cols>' + cols.map((w, i) => '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>').join("") + "</cols><sheetData>" + body + "</sheetData>" + (merges.length ? '<mergeCells count="' + merges.length + '">' + merges.map((m) => '<mergeCell ref="' + m + '"/>').join("") + "</mergeCells>" : "") + '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/></worksheet>';
+}
+function styledXlsxBook(sheets) {
+  const used = /* @__PURE__ */ new Set();
+  const names = sheets.map((sh, i) => {
+    let nm = String(sh.name || "\u041B\u0438\u0441\u0442" + (i + 1)).replace(/[\\/?*[\]:]/g, " ").slice(0, 31);
+    while (used.has(nm)) nm = nm.slice(0, 28) + " " + (i + 1);
+    used.add(nm);
+    return xlEsc(nm);
+  });
+  const ids = sheets.map((_, i) => i + 1);
+  return xlZip([
+    ["[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' + ids.map((i) => '<Override PartName="/xl/worksheets/sheet' + i + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join("") + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
+    ["_rels/.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+    ["xl/workbook.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + ids.map((i) => '<sheet name="' + names[i - 1] + '" sheetId="' + i + '" r:id="rId' + i + '"/>').join("") + "</sheets></workbook>"],
+    ["xl/_rels/workbook.xml.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + ids.map((i) => '<Relationship Id="rId' + i + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + i + '.xml"/>').join("") + '<Relationship Id="rId' + (sheets.length + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'],
+    ["xl/styles.xml", XL_STYLES],
+    ...sheets.map((sh, i) => ["xl/worksheets/sheet" + (i + 1) + ".xml", xlSheetXml(sh.rows, sh.cols, sh.types, sh.opt)])
+  ]);
+}
+var CLIENT_XL_COLS = [6, 60, 10, 7, 13, 15];
+var CLIENT_XL_TYPES = ["c", "t", "n", "c", "m", "m"];
+function clientSheetRows(obj, ops, products, f) {
+  const batches = objBatches(obj);
+  const rows = [
+    { k: "title", v: ["\u041E\u0411\u042A\u0415\u041A\u0422: " + (obj.name || "")] },
+    { k: "section", v: ["\u041A\u043B\u0438\u0435\u043D\u0442: " + (obj.client || "\u2014") + (obj.phone ? " \xB7 \u0442\u0435\u043B. " + obj.phone : "")] },
+    { k: "section", v: ["\u0414\u0430\u0442\u0430: " + (/* @__PURE__ */ new Date()).toLocaleDateString("ru-RU")] },
+    { k: "blank" }
+  ];
+  const tot = (label, v, red) => rows.push({ k: "total", v: [label, v], red });
+  const HEAD = ["\u2116", "\u041D\u0430\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u0435", "\u041A\u043E\u043B-\u0432\u043E", "\u0415\u0434.", "\u0426\u0435\u043D\u0430", "\u0421\u0443\u043C\u043C\u0430"];
+  const opDay = (o) => String(o.op_date || o.created_at || "").slice(0, 10);
+  const byDay = (list) => {
+    const g = [];
+    list.slice().sort((a, b) => opDay(a).localeCompare(opDay(b))).forEach((o) => {
+      const last = g[g.length - 1];
+      if (last && last.day === opDay(o)) last.ops.push(o);
+      else g.push({ day: opDay(o), ops: [o] });
+    });
+    return g;
+  };
+  let n = 1;
+  const inProdOrder = (list) => itemsInCatalogOrder(list, products);
+  const ev = [];
+  batches.forEach((b) => ev.push({ day: String(b.date || "").slice(0, 10), kind: 0, b }));
+  byDay(ops.filter((o) => o.type === "return" && !o.voided)).forEach((g) => ev.push({ ...g, kind: 1 }));
+  byDay(ops.filter((o) => o.type === "client_payment" && !o.voided && payLive(obj))).forEach((g) => ev.push({ ...g, kind: 2 }));
+  byDay(ops.filter((o) => o.type === "expense" && !o.voided && o.size === EXP_CLIENT)).forEach((g) => ev.push({ ...g, kind: 1.5 }));
+  ev.sort((a, b) => a.day.localeCompare(b.day) || a.kind - b.kind || (a.b && b.b ? a.b.no - b.b.no : 0));
+  ev.forEach((e) => {
+    if (e.kind === 0) {
+      const b = e.b;
+      rows.push({ k: "section", v: ["\u041F\u041E\u0421\u0422\u0410\u0412\u041A\u0410 \u2116" + b.no + " \u043E\u0442 " + dt(b.date)] });
+      rows.push({ k: "head", v: HEAD });
+      let sub = 0;
+      n = 1;
+      inProdOrder(b.items).forEach((i) => {
+        const s = Math.round(i.qty * i.price * 100) / 100;
+        sub += s;
+        rows.push({ k: "row", v: [n++, i.name, i.qty, i.unit, i.price, s] });
+      });
+      tot("\u0418\u0442\u043E\u0433\u043E \u043F\u043E \u043F\u043E\u0441\u0442\u0430\u0432\u043A\u0435 \u2116" + b.no, Math.round(sub * 100) / 100);
+      rows.push({ k: "blank" });
+    } else if (e.kind === 1) {
+      rows.push({ k: "section", v: ["\u0414\u0430\u0442\u0430: " + dt(e.day)], red: true });
+      rows.push({ k: "blank" });
+      rows.push({ k: "section", v: ["\u0412\u041E\u0417\u0412\u0420\u0410\u0422\u042B"], red: true });
+      rows.push({ k: "head", v: HEAD });
+      let sub = 0;
+      e.ops.forEach((o, k) => {
+        const amt = round2(o.amount || 0), q = Number(o.qty) || 0;
+        sub += amt;
+        rows.push({ k: "row", v: [k + 1, o.product_name || "", q || "", o.unit || "", q ? round2(amt / q) : "", amt], red: true });
+      });
+      tot("\u0418\u0442\u043E\u0433\u043E \u0432\u043E\u0437\u0432\u0440\u0430\u0442\u043E\u0432 :", -round2(sub), true);
+      rows.push({ k: "blank" });
+    } else if (e.kind === 1.5) {
+      rows.push({ k: "section", v: ["\u0414\u0430\u0442\u0430: " + dt(e.day)] });
+      rows.push({ k: "blank" });
+      rows.push({ k: "section", v: ["\u0414\u041E\u041F. \u0420\u0410\u0421\u0425\u041E\u0414\u042B"] });
+      rows.push({ k: "head", v: ["\u2116", "\u041D\u0430\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u0435", "", "", "", "\u0421\u0443\u043C\u043C\u0430"] });
+      let sub = 0;
+      e.ops.forEach((o, k) => {
+        const amt = round2(o.amount || 0);
+        sub += amt;
+        rows.push({ k: "row", v: [k + 1, o.note || "\u0414\u043E\u043F. \u0440\u0430\u0441\u0445\u043E\u0434", "", "", "", amt] });
+      });
+      tot("\u0418\u0442\u043E\u0433\u043E \u0434\u043E\u043F. \u0440\u0430\u0441\u0445\u043E\u0434\u043E\u0432 :", round2(sub));
+      rows.push({ k: "blank" });
+    } else {
+      rows.push({ k: "section", v: ["\u0414\u0430\u0442\u0430: " + dt(e.day)] });
+      rows.push({ k: "blank" });
+      rows.push({ k: "section", v: ["\u041E\u041F\u041B\u0410\u0422\u042B"] });
+      rows.push({ k: "head", v: ["\u2116", "\u0421\u043F\u043E\u0441\u043E\u0431 \u043E\u043F\u043B\u0430\u0442\u044B", "\u041A\u043E\u043B-\u0432\u043E", "\u041A\u0443\u0440\u0441", "", "\u0421\u0443\u043C\u043C\u0430"], merge: [[3, 4]] });
+      let sub = 0;
+      e.ops.forEach((o, k) => {
+        const i = payInfo(o), usd = round2(o.amount || 0);
+        sub += usd;
+        const uzs = i.cur === "uzs";
+        const label0 = i.id ? payMethod(i.id).cur === null ? i.label + (uzs ? " \u0441\u0443\u043C" : " $") : i.label : "\u041E\u043F\u043B\u0430\u0442\u0430";
+        const label = isRefund(o) ? "\u0412\u043E\u0437\u0432\u0440\u0430\u0442 \u0434\u0435\u043D\u0435\u0433 \u043A\u043B\u0438\u0435\u043D\u0442\u0443 (" + label0 + ")" : label0;
+        rows.push({ k: "row", v: [k + 1, label, uzs ? i.uzs ? fmt(i.uzs) : "" : usd, uzs ? i.rate ? fmt(i.rate) : "" : 1, "", usd], merge: [[3, 4]] });
+      });
+      tot("\u0418\u0442\u043E\u0433\u043E \u043E\u043F\u043B\u0430\u0447\u0435\u043D\u043E :", round2(sub));
+      rows.push({ k: "blank" });
+    }
+  });
+  const ftot = (label, v, red) => rows.push({ k: "ftotal", v: [label, v], red });
+  ftot("\u0421\u0443\u043C\u043C\u0430 \u0432\u044B\u0434\u0430\u043D\u043D\u043E\u0433\u043E \u0442\u043E\u0432\u0430\u0440\u0430:", round2(f.sale));
+  if (f.discount) ftot("\u0421\u043A\u0438\u0434\u043A\u0430:", -round2(f.discount));
+  if (f.retSale) ftot("\u0412\u043E\u0437\u0432\u0440\u0430\u0442\u044B:", -round2(f.retSale), true);
+  if (f.clientExp) ftot("\u0414\u043E\u043F. \u0440\u0430\u0441\u0445\u043E\u0434\u044B:", round2(f.clientExp));
+  ftot("\u041E\u043F\u043B\u0430\u0447\u0435\u043D\u043E:", round2(f.paidClient));
+  const debt = round2(f.saleNet - f.paidClient);
+  if (debt > 4e-3) ftot("\u0414\u043E\u043B\u0433 \u043A\u043B\u0438\u0435\u043D\u0442\u0430 :", debt, true);
+  else ftot("\u0411\u0430\u043B\u0430\u043D\u0441 :", Math.abs(debt));
+  return rows;
+}
+async function clientSheetBytes(obj, ops, products) {
+  const rows = clientSheetRows(obj, ops, products, calcObject(obj, ops));
+  const blob = styledXlsxBook([{ name: "\u041A\u043B\u0438\u0435\u043D\u0442\u0443", rows, cols: fitTextCols(rows, CLIENT_XL_COLS, CLIENT_XL_TYPES), types: CLIENT_XL_TYPES }]);
+  return new Uint8Array(await blob.arrayBuffer());
+}
+function fitTextCols(rows, cols, types) {
+  return cols.map((w, c) => {
+    if ((types || [])[c] !== "t") return w;
+    let m = 0;
+    rows.forEach((r) => {
+      if (r.k === "row" && r.v && r.v[c] != null) m = Math.max(m, String(r.v[c]).length);
+    });
+    return Math.max(w, Math.min(110, Math.ceil(m * 1.22) + 3));
+  });
+}
 var PeopleCtx = (0, import_react.createContext)({ people: [], addPerson: () => {
 } });
 var PAY_METHODS = [
@@ -1082,8 +1323,20 @@ function translit(str) {
   });
 }
 var PROD_ROW_H = 46;
+var isSeqCode = (c) => /^\d+$/.test(String(c == null ? "" : c).trim());
 var normPName = (x) => String(x || "").toLowerCase().replace(/ё/g, "\u0435").replace(/[«»"“”„'`]/g, "").replace(/\s+/g, " ").trim();
 var RU_COLLATOR = new Intl.Collator("ru");
+var productOrder = (a, b) => {
+  const na = isSeqCode(a.code), nb = isSeqCode(b.code);
+  if (na && nb) return Number(a.code) - Number(b.code);
+  if (na !== nb) return na ? -1 : 1;
+  const da = String(a.created_at || ""), db_ = String(b.created_at || "");
+  return (da < db_ ? -1 : da > db_ ? 1 : 0) || RU_COLLATOR.compare(String(a.name || ""), String(b.name || ""));
+};
+function itemsInCatalogOrder(items, products) {
+  const pmap = new Map((products || []).map((p) => [p.id, p]));
+  return (items || []).map((i, k) => ({ i, k, b: Number(i.batch_no) || 1, p: i.product_id ? pmap.get(i.product_id) : null })).sort((a, b) => a.b - b.b || (a.p && b.p ? productOrder(a.p, b.p) || a.k - b.k : a.p ? -1 : b.p ? 1 : a.k - b.k)).map((x) => x.i);
+}
 var ProductRow = (0, import_react.memo)(function ProductRow2({ p, checked, sup, onToggle, onEdit }) {
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { style: { height: PROD_ROW_H, opacity: p.status === "archive" ? 0.45 : 1, background: checked ? "var(--acc-tint)" : "none" }, children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", { type: "checkbox", checked, onChange: () => onToggle(p.id) }) }),
@@ -1265,16 +1518,19 @@ export {
   accessOf,
   allRoles,
   calcObject,
+  clientSheetBytes,
   fmt,
   fmt2,
   fmtDot,
   isLive,
+  isShipped,
   isoAddDays,
   kassaBal,
   kassaOps,
   kassaText,
   normFinOp,
   normPName,
+  objBatches,
   opName,
   payInfo,
   payPatch,

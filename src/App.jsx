@@ -1657,6 +1657,111 @@ function xlFromTable(name, table) {
   });
   return { name, rows, cols, types };
 }
+/* Excel для клиента (объект → «Excel клиенту»; Telegram-бот → «📄 Excel»): строки генератора таблиц */
+const CLIENT_XL_COLS = [6, 60, 10, 7, 13, 15], CLIENT_XL_TYPES = ["c", "t", "n", "c", "m", "m"];
+function clientSheetRows(obj, ops, products, f) {
+  const batches = objBatches(obj);
+  const rows = [
+    { k: "title", v: ["ОБЪЕКТ: " + (obj.name || "")] },
+    { k: "section", v: ["Клиент: " + (obj.client || "—") + (obj.phone ? " · тел. " + obj.phone : "")] },
+    { k: "section", v: ["Дата: " + new Date().toLocaleDateString("ru-RU")] },
+    { k: "blank" },
+  ];
+  const tot = (label, v, red) => rows.push({ k: "total", v: [label, v], red });
+  const HEAD = ["№", "Наименование", "Кол-во", "Ед.", "Цена", "Сумма"];
+  const opDay = (o) => String(o.op_date || o.created_at || "").slice(0, 10);
+  const byDay = (list) => {
+    const g = [];
+    list.slice().sort((a, b) => opDay(a).localeCompare(opDay(b))).forEach((o) => {
+      const last = g[g.length - 1];
+      if (last && last.day === opDay(o)) last.ops.push(o); else g.push({ day: opDay(o), ops: [o] });
+    });
+    return g;
+  };
+  let n = 1;
+  // внутри поставки — в том же порядке, что в «Товары» (по коду 1, 2, 3…); позиции не из базы — в конце, как были
+  const inProdOrder = (list) => itemsInCatalogOrder(list, products);
+  // всё по датам, как шло на объекте: поставка → возвраты → оплаты (в один день — в этом порядке).
+  // У объекта с несколькими поставками оплаты и возвраты стоят между поставками, в свой день.
+  const ev = [];
+  batches.forEach((b) => ev.push({ day: String(b.date || "").slice(0, 10), kind: 0, b }));
+  byDay(ops.filter((o) => o.type === "return" && !o.voided)).forEach((g) => ev.push({ ...g, kind: 1 }));
+  byDay(ops.filter((o) => o.type === "client_payment" && !o.voided && payLive(obj))).forEach((g) => ev.push({ ...g, kind: 2 }));
+  byDay(ops.filter((o) => o.type === "expense" && !o.voided && o.size === EXP_CLIENT)).forEach((g) => ev.push({ ...g, kind: 1.5 }));
+  ev.sort((a, b) => a.day.localeCompare(b.day) || a.kind - b.kind || (a.b && b.b ? a.b.no - b.b.no : 0));
+  ev.forEach((e) => {
+    if (e.kind === 0) {
+      const b = e.b;
+      rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
+      rows.push({ k: "head", v: HEAD });
+      let sub = 0;
+      n = 1; // нумерация в каждой поставке — заново с 1
+      inProdOrder(b.items).forEach((i) => {
+        const s = Math.round(i.qty * i.price * 100) / 100; sub += s;
+        rows.push({ k: "row", v: [n++, i.name, i.qty, i.unit, i.price, s] });
+      });
+      tot("Итого по поставке №" + b.no, Math.round(sub * 100) / 100);
+      rows.push({ k: "blank" });
+    } else if (e.kind === 1) {
+      rows.push({ k: "section", v: ["Дата: " + dt(e.day)], red: true });
+      rows.push({ k: "blank" });
+      rows.push({ k: "section", v: ["ВОЗВРАТЫ"], red: true });
+      rows.push({ k: "head", v: HEAD });
+      let sub = 0;
+      e.ops.forEach((o, k) => {
+        const amt = round2(o.amount || 0), q = Number(o.qty) || 0; sub += amt;
+        rows.push({ k: "row", v: [k + 1, o.product_name || "", q || "", o.unit || "", q ? round2(amt / q) : "", amt], red: true });
+      });
+      tot("Итого возвратов :", -round2(sub), true);
+      rows.push({ k: "blank" });
+    } else if (e.kind === 1.5) {
+      // доп. расходы, которые оплачивает клиент (при записи ответили «Да — в Excel клиенту»)
+      rows.push({ k: "section", v: ["Дата: " + dt(e.day)] });
+      rows.push({ k: "blank" });
+      rows.push({ k: "section", v: ["ДОП. РАСХОДЫ"] });
+      rows.push({ k: "head", v: ["№", "Наименование", "", "", "", "Сумма"] });
+      let sub = 0;
+      e.ops.forEach((o, k) => { const amt = round2(o.amount || 0); sub += amt; rows.push({ k: "row", v: [k + 1, o.note || "Доп. расход", "", "", "", amt] }); });
+      tot("Итого доп. расходов :", round2(sub));
+      rows.push({ k: "blank" });
+    } else {
+      // оплаты клиента: способ, сумма в валюте оплаты, курс, сумма в $
+      rows.push({ k: "section", v: ["Дата: " + dt(e.day)] });
+      rows.push({ k: "blank" });
+      rows.push({ k: "section", v: ["ОПЛАТЫ"] });
+      rows.push({ k: "head", v: ["№", "Способ оплаты", "Кол-во", "Курс", "", "Сумма"], merge: [[3, 4]] });
+      let sub = 0;
+      e.ops.forEach((o, k) => {
+        const i = payInfo(o), usd = round2(o.amount || 0); sub += usd;
+        const uzs = i.cur === "uzs";
+        const label0 = i.id ? (payMethod(i.id).cur === null ? i.label + (uzs ? " сум" : " $") : i.label) : "Оплата";
+        const label = isRefund(o) ? "Возврат денег клиенту (" + label0 + ")" : label0;
+        rows.push({ k: "row", v: [k + 1, label, uzs ? (i.uzs ? fmt(i.uzs) : "") : usd, uzs ? (i.rate ? fmt(i.rate) : "") : 1, "", usd], merge: [[3, 4]] });
+      });
+      tot("Итого оплачено :", round2(sub));
+      rows.push({ k: "blank" });
+    }
+  });
+  // итоговый блок — как в утверждённом шаблоне: без рамок, подпись по центру, сумма справа
+  const ftot = (label, v, red) => rows.push({ k: "ftotal", v: [label, v], red });
+  ftot("Сумма выданного товара:", round2(f.sale));
+  if (f.discount) ftot("Скидка:", -round2(f.discount));
+  if (f.retSale) ftot("Возвраты:", -round2(f.retSale), true);
+  if (f.clientExp) ftot("Доп. расходы:", round2(f.clientExp));
+  ftot("Оплачено:", round2(f.paidClient));
+  // по просьбе руководителя: клиент должен — «Долг клиента :» (красным) и сколько осталось оплатить;
+  // «Баланс :» — только когда клиент переплатил (сумма переплаты) или всё ровно (0)
+  const debt = round2(f.saleNet - f.paidClient);
+  if (debt > 0.004) ftot("Долг клиента :", debt, true);
+  else ftot("Баланс :", Math.abs(debt));
+  return rows;
+}
+// .xlsx клиенту — байты файла (для бота: отправить в Telegram)
+async function clientSheetBytes(obj, ops, products) {
+  const rows = clientSheetRows(obj, ops, products, calcObject(obj, ops));
+  const blob = styledXlsxBook([{ name: "Клиенту", rows, cols: fitTextCols(rows, CLIENT_XL_COLS, CLIENT_XL_TYPES), types: CLIENT_XL_TYPES }]);
+  return new Uint8Array(await blob.arrayBuffer());
+}
 function downloadBlob(filename, blob) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click(); a.remove();
@@ -5526,99 +5631,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
      клиент должен — «Долг клиента :» (красным, остаток к оплате); переплатил — «Баланс :» (сумма переплаты); ровно — «Баланс : 0»
      шрифты: текст — Baskerville Old Face, числа — Times New Roman */
   const exportClient = () => {
-    const rows = [
-      { k: "title", v: ["ОБЪЕКТ: " + (obj.name || "")] },
-      { k: "section", v: ["Клиент: " + (obj.client || "—") + (obj.phone ? " · тел. " + obj.phone : "")] },
-      { k: "section", v: ["Дата: " + new Date().toLocaleDateString("ru-RU")] },
-      { k: "blank" },
-    ];
-    const tot = (label, v, red) => rows.push({ k: "total", v: [label, v], red });
-    const HEAD = ["№", "Наименование", "Кол-во", "Ед.", "Цена", "Сумма"];
-    const opDay = (o) => String(o.op_date || o.created_at || "").slice(0, 10);
-    const byDay = (list) => {
-      const g = [];
-      list.slice().sort((a, b) => opDay(a).localeCompare(opDay(b))).forEach((o) => {
-        const last = g[g.length - 1];
-        if (last && last.day === opDay(o)) last.ops.push(o); else g.push({ day: opDay(o), ops: [o] });
-      });
-      return g;
-    };
-    let n = 1;
-    // внутри поставки — в том же порядке, что в «Товары» (по коду 1, 2, 3…); позиции не из базы — в конце, как были
-    const inProdOrder = (list) => itemsInCatalogOrder(list, products);
-    // всё по датам, как шло на объекте: поставка → возвраты → оплаты (в один день — в этом порядке).
-    // У объекта с несколькими поставками оплаты и возвраты стоят между поставками, в свой день.
-    const ev = [];
-    batches.forEach((b) => ev.push({ day: String(b.date || "").slice(0, 10), kind: 0, b }));
-    byDay(ops.filter((o) => o.type === "return" && !o.voided)).forEach((g) => ev.push({ ...g, kind: 1 }));
-    byDay(ops.filter((o) => o.type === "client_payment" && !o.voided && payLive(obj))).forEach((g) => ev.push({ ...g, kind: 2 }));
-    byDay(ops.filter((o) => o.type === "expense" && !o.voided && o.size === EXP_CLIENT)).forEach((g) => ev.push({ ...g, kind: 1.5 }));
-    ev.sort((a, b) => a.day.localeCompare(b.day) || a.kind - b.kind || (a.b && b.b ? a.b.no - b.b.no : 0));
-    ev.forEach((e) => {
-      if (e.kind === 0) {
-        const b = e.b;
-        rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
-        rows.push({ k: "head", v: HEAD });
-        let sub = 0;
-        n = 1; // нумерация в каждой поставке — заново с 1
-        inProdOrder(b.items).forEach((i) => {
-          const s = Math.round(i.qty * i.price * 100) / 100; sub += s;
-          rows.push({ k: "row", v: [n++, i.name, i.qty, i.unit, i.price, s] });
-        });
-        tot("Итого по поставке №" + b.no, Math.round(sub * 100) / 100);
-        rows.push({ k: "blank" });
-      } else if (e.kind === 1) {
-        rows.push({ k: "section", v: ["Дата: " + dt(e.day)], red: true });
-        rows.push({ k: "blank" });
-        rows.push({ k: "section", v: ["ВОЗВРАТЫ"], red: true });
-        rows.push({ k: "head", v: HEAD });
-        let sub = 0;
-        e.ops.forEach((o, k) => {
-          const amt = round2(o.amount || 0), q = Number(o.qty) || 0; sub += amt;
-          rows.push({ k: "row", v: [k + 1, o.product_name || "", q || "", o.unit || "", q ? round2(amt / q) : "", amt], red: true });
-        });
-        tot("Итого возвратов :", -round2(sub), true);
-        rows.push({ k: "blank" });
-      } else if (e.kind === 1.5) {
-        // доп. расходы, которые оплачивает клиент (при записи ответили «Да — в Excel клиенту»)
-        rows.push({ k: "section", v: ["Дата: " + dt(e.day)] });
-        rows.push({ k: "blank" });
-        rows.push({ k: "section", v: ["ДОП. РАСХОДЫ"] });
-        rows.push({ k: "head", v: ["№", "Наименование", "", "", "", "Сумма"] });
-        let sub = 0;
-        e.ops.forEach((o, k) => { const amt = round2(o.amount || 0); sub += amt; rows.push({ k: "row", v: [k + 1, o.note || "Доп. расход", "", "", "", amt] }); });
-        tot("Итого доп. расходов :", round2(sub));
-        rows.push({ k: "blank" });
-      } else {
-        // оплаты клиента: способ, сумма в валюте оплаты, курс, сумма в $
-        rows.push({ k: "section", v: ["Дата: " + dt(e.day)] });
-        rows.push({ k: "blank" });
-        rows.push({ k: "section", v: ["ОПЛАТЫ"] });
-        rows.push({ k: "head", v: ["№", "Способ оплаты", "Кол-во", "Курс", "", "Сумма"], merge: [[3, 4]] });
-        let sub = 0;
-        e.ops.forEach((o, k) => {
-          const i = payInfo(o), usd = round2(o.amount || 0); sub += usd;
-          const uzs = i.cur === "uzs";
-          const label0 = i.id ? (payMethod(i.id).cur === null ? i.label + (uzs ? " сум" : " $") : i.label) : "Оплата";
-          const label = isRefund(o) ? "Возврат денег клиенту (" + label0 + ")" : label0;
-          rows.push({ k: "row", v: [k + 1, label, uzs ? (i.uzs ? fmt(i.uzs) : "") : usd, uzs ? (i.rate ? fmt(i.rate) : "") : 1, "", usd], merge: [[3, 4]] });
-        });
-        tot("Итого оплачено :", round2(sub));
-        rows.push({ k: "blank" });
-      }
-    });
-    // итоговый блок — как в утверждённом шаблоне: без рамок, подпись по центру, сумма справа
-    const ftot = (label, v, red) => rows.push({ k: "ftotal", v: [label, v], red });
-    ftot("Сумма выданного товара:", round2(f.sale));
-    if (f.discount) ftot("Скидка:", -round2(f.discount));
-    if (f.retSale) ftot("Возвраты:", -round2(f.retSale), true);
-    if (f.clientExp) ftot("Доп. расходы:", round2(f.clientExp));
-    ftot("Оплачено:", round2(f.paidClient));
-    // по просьбе руководителя: клиент должен — «Долг клиента :» (красным) и сколько осталось оплатить;
-    // «Баланс :» — только когда клиент переплатил (сумма переплаты) или всё ровно (0)
-    const debt = round2(f.saleNet - f.paidClient);
-    if (debt > 0.004) ftot("Долг клиента :", debt, true);
-    else ftot("Баланс :", Math.abs(debt));
+    const rows = clientSheetRows(obj, ops, products, f);
     const r = downloadStyledXLSX("Объект_" + safe(obj.name) + ".xlsx", "Клиенту", rows, [6, 60, 10, 7, 13, 15], ["c", "t", "n", "c", "m", "m"]);
     toast(r === "xlsx" ? "Excel для клиента скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
@@ -9628,11 +9641,11 @@ function TelegramCard({ data, reload, toast, users = [], roles = [], uperms = {}
   };
   // отчёты: ежедневный (касса + кирим-чиқим) и в последний день месяца (долги); кому — галочки (по умолчанию все с полными правами)
   const rep0 = cfg.report || {};
-  const [rp, setRp] = useState(() => ({ dOn: !(rep0.daily && rep0.daily.on === false), dT: (rep0.daily && rep0.daily.time) || "21:30", bOn: !(rep0.debts && rep0.debts.on === false), bT: (rep0.debts && rep0.debts.time) || "10:00", bD: String((rep0.debts && rep0.debts.days) || 14), to: Array.isArray(rep0.to) ? rep0.to : null }));
+  const [rp, setRp] = useState(() => ({ dOn: !(rep0.daily && rep0.daily.on === false), dT: (rep0.daily && rep0.daily.time) || "21:30", bOn: !(rep0.debts && rep0.debts.on === false), bT: (rep0.debts && rep0.debts.time) || "10:00", bD: String((rep0.debts && rep0.debts.days) || 14), sOn: !(rep0.stock && rep0.stock.on === false), sT: (rep0.stock && rep0.stock.time) || "10:00", to: Array.isArray(rep0.to) ? rep0.to : null }));
   const linked = people.filter((u) => tgOf(u.id));
   const toSet = new Set(rp.to || linked.filter((u) => TG_FULL(accOf(u))).map((u) => u.id));
   const saveRep = async () => {
-    const report = { daily: { on: rp.dOn, time: rp.dT || "21:30" }, debts: { on: rp.bOn, time: rp.bT || "10:00", days: Math.max(1, parseInt(rp.bD, 10) || 14) }, to: rp.to };
+    const report = { daily: { on: rp.dOn, time: rp.dT || "21:30" }, debts: { on: rp.bOn, time: rp.bT || "10:00", days: Math.max(1, parseInt(rp.bD, 10) || 14) }, stock: { on: rp.sOn, time: rp.sT || "10:00" }, to: rp.to };
     setBusy(true); const ok = await saveCfg({ report }); setBusy(false);
     if (!ok) return;
     await logAction("Telegram: отчёты", "telegram", (rp.dOn ? "ежедневно " + report.daily.time : "без ежедневного") + " · " + (rp.bOn ? "долги в конце месяца " + report.debts.time + " (> " + report.debts.days + " дн.)" : "без долгов"));
@@ -9676,6 +9689,7 @@ function TelegramCard({ data, reload, toast, users = [], roles = [], uperms = {}
       <div className="tg-rep" style={{ borderTop: "1px solid var(--line)", paddingTop: 8 }}>
         <label className="row clk sm" style={{ gap: 8 }}><input type="checkbox" checked={rp.dOn} onChange={(e) => setRp({ ...rp, dOn: e.target.checked })} /> Каждый день — касса и приход/расход за день, в <input className="inp tg-dt" type="time" style={{ width: 120 }} value={rp.dT} onChange={(e) => setRp({ ...rp, dT: e.target.value })} /></label>
         <label className="row clk sm" style={{ gap: 8, marginTop: 6 }}><input type="checkbox" checked={rp.bOn} onChange={(e) => setRp({ ...rp, bOn: e.target.checked })} /> В последний день месяца — долги клиентов старше <input className="inp tg-bd" inputMode="numeric" style={{ width: 60 }} value={rp.bD} onChange={(e) => setRp({ ...rp, bD: e.target.value.replace(/\D/g, "") })} /> дн. и долги поставщикам, в <input className="inp tg-bt" type="time" style={{ width: 120 }} value={rp.bT} onChange={(e) => setRp({ ...rp, bT: e.target.value })} /></label>
+        <label className="row clk sm" style={{ gap: 8, marginTop: 6 }}><input type="checkbox" checked={rp.sOn} onChange={(e) => setRp({ ...rp, sOn: e.target.checked })} /> По понедельникам — товары на «Складе Thermo» ниже мин. остатка (Товары → «Мин. остаток»), в <input className="inp tg-st" type="time" style={{ width: 120 }} value={rp.sT} onChange={(e) => setRp({ ...rp, sT: e.target.value })} /></label>
         <div className="xs mut" style={{ margin: "10px 0 4px" }}>Кому (только подключённые к Telegram):</div>
         {linked.length ? linked.map((u) => (
           <label key={u.id} className="row clk sm tg-to" style={{ gap: 8 }}><input type="checkbox" checked={toSet.has(u.id)} onChange={(e) => { const nx = new Set(toSet); if (e.target.checked) nx.add(u.id); else nx.delete(u.id); setRp({ ...rp, to: [...nx] }); }} /> {u.name || u.username} <span className="xs mut">{roleLabel(u.role)}</span></label>
@@ -11287,7 +11301,7 @@ function archiveBook(T, who) {
 // для ночного бэкапа на сервере (scripts/nightly) — тот же Excel-архив, что и в программе
 export { archiveBook };
 // для Telegram-бота (api/tg.js, сборка scripts/bot/build-core.mjs) — те же расчёты кассы, долгов и способов оплаты, что в программе
-export { kassaOps, kassaBal, kassaText, KASSA_KEYS, isoAddDays, calcObject, isLive, supplierStats, normFinOp, payInfo, payText, payPatch, opName, fmt, fmt2, fmtDot, round2, EXPENSE_CATEGORIES, INCOME_CATEGORIES, SALARY_CAT, stById, PAY_METHODS, LOG_HIDDEN, translit, normPName, allRoles, accessOf, userPermsOf, retailOf, PERMS };
+export { kassaOps, kassaBal, kassaText, KASSA_KEYS, isoAddDays, calcObject, isLive, supplierStats, normFinOp, payInfo, payText, payPatch, opName, fmt, fmt2, fmtDot, round2, EXPENSE_CATEGORIES, INCOME_CATEGORIES, SALARY_CAT, stById, PAY_METHODS, LOG_HIDDEN, translit, normPName, allRoles, accessOf, userPermsOf, retailOf, PERMS, clientSheetBytes, isShipped, objBatches };
 async function downloadArchive(who) {
   const dump = await freshDump();
   const blob = archiveBook(dump.tables, who);
