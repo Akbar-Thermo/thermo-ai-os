@@ -205,7 +205,8 @@ export const HELP = [
   "• /dostavka — yetkazishlar, «✅ Yetkazildi» · /narx <i>tovar</i> — narxlar · /sklad <i>tovar</i> — ombor",
   "• /q <i>so'z</i> — hamma joydan qidirish · /hafta, /oy — davr hisoboti · /kurs — kurs (<code>/kurs 12 650</code>)",
   "• /eslat <code>15:00 matn</code> — eslatma (<code>ertaga 10:00 …</code>, <code>30 daqiqa …</code>, <code>05.11 9:00 …</code>)",
-  "• «/» siz oddiy matn — dasturdagi «Заметки»ga zametka bo'lib tushadi",
+  "• «/» siz oddiy so'z bilan savol bering (AI): <i>Gulnoraning qarzi qancha?</i>, <i>bugun kassada qancha pul bor?</i>",
+  "  savol bo'lmasa — «Заметки»ga zametka bo'lib tushadi; <i>ertaga 10 da Akmalga qo'ng'iroq qilishni eslat</i> — eslatma",
 ].join("\n");
 
 // меню команд (подсказки после «/»): только в личном чате с ботом; в группах меню нет
@@ -287,7 +288,8 @@ export async function setupMenu(tg) {
 
 // ---------- бот ----------
 // upload(method, params, { name, bytes, mime }) — отправка файла в Telegram (Excel клиенту)
-export function makeBot({ db, tg, now = () => new Date(), upload = null }) {
+// ai — makeAI (ai.mjs): свободные вопросы в личном чате и разбор «/…» без суммы цифрами; нет ключа — null
+export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = null }) {
   const nameOf = (u) => (u ? [u.first_name, u.last_name].filter(Boolean).join(" ") || (u.username ? "@" + u.username : "") : "") || "—";
   const send = (chat, text, extra = {}) => tg("sendMessage", { chat_id: chat, text, parse_mode: "HTML", disable_web_page_preview: true, ...extra });
   async function cfg() {
@@ -423,6 +425,8 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null }) {
         if (fromBot && String(rq.text || "").startsWith("💳 To'lov qo'shish")) return payReply(msg, rq, me);
         const pr = fromBot ? PROMPTS.find((x) => String(rq.text || "").startsWith(x.mark)) : null;
         if (pr) return runCommand(chat.id, msg, { name: pr.name, arg: text }, me);
+        // ИИ: вопрос обычными словами — ответ по данным программы (по правам), иначе заметка / напоминание
+        if (ai) return aiAnswer(msg, me);
         return saveNote(msg, me);
       }
       if (!cmd) return send(chat.id, money ? "Rasxod / prixod ishchi guruhda yoziladi: <code>/taksi 50 000</code>" : "Savolni tanlang 👇", { reply_markup: qkb(me.acc) });
@@ -435,7 +439,15 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null }) {
     if (msg.migrate_to_chat_id) return migrate(await cfg(), chat.id, msg.migrate_to_chat_id);
     if (msg.new_chat_members || msg.left_chat_member) return; // добавление бота — в my_chat_member
     if (!text || msg.from && msg.from.is_bot) return;
-    if (!cmd && !money) return;
+    let money2 = money;
+    if (!cmd && !money2 && ai && text.startsWith("/") && hasWords(slashText(text)) && slashText(text).length > 3) {
+      const cf0 = await cfg();
+      if (isAllowed(cf0, chat.id)) {
+        try { money2 = await aiMoney(text); } catch (e) { money2 = null; }
+        if (money2) { try { await db.insert("audit_log", { action: LOG_MODE, entity: "tgai:" + chat.id + ":" + msg.message_id, detail: JSON.stringify(money2), user_name: "Telegram-бот", role: "telegram", ts: now().toISOString() }); } catch (e) { money2 = null; } }
+      }
+    }
+    if (!cmd && !money2) return;
     const cf = await cfg();
     if (!isAllowed(cf, chat.id)) {
       if (await addPending(cf, chat)) return send(chat.id, NOT_ALLOWED);
@@ -447,8 +459,8 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null }) {
       const me = await botMe();
       return send(chat.id, "🔒 Savollarni bot bilan shaxsiy chatda bering" + (me ? ": @" + esc(me) : "") + ".", { reply_to_message_id: msg.message_id, ...(me ? { reply_markup: { inline_keyboard: [[{ text: "Botga yozish", url: "https://t.me/" + me }]] } } : {}) });
     }
-    const rate = money.cur === "uzs" ? money.rate || (await lastRate()) : 0;
-    const v = view(money, money.dir, money.cat, rate, nameOf(msg.from));
+    const rate = money2.cur === "uzs" ? money2.rate || (await lastRate()) : 0;
+    const v = view(money2, money2.dir, money2.cat, rate, nameOf(msg.from));
     return send(chat.id, v.text, { reply_to_message_id: msg.message_id, reply_markup: v.reply_markup });
   }
 
@@ -465,7 +477,8 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null }) {
     const orig = m.reply_to_message;
     if (!orig) { await edit("⚠️ Asl xabar o'chirilgan — kiritilmadi."); return ans(); }
     const sl = parseSlash(orig.text || "");
-    const p = sl && sl.money;
+    let p = sl && sl.money;
+    if (!p) { try { const r = (await db.select("audit_log", "action=eq." + LOG_MODE + "&entity=eq." + encodeURIComponent("tgai:" + chat.id + ":" + orig.message_id) + "&select=detail&limit=1"))[0]; p = r ? JSON.parse(r.detail) : null; } catch (e) { p = null; } }
     if (!p) { await edit("⚠️ Asl xabarda summa topilmadi — kiritilmadi."); return ans(); }
     const author = nameOf(orig.from);
     const rate = p.cur === "uzs" ? p.rate || (await lastRate()) : 0;
@@ -865,6 +878,111 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null }) {
     if (sr) await db.update("requests", "id=eq." + sr.id, { lines }); else await db.insert("requests", { mode: RATE_MODE, source: "config", lines });
     try { await db.insert("audit_log", { action: "Telegram: курс", entity: "rate", detail: C.fmtDot(r) + " сум · " + me.name, user_name: me.name, role: "telegram", ts: now().toISOString() }); } catch (e) {}
     return "✅ Kurs: <b>" + C.fmtDot(r) + " so'm</b> — bot bundan keyin shu kurs bilan hisoblaydi.";
+  }
+  // ---------- ИИ ----------
+  const untag = (t) => String(t || "").replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  const WEEK_UZ = ["yakshanba", "dushanba", "seshanba", "chorshanba", "payshanba", "juma", "shanba"];
+  // «/taksiga ellik ming berdim» — сумма словами: ИИ достаёт сумму, валюту, приход/расход, статью
+  async function aiMoney(text) {
+    const j = await ai.json({ system: ["Extract one money operation from a short message of a company's expense chat in Uzbekistan (Uzbek Latin/Cyrillic or Russian).",
+      "Reply with JSON only: {\"ok\":true,\"amount\":number,\"currency\":\"uzs\"|\"usd\",\"direction\":\"out\"|\"in\",\"category\":\"<exact name from a list>\",\"method\":\"cash\"|\"card\"|\"transfer\"} or {\"ok\":false} when there is no clear amount of money.",
+      "Words: ming/минг/тысяча = 1000, mln/million/миллион = 1 000 000, yarim = 0.5, so'm/сум = UZS, $/dollar = USD; a number ≥ 1000 without currency is UZS. direction in only for money received (prixod, kirim, tushdi, keldi, qarz qaytardi).",
+      "Expense categories: " + expCats().join(" | "), "Income categories: " + incCats().join(" | ")].join("\n"), text: slashText(text) });
+    if (!j || !j.ok || !(Number(j.amount) > 0)) return null;
+    const dir = j.direction === "in" ? "i" : "e", list = dir === "i" ? incCats() : expCats();
+    let c = list.indexOf(String(j.category || "")); if (c < 0) c = guessCat(text, dir);
+    return { v: Math.round(Number(j.amount) * 100) / 100, cur: j.currency === "usd" ? "usd" : "uzs", dir, method: j.method === "card" || j.method === "transfer" ? j.method : "cash", cat: c, rate: findRate(text), ai: true };
+  }
+  function aiTools(acc) {
+    const T = [];
+    const add = (need, name, description, props = {}, required = []) => { if (!need || canAsk(acc, need)) T.push({ name, description, input_schema: { type: "object", properties: props, required } }); };
+    const dayP = { day: { type: "string", description: "YYYY-MM-DD (bo'sh — bugun)" } };
+    add("kassa", "kassa", "Kassa hisoboti (naqd so'm, $, karta): ostatka, kirim, chiqim, yakun — bir kun uchun.", dayP);
+    add("bugun", "day_flow", "Bir kundagi barcha kirim-chiqim operatsiyalari ro'yxati.", dayP);
+    add("hafta", "period", "Shu hafta yoki shu oy: kirim, chiqim, rasxodlar turlari bo'yicha, sof natija.", { kind: { type: "string", enum: ["week", "month"] } }, ["kind"]);
+    add("kurs", "rate", "Joriy dollar kursi (so'm).");
+    add("qarz", "client_debts", "Mijozlar qarzi (obyektlar bo'yicha). query — obyekt/mijoz nomi bo'yicha filtr.", { query: { type: "string" } });
+    add("postavshik", "supplier_debts", "Postavshiklarga qarzlar. query — postavshik nomi.", { query: { type: "string" } });
+    add("obyekt", "find_objects", "Obyektlarni qidirish (nomi, mijoz, telefon, usta, manzil). Natija: id, nomi, mijoz, holati, qarz.", { query: { type: "string" } }, ["query"]);
+    add("obyekt", "object_details", "Bitta obyekt: summary — holati va summalar; payments — to'lovlar; materials — postavkalar va tovarlar.", { id: { type: "string" }, part: { type: "string", enum: ["summary", "payments", "materials"] } }, ["id"]);
+    add("narx", "product_prices", "Tovar narxlari postavshiklar bo'yicha (arzonidan), skladdagi soni bilan.", { query: { type: "string" } }, ["query"]);
+    add("sklad", "warehouse_stock", "Sklad Thermo'da bor tovarlar va qoldiq.", { query: { type: "string" } }, ["query"]);
+    add("dostavka", "deliveries", "Yetkazilmagan tovarlari bor obyektlar va ular.");
+    add(null, "save_note", "Foydalanuvchining eslab qolinadigan gapini dasturdagi «Заметки»ga saqlash (savol bo'lmasa).", { title: { type: "string" }, text: { type: "string" } }, ["text"]);
+    add(null, "set_reminder", "Belgilangan vaqtda Telegram'da eslatma yuborish.", { at: { type: "string", description: "ISO vaqt, Toshkent: 2026-11-02T15:00:00+05:00" }, text: { type: "string" } }, ["at", "text"]);
+    return T;
+  }
+  async function aiRun(name, a, me, msg) {
+    const acc = me.acc, d0 = tzDate(now());
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(String(a.day || "")) ? a.day : d0;
+    const toolNeed = { kassa: "kassa", day_flow: "bugun", period: "hafta", rate: "kurs", client_debts: "qarz", supplier_debts: "postavshik", find_objects: "obyekt", object_details: "obyekt", product_prices: "narx", warehouse_stock: "sklad", deliveries: "dostavka" };
+    if (toolNeed[name] && !canAsk(acc, toolNeed[name])) return "Bu ma'lumot foydalanuvchiga ochilmagan.";
+    if (name === "kassa") return untag(await kassa(day));
+    if (name === "day_flow") return untag(await today(day));
+    if (name === "period") return untag(await period(a.kind === "month" ? "oy" : "hafta", acc));
+    if (name === "rate") { const r = await lastRate(); return r ? "Kurs: " + r + " so'm" : "Kurs topilmadi"; }
+    if (name === "client_debts") { const r = await debts(a.query || ""); return untag(typeof r === "string" ? r : r.text); }
+    if (name === "supplier_debts") return untag(await supDebts(a.query || ""));
+    if (name === "find_objects") {
+      const data = await loadData(["objects", "finance_ops"]);
+      const list = data.objects.filter((o) => hitAll(hay([o.name, o.client, o.phone, o.master, o.address]), a.query || ""));
+      if (!list.length) return "Topilmadi.";
+      return list.slice(0, 15).map((o) => { const f = C.calcObject(o, data.finance_ops); return [o.id, o.name, o.client || "", o.phone || "", C.stById(o.status).label, money$(acc) ? "qarz " + C.round2(f.clientDebt) + " $" : ""].join(" | "); }).join("\n") + (list.length > 15 ? "\n… yana " + (list.length - 15) : "");
+    }
+    if (name === "object_details") {
+      const data = await loadData(["objects", "finance_ops", "masters"]);
+      const o = data.objects.find((x) => x.id === a.id);
+      if (!o) return "Obyekt topilmadi.";
+      const v = a.part === "payments" ? (money$(acc) ? objPays(o, data) : objCard(o, data, acc)) : a.part === "materials" ? objMats(o, acc) : objCard(o, data, acc);
+      return untag(v.text);
+    }
+    if (name === "product_prices") return untag(await prices(a.query || "", acc));
+    if (name === "warehouse_stock") return untag(await stock(a.query || ""));
+    if (name === "deliveries") {
+      const data = await loadData(["objects", "masters", "suppliers"]);
+      const list = data.objects.filter((o) => C.isLive(o) && o.status !== "closed" && pendingItems(o).length);
+      return list.length ? list.slice(0, 10).map((o) => untag(delivCard(o, data).text)).join("\n\n") : "Hammasi yetkazilgan.";
+    }
+    if (name === "save_note") { await saveNote({ ...msg, text: [a.title, a.text].filter(Boolean).join("\n") }, me); return "Saqlandi (foydalanuvchiga tasdiq va tugmalar yuborildi)."; }
+    if (name === "set_reminder") {
+      const at = new Date(String(a.at || ""));
+      if (isNaN(at) || at.getTime() <= now().getTime()) return "Vaqt noto'g'ri yoki o'tib ketgan.";
+      const row = (await db.insert("requests", { mode: REMIND_MODE, source: "config", lines: { tg: String(msg.chat.id), user_id: me.user.id, at: at.toISOString(), text: String(a.text || "").slice(0, 500) } }))[0];
+      await send(msg.chat.id, "⏰ Eslatma qo'yildi: <b>" + dt(tzDate(at)) + " " + tzTime(at) + "</b>\n" + esc(a.text || ""), { reply_markup: row && row.id ? { inline_keyboard: [[{ text: "❌ Bekor qilish", callback_data: "rd:" + row.id }]] } : undefined });
+      return "Qo'yildi (foydalanuvchiga tasdiq yuborildi).";
+    }
+    return "Noma'lum funksiya.";
+  }
+  async function aiAnswer(msg, me) {
+    const chatId = msg.chat.id;
+    tg("sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => {});
+    const nowD = now(), day = tzDate(nowD);
+    const system = [
+      "Sen Thermo Engineering kompaniyasining (Toshkent: isitish, suv ta'minoti, kanalizatsiya montaji) Telegram yordamchisisan. Kompaniya dasturidagi ma'lumotlar bilan ishlaysan.",
+      "Foydalanuvchi: " + me.name + " (" + (me.acc.label || me.acc.id || "") + "). Bugun " + dt(day) + ", " + WEEK_UZ[new Date(day + "T12:00:00Z").getUTCDay()] + ", soat " + tzTime(nowD) + " (Toshkent).",
+      "Qoidalar:",
+      "- Raqam va faktlarni faqat funksiyalardan ol, o'zingdan to'qima. Kerakli funksiya yo'q bo'lsa — bu ma'lumot uning akkauntiga ochilmaganini ayt.",
+      "- Dasturda summalar $ da; naqd pul so'mda ham bo'ladi.",
+      "- Aniq obyekt yoki mijoz haqida so'ralsa: avval find_objects, keyin object_details.",
+      "- Xabar savol emas, eslab qolinadigan gap (vazifa, g'oya, ma'lumot) bo'lsa — save_note.",
+      "- Belgilangan vaqtda eslatish so'ralsa — set_reminder (vaqt Toshkent, +05:00).",
+      "- Javob: foydalanuvchi tilida (odatda o'zbekcha lotin), qisqa, oddiy matn — Markdown, jadval va ** belgilarsiz. Raqamlar: 1 250,50 $.",
+      "- save_note yoki set_reminder dan keyin tasdiq foydalanuvchiga allaqachon yuborilgan — qo'shimcha javob yozma yoki juda qisqa yoz.",
+    ].join("\n");
+    const parts = [];
+    const rq = msg.reply_to_message;
+    if (rq && rq.text) parts.push("(Foydalanuvchi quyidagi xabarga javob yozyapti: «" + cut(untag(rq.text), 1500) + "»)");
+    parts.push(String(msg.text || ""));
+    let r;
+    try { r = await ai.chat({ system, messages: [{ role: "user", content: parts.join("\n\n") }], tools: aiTools(me.acc), runTool: (n, a) => aiRun(n, a, me, msg) }); }
+    catch (e) {
+      console.error("tg ai:", e && e.message);
+      return send(chatId, "⚠️ AI javob bermadi" + (e && /^AI (401|403)/.test(e.message || "") ? " (kalit ishlamayapti)" : "") + ". Buyruqlar ishlayveradi — /yordam", { reply_markup: qkb(me.acc) });
+    }
+    const t = String(r.text || "").replace(/\*\*/g, "").trim();
+    if (!t) return r.used.length ? undefined : send(chatId, "Tushunmadim. /yordam");
+    if (r.used.some((u) => u === "save_note" || u === "set_reminder") && t.length < 120) return; // тасдиқ уже отправлен
+    return tg("sendMessage", { chat_id: chatId, text: cut(t, 4000), reply_to_message_id: msg.message_id, disable_web_page_preview: true });
   }
   // ---------- заметки из личного чата ----------
   const noteKb = (id, shared) => ({ inline_keyboard: [[{ text: shared ? "🔒 Faqat menga" : "👥 Hammaga ko'rinsin", callback_data: "ns:" + id }, { text: "🗑 O'chirish", callback_data: "nd:" + id }]] });

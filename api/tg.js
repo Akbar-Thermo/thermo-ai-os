@@ -6,6 +6,7 @@ process.env.TZ = "Asia/Tashkent";
 import { createHash } from "node:crypto";
 import { makeRest } from "./_lib/rest.mjs";
 import { makeBot } from "./_lib/bot.mjs";
+import { makeAI } from "./_lib/ai.mjs";
 
 const clean = (s) => String(s || "").replace(/\s+/g, "").replace(/^["'`]+|["'`]+$/g, "");
 const TOKEN = clean(process.env.TELEGRAM_BOT_TOKEN).replace(/^bot(?=\d)/i, "");
@@ -15,6 +16,7 @@ const URL_ = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
 const ANON = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "";
 const LOGIN = String(process.env.TG_BOT_LOGIN || "").trim();
 const PASS = String(process.env.TG_BOT_PASSWORD || "");
+const AI = makeAI({ key: process.env.ANTHROPIC_API_KEY, model: process.env.TG_AI_MODEL });
 
 async function tg(method, payload) {
   const r = await fetch("https://api.telegram.org/bot" + TOKEN + "/" + method, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -33,12 +35,12 @@ async function upload(method, params, file) {
   return j.result;
 }
 let bot = null;
-const getBot = () => bot || (bot = makeBot({ db: makeRest({ url: URL_, anon: ANON, login: LOGIN, password: PASS }), tg, upload }));
+const getBot = () => bot || (bot = makeBot({ db: makeRest({ url: URL_, anon: ANON, login: LOGIN, password: PASS }), tg, upload, ai: AI }));
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     // проверка состояния (без секретов): есть ли токен, база, аккаунт бота
-    return res.status(200).json({ ok: true, bot: !!TOKEN, db: !!(URL_ && ANON), account: !!(LOGIN && PASS) });
+    return res.status(200).json({ ok: true, bot: !!TOKEN, db: !!(URL_ && ANON), account: !!(LOGIN && PASS), ai: !!AI });
   }
   if (!TOKEN || req.headers["x-telegram-bot-api-secret-token"] !== SECRET) return res.status(401).json({ ok: false });
   let upd = req.body;

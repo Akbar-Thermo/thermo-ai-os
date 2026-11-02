@@ -4,6 +4,7 @@
 import { createHash } from "node:crypto";
 import { makeRest } from "./_lib/rest.mjs";
 import { makeBot } from "./_lib/bot.mjs";
+import { makeAI } from "./_lib/ai.mjs";
 
 const env = (k) => (Deno.env.get(k) || "").trim();
 const TOKEN = env("TELEGRAM_BOT_TOKEN").replace(/\s+/g, "").replace(/^["'`]+|["'`]+$/g, "").replace(/^bot(?=\d)/i, "");
@@ -11,6 +12,8 @@ const SECRET = TOKEN ? createHash("sha256").update("thermo-tg:" + TOKEN).digest(
 const URL_ = env("TG_DB_URL") || env("SUPABASE_URL");
 const ANON = env("TG_DB_KEY") || env("SUPABASE_ANON_KEY");
 const LOGIN = env("TG_BOT_LOGIN"), PASS = Deno.env.get("TG_BOT_PASSWORD") || "";
+// ИИ (Claude): ключ — общий секрет функций проекта ANTHROPIC_API_KEY; модель — TG_AI_MODEL или Claude Haiku 5.5
+const AI = makeAI({ key: env("ANTHROPIC_API_KEY"), model: env("TG_AI_MODEL") });
 
 async function tg(method, payload) {
   const r = await fetch("https://api.telegram.org/bot" + TOKEN + "/" + method, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -29,11 +32,11 @@ async function upload(method, params, file) {
   return j.result;
 }
 let bot = null;
-const getBot = () => bot || (bot = makeBot({ db: makeRest({ url: URL_, anon: ANON, login: LOGIN, password: PASS }), tg, upload }));
+const getBot = () => bot || (bot = makeBot({ db: makeRest({ url: URL_, anon: ANON, login: LOGIN, password: PASS }), tg, upload, ai: AI }));
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 Deno.serve(async (req) => {
-  if (req.method !== "POST") return json(200, { ok: true, bot: !!TOKEN, db: !!(URL_ && ANON), account: !!(LOGIN && PASS) });
+  if (req.method !== "POST") return json(200, { ok: true, bot: !!TOKEN, db: !!(URL_ && ANON), account: !!(LOGIN && PASS), ai: !!AI });
   if (!TOKEN || req.headers.get("x-telegram-bot-api-secret-token") !== SECRET) return json(401, { ok: false });
   let upd = null;
   try { upd = await req.json(); } catch (e) { upd = null; }
