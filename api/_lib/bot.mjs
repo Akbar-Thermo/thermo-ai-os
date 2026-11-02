@@ -1583,10 +1583,11 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       const r2 = await actSet(row, { target: "wh" });
       const v = itemsConfirm(r2, me); await send(chatId, v.text, { reply_markup: v.reply_markup }); return ans();
     }
-    if (act === "bt" || act === "ba") {
+    if (act === "bt" || act === "ba" || act === "bp") {
       if (!canAsk(me.acc, "kassa")) return ans("Bu bo'lim sizga ochilmagan", true);
       const it = d.items || [], allOn = it.every((x) => x.on), k = Number(n2);
-      const r2 = await actSet(row, { items: it.map((x, i) => (act === "ba" ? { ...x, on: !allOn } : i === k ? { ...x, on: !x.on } : x)) });
+      if (act === "bp" && k === (Number(d.page) || 0)) return ans();
+      const r2 = await actSet(row, act === "bp" ? { page: k } : { items: it.map((x, i) => (act === "ba" ? { ...x, on: !allOn } : i === k ? { ...x, on: !x.on } : x)) });
       const v = bulkView(r2); await edit(v.text, v.reply_markup); return ans();
     }
     if (act === "ad") { const r2 = await actSet(row, { debt: !d.debt }); const v = itemsConfirm(r2, me); await edit(v.text, v.reply_markup); return ans(!d.debt ? "Qarzga yoziladi" : "Qarzga yozilmaydi"); }
@@ -1646,7 +1647,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     try { const r = (await db.select("finance_ops", "select=pay_rate,op_date&pay_rate=gte.1000&op_date=lte." + day + "&order=op_date.desc&limit=1"))[0]; if (r && Number(r.pay_rate) >= 1000) return Number(r.pay_rate); } catch (e) {}
     return lastRate();
   }
-  const BULK_MAX = 40;
+  const BULK_MAX = 400;
   // list: [{ chat, msg, date, from, text }] → кандидаты, которых нет в программе
   async function unentered(list) {
     const [done, ops] = await Promise.all([db.all("audit_log", "action=eq." + LOG_MODE, "entity"), db.all("finance_ops", "type=in.(company_expense,company_income)", "*")]);
@@ -1672,15 +1673,21 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     }
     return out.sort((a, b) => a.date.localeCompare(b.date) || Number(a.msg) - Number(b.msg));
   }
+  // список по страницам (по 15 — сообщение Telegram не длиннее 4096 знаков); отметки и «✅» — на все страницы сразу
+  const BULK_PAGE = 15;
   function bulkView(row) {
     const d = row.lines.data || {}, it = d.items || [];
+    const pages = Math.max(1, Math.ceil(it.length / BULK_PAGE)), pg = Math.min(pages - 1, Math.max(0, Number(d.page) || 0));
+    const a = pg * BULK_PAGE, part = it.slice(a, a + BULK_PAGE);
     const on = it.filter((x) => x.on);
-    const L = ["📋 <b>Dasturga kiritilmagan</b> · " + dt(d.from) + " dan · " + it.length + " ta" + (d.more ? " (birinchi " + it.length + " tasi)" : ""), "",
-      ...it.map((x, i) => (i + 1) + ". " + (x.on ? "☑" : "☐") + " " + dt(x.date).slice(0, 5) + " · " + (x.dir === "i" ? "💰" : "💸") + " " + esc(((x.dir === "i" ? incCats() : expCats())[x.cat]) || "") + " · <b>" + (x.cur === "uzs" ? sum(x.v) : usd(x.v)) + "</b> · " + esc(cut(x.from, 20)) + " — <i>" + esc(cut(slashText(x.text).replace(/\s+/g, " "), 60)) + "</i>" + (x.dup ? " ⚠️ <i>dasturda o'xshashi bor</i>" : "")),
-      "", "Belgilangan: <b>" + on.length + " ta</b>" + (on.length ? " — ✅ bosilsa, dasturga (Финансы) kiradi" : "")];
-    let text = L.join("\n"); if (text.length > 4000) text = text.slice(0, 3900) + "\n…";
-    const nums = it.map((x, i) => ({ text: (x.on ? "☑" : "☐") + (i + 1), callback_data: "bt:" + row.id + ":" + i }));
+    const tot = on.reduce((t, x) => { t[x.cur] = (t[x.cur] || 0) + x.v; return t; }, {});
+    const L = ["📋 <b>Dasturga kiritilmagan</b> · " + dt(d.from) + " dan · <b>" + it.length + " ta</b>" + (pages > 1 ? " · " + (pg + 1) + "/" + pages + "-sahifa" : ""), "",
+      ...part.map((x, k) => (a + k + 1) + ". " + (x.on ? "☑" : "☐") + " " + dt(x.date).slice(0, 5) + " · " + (x.dir === "i" ? "💰" : "💸") + " " + esc(((x.dir === "i" ? incCats() : expCats())[x.cat]) || "") + " · <b>" + (x.cur === "uzs" ? sum(x.v) : usd(x.v)) + "</b> · " + esc(cut(x.from, 18)) + " — <i>" + esc(cut(slashText(x.text).replace(/\s+/g, " "), 55)) + "</i>" + (x.dup ? " ⚠️ <i>dasturda o'xshashi bor</i>" : "")),
+      "", "Belgilangan: <b>" + on.length + " ta</b>" + (on.length ? " (" + [tot.uzs ? sum(tot.uzs) : "", tot.usd ? usd(tot.usd) : ""].filter(Boolean).join(" + ") + ") — ✅ bosilsa, hammasi dasturga (Финансы) kiradi" : "")];
+    let text = L.join("\n"); if (text.length > 4050) text = text.slice(0, 4000) + "\n…";
+    const nums = part.map((x, k) => ({ text: (x.on ? "☑" : "☐") + (a + k + 1), callback_data: "bt:" + row.id + ":" + (a + k) }));
     const kb = []; for (let i = 0; i < nums.length; i += 5) kb.push(nums.slice(i, i + 5));
+    if (pages > 1) kb.push([{ text: "‹ Oldingi", callback_data: "bp:" + row.id + ":" + ((pg + pages - 1) % pages) }, { text: (pg + 1) + "/" + pages, callback_data: "bp:" + row.id + ":" + pg }, { text: "Keyingi ›", callback_data: "bp:" + row.id + ":" + ((pg + 1) % pages) }]);
     kb.push([{ text: on.length === it.length ? "☐ Hammasini olib tashlash" : "☑ Hammasini belgilash", callback_data: "ba:" + row.id }]);
     kb.push([...(on.length ? [{ text: "✅ Kiritish (" + on.length + ")", callback_data: "ax:" + row.id }] : []), { text: "❌ Yopish", callback_data: "an:" + row.id }]);
     return { text, reply_markup: { inline_keyboard: kb } };
@@ -1838,7 +1845,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     }
     const chatId = cq.message.chat.id;
     const [id1, n2] = id.split(":");
-    if (["ax", "an", "ao", "aq", "as", "aw", "ad", "bt", "ba"].includes(act)) return actCallback(cq, me, act, id1, n2, ans, edit);
+    if (["ax", "an", "ao", "aq", "as", "aw", "ad", "bt", "ba", "bp"].includes(act)) return actCallback(cq, me, act, id1, n2, ans, edit);
     if (act === "undo") return undo(cq, id, me.name, ans, edit);
     if (act === "rd") {
       const row = (await db.select("requests", "id=eq." + id + "&mode=eq." + REMIND_MODE + "&select=id,lines"))[0];
