@@ -456,6 +456,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     if (chat.type === "private" && !(msg.from && msg.from.is_bot)) {
       if (msg.voice || msg.audio || msg.video_note) { const me = await whoAmI(msg.from && msg.from.id); return me ? onVoice(msg, me) : send(chat.id, LOCKED); }
       if (msg.document && /\.json$/i.test(String(msg.document.file_name || ""))) { const me = await whoAmI(msg.from && msg.from.id); return me ? onExport(msg, me) : send(chat.id, LOCKED); }
+      if (msg.document && /^messages\d*\.html?$/i.test(String(msg.document.file_name || ""))) return send(chat.id, "Bu HTML eksport. Telegram Desktop → Export chat history → pastda <b>Format: Machine-readable JSON</b> ni tanlang va <code>result.json</code> faylini yuboring.");
       if (msg.photo || msg.document) {
         const kind = mediaKind(msg); // «/smeta», «/nakladnoy» или ответ на вопрос бота; иначе ИИ сам поймёт, что на фото
         const me = await whoAmI(msg.from && msg.from.id);
@@ -762,7 +763,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
         if (!canNak(acc)) return send(chatId, "🔒 Bu bo'lim sizga ochilmagan.");
         return send(chatId, NAK_MARK + " nakladnoy rasmini yoki PDF faylini shu xabarga javob qilib yuboring.", { reply_markup: { force_reply: true, input_field_placeholder: "rasm yoki PDF" } });
       }
-      else if (cmd.name === "tekshir") return reconcile(chatId, me, parseDay(cmd.arg, addDays(day, -30)), null);
+      else if (cmd.name === "tekshir") { try { return await reconcile(chatId, me, parseDay(cmd.arg, addDays(day, -30)), null); } catch (e) { text = "⚠️ Solishtirib bo'lmadi: " + esc(String(e.message || e)).slice(0, 200); } }
       else if (cmd.name === "yangi") { await memClear(chatId); text = "🧹 Suhbat yangidan boshlandi — oldingi gaplar unutildi."; }
       else if (cmd.name === "ovoz") {
         if (!voice || !voice.tts) text = "🔇 Ovozli javob uchun ovoz xizmati ulanmagan.";
@@ -1648,7 +1649,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   const BULK_MAX = 40;
   // list: [{ chat, msg, date, from, text }] → кандидаты, которых нет в программе
   async function unentered(list) {
-    const [done, ops] = await Promise.all([db.all("audit_log", "action=eq." + LOG_MODE, "entity"), db.all("finance_ops", "type=in.(company_expense,company_income)", "type,op_date,amount,pay_amount,pay_currency")]);
+    const [done, ops] = await Promise.all([db.all("audit_log", "action=eq." + LOG_MODE, "entity"), db.all("finance_ops", "type=in.(company_expense,company_income)", "*")]);
     const keys = new Set(done.map((r) => r.entity));
     const seen = new Set(), out = [];
     for (const q of list) {
@@ -1658,7 +1659,15 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       const p = moneyLike(slashText(q.text));
       if (!p) continue;
       const type = p.dir === "i" ? "company_income" : "company_expense";
-      const dup = ops.some((x) => x.type === type && String(x.op_date || "").slice(0, 10) === q.date && (p.cur === "uzs" ? String(x.pay_currency).toUpperCase() === "UZS" && Math.abs((Number(x.pay_amount) || 0) - p.v) < 1 : Math.abs((Number(x.amount) || 0) - p.v) < 0.01));
+      // в программе уже есть такая же сумма в тот же день (внесли вручную)? — сумы: по сумме в сумах или $ × курс
+      const dup = ops.some((x) => {
+        if (x.type !== type || String(x.op_date || "").slice(0, 10) !== q.date) return false;
+        if (p.cur !== "uzs") return Math.abs((Number(x.amount) || 0) - p.v) < 0.01;
+        if (String(x.pay_currency || "").toUpperCase() === "UZS" && Number(x.pay_amount) > 0) return Math.abs(Number(x.pay_amount) - p.v) < 1;
+        const r = Number(x.pay_rate) || 0;
+        if (r >= 1000) return Math.abs((Number(x.amount) || 0) * r - p.v) <= Math.max(1000, p.v * 0.01);
+        return new RegExp("(^|\\D)" + C.fmt(p.v).replace(/\s/g, "[\\s\\u00a0\\u202f.,]?") + "(\\D|$)").test(String(x.reason || "") + " " + String(x.note || ""));
+      });
       out.push({ chat: q.chat, msg: q.msg, date: q.date, from: q.from || "", text: String(q.text).slice(0, 300), v: p.v, cur: p.cur, dir: p.dir, cat: p.cat, method: p.method, rate: p.rate || 0, dup, on: !dup });
     }
     return out.sort((a, b) => a.date.localeCompare(b.date) || Number(a.msg) - Number(b.msg));
@@ -1739,7 +1748,8 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const cap = String(msg.caption || "").trim();
     const dates = list.map((m) => m.date).sort();
     const from = cap ? parseDay(cap, tzDate(now())) : dates[0] || tzDate(now());
-    return reconcile(chatId, me, from, list);
+    try { return await reconcile(chatId, me, from, list); }
+    catch (e) { console.error("tg export:", e && e.message); return send(chatId, "⚠️ Solishtirib bo'lmadi: " + esc(String((e && e.message) || e)).slice(0, 200)); }
   }
   // ---------- письмо клиенту (ИИ) ----------
   async function clientMsgAI(chatId, me, oid, lang, ans) {
