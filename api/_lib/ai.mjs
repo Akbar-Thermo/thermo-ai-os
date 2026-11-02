@@ -5,9 +5,9 @@
 export const AI_MODEL = "claude-haiku-5-5";
 const API = "https://api.anthropic.com/v1/messages";
 // цена за 1 млн токенов, $ (вход / выход / запись в кэш / чтение из кэша)
-export const PRICES = { "claude-haiku-5-5": { in: 0.10, out: 0.50, cw: 0.125, cr: 0.01 } };
+export const PRICES = { "claude-haiku-5-5": { in: 0.10, out: 0.50, cw: 0.125, cr: 0.01 }, "claude-sonnet-5-5": { in: 2, out: 10, cw: 2.5, cr: 0.2 }, "claude-opus-5-5": { in: 4, out: 20, cw: 5, cr: 0.4 } };
 export function aiCost(model, u) {
-  const p = PRICES[model] || PRICES[AI_MODEL];
+  const p = PRICES[model] || PRICES["claude-opus-5-5"]; // неизвестная модель — считаем по дорогой, чтобы лимит не превысить
   if (!u) return 0;
   return ((u.input_tokens || 0) * p.in + (u.output_tokens || 0) * p.out + (u.cache_creation_input_tokens || 0) * p.cw + (u.cache_read_input_tokens || 0) * p.cr) / 1e6;
 }
