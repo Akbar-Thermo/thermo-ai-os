@@ -519,7 +519,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       const bySup = new Map(); zkItems(f.b).forEach((i) => { if (!bySup.has(i.supplier_id)) bySup.set(i.supplier_id, []); bySup.get(i.supplier_id).push(i); });
       const L = ["📦 <b>Yangi postavka</b> · " + esc(f.o.name || "—") + " · " + f.b.no + "-postavka" + (f.b.date ? " (" + dt(String(f.b.date).slice(0, 10)) + ")" : ""), "", "Postavshiklarga buyurtma yuboraymi?",
         ...[...bySup].map(([sid, its]) => "• " + esc(sn.get(sid) || "?") + " — " + its.length + " poz. → " + (groupOf.get(sid) ? "«" + esc(title(groupOf.get(sid))) + "»" : "⚠️ guruhi ulanmagan")),
-        "", "🚚 Olib kelish topshirig'i: " + (drv.length ? esc(drv.map((d) => d.name).join(", ")) : "⚠️ dostavshik Telegram'ga ulanmagan")];
+        ...(drv.length ? [] : ["", "⚠️ Dostavshik Telegram'ga ulanmagan — topshiriq bormaydi"])];
       let got = 0;
       for (const m of who) { try { await send(m.tg, L.join("\n"), { reply_markup: { inline_keyboard: [[{ text: "✅ Yuborish", callback_data: "zs:" + f.o.id + ":" + f.b.no }, { text: "❌ Kerak emas", callback_data: "zx:" + f.o.id + ":" + f.b.no }]] } }); got++; sent.push(m.tg); } catch (e) { /* человек ещё не открыл бота */ } }
       if (got) { k[f.key] = "p"; await zkSetK(f.key, "p"); }
@@ -543,7 +543,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       if (!chat) { miss.push(sn.get(sid) || "?"); continue; }
       const t = ["🧾 <b>Buyurtma · Thermo Engineering</b>", "Obyekt: <b>" + esc(o.name || "—") + "</b> · №" + esc(o.id.slice(0, 4).toUpperCase()) + "-" + no, "",
         ...its.map((i, n) => (n + 1) + ". " + esc(i.name) + (i.size && !String(i.name).includes(i.size) ? " " + esc(i.size) : "") + " — <b>" + C.fmt(Number(i.qty) || 0) + " " + esc(i.unit || "шт") + "</b>" + (code.get(i.product_id) ? " <i>(kod " + esc(code.get(i.product_id)) + ")</i>" : "")),
-        "", "🚚 Tovarni <b>Thermo dostavshigi</b> olib ketadi. Tayyor bo'lsa — «✅ Tayyor» ni bosing.", "Nakladnoyni shu xabarga <b>javob qilib</b> yuboring yoki dostavshikka bering 🙏"].join("\n");
+        "", "Tayyor bo'lsa — «✅ Tayyor» ni bosing.", "Nakladnoyni shu xabarga <b>javob qilib</b> yuboring 🙏"].join("\n");
       const lines = { obj: o.id, name: o.name || "", batch: no, sup: sid, chat: String(chat), msg: null, items: its.map((i) => ({ id: i.id, product_id: i.product_id || null, name: i.name, qty: Number(i.qty) || 0, unit: i.unit || "шт" })), at: now().toISOString(), by: me.name };
       let ordRow = null;
       try {
@@ -584,7 +584,6 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     L.push("", "<b>Yetkazish:</b> " + esc(T.addr || "manzil yo'q") + (T.client || T.phone ? "\nMijoz: " + esc([T.client, T.phone].filter(Boolean).join(", ")) : "") + (T.master ? "\nUsta: " + esc(T.master) : ""));
     L.push("", "Dostavshik: " + (T.drv ? "<b>" + esc(T.drv.name) + "</b>" : "—"));
     if (T.done) L.push("✅ <b>Dostavleno</b> — klientga yetkazildi (" + esc(T.done) + ")");
-    else if (mine) L.push("🧾 Postavshik bergan nakladnoyni rasmga olib, <b>shu xabarga javob qilib</b> yuboring.");
     const kb = [];
     if (!T.done) {
       if (!T.drv) kb.push([{ text: "🙋 Men olib kelaman", callback_data: "zc:" + id }]);
@@ -616,7 +615,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       const n = await delivDo({ id: T.obj }, Number(T.batch) || 0, me);
       T.done = me.name; (T.ords || []).forEach((r) => { r.picked = true; });
       await db.update("requests", "id=eq." + row.id, { lines: T }); await zkTaskRefresh(row);
-      if (T.byTg) { try { await send(T.byTg, "✅ <b>Dostavleno</b> · " + esc(T.name) + " · " + T.batch + "-postavka — " + esc(me.name) + (n ? " (" + n + " poz.)" : "")); } catch (e) {} }
+      if (T.byTg) { try { await send(T.byTg, "✅ <b>Dostavleno</b> · " + esc(T.name) + " · " + T.batch + "-postavka" + (n ? " (" + n + " poz.)" : "")); } catch (e) {} }
       return ans("Yetkazildi");
     }
     return ans();
@@ -738,7 +737,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       try {
         const r = await zkSend(id, Number(n2), me);
         if (r.already) return edit("ℹ️ Bu postavka allaqachon yuborilgan.");
-        return edit("✅ <b>Yuborildi</b> · " + esc(r.name) + " · " + n2 + "-postavka\n" + (r.ok.length ? "→ " + esc(r.ok.join(", ")) : "") + (r.miss.length ? "\n⚠️ Yuborilmadi (guruhi ulanmagan): " + esc(r.miss.join(", ")) : "") + "\n🚚 Dostavshik: " + (r.drivers && r.drivers.length ? esc(r.drivers.join(", ")) : "⚠️ hech kimga yetmadi (botni ochmagan)") + "\nYubordi: " + esc(me.name));
+        return edit("✅ <b>Yuborildi</b> · " + esc(r.name) + " · " + n2 + "-postavka\n" + (r.ok.length ? "→ " + esc(r.ok.join(", ")) : "") + (r.miss.length ? "\n⚠️ Yuborilmadi (guruhi ulanmagan): " + esc(r.miss.join(", ")) : "") + (r.drivers && r.drivers.length ? "" : "\n⚠️ Dostavshikka topshiriq yetmadi (botni ochmagan)") + "\nYubordi: " + esc(me.name));
       } catch (e) { return edit("⚠️ Yuborib bo'lmadi: " + esc(String(e.message || e)).slice(0, 200)); }
     }
     if (!/^[0-9a-f-]{36}$/i.test(id || "")) return ans();
@@ -789,13 +788,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     if (msg.from && msg.from.is_bot) return;
     if (chat.type === "private") {
       const me = await whoAmI(msg.from && msg.from.id);
-      const rq = msg.reply_to_message;
-      if (me && (msg.photo || msg.document) && rq) {
-        const t = (await db.select("requests", "mode=eq." + ZK_TASK + "&select=id,lines")).find((r) => (r.lines.msgs || []).some((x) => String(x.tg) === String(chat.id) && Number(x.msg) === rq.message_id));
-        if (t) return zkInvoice(msg, await zkCfg(), null, t);
-      }
-      if (me && (msg.photo || msg.document)) return send(chat.id, "🧾 Nakladnoy rasmini topshiriq xabariga (🚚 Olib kelish …) <b>javob qilib</b> yuboring.");
-      return send(chat.id, me ? "📦 <b>Thermo postavka</b>\n\nDasturda yangi postavka saqlanganda sizga shu yerda xabar beraman — «✅ Yuborish» bosilsa, buyurtmani har bir postavshikning guruhiga yuboraman.\nDostavshikka «🚚 Olib kelish» topshirig'i boradi: qaysi postavshikdan nima olish va qaysi mijozga olib borish; postavshik «✅ Tayyor» bossa — dostavshikka xabar boradi.\nNakladnoyni postavshik guruhga tashlaydi yoki dostavshik rasmga olib topshiriqqa javob qilib yuboradi — u obyekt nomi bilan rasxodlar guruhiga boradi; u yerda «✅ Kiritish» — obyekt tannarxini nakladnoy bo'yicha yangilaydi.\n\nGuruhlar: dasturda <b>Аккаунты → Бот поставщиков</b>." : LOCKED);
+      return send(chat.id, me ? "📦 <b>Thermo postavka</b>\n\nDasturda yangi postavka saqlanganda sizga shu yerda xabar beraman — «✅ Yuborish» bosilsa, buyurtmani har bir postavshikning guruhiga yuboraman.\nDostavshikka «🚚 Olib kelish» topshirig'i boradi: qaysi postavshikdan nima olish va qaysi mijozga olib borish; postavshik «✅ Tayyor» bossa — dostavshikka xabar boradi; yetkazgach «✅ Dostavleno» bosadi.\nNakladnoyni postavshik guruhga tashlaydi — u obyekt nomi bilan rasxodlar guruhiga boradi; u yerda «✅ Kiritish» — obyekt tannarxini nakladnoy bo'yicha yangilaydi.\n\nGuruhlar: dasturda <b>Аккаунты → Бот поставщиков</b>." : LOCKED);
     }
     if (chat.type !== "group" && chat.type !== "supergroup") return;
     if (msg.new_chat_members || msg.left_chat_member) return;
