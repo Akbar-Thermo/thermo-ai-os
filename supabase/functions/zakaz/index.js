@@ -1,7 +1,8 @@
 // Thermo postavka — бот поставщиков (функция Supabase «zakaz»). Тот же код, что у бота «tg» (api/_lib), в режиме zakaz:
 // новые поставки → «✅ Yuborish» → заказ в группу каждого поставщика; накладная поставщика → группа расходов с объектом и «✅ Kiritish».
 // Секреты функций (руководитель ставит сам): ZAKAZ_BOT_TOKEN — токен бота от @BotFather. ИИ — только Claude Haiku 5.5.
-// Подключение: один раз открыть https://<проект>.supabase.co/functions/v1/zakaz?setup=1; расписание — функция «tg» будит каждые 5 минут.
+// Подключение: один раз открыть https://<проект>.supabase.co/functions/v1/zakaz?setup=1; программа будит при сохранении объекта (?poke=1),
+// запасное расписание — функция «tg» каждые 5 минут.
 import { createHash } from "node:crypto";
 import { makeRest } from "../tg/_lib/rest.mjs";
 import { makeBot } from "../tg/_lib/bot.mjs";
@@ -44,7 +45,19 @@ let bot = null;
 const getBot = () => bot || (bot = makeBot({ db: makeRest({ url: URL_, anon: ANON, login: LOGIN, password: PASS }), tg, upload, ai: AI, file: download, voice: VOICE, memKey: TOKEN, zakaz: true }));
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
+// «poke» из программы (объект сохранён): проверить новые поставки сейчас. Без секрета — но делает только то же,
+// что расписание (предложение руководителю один раз на поставку), и не чаще одного прохода одновременно.
+let running = null, again = false;
+async function tickNow() {
+  if (running) { again = true; return running; }
+  running = (async () => { do { again = false; try { await getBot().handle({ te_cron: 1 }); } catch (e) { console.error("zakaz poke:", e && e.message); } } while (again); })();
+  try { await running; } finally { running = null; }
+}
 Deno.serve(async (req) => {
+  if (new URL(req.url).searchParams.get("poke") === "1") {
+    if (TOKEN) await tickNow();
+    return new Response("ok", { status: 200, headers: { "Access-Control-Allow-Origin": "*" } });
+  }
   if (req.method !== "POST") {
     const st = { ok: true, bot: !!TOKEN, db: !!(URL_ && ANON), account: !!(LOGIN && PASS), model: AI ? AI.model : false, voice: !!VOICE };
     // ?setup=1 — подключить вебхук этого бота к этой функции (токен не показывается)

@@ -37,6 +37,14 @@ const supabase = createClient(
   { global: { fetch: teFetch } }
 );
 
+// объект изменён (новая поставка, статус) — сразу будим бота поставщиков: он предложит отправить заказ (без ожидания 5 минут)
+let pokeT = null;
+const pokeZakaz = () => {
+  clearTimeout(pokeT);
+  pokeT = setTimeout(() => {
+    try { fetch(String(import.meta.env.VITE_SUPABASE_URL || "") + "/functions/v1/zakaz?poke=1", { method: "POST", mode: "no-cors", keepalive: true }).catch(() => {}); } catch (e) {}
+  }, 2000);
+};
 class Query {
   constructor(table) { this.table = table; this.op = "select"; this.rows = null; this.patch = null; this.filters = []; this.ord = null; }
   select() { this.op = "select"; return this; }
@@ -66,6 +74,7 @@ class Query {
     }
     const { data, error } = await q;
     if (error) console.error("[db]", this.table, error.message);
+    else if (this.table === "objects" && (this.op === "insert" || this.op === "update")) pokeZakaz();
     return { data: data || [], error };
   }
   then(res, rej) { return this._exec().then(res, rej); }
