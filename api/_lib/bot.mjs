@@ -562,8 +562,9 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       const T = { obj: o.id, name: o.name || "", batch: no, addr: o.address || "", client: o.client || "", phone: o.phone || "", master: [(mst && mst.name) || o.master || "", mst && mst.phone].filter(Boolean).join(", "), ords: orders, drv: null, msgs: [], done: null, by: me.name, byTg: me.tg, at: now().toISOString() };
       const trow = (await db.insert("requests", { mode: ZK_TASK, source: "config", lines: T }))[0];
       if (trow) {
-        const P = await people();
-        for (const d of zkDrivers(P)) { try { const v = zkTaskView(trow.id, T, d.tg); const r = await send(d.tg, v.text, { reply_markup: v.reply_markup }); T.msgs.push({ tg: String(d.tg), msg: r && r.message_id }); drivers.push(d.name); } catch (e) { /* доставщик ещё не открыл бота */ } }
+        const P = await people(), ds = zkDrivers(P);
+        if (ds.length === 1) T.drv = { user_id: ds[0].user.id, name: ds[0].name, tg: String(ds[0].tg) }; // один доставщик — сразу ему
+        for (const d of ds) { try { const v = zkTaskView(trow.id, T, d.tg); const r = await send(d.tg, v.text, { reply_markup: v.reply_markup }); T.msgs.push({ tg: String(d.tg), msg: r && r.message_id }); drivers.push(d.name); } catch (e) { /* доставщик ещё не открыл бота */ } }
         await db.update("requests", "id=eq." + trow.id, { lines: T });
       }
     }
@@ -576,21 +577,18 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const mine = T.drv && String(T.drv.tg) === String(tgId);
     const L = ["🚚 <b>Olib kelish</b> · " + esc(T.name || "—") + " · " + T.batch + "-postavka", "", "<b>Olib ketish:</b>"];
     (T.ords || []).forEach((r, i) => {
-      L.push((i + 1) + ". <b>" + esc(r.supName) + "</b> — " + (r.picked ? "📦 olindi" : r.ready ? "✅ tayyor" : "⏳ tayyorlanmoqda"));
+      L.push((i + 1) + ". <b>" + esc(r.supName) + "</b> — " + (T.done ? "📦 olindi" : r.ready ? "✅ tayyor" : "⏳ tayyorlanmoqda"));
       (r.items || []).slice(0, 12).forEach((x) => L.push("   • " + esc(cut(x.name, 50)) + " — " + C.fmt(x.qty) + " " + esc(x.unit || "шт")));
       if ((r.items || []).length > 12) L.push("   …");
     });
     L.push("", "<b>Yetkazish:</b> " + esc(T.addr || "manzil yo'q") + (T.client || T.phone ? "\nMijoz: " + esc([T.client, T.phone].filter(Boolean).join(", ")) : "") + (T.master ? "\nUsta: " + esc(T.master) : ""));
     L.push("", "Dostavshik: " + (T.drv ? "<b>" + esc(T.drv.name) + "</b>" : "—"));
-    if (T.done) L.push("✅ <b>Klientga yetkazildi</b> (" + esc(T.done) + ")");
+    if (T.done) L.push("✅ <b>Dostavleno</b> — klientga yetkazildi (" + esc(T.done) + ")");
     else if (mine) L.push("🧾 Postavshik bergan nakladnoyni rasmga olib, <b>shu xabarga javob qilib</b> yuboring.");
     const kb = [];
     if (!T.done) {
       if (!T.drv) kb.push([{ text: "🙋 Men olib kelaman", callback_data: "zc:" + id }]);
-      else if (mine) {
-        (T.ords || []).forEach((r, i) => { if (!r.picked) kb.push([{ text: "📦 Oldim: " + cut(r.supName, 30), callback_data: "zp:" + id + ":" + i }]); });
-        kb.push([{ text: "✅ Klientga yetkazildi", callback_data: "zd:" + id }]);
-      }
+      else if (mine) kb.push([{ text: "✅ Dostavleno", callback_data: "zd:" + id }]);
     }
     return { text: cut(L.join("\n"), 4000), reply_markup: { inline_keyboard: kb } };
   }
@@ -611,22 +609,14 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       T.drv = { user_id: me.user.id, name: me.name, tg: String(me.tg) };
       await db.update("requests", "id=eq." + row.id, { lines: T });
       await zkTaskRefresh(row);
-      // поставщикам: кто заберёт
-      for (const r of T.ords || []) { try { const o = (await db.select("requests", "id=eq." + r.id + "&select=id,lines"))[0]; if (o && o.lines.msg) await send(o.lines.chat, "🚚 Olib ketadi: <b>" + esc(me.name) + "</b>", { reply_to_message_id: o.lines.msg }); } catch (e) {} }
       return ans("Sizga biriktirildi");
     }
     if (!T.drv || String(T.drv.tg) !== String(me.tg)) return ans("Bu topshiriq sizda emas", true);
-    if (act === "zp") {
-      const r = (T.ords || [])[Number(n2)]; if (!r) return ans();
-      r.picked = true; await db.update("requests", "id=eq." + row.id, { lines: T }); await zkTaskRefresh(row);
-      try { const o = (await db.select("requests", "id=eq." + r.id + "&select=id,lines"))[0]; if (o && o.lines.msg) await send(o.lines.chat, "📦 Tovar olindi · " + esc(me.name), { reply_to_message_id: o.lines.msg }); } catch (e) {}
-      return ans("Belgilandi");
-    }
     if (act === "zd") {
       const n = await delivDo({ id: T.obj }, Number(T.batch) || 0, me);
       T.done = me.name; (T.ords || []).forEach((r) => { r.picked = true; });
       await db.update("requests", "id=eq." + row.id, { lines: T }); await zkTaskRefresh(row);
-      if (T.byTg) { try { await send(T.byTg, "✅ <b>Yetkazildi</b> · " + esc(T.name) + " · " + T.batch + "-postavka — " + esc(me.name) + (n ? " (" + n + " poz.)" : "")); } catch (e) {} }
+      if (T.byTg) { try { await send(T.byTg, "✅ <b>Dostavleno</b> · " + esc(T.name) + " · " + T.batch + "-postavka — " + esc(me.name) + (n ? " (" + n + " poz.)" : "")); } catch (e) {} }
       return ans("Yetkazildi");
     }
     return ans();
@@ -735,7 +725,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   async function zkCallback(cq, ans) {
     const [act, id, n2] = String(cq.data || "").split(":");
     if (act === "zr") return zkReady(id, cq, ans);
-    if (act === "zc" || act === "zp" || act === "zd") return zkDriverCb(act, id, n2, cq, ans);
+    if (act === "zc" || act === "zd") return zkDriverCb(act, id, n2, cq, ans);
     const me = await whoAmI(cq.from && cq.from.id);
     if (!me) return ans("Akkauntingiz ulanmagan (Thermo bot orqali ulang)", true);
     if (!(canAsk(me.acc, "obyekt") && money$(me.acc))) return ans("Bu bo'lim sizga ochilmagan", true);
