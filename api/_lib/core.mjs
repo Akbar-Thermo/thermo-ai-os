@@ -565,6 +565,17 @@ var supabase = createClient(
   "x",
   { global: { fetch: teFetch } }
 );
+var pokeT = null;
+var pokeZakaz = () => {
+  clearTimeout(pokeT);
+  pokeT = setTimeout(() => {
+    try {
+      fetch(String("http://localhost") + "/functions/v1/zakaz?poke=1", { method: "POST", mode: "no-cors", keepalive: true }).catch(() => {
+      });
+    } catch (e) {
+    }
+  }, 2e3);
+};
 var Query = class {
   constructor(table) {
     this.table = table;
@@ -626,6 +637,7 @@ var Query = class {
     }
     const { data, error } = await q;
     if (error) console.error("[db]", this.table, error.message);
+    else if (this.table === "objects" && (this.op === "insert" || this.op === "update")) pokeZakaz();
     return { data: data || [], error };
   }
   then(res, rej) {
