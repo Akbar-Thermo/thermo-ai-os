@@ -100,7 +100,7 @@ begin
   if m = 'te_zk' and not acc then
     raise exception 'te_forbidden: группы бота поставщиков настраивает только руководитель' using errcode = '42501';
   end if;
-  if m in ('te_zkpend', 'te_zkst', 'te_zkord', 'te_zkinv') and not (acc or bot) then
+  if m in ('te_zkpend', 'te_zkst', 'te_zkord', 'te_zkinv', 'te_zktask') and not (acc or bot) then
     raise exception 'te_forbidden: эту запись меняет только Telegram-бот' using errcode = '42501';
   end if;
   if m = 'te_tg' and not acc then
