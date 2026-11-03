@@ -8,6 +8,7 @@
 // Поэтому код компонентов менять НЕ нужно.
 // ============================================================
 import { createClient } from "@supabase/supabase-js";
+import { TEST, TEST_DB } from "./testmode.js";
 
 // .env: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY
 // Сессия входа (когда в базе включена защита): токен уходит с каждым запросом в заголовке x-te-session.
@@ -32,8 +33,8 @@ const teFetch = (input, init = {}) => {
   });
 };
 const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY,
+  TEST ? TEST_DB.url : import.meta.env.VITE_SUPABASE_URL,
+  TEST ? TEST_DB.anon : import.meta.env.VITE_SUPABASE_ANON_KEY,
   { global: { fetch: teFetch } }
 );
 
@@ -42,7 +43,7 @@ let pokeT = null;
 const pokeZakaz = () => {
   clearTimeout(pokeT);
   pokeT = setTimeout(() => {
-    try { fetch(String(import.meta.env.VITE_SUPABASE_URL || "") + "/functions/v1/zakaz?poke=1", { method: "POST", mode: "no-cors", keepalive: true }).catch(() => {}); } catch (e) {}
+    try { fetch(String((TEST ? TEST_DB.url : import.meta.env.VITE_SUPABASE_URL) || "") + "/functions/v1/zakaz?poke=1", { method: "POST", mode: "no-cors", keepalive: true }).catch(() => {}); } catch (e) {}
   }, 2000);
 };
 class Query {

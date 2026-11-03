@@ -49,8 +49,27 @@ let bot = null;
 const getBot = () => bot || (bot = makeBot({ db: makeRest({ url: URL_, anon: ANON, login: LOGIN, password: PASS }), tg, upload, ai: AI, file: download, voice: VOICE, memKey: TOKEN }));
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
+// ?tick=1 — расписание без секрета (sinov-база: pg_cron); делает то же, что обычный запуск по расписанию, не чаще раза в 30 с
+let lastTick = 0;
 Deno.serve(async (req) => {
-  if (req.method !== "POST") return json(200, { ok: true, bot: !!TOKEN, db: !!(URL_ && ANON), account: !!(LOGIN && PASS), ai: !!AI, voice: VOICE ? VOICE.provider + (VOICE.tts ? "+tts" : "") : false });
+  const qs = new URL(req.url).searchParams;
+  if (qs.get("tick") === "1") {
+    if (TOKEN && Date.now() - lastTick > 30e3) { lastTick = Date.now(); try { await getBot().handle({ te_cron: 1 }); } catch (e) { console.error("tg tick:", e && e.message); } }
+    if (TOKEN && env("ZAKAZ_BOT_TOKEN")) { const zt = env("ZAKAZ_BOT_TOKEN").replace(/\s+/g, "").replace(/^["'`]+|["'`]+$/g, "").replace(/^bot(?=\d)/i, ""); try { await fetch(env("SUPABASE_URL") + "/functions/v1/zakaz", { method: "POST", headers: { "Content-Type": "application/json", "x-telegram-bot-api-secret-token": createHash("sha256").update("thermo-zakaz:" + zt).digest("hex").slice(0, 48) }, body: "{\"te_cron\":1}" }); } catch (e) {} }
+    return json(200, { ok: true });
+  }
+  if (req.method !== "POST") {
+    const st = { ok: true, bot: !!TOKEN, db: !!(URL_ && ANON), account: !!(LOGIN && PASS), ai: !!AI, voice: VOICE ? VOICE.provider + (VOICE.tts ? "+tts" : "") : false };
+    // ?setup=1 — подключить вебхук этого бота к этой функции (токен не показывается)
+    if (TOKEN && qs.get("setup") === "1") {
+      try {
+        await tg("setWebhook", { url: env("SUPABASE_URL") + "/functions/v1/tg", secret_token: SECRET, allowed_updates: ["message", "callback_query", "my_chat_member"] });
+        const me = await tg("getMe", {});
+        return json(200, { ...st, webhook: "ok", username: me && me.username });
+      } catch (e) { return json(200, { ...st, webhook: "error: " + String(e.message || e).slice(0, 200) }); }
+    }
+    return json(200, st);
+  }
   if (!TOKEN || req.headers.get("x-telegram-bot-api-secret-token") !== SECRET) return json(401, { ok: false });
   let upd = null;
   try { upd = await req.json(); } catch (e) { upd = null; }
