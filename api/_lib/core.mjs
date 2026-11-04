@@ -536,6 +536,50 @@ function createClient() {
   return new Proxy({}, { get: (_, k) => k === "then" ? void 0 : unavailable });
 }
 
+// src/testmode.js
+var KEY = "te:sinov";
+var on = false;
+try {
+  const q = new URLSearchParams(location.search), s = q.get("sinov");
+  if (s === "1") localStorage.setItem(KEY, "1");
+  if (s === "0") localStorage.removeItem(KEY);
+  on = localStorage.getItem(KEY) === "1";
+  if (s != null) {
+    q.delete("sinov");
+    history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash);
+  }
+} catch (e) {
+  on = false;
+}
+var TEST = on;
+var TEST_DB = { url: "https://hwkawvwlqpntomdmwbwk.supabase.co", anon: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh3a2F3dndscXBudG9tZG13YndrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM2OTA3NTEsImV4cCI6MjEwOTI2Njc1MX0.4siLCxVLqQMng3V2O1uLpt7O57mkrZmCyVyY3IMEElU" };
+if (TEST) {
+  const P = "sinov:", S = Storage.prototype, g = S.getItem, st = S.setItem, rm = S.removeItem;
+  S.getItem = function(k) {
+    return k === KEY ? g.call(this, k) : g.call(this, P + k);
+  };
+  S.setItem = function(k, v) {
+    return k === KEY ? st.call(this, k, v) : st.call(this, P + k, v);
+  };
+  S.removeItem = function(k) {
+    return k === KEY ? rm.call(this, k) : rm.call(this, P + k);
+  };
+  try {
+    document.title = "\u{1F9EA} SINOV \xB7 " + document.title;
+  } catch (e) {
+  }
+  const pill = () => {
+    if (document.getElementById("te-sinov")) return;
+    const d = document.createElement("div");
+    d.id = "te-sinov";
+    d.setAttribute("style", "position:fixed;left:12px;bottom:12px;z-index:99999;background:#ff1f30;color:#fff;font:700 13px/1 system-ui,sans-serif;padding:9px 12px;border-radius:999px;box-shadow:0 6px 20px rgba(0,0,0,.25);display:flex;gap:10px;align-items:center");
+    d.innerHTML = "\u{1F9EA} SINOV REJIMI \u2014 haqiqiy tizimga ta'sir qilmaydi <a href='?sinov=0' style='color:#fff;background:rgba(0,0,0,.25);padding:4px 9px;border-radius:999px;text-decoration:none'>Chiqish</a>";
+    document.body.appendChild(d);
+  };
+  if (document.body) pill();
+  else document.addEventListener("DOMContentLoaded", pill);
+}
+
 // src/db.js
 var TE_SESSION = null;
 var teFetch = (input, init = {}) => {
@@ -561,21 +605,10 @@ var teFetch = (input, init = {}) => {
   });
 };
 var supabase = createClient(
-  "http://localhost",
-  "x",
+  TEST ? TEST_DB.url : "http://localhost",
+  TEST ? TEST_DB.anon : "x",
   { global: { fetch: teFetch } }
 );
-var pokeT = null;
-var pokeZakaz = () => {
-  clearTimeout(pokeT);
-  pokeT = setTimeout(() => {
-    try {
-      fetch(String("http://localhost") + "/functions/v1/zakaz?poke=1", { method: "POST", mode: "no-cors", keepalive: true }).catch(() => {
-      });
-    } catch (e) {
-    }
-  }, 2e3);
-};
 var Query = class {
   constructor(table) {
     this.table = table;
@@ -637,7 +670,6 @@ var Query = class {
     }
     const { data, error } = await q;
     if (error) console.error("[db]", this.table, error.message);
-    else if (this.table === "objects" && (this.op === "insert" || this.op === "update")) pokeZakaz();
     return { data: data || [], error };
   }
   then(res, rej) {
@@ -1551,9 +1583,9 @@ function kassaBal(open, lines, conv) {
 }
 function kassaText({ open, sys, manual, conv }) {
   const line = (r, what) => kLineAmt(r) + (what ? " - " + what : "");
-  const on = sys.filter((r) => r.on);
+  const on2 = sys.filter((r) => r.on);
   const man = (manual || []).filter((m) => parseNum(m.amt) > 0).map((m) => ({ dir: m.dir, bucket: m.bucket, amt: parseNum(m.amt), label: String(m.note || "").trim(), on: m.on !== false }));
-  const counted = [...on, ...man.filter((m) => m.on)];
+  const counted = [...on2, ...man.filter((m) => m.on)];
   const bal = kassaBal(open, counted, conv);
   const o = {};
   KASSA_KEYS.forEach((k) => {

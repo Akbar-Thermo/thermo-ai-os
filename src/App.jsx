@@ -9573,7 +9573,7 @@ function AdminTab({ data, reload, toast, currentUser, isBoss = true }) {
         </Modal>
       )}
       <TelegramCard data={data} reload={reload} toast={toast} users={users} roles={roles} uperms={uperms} />
-      <ZakazCard data={data} reload={reload} toast={toast} />
+      <ZakazCard data={data} reload={reload} toast={toast} users={users} />
     </div>
   );
 }
@@ -9581,16 +9581,23 @@ function AdminTab({ data, reload, toast, currentUser, isBoss = true }) {
    аккаунт, под которым бот входит в программу; кто из сотрудников подключён (одноразовая ссылка — бот сам
    привязывает Telegram к аккаунту; в личном чате бот отвечает по правам аккаунта); отчёты по расписанию. */
 const TG_FULL = (a) => !!a && (a.base === "boss" || PERMS.every((p) => a.perms && a.perms[p.id]));
-// Бот поставщиков: группа каждого поставщика (туда — заказы, оттуда — накладные) и группа расходов (туда — накладные с объектом)
-function ZakazCard({ data, reload, toast }) {
+// Бот поставщиков: группа каждого поставщика (оттуда — накладные и прайсы) и группа расходов (туда — накладные с объектом);
+// «Объект выбирает»: если бот не уверен, чья накладная, — карточки выбора объекта уходят этим людям в личный чат бота
+function ZakazCard({ data, reload, toast, users = [] }) {
   const reqs = data.requests || [];
   const cfgRow = reqs.find((r) => r.mode === ZK_MODE) || null, pendRow = reqs.find((r) => r.mode === ZK_PEND_MODE) || null;
   const cfg = (cfgRow && cfgRow.lines && !Array.isArray(cfgRow.lines) ? cfgRow.lines : {}) || {};
   const groups = (pendRow && pendRow.lines && Array.isArray(pendRow.lines.groups) ? pendRow.lines.groups : []);
   const botName = (pendRow && pendRow.lines && pendRow.lines.bot) || "";
   const sups = (data.suppliers || []).filter((x) => x.status !== "archive").slice().sort((a, b) => translit(a.name || "").toLowerCase().localeCompare(translit(b.name || "").toLowerCase()));
+  const linkRow = reqs.find((r) => r.mode === TG_USERS_MODE) || null;
+  const links = (linkRow && linkRow.lines && linkRow.lines.links && typeof linkRow.lines.links === "object" ? linkRow.lines.links : {}) || {};
+  const tgCfg = ((reqs.find((r) => r.mode === TG_MODE) || {}).lines) || {};
+  const linked = new Set(Object.values(links).map((l) => l && l.user_id).filter(Boolean));
+  const pickers = users.filter((u) => linked.has(u.id) && u.id !== tgCfg.bot_user && (!u.status || u.status === "active") && u.role !== "staff");
   const init = () => { const m = {}; Object.entries(cfg.sup || {}).forEach(([c, sid]) => { m[c] = sid; }); if (cfg.exp) m[cfg.exp] = "__exp"; return m; };
   const [v, setV] = useState(init);
+  const [pick, setPick] = useState(() => (Array.isArray(cfg.pick) ? cfg.pick.map(String) : []));
   const [busy, setBusy] = useState(false);
   const save = async () => {
     const sup = {}; let exp = "";
@@ -9598,15 +9605,17 @@ function ZakazCard({ data, reload, toast }) {
     setBusy(true);
     const r0 = await db.from("requests").select().eq("mode", ZK_MODE);
     const row = ((r0 && r0.data) || [])[0] || cfgRow;
-    const lines = { ...((row && row.lines && !Array.isArray(row.lines) ? row.lines : {}) || {}), sup, exp };
+    const lines = { ...((row && row.lines && !Array.isArray(row.lines) ? row.lines : {}) || {}), sup, exp, pick };
     const r = row ? await db.from("requests").update({ lines }).eq("id", row.id) : await db.from("requests").insert({ mode: ZK_MODE, source: "config", lines });
     setBusy(false);
     if (r.error) return;
     const sn = (id) => (sups.find((x) => x.id === id) || {}).name || "?";
-    await logAction("Бот поставщиков: группы", "telegram", Object.entries(sup).map(([c, id]) => ((groups.find((g) => String(g.id) === c) || {}).title || c) + " → " + sn(id)).join("; ") + (exp ? " · расходы: " + ((groups.find((g) => String(g.id) === exp) || {}).title || exp) : ""));
-    await reload(["requests"]); toast("Группы бота поставщиков сохранены");
+    const un = (id) => { const u = users.find((x) => x.id === id); return (u && (u.name || u.username)) || id; };
+    await logAction("Бот поставщиков: группы", "telegram", Object.entries(sup).map(([c, id]) => ((groups.find((g) => String(g.id) === c) || {}).title || c) + " → " + sn(id)).join("; ") + (exp ? " · расходы: " + ((groups.find((g) => String(g.id) === exp) || {}).title || exp) : "") + " · объект выбирает: " + (pick.length ? pick.map(un).join(", ") : "руководители"));
+    await reload(["requests"]); toast("Настройки бота поставщиков сохранены");
   };
   const dupExp = Object.values(v).filter((x) => x === "__exp").length > 1;
+  const togglePick = (id) => setPick((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   return (
     <div className="card sect zk-card" style={{ marginTop: 16 }}>
       <div className="row" style={{ marginBottom: 6 }}><h3 style={{ marginRight: "auto" }}>Бот поставщиков</h3>{botName && <a className="xs" href={"https://t.me/" + botName} target="_blank" rel="noreferrer">@{botName}</a>}</div>
@@ -9621,7 +9630,14 @@ function ZakazCard({ data, reload, toast }) {
           </select>
         </div>
       ))}
-      {groups.length > 0 && <div className="row" style={{ justifyContent: "flex-end", marginTop: 8, gap: 10 }}>{dupExp && <span className="xs" style={{ color: "var(--bad)" }}>Группа расходов — только одна</span>}<button className="btn xs pri zk-save" disabled={busy || dupExp} onClick={save}>Сохранить</button></div>}
+      <div className="zk-pick" style={{ padding: "8px 0", borderTop: "1px solid var(--line)" }}>
+        <div className="sm" style={{ marginBottom: 6 }}><b>Объект выбирает</b> <span className="xs mut">— если по накладной объект не ясен</span></div>
+        {pickers.length ? <div className="row" style={{ gap: 14, flexWrap: "wrap" }}>{pickers.map((u) => (
+          <label key={u.id} className="row sm zk-pick-u" style={{ gap: 6, cursor: "pointer" }}><input type="checkbox" checked={pick.includes(u.id)} disabled={busy} onChange={() => togglePick(u.id)} />{u.name || u.username}</label>
+        ))}</div> : <div className="xs mut">Нет сотрудников, подключённых к Telegram-боту.</div>}
+        {!pick.length && pickers.length > 0 && <div className="xs mut" style={{ marginTop: 4 }}>Никто не выбран — карточки получат руководители.</div>}
+      </div>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 8, gap: 10 }}>{dupExp && <span className="xs" style={{ color: "var(--bad)" }}>Группа расходов — только одна</span>}<button className="btn xs pri zk-save" disabled={busy || dupExp} onClick={save}>Сохранить</button></div>
     </div>
   );
 }
