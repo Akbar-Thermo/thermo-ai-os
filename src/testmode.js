@@ -1,5 +1,5 @@
 // Sinov rejimi: https://thermo-ai-os.vercel.app/?sinov=1 — сайт работает с отдельной СИНОВ-базой (Supabase «thermo-sinov»),
-// ничего в рабочей базе не меняется; ?sinov=0 или кнопка «Chiqish» — обратно в рабочую базу.
+// ничего в рабочей базе не меняется; ?sinov=0 — обратно в рабочую базу. Метки «SINOV» на сайте нет (по просьбе руководителя).
 // Всё, что сайт хранит в браузере (вход, черновики, настройки), в синов-режиме лежит отдельно (префикс «sinov:»).
 const KEY = "te:sinov";
 let on = false;
@@ -18,14 +18,4 @@ if (TEST) {
   S.getItem = function (k) { return k === KEY ? g.call(this, k) : g.call(this, P + k); };
   S.setItem = function (k, v) { return k === KEY ? st.call(this, k, v) : st.call(this, P + k, v); };
   S.removeItem = function (k) { return k === KEY ? rm.call(this, k) : rm.call(this, P + k); };
-  try { document.title = "🧪 SINOV · " + document.title; } catch (e) {}
-  const pill = () => {
-    if (document.getElementById("te-sinov")) return;
-    const d = document.createElement("div");
-    d.id = "te-sinov";
-    d.setAttribute("style", "position:fixed;left:12px;bottom:12px;z-index:99999;background:#ff1f30;color:#fff;font:700 13px/1 system-ui,sans-serif;padding:9px 12px;border-radius:999px;box-shadow:0 6px 20px rgba(0,0,0,.25);display:flex;gap:10px;align-items:center");
-    d.innerHTML = "🧪 SINOV REJIMI — haqiqiy tizimga ta'sir qilmaydi <a href='?sinov=0' style='color:#fff;background:rgba(0,0,0,.25);padding:4px 9px;border-radius:999px;text-decoration:none'>Chiqish</a>";
-    document.body.appendChild(d);
-  };
-  if (document.body) pill(); else document.addEventListener("DOMContentLoaded", pill);
 }
