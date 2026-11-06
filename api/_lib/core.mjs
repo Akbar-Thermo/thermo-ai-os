@@ -564,20 +564,6 @@ if (TEST) {
   S.removeItem = function(k) {
     return k === KEY ? rm.call(this, k) : rm.call(this, P + k);
   };
-  try {
-    document.title = "\u{1F9EA} SINOV \xB7 " + document.title;
-  } catch (e) {
-  }
-  const pill = () => {
-    if (document.getElementById("te-sinov")) return;
-    const d = document.createElement("div");
-    d.id = "te-sinov";
-    d.setAttribute("style", "position:fixed;left:12px;bottom:12px;z-index:99999;background:#ff1f30;color:#fff;font:700 13px/1 system-ui,sans-serif;padding:9px 12px;border-radius:999px;box-shadow:0 6px 20px rgba(0,0,0,.25);display:flex;gap:10px;align-items:center");
-    d.innerHTML = "\u{1F9EA} SINOV REJIMI \u2014 haqiqiy tizimga ta'sir qilmaydi <a href='?sinov=0' style='color:#fff;background:rgba(0,0,0,.25);padding:4px 9px;border-radius:999px;text-decoration:none'>Chiqish</a>";
-    document.body.appendChild(d);
-  };
-  if (document.body) pill();
-  else document.addEventListener("DOMContentLoaded", pill);
 }
 
 // src/db.js

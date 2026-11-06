@@ -649,6 +649,7 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 @media(min-width:821px){.te.fine .npanel-head{cursor:move;user-select:none}}
 .npanel-bg.free{background:none;backdrop-filter:none;pointer-events:none}
 .npanel{position:relative}
+.it-repl{cursor:pointer;border-bottom:1px dashed transparent}.it-repl:hover{color:var(--acc);border-bottom-color:currentColor}
 .modal-bg,.npanel,.nwin,.calc,.sup-pop,.brand-fly{overscroll-behavior:contain}
 .tg-h{font-size:var(--fs-xs);font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 2px}
 .fw-grip{position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:nwse-resize;z-index:2;border-radius:0 0 var(--r-xl) 0;background:linear-gradient(135deg,transparent 50%,var(--line2) 50%,var(--line2) 58%,transparent 58%,transparent 70%,var(--line2) 70%,var(--line2) 78%,transparent 78%);opacity:.8}
@@ -5329,6 +5330,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   const [delAsk, setDelAsk] = useState(null);
   const toggleBatch = (no) => setOpenBatches((o) => ({ ...o, [no]: !o[no] }));
   const [editItem, setEditItem] = useState(null);
+  const [replItem, setReplItem] = useState(null);
   const [addItems, setAddItems] = useState(false);
   const [impItems, setImpItems] = useState(false);
   const [impPick, setImpPick] = useState(null); // строки из «Импорт Excel» ждут ответа «в какую поставку»
@@ -5429,6 +5431,16 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       if (await syncReturns((obj.items || []).map((i) => (i.id === iid ? { ...i, price } : i)))) { await reload(); toast("Возвраты по этой позиции пересчитаны по новой цене"); }
     }
     return ok;
+  };
+  // замена позиции другим товаром из базы (та же строка: количество, поставка, отметка — остаются)
+  const replaceItem = async (item) => {
+    const it0 = (obj.items || []).find((i) => i.id === item.id) || {};
+    const ok = await saveItems((cur) => cur.map((i) => (i.id === item.id ? { ...i, ...item } : i)));
+    if (!ok) return false;
+    await logAction("Заменена позиция", "object:" + obj.name, (it0.name || "") + " × " + fmt(it0.qty) + " по " + fmt2(it0.price) + " → " + (item.name || "") + " × " + fmt(item.qty) + " по " + fmt2(item.price) + (item.supplier_id !== it0.supplier_id ? " · поставщик: " + supName(it0.supplier_id) + " → " + supName(item.supplier_id) : ""));
+    await syncReturns((obj.items || []).map((i) => (i.id === item.id ? { ...i, ...item } : i)));
+    toast("Позиция заменена: " + item.name);
+    return true;
   };
   const saveItem = async (item0) => {
     let item = item0;
@@ -5917,7 +5929,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
                 ) : null}
                 {!closedBatches[b.no] && b.items.map((i) => (costMode
               ? <CostQuickRow key={i.id} i={i} n={cqPos.get(i.id)} val={costDraft[i.id]} onVal={cqSet} onKey={cqKey} onPaste={cqPaste} />
-              : <ObjectItemRow key={i.id} i={i} late={lateAdded.get(i.id)} fin={fin} supName={supName} setItemQty={setItemQty} setItemPrice={setItemPrice} setEditItem={setEditItem} setDelItemId={setDelItemId} setItemMark={setItemMark} />
+              : <ObjectItemRow key={i.id} i={i} late={lateAdded.get(i.id)} fin={fin} supName={supName} setItemQty={setItemQty} setItemPrice={setItemPrice} setEditItem={setEditItem} setDelItemId={setDelItemId} setItemMark={setItemMark} onReplace={setReplItem} />
                 ))}
               </React.Fragment>
             ); })() : (() => { const day = ev.day, k = "ret:" + day, live = ev.ops.filter((o) => !o.voided); return (
@@ -6034,6 +6046,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
           </div>
         </Modal>
       )}
+      {replItem && <ItemReplaceModal item={replItem} products={products} suppliers={suppliers} fin={fin} onClose={() => setReplItem(null)} onSave={async (it) => { if (await replaceItem(it)) setReplItem(null); }} />}
       {editItem && <ItemEditModal item={editItem} suppliers={suppliers} fin={fin} onClose={() => setEditItem(null)} onSave={async (it) => { if (await saveItem(it)) setEditItem(null); }} />}
       {pctForm && <PercentModal obj={obj} batches={batches} onClose={() => setPctForm(false)} onApply={async (pct, no) => { if (await applyPercent(pct, no)) setPctForm(false); }} />}
       {editObj && <ObjectEditModal obj={obj} data={data} reload={reload} toast={toast} onClose={() => setEditObj(false)} />}
@@ -6256,7 +6269,7 @@ function ShipModal({ obj, batches, fin, supName, onClose, onShip, onUnship }) {
 // Строка таблицы материалов объекта: количество/цена редактируются свободно на экране,
 // в базу уходят только по потере фокуса (onBlur) — чтобы не слать запрос на каждое нажатие клавиши
 // и не ловить промежуточные значения вроде "1" при наборе "15".
-function ObjectItemRow({ i, late, fin, supName, setItemQty, setItemPrice, setEditItem, setDelItemId, setItemMark }) {
+function ObjectItemRow({ i, late, fin, supName, setItemQty, setItemPrice, setEditItem, setDelItemId, setItemMark, onReplace = null }) {
   const [qty, setQty] = useState(inNum(i.qty));
   const [mk, setMk] = useState(i.mark || "");
   useEffect(() => { setMk(i.mark || ""); }, [i.mark]);
@@ -6267,7 +6280,7 @@ function ObjectItemRow({ i, late, fin, supName, setItemQty, setItemPrice, setEdi
   return (
     <tr>
       <td style={{ width: 28, paddingRight: 0, verticalAlign: "middle" }}><MarkDot value={mk} onClick={async () => { const nx = nextMark(mk); setMk(nx); if (!(await setItemMark(i.id, nx))) setMk(i.mark || ""); }} /></td>
-      <td style={{ fontWeight: 600 }}>{i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «В процессе»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}{late && <div className="xs late-add" style={{ color: "var(--warn)" }} title="Позиция добавлена в эту поставку позже остальных — сумма поставки после этого выросла">добавлено позже: {dt(late)}</div>}</td>
+      <td style={{ fontWeight: 600 }}>{onReplace && !i.from_warehouse ? <span className="it-repl" role="button" tabIndex={0} title="Заменить на другой товар" onClick={() => onReplace(i)} onKeyDown={(e) => { if (e.key === "Enter") onReplace(i); }}>{i.name}</span> : i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «В процессе»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}{late && <div className="xs late-add" style={{ color: "var(--warn)" }} title="Позиция добавлена в эту поставку позже остальных — сумма поставки после этого выросла">добавлено позже: {dt(late)}</div>}</td>
       <td><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)}
         onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (!same(v, i.qty)) { if (!(await setItemQty(i.id, v))) setQty(inNum(i.qty)); } else setQty(inNum(i.qty)); }} /></td>
       <td className="sm">{i.unit}</td>
@@ -6306,6 +6319,43 @@ function CostQuickRow({ i, n, val, onVal, onKey, onPaste }) {
         {cost > 0 ? <>{fmt2(q * pr)}<div className="xs" style={{ fontWeight: 600 }}>{pct != null ? (Math.round(pct * 10) / 10).toLocaleString("ru-RU") + "%" : ""}{bad ? " · в убыток" : ""}</div></> : "—"}
       </td>
     </tr>
+  );
+}
+// замена позиции объекта другим товаром из базы: количество и поставка остаются, товар, поставщик, ед., себестоимость и цена — новые
+function ItemReplaceModal({ item, products, suppliers, fin, onClose, onSave }) {
+  const [p, setP] = useState(null);
+  const [qty, setQty] = useState(inNum(item.qty ?? 0));
+  const [price, setPrice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const supName = (id) => (suppliers.find((s) => s.id === id) || {}).name || "—";
+  const pick = (x) => { setP(x); setPrice(inNum(retailOf(x) || 0)); };
+  const save = async () => {
+    if (!p || busy) return;
+    setBusy(true);
+    const out = { ...item, product_id: p.id, name: p.name, size: p.size || "", unit: p.unit || item.unit, supplier_id: p.supplier_id || null, cost: Number(p.cost) || 0, price: Math.max(0, parseNum(price)), qty: Math.max(0, parseNum(qty)) };
+    if (!(await confirmLowPrice([out]))) { setBusy(false); return; }
+    await onSave(out);
+    setBusy(false);
+  };
+  return (
+    <Modal title="Заменить товар" onClose={onClose} w={600}>
+      <div className="repl-old sm" style={{ padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 12 }}>
+        <span className="mut">Сейчас:</span> <b>{item.name}</b> · {fmt(item.qty)} {item.unit} · {fmt2(item.price)}{item.supplier_id ? " · " + supName(item.supplier_id) : ""}
+      </div>
+      <ProductPicker closeOnPick products={products} suppliers={suppliers} placeholder="на что заменить: название, код, поставщик…" onPick={pick} />
+      {p && <div className="repl-new" style={{ marginTop: 12 }}>
+        <div className="sm" style={{ marginBottom: 8 }}><span className="mut">Новый:</span> <b>{p.name}</b>{p.size && !String(p.name).includes(p.size) ? " " + p.size : ""} · {supName(p.supplier_id)}{fin ? " · себест. " + fmt2(p.cost) : ""}</div>
+        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          <Fld label={"Количество, " + (p.unit || item.unit || "")}><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)} /></Fld>
+          <Fld label="Цена продажи"><input type="number" className="inp" min={0} value={price} onChange={(e) => setPrice(e.target.value)} /></Fld>
+        </div>
+        <p className="xs mut" style={{ marginTop: 6 }}>Сумма позиции: {fmt(parseNum(qty) * parseNum(price))} (было {fmt((Number(item.qty) || 0) * (Number(item.price) || 0))})</p>
+      </div>}
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
+        <button className="btn" onClick={onClose}>Отмена</button>
+        <button className="btn pri repl-ok" disabled={!p || busy} onClick={save}>{busy ? "Заменяю…" : "Заменить"}</button>
+      </div>
+    </Modal>
   );
 }
 function ItemEditModal({ item, suppliers, fin, onClose, onSave }) {
