@@ -167,7 +167,7 @@ const TG_MODE = "te_tg", TG_PEND_MODE = "te_tgpend"; // Telegram-бот: раз�
 const TG_LINK_MODE = "te_tglink", TG_USERS_MODE = "te_tgusers";
 const TG_AI_MODE = "te_tgai";
 const ZK_MODE = "te_zk", ZK_PEND_MODE = "te_zkpend"; // бот поставщиков: группы ↔ поставщики + группа расходов (руководитель) / группы бота (пишет бот) // расход ИИ бота за месяц (пишет бот): lines = { month, usd, claude, speech, calls, sec, … }
-const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note", MIGR_MODE, NOTE_ORD_MODE, TG_MODE, TG_PEND_MODE, TG_LINK_MODE, TG_USERS_MODE, TG_AI_MODE, ZK_MODE, ZK_PEND_MODE];
+const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note", MIGR_MODE, NOTE_ORD_MODE, TG_MODE, TG_PEND_MODE, TG_LINK_MODE, TG_USERS_MODE, TG_AI_MODE, ZK_MODE, ZK_PEND_MODE, "te_perech"];
 // служебная запись-словарь в requests: прочитать свежую и поменять один ключ
 async function cfgSetKey(mode, key, value) {
   const r0 = await db.from("requests").select().eq("mode", mode);
@@ -206,8 +206,9 @@ const PERMS = [
   { id: "salary", label: "Зарплата сотрудников" },
   { id: "backup", label: "Бэкап базы и Excel-архив" },
   { id: "accounts", label: "Аккаунты: создавать и менять (кроме руководителей)" },
+  { id: "perech", label: "Перечисление: договоры, счета, накладные, банковские платежи" },
 ];
-const ALL_PERMS = { fin: true, del: true, salary: true, backup: true, accounts: true };
+const ALL_PERMS = { fin: true, del: true, salary: true, backup: true, accounts: true, perech: true };
 const rolesCfgRow = (data) => ((data && data.requests) || []).find((x) => x.mode === ROLE_CFG_MODE) || null;
 function allRoles(data) {
   const row = rolesCfgRow(data);
@@ -1564,7 +1565,7 @@ const XL_GREENSTYLE = { 11: 23, 12: 24 };
 const XL_BRAND = "Thermo Engineering";
 function xlSheetXml(rows0, cols, types, opt = {}) {
   // каждая выгрузка начинается с шапки «Thermo Engineering»
-  const rows = [{ k: "brand" }, ...rows0];
+  const rows = opt.noBrand ? rows0 : [{ k: "brand" }, ...rows0];
   const n = cols.length, merges = [];
   const green = new Set(opt.green || []); // колонки, где числа зелёные (например «Прибыль»)
   let red = false;
@@ -1663,6 +1664,7 @@ function xlFromTable(name, table) {
 /* Excel для клиента (объект → «Excel клиенту»; Telegram-бот → «📄 Excel»): строки генератора таблиц */
 const CLIENT_XL_COLS = [6, 60, 10, 7, 13, 15], CLIENT_XL_TYPES = ["c", "t", "n", "c", "m", "m"];
 function clientSheetRows(obj, ops, products, f) {
+  if (isPerech(obj)) return clientSheetRowsUzs(obj, ops, products); // перечисление: клиенту — в сумах
   const batches = objBatches(obj);
   const rows = [
     { k: "title", v: ["ОБЪЕКТ: " + (obj.name || "")] },
@@ -5064,7 +5066,891 @@ function MasterBar({ items, value, onPick, noun = ["объект", "объект
   );
 }
 /* ============ OBJECTS TAB ============ */
-function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = true }) {
+/* ============ ПЕРЕЧИСЛЕНИЕ (клиент платит через банк) ============
+   Объект с пометкой «Перечисление» — колонка objects.perech (jsonb):
+   { on, client: { name, inn, vat, address, rs, bank, mfo, director, director_gen, basis, phone },
+     markup,                                              // наценка на перечисление по умолчанию, %
+     batches: { "1": { rate, markup, date, at, user } },  // курс поставки зафиксирован — её цены в сумах больше не меняются
+     contract: { no, date, amount, spec: "one" | "items", name, unit, batch_nos, at },
+     addenda: [{ no, date, amount, batch_nos, at }] }
+   Позиция зафиксированной поставки: uzs0 — цена без НДС за единицу (целые сумы), uzs_src — цена в $ при фиксации.
+   Цена без НДС = $ × курс × (1 + наценка) ÷ 1,12, округлённая до сума; с НДС — × 1,12 (так суммы в счёте и в Didox сходятся до тийина).
+   Учёт — как раньше, в $. Клиенту — всё в сумах: цены с НДС 12 %, оплаты, долг, документы.
+   Оплата в сумах переводится в $ по курсам поставок: сначала закрывается самая ранняя зафиксированная поставка
+   (по её курсу — сколько сум за $1 её цены), остаток — следующая, аванс сверх всех поставок — курсом последней.
+   Поэтому, когда клиент оплатил всё в сумах, долг в $ тоже ровно 0. Наценка в $-учёте прибылью не считается — она на налоги перечисления.
+   Суммы оплат в $ пересчитываются (perechRecalc), когда меняются поставки: новая фиксация, возврат, новая оплата.
+   Реквизиты нашей фирмы и клиентов — служебная запись requests (mode = "te_perech", lines = { firm, clients: { ИНН: {…} } }). */
+const PERECH_MODE = "te_perech";
+const PERECH_VAT = 12;
+const isPerech = (o) => !!(o && o.perech && o.perech.on);
+const perechCfg = (data) => { const r = ((data && data.requests) || []).find((x) => x.mode === PERECH_MODE); return (r && r.lines && !Array.isArray(r.lines) && r.lines) || {}; };
+// курс поставки — из её позиций (uzs_rate / uzs_markup записываются при фиксации): номера поставок меняются
+// (смена даты накладной, удаление поставки), а позиции несут свой курс с собой. perech.batches — только история.
+const perechBatch = (obj, no) => {
+  const i = ((obj && obj.items) || []).find((x) => (x.batch_no || 1) === no && Number(x.uzs_rate) > 0);
+  return i ? { rate: Number(i.uzs_rate), markup: Number(i.uzs_markup) || 0, date: String(i.batch_date || "").slice(0, 10) } : null;
+};
+const perechFixItem = (i, b) => ({ ...i, uzs0: perechU0Calc(i.price, b), uzs_src: Number(i.price) || 0, uzs_rate: b.rate, uzs_markup: b.markup });
+const perechU0Calc = (price, b) => Math.round((Number(price) || 0) * (Number(b.rate) || 0) * (1 + (Number(b.markup) || 0) / 100) / (1 + PERECH_VAT / 100));
+// цена позиции без НДС за единицу: зафиксированная или (поставка зафиксирована, позицию добавили позже) — по курсу поставки
+const perechU0 = (obj, i) => (i.uzs0 != null && i.uzs0 !== "" ? Number(i.uzs0) || 0 : (() => { const b = perechBatch(obj, i.batch_no || 1); return b ? perechU0Calc(i.price, b) : null; })());
+const uzsLine = (qty, u0) => { const noVat = round2((Number(qty) || 0) * (Number(u0) || 0)); const vat = round2(noVat * PERECH_VAT / 100); return { noVat, vat, sum: round2(noVat + vat), price: round2((Number(u0) || 0) * (1 + PERECH_VAT / 100)) }; };
+const sumFmt = (n) => fmt2(n).replace(/,00$/, "");
+const uzsText = (n) => sumFmt(n) + " сум";
+const MONTHS_GEN = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+const dateLong = (iso) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || "")); return m ? "«" + m[3] + "» " + MONTHS_GEN[Number(m[2]) - 1] + " " + m[1] + " г." : dt(iso); };
+// 210 000 000 → «Двести десять миллионов» (сумы — мужской род, тысячи — женский)
+function numWordsRu(n0) {
+  let n = Math.floor(Math.abs(Number(n0) || 0));
+  if (!n) return "Ноль";
+  const U = ["", "один", "два", "три", "четыре", "пять", "шесть", "семь", "восемь", "девять"], UF = ["", "одна", "две"];
+  const T10 = ["десять", "одиннадцать", "двенадцать", "тринадцать", "четырнадцать", "пятнадцать", "шестнадцать", "семнадцать", "восемнадцать", "девятнадцать"];
+  const T = ["", "", "двадцать", "тридцать", "сорок", "пятьдесят", "шестьдесят", "семьдесят", "восемьдесят", "девяносто"];
+  const H = ["", "сто", "двести", "триста", "четыреста", "пятьсот", "шестьсот", "семьсот", "восемьсот", "девятьсот"];
+  const S = [null, ["тысяча", "тысячи", "тысяч", 1], ["миллион", "миллиона", "миллионов"], ["миллиард", "миллиарда", "миллиардов"], ["триллион", "триллиона", "триллионов"]];
+  const form = (x, f) => { const a = x % 100, b = x % 10; return a > 10 && a < 20 ? f[2] : b === 1 ? f[0] : b >= 2 && b <= 4 ? f[1] : f[2]; };
+  const out = [];
+  for (let k = 0; n > 0; k++, n = Math.floor(n / 1000)) {
+    const x = n % 1000;
+    if (!x) continue;
+    const w = [H[Math.floor(x / 100)]];
+    const d = x % 100;
+    if (d >= 10 && d < 20) w.push(T10[d - 10]); else { w.push(T[Math.floor(d / 10)]); w.push(S[k] && S[k][3] && d % 10 < 3 ? UF[d % 10] || "" : U[d % 10]); }
+    if (S[k]) w.push(form(x, S[k]));
+    out.unshift(w.filter(Boolean).join(" "));
+  }
+  const s = out.join(" ");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+const tiyin = (n) => String(Math.round((Math.abs(Number(n) || 0) % 1) * 100)).padStart(2, "0");
+const amountWords = (n) => numWordsRu(n) + " сум " + tiyin(n) + " тийин";
+// ИКПУ / код упаковки позиции: свои у позиции, иначе — из «Товары»
+const perechProd = (i, products) => (i.product_id && (products || []).find((p) => p.id === i.product_id)) || null;
+const ikpuOf = (i, products) => String(i.ikpu || (perechProd(i, products) || {}).ikpu || "").trim();
+const packOf = (i, products) => { const p = perechProd(i, products) || {}; return { code: String(i.pack_code || p.pack_code || "").trim(), name: String(i.pack_name || p.pack_name || "").trim() }; };
+const ikpuOk = (s) => /^\d{17}$/.test(String(s || "").replace(/\s/g, ""));
+
+// суммы объекта в сумах, по поставкам; оплаты в $ — по курсам поставок (want — какой должна быть сумма в $)
+function perechCalc(obj, allOps) {
+  const ops = opsOf(allOps, obj.id).filter((o) => !o.voided);
+  const batches = objBatches(obj).map((b) => {
+    const cfg = perechBatch(obj, b.no);
+    let usd = 0, uzs = 0, noVat = 0, vat = 0, unfixed = 0, drift = 0;
+    b.items.forEach((i) => {
+      usd += (Number(i.qty) || 0) * (Number(i.price) || 0);
+      const u0 = perechU0(obj, i);
+      if (u0 == null) return;
+      if (i.uzs0 == null || i.uzs0 === "") unfixed++;
+      else if (i.uzs_src != null && Math.abs(Number(i.uzs_src) - (Number(i.price) || 0)) > 0.00001) drift++;
+      const l = uzsLine(i.qty, u0); uzs += l.sum; noVat += l.noVat; vat += l.vat;
+    });
+    return { no: b.no, date: b.date, items: b.items, cfg, fixed: !!cfg, usd: round2(usd), uzs: round2(uzs), noVat: round2(noVat), vat: round2(vat), unfixed, drift, retUsd: 0, retUzs: 0, adjUsd: 0, adjUzs: 0 };
+  });
+  const byNo = new Map(batches.map((b) => [b.no, b]));
+  const itemById = new Map((obj.items || []).map((i) => [i.id, i]));
+  let retUzs = 0;
+  ops.filter((o) => o.type === "return").forEach((o) => {
+    const it = itemById.get(o.item_id);
+    const b = (it && byNo.get(it.batch_no || 1)) || batches[batches.length - 1];
+    if (!b) return;
+    b.retUsd += Number(o.amount) || 0;
+    const u0 = it ? perechU0(obj, it) : null;
+    const ru = u0 != null ? uzsLine(o.qty, u0).sum : b.fixed && b.usd > 0 ? Math.round((Number(o.amount) || 0) * b.uzs / b.usd) : 0;
+    b.retUzs += ru;
+    if (b.fixed) retUzs += ru;
+  });
+  const fixedB = batches.filter((b) => b.fixed && b.usd > 0);
+  const last = fixedB[fixedB.length - 1];
+  const kLast = last ? last.uzs / last.usd : 0;
+  // скидки и доп. расходы клиенту (в $) — по курсу последней зафиксированной поставки
+  let discUsd = 0, expUsd = 0;
+  ops.forEach((o) => { if (o.type === "discount") discUsd += Number(o.amount) || 0; if (o.type === "expense" && o.size === EXP_CLIENT) expUsd += Number(o.amount) || 0; });
+  const discUzs = Math.round(discUsd * kLast), expUzs = Math.round(expUsd * kLast);
+  if (last) { last.adjUsd = expUsd - discUsd; last.adjUzs = expUzs - discUzs; }
+  batches.forEach((b) => { b.netUsd = round2(b.usd - b.retUsd + b.adjUsd); b.netUzs = round2(b.uzs - b.retUzs + b.adjUzs); });
+  const segs = batches.filter((b) => b.fixed && b.netUzs > 0.004 && b.netUsd > 0.004).map((b) => ({ uzs: b.netUzs, usd: b.netUsd }));
+  const k0 = segs.length ? segs[0].uzs / segs[0].usd : kLast;
+  const kEnd = kLast || (segs.length ? segs[segs.length - 1].uzs / segs[segs.length - 1].usd : 0);
+  // сумы, оплаченные нарастающим итогом → $ нарастающим итогом (по поставкам по порядку)
+  const U = (C) => {
+    if (C <= 0) return k0 ? C / k0 : 0;
+    let rest = C, usd = 0;
+    for (const s of segs) { if (rest <= s.uzs + 1e-9) return usd + rest * s.usd / s.uzs; usd += s.usd; rest -= s.uzs; }
+    return usd + (kEnd ? rest / kEnd : 0);
+  };
+  const canMap = segs.length > 0 || kEnd > 0;
+  const pays = ops.filter((o) => o.type === "client_payment").map((o, idx) => {
+    const pi = payInfo(o);
+    const isUzs = pi.cur === "uzs" && Math.abs(pi.uzs) > 0;
+    return { o, idx, d: String(o.op_date || o.created_at || "").slice(0, 10), c: String(o.created_at || ""), isUzs, uzs: isUzs ? pi.uzs : Math.round((Number(o.amount) || 0) * kEnd), label: pi.label || "Оплата" };
+  }).sort((a, b) => a.d.localeCompare(b.d) || a.c.localeCompare(b.c) || a.idx - b.idx);
+  let C = 0, prev = 0;
+  pays.forEach((p) => {
+    C += p.uzs;
+    const cum = round2(U(C));
+    p.want = p.isUzs && canMap ? round2(cum - prev) : null;
+    prev = p.isUzs && canMap ? cum : round2(prev + (Number(p.o.amount) || 0));
+  });
+  const live = payLive(obj);
+  const sale = round2(batches.filter((b) => b.fixed).reduce((a, b) => a + b.uzs, 0));
+  const net = round2(batches.filter((b) => b.fixed).reduce((a, b) => a + b.netUzs, 0));
+  const paidAll = round2(pays.reduce((a, p) => a + p.uzs, 0));
+  const paid = live ? paidAll : 0;
+  return {
+    batches, pays, kLast, kEnd, live,
+    sale, ret: round2(retUzs), disc: discUzs, exp: expUzs, net, paid, paidIgnored: live ? 0 : paidAll, debt: round2(net - paid),
+    unfixedBatches: batches.filter((b) => !b.fixed && b.items.length),
+    unfixedItems: batches.reduce((a, b) => a + (b.fixed ? b.unfixed : 0), 0),
+    driftItems: batches.reduce((a, b) => a + b.drift, 0),
+    recalc: pays.filter((p) => p.want != null && Math.abs(p.want - (Number(p.o.amount) || 0)) > 0.004),
+  };
+}
+// записать в оплаты суммы в $ по курсам поставок; возвращает число изменённых оплат
+async function perechRecalc(obj, allOps, why = "") {
+  const pc = perechCalc(obj, allOps);
+  let n = 0;
+  for (const p of pc.recalc) {
+    const rate = p.want ? round2(Math.abs(p.uzs / p.want)) : 0;
+    const reason = (p.label || "Перечисление") + ": " + fmt(Math.abs(p.uzs)) + " сум × курс " + fmt(rate);
+    const log = [...(p.o.edit_log || []), { at: new Date().toISOString(), before: { amount: p.o.amount, reason: p.o.reason }, why: "курс поставок (перечисление)" }];
+    const r = await db.from("finance_ops").update({ amount: p.want, reason, pay_rate: rate || null, edit_log: log }).eq("id", p.o.id);
+    if (r.error) continue;
+    n++;
+  }
+  if (n) await logAction("Перечисление: оплаты пересчитаны в $ по курсам поставок", "object:" + obj.name, n + " опл." + (why ? " · " + why : "") + " · " + pc.recalc.slice(0, 10).map((p) => fmt(Math.abs(p.uzs)) + " сум: " + fmt2(p.o.amount) + " → " + fmt2(p.want) + " $").join("; "));
+  return n;
+}
+// перечисление объекта меняется по свежей версии из базы; fn(cur) → { perech?, items? }
+async function perechUpdate(objId, fn) {
+  const r = await db.from("objects").select().eq("id", objId);
+  if (r.error) return { error: r.error };
+  const cur = r.data && r.data[0];
+  if (!cur) { const e = { message: "объект не найден — обновите страницу" }; dbReport("objects", e); return { error: e }; }
+  const ch = fn(cur) || {};
+  const patch = {};
+  if (ch.perech) patch.perech = ch.perech;
+  if (ch.items) patch.items = ch.items;
+  const u = await db.from("objects").update(patch).eq("id", objId);
+  if (u.error) return { error: u.error };
+  // в базе нет колонки perech (не обновлена) — запись без неё «прошла бы», но реквизиты и курсы потерялись бы
+  if (patch.perech && ((u.dropped || []).includes("perech") || (u.data && u.data[0] && !("perech" in u.data[0])))) {
+    const e = { message: "в базе нет колонки objects.perech — сначала обновите базу (supabase/perech/01_perech.sql)" };
+    dbReport("objects", e); return { error: e };
+  }
+  return { obj: { ...cur, ...patch } };
+}
+const perechOf = (cur) => ({ ...((cur && cur.perech) || {}) });
+
+/* ---- Документы ---- */
+// .docx из частей (XML) — тот же ZIP без сжатия, что у Excel
+const docxBlob = (parts, order) => {
+  const names = [...(order || []).filter((n) => parts[n] != null), ...Object.keys(parts).filter((n) => !(order || []).includes(n))];
+  const z = xlZip(names.map((n) => [n, parts[n]]));
+  return new Blob([z], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+};
+let _dogTpl = null;
+async function dogovorTpl() {
+  if (_dogTpl) return _dogTpl;
+  const r = await fetch("/perech/dogovor.json", { cache: "no-cache" });
+  if (!r.ok) throw new Error("шаблон договора не загрузился (" + r.status + ")");
+  _dogTpl = await r.json();
+  return _dogTpl;
+}
+const firmFields = [
+  ["name", "Название (как в договоре)", "OOO «…»"], ["director", "Директор (кто подписывает)", "Фамилия И. О."], ["director_gen", "Директор — «в лице директора …»", "Фамилии И. О."],
+  ["basis", "Действует на основании", "Устава"], ["address", "Адрес", ""], ["rs", "Расчётный счёт (р/с)", "2020 8000 …"], ["bank", "Банк", "в АКБ «…» филиал …"],
+  ["mfo", "МФО", ""], ["inn", "ИНН", ""], ["vat", "Регистрационный код НДС", ""], ["phone", "Телефон", ""],
+];
+const perechDocLines = (obj, products, list) => list.map((i, k) => {
+  const u0 = perechU0(obj, i) || 0;
+  const l = uzsLine(i.qty, u0);
+  return { n: k + 1, name: i.name, unit: i.unit || "шт", qty: Number(i.qty) || 0, price: l.price, u0, noVat: l.noVat, vat: l.vat, sum: l.sum, ikpu: ikpuOf(i, products), pack: packOf(i, products) };
+});
+const linesTotal = (lines) => lines.reduce((a, l) => ({ noVat: round2(a.noVat + l.noVat), vat: round2(a.vat + l.vat), sum: round2(a.sum + l.sum) }), { noVat: 0, vat: 0, sum: 0 });
+const qtyFmt = (q) => String(Math.round((Number(q) || 0) * 1000) / 1000).replace(".", ",");
+const xmlEsc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+// договор по шаблону (public/perech/dogovor.json): метки {{…}} → данные; строка спецификации повторяется
+async function perechContractBlob(obj, firm, c, lines) {
+  const tpl = await dogovorTpl();
+  const cl = (obj.perech || {}).client || {};
+  const tot = linesTotal(lines);
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(c.date || today()));
+  const sumAmt = Number(c.amount) > 0 ? Number(c.amount) : tot.sum;
+  const vatAmt = round2(sumAmt * PERECH_VAT / (100 + PERECH_VAT));
+  const V = {
+    NO: c.no || "", D: m ? m[3] : "", M: m ? MONTHS_GEN[Number(m[2]) - 1] : "", Y: m ? m[1] : "",
+    S_NAME: firm.name, S_DIR: firm.director, S_DIR_GEN: firm.director_gen || firm.director, S_ADDR: firm.address, S_RS: firm.rs, S_BANK: firm.bank, S_MFO: firm.mfo, S_INN: firm.inn, S_VAT: firm.vat,
+    B_NAME: cl.name, B_DIR: cl.director, B_DIR_GEN: cl.director_gen || cl.director, B_BASIS: cl.basis || "Устава", B_ADDR: cl.address, B_RS: cl.rs, B_BANK: cl.bank, B_MFO: cl.mfo, B_INN: cl.inn, B_VAT: cl.vat,
+    T_NOVAT: sumFmt(round2(sumAmt - vatAmt)), T_VAT: sumFmt(vatAmt), T_SUM: sumFmt(sumAmt), T_SUM_F: fmt2(sumAmt), T_WORDS: numWordsRu(sumAmt), T_TIYIN: tiyin(sumAmt),
+  };
+  const fill = (s, vals) => s.replace(/\{\{([A-Z_]+)\}\}/g, (x, k) => (k in vals ? xmlEsc(vals[k] == null ? "" : vals[k]) : x));
+  let doc = tpl.parts["word/document.xml"];
+  const rowRe = /<w:tr[ >](?:(?!<w:tr[ >]).)*?\{\{R_N\}\}.*?<\/w:tr>/s;
+  const rm = rowRe.exec(doc);
+  if (rm) {
+    const rows = c.spec === "items" ? lines.map((l) => ({ R_N: l.n, R_NAME: l.name, R_UNIT: l.unit, R_QTY: qtyFmt(l.qty), R_PRICE: sumFmt(l.price), R_NOVAT: sumFmt(l.noVat), R_VAT: sumFmt(l.vat), R_SUM: sumFmt(l.sum) }))
+      : [{ R_N: 1, R_NAME: c.name || "Товары в ассортименте", R_UNIT: c.unit || "компл.", R_QTY: "1", R_PRICE: "", R_NOVAT: sumFmt(round2(sumAmt - vatAmt)), R_VAT: sumFmt(vatAmt), R_SUM: sumFmt(sumAmt) }];
+    doc = doc.slice(0, rm.index) + rows.map((r) => fill(rm[0], r)).join("") + doc.slice(rm.index + rm[0].length);
+  }
+  doc = fill(doc, V);
+  return docxBlob({ ...tpl.parts, "word/document.xml": doc }, tpl.order);
+}
+// доп. соглашение: новый документ на основе стилей шаблона договора
+async function perechAddendumBlob(obj, firm, c, ad, lines) {
+  const tpl = await dogovorTpl();
+  const cl = (obj.perech || {}).client || {};
+  const R = (t, o = {}) => '<w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>' + (o.b ? "<w:b/>" : "") + '<w:sz w:val="' + (o.sz || 22) + '"/><w:szCs w:val="' + (o.sz || 22) + '"/></w:rPr><w:t xml:space="preserve">' + xmlEsc(t) + "</w:t></w:r>";
+  const P = (runs, o = {}) => '<w:p><w:pPr><w:spacing w:after="' + (o.after == null ? 80 : o.after) + '"/>' + (o.jc ? '<w:jc w:val="' + o.jc + '"/>' : "") + (o.ind ? '<w:ind w:firstLine="' + o.ind + '"/>' : "") + "</w:pPr>" + (Array.isArray(runs) ? runs.join("") : runs) + "</w:p>";
+  const cell = (t, w, o = {}) => '<w:tc><w:tcPr><w:tcW w:w="' + w + '" w:type="dxa"/>' + (o.nob ? '<w:tcBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/></w:tcBorders>' : "") + "</w:tcPr>" + (Array.isArray(t) ? t : [t]).map((x) => P(R(x, { sz: o.sz || 20, b: o.b }), { after: 0, jc: o.jc })).join("") + "</w:tc>";
+  const tbl = (rows, ws, o = {}) => '<w:tbl><w:tblPr><w:tblW w:w="' + ws.reduce((a, b) => a + b, 0) + '" w:type="dxa"/>' + (o.nob ? "" : '<w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="000000"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="000000"/></w:tblBorders>') + '</w:tblPr><w:tblGrid>' + ws.map((w) => '<w:gridCol w:w="' + w + '"/>').join("") + "</w:tblGrid>" + rows.map((r) => "<w:tr>" + r.map((x, k) => cell(x.t != null ? x.t : x, ws[k], { ...o, ...(x.t != null ? x : {}) })).join("") + "</w:tr>").join("") + "</w:tbl>";
+  const amt = Number(ad.amount) || 0;
+  const body = [
+    P(R("ДОПОЛНИТЕЛЬНОЕ СОГЛАШЕНИЕ № " + (ad.no || ""), { b: true, sz: 24 }), { jc: "center", after: 0 }),
+    P(R("к Договору поставки товара № " + (c.no || "") + " от " + dateLong(c.date), { b: true }), { jc: "center", after: 200 }),
+    P([R("г. Ташкент"), R("\t\t\t\t\t\t\t\t\t" + dateLong(ad.date))], { after: 200 }),
+    P([R(firm.name || "", { b: true }), R(", именуемое в дальнейшем «Поставщик», в лице директора " + (firm.director_gen || firm.director || "") + ", действующего на основании " + (firm.basis || "Устава") + ", с одной стороны, и "), R(cl.name || "", { b: true }), R(", именуемое в дальнейшем «Покупатель», в лице директора " + (cl.director_gen || cl.director || "") + ", действующего на основании " + (cl.basis || "Устава") + ", с другой стороны, заключили настоящее Дополнительное соглашение о нижеследующем:")], { jc: "both", ind: 567, after: 160 }),
+    P(R("1. Пункт 1.3 Договора изложить в следующей редакции: «1.3. Ориентировочная стоимость Договора составляет: " + fmt2(amt) + " (" + numWordsRu(amt) + ") сум " + tiyin(amt) + " тийин с учетом НДС " + PERECH_VAT + " %»."), { jc: "both", ind: 567 }),
+  ];
+  if (lines.length) {
+    const t = linesTotal(lines);
+    body.push(P(R("2. Дополнить Спецификацию Товара (пункт 1.2 Договора) следующими позициями:"), { jc: "both", ind: 567 }));
+    body.push(tbl([
+      [{ t: "№", b: true, jc: "center" }, { t: "Наименование", b: true, jc: "center" }, { t: "Ед.изм", b: true, jc: "center" }, { t: "Кол-во", b: true, jc: "center" }, { t: "Цена", b: true, jc: "center" }, { t: "Сумма без НДС", b: true, jc: "center" }, { t: "НДС - " + PERECH_VAT + "%", b: true, jc: "center" }, { t: "Сумма с НДС", b: true, jc: "center" }],
+      ...lines.map((l) => [{ t: String(l.n), jc: "center" }, l.name, { t: l.unit, jc: "center" }, { t: qtyFmt(l.qty), jc: "center" }, { t: sumFmt(l.price), jc: "right" }, { t: sumFmt(l.noVat), jc: "right" }, { t: sumFmt(l.vat), jc: "right" }, { t: sumFmt(l.sum), jc: "right" }]),
+      ["", { t: "Итого:", b: true }, "", "", "", { t: sumFmt(t.noVat), b: true, jc: "right" }, { t: sumFmt(t.vat), b: true, jc: "right" }, { t: sumFmt(t.sum), b: true, jc: "right" }],
+    ], [400, 2900, 650, 650, 1350, 1350, 1150, 1450], { sz: 18 }));
+    body.push(P(R(" "), { after: 0 }));
+  }
+  const k = lines.length ? 3 : 2;
+  body.push(P(R(k + ". Остальные условия Договора, не затронутые настоящим Дополнительным соглашением, остаются неизменными, и Стороны подтверждают по ним свои обязательства."), { jc: "both", ind: 567 }));
+  body.push(P(R((k + 1) + ". Настоящее Дополнительное соглашение вступает в силу с момента его подписания Сторонами, является неотъемлемой частью Договора и составлено в 2-х экземплярах, имеющих одинаковую юридическую силу."), { jc: "both", ind: 567, after: 240 }));
+  const req = (x) => [x.name || "", "Адрес: " + (x.address || ""), "Р/с: " + (x.rs || ""), x.bank || "", "МФО: " + (x.mfo || ""), "ИНН: " + (x.inn || ""), "Регистрационный код НДС: " + (x.vat || ""), " ", "Директор ____________________ " + (x.director || "")];
+  body.push(tbl([[{ t: "ПОСТАВЩИК", b: true }, { t: "ПОКУПАТЕЛЬ", b: true }], [req(firm), req(cl)]], [4950, 4950], { nob: true }));
+  const sect = (/<w:sectPr[\s\S]*?<\/w:sectPr>/.exec(tpl.parts["word/document.xml"]) || [""])[0];
+  const head = tpl.parts["word/document.xml"].slice(0, tpl.parts["word/document.xml"].indexOf("<w:body>") + 8);
+  const doc = head + body.join("") + sect + "</w:body></w:document>";
+  return docxBlob({ ...tpl.parts, "word/document.xml": doc }, tpl.order);
+}
+// счёт на оплату / накладная — Excel (без шапки «Thermo Engineering»: документ от имени фирмы)
+function perechBillRows(kind, obj, firm, c, b, lines) {
+  const cl = (obj.perech || {}).client || {};
+  const t = linesTotal(lines);
+  const no = (c && c.no ? c.no + "/" : "") + b.no;
+  const title = kind === "bill" ? "СЧЁТ НА ОПЛАТУ № " + no + " от " + dt(b.date) : "НАКЛАДНАЯ № " + no + " от " + dt(b.date);
+  const rows = [
+    { k: "title", v: [title] },
+    { k: "blank" },
+    { k: "section", v: ["Поставщик: " + (firm.name || "—")] },
+    { k: "info", v: ["Адрес: " + (firm.address || "—") + " · ИНН: " + (firm.inn || "—") + " · рег. код НДС: " + (firm.vat || "—")] },
+    { k: "info", v: ["Р/с: " + (firm.rs || "—") + " · " + (firm.bank || "") + " · МФО: " + (firm.mfo || "—")] },
+    { k: "section", v: ["Покупатель: " + (cl.name || "—")] },
+    { k: "info", v: ["Адрес: " + (cl.address || "—") + " · ИНН: " + (cl.inn || "—") + (cl.vat ? " · рег. код НДС: " + cl.vat : "")] },
+    ...(cl.rs || cl.bank ? [{ k: "info", v: ["Р/с: " + (cl.rs || "—") + " · " + (cl.bank || "") + " · МФО: " + (cl.mfo || "—")] }] : []),
+    { k: "info", v: ["Основание: " + (c && c.no ? "Договор поставки № " + c.no + " от " + dt(c.date) : "Договор поставки") + " · объект: " + (obj.name || "")] },
+    { k: "blank" },
+    { k: "head", v: ["№", "Наименование", "Ед.", "Кол-во", "Цена с НДС", "Сумма без НДС", "НДС " + PERECH_VAT + "%", "Сумма с НДС"] },
+    ...lines.map((l) => ({ k: "row", v: [l.n, l.name, l.unit, l.qty, l.price, l.noVat, l.vat, l.sum] })),
+    { k: "sum", v: ["", "Итого:", "", "", "", t.noVat, t.vat, t.sum], merge: [[1, 4]] },
+    { k: "blank" },
+    { k: "section", v: [(kind === "bill" ? "Всего к оплате: " : "Всего отпущено на сумму: ") + fmt2(t.sum) + " сум, в том числе НДС " + PERECH_VAT + "%: " + fmt2(t.vat) + " сум"] },
+    { k: "info", v: ["(" + amountWords(t.sum) + ")"] },
+    { k: "blank" },
+  ];
+  if (kind === "bill") rows.push({ k: "info", v: ["Директор ____________________ " + (firm.director || "")] }, { k: "blank" }, { k: "info", v: ["Главный бухгалтер ____________________"] });
+  else rows.push({ k: "info", v: ["Отпустил ____________________ (" + (firm.name || "") + ")"] }, { k: "blank" }, { k: "info", v: ["Получил ____________________ по доверенности № ______ от «___» __________ 20__ г."] });
+  return rows;
+}
+const BILL_COLS = [5, 50, 7, 9, 14, 16, 14, 16], BILL_TYPES = ["c", "t", "c", "n", "m", "m", "m", "m"];
+// файл для Didox: строки товаров счёт-фактуры (ИКПУ, упаковка, кол-во, цена без НДС, НДС)
+function perechDidoxTable(lines) {
+  return [
+    ["№", "Наименование товара (услуги)", "ИКПУ (идентификационный код)", "Код упаковки", "Упаковка / ед. изм.", "Количество", "Цена (без НДС)", "Стоимость поставки", "НДС, %", "НДС, сумма", "Стоимость поставки с НДС"],
+    ...lines.map((l) => [l.n, l.name, l.ikpu, l.pack.code, l.pack.name || l.unit, l.qty, l.u0, l.noVat, PERECH_VAT, l.vat, l.sum]),
+  ];
+}
+// акт сверки с клиентом в сумах: отгрузки (зафиксированные поставки), возвраты, скидки, доп. расходы, оплаты
+function perechAktRows(obj, firm, pc, ops) {
+  const cl = (obj.perech || {}).client || {};
+  const ev = [];
+  pc.batches.filter((b) => b.fixed).forEach((b) => ev.push({ d: String(b.date || "").slice(0, 10), t: "Отгрузка: поставка №" + b.no + " (накладная " + ((obj.perech.contract || {}).no ? obj.perech.contract.no + "/" : "") + b.no + ")", deb: b.uzs, cr: 0, k: 0 }));
+  const itemById = new Map((obj.items || []).map((i) => [i.id, i]));
+  opsOf(ops, obj.id).filter((o) => !o.voided && o.type === "return").forEach((o) => {
+    const it = itemById.get(o.item_id); const u0 = it ? perechU0(obj, it) : null;
+    if (u0 != null && perechBatch(obj, it.batch_no || 1)) ev.push({ d: String(o.op_date || o.created_at || "").slice(0, 10), t: "Возврат товара: " + (o.product_name || "") + " × " + fmt(o.qty), deb: 0, cr: uzsLine(o.qty, u0).sum, k: 1 });
+  });
+  opsOf(ops, obj.id).filter((o) => !o.voided && (o.type === "discount" || (o.type === "expense" && o.size === EXP_CLIENT))).forEach((o) => {
+    const v = Math.round((Number(o.amount) || 0) * pc.kLast);
+    if (v) ev.push({ d: String(o.op_date || o.created_at || "").slice(0, 10), t: o.type === "discount" ? "Скидка" + (o.note ? ": " + o.note : "") : "Доп. расход: " + (o.note || ""), deb: o.type === "discount" ? 0 : v, cr: o.type === "discount" ? v : 0, k: 1 });
+  });
+  if (pc.live) pc.pays.forEach((p) => ev.push({ d: p.d, t: (p.uzs < 0 ? "Возврат денег клиенту" : "Оплата" + (p.isUzs && /^Перечисл/.test(p.label) ? "" : " (" + p.label + ")")) + (p.o.note ? " · " + p.o.note : ""), deb: p.uzs < 0 ? -p.uzs : 0, cr: p.uzs > 0 ? p.uzs : 0, k: 2 }));
+  ev.sort((a, b) => a.d.localeCompare(b.d) || a.k - b.k);
+  const rows = [
+    { k: "title", v: ["АКТ СВЕРКИ ВЗАИМНЫХ РАСЧЁТОВ"] },
+    { k: "info", v: ["между " + (firm.name || "Поставщиком") + " и " + (cl.name || "Покупателем") + " · на " + dt(today())] },
+    { k: "info", v: ["Основание: " + ((obj.perech.contract || {}).no ? "Договор поставки № " + obj.perech.contract.no + " от " + dt(obj.perech.contract.date) : "поставки по объекту «" + obj.name + "»")] },
+    { k: "blank" },
+    { k: "head", v: ["№", "Дата", "Документ", "Дебет (отгружено), сум", "Кредит (оплачено), сум", "Сальдо, сум"] },
+  ];
+  let bal = 0, deb = 0, cr = 0;
+  ev.forEach((e, k) => { bal = round2(bal + e.deb - e.cr); deb += e.deb; cr += e.cr; rows.push({ k: "row", v: [k + 1, dt(e.d), e.t, e.deb || "", e.cr || "", bal] }); });
+  rows.push({ k: "sum", v: ["", "", "Обороты:", round2(deb), round2(cr), bal] });
+  rows.push({ k: "blank" });
+  rows.push({ k: "section", v: [bal > 0.004 ? "Задолженность Покупателя перед Поставщиком: " + fmt2(bal) + " сум (" + amountWords(bal) + ")" : bal < -0.004 ? "Задолженность Поставщика перед Покупателем (аванс): " + fmt2(-bal) + " сум (" + amountWords(-bal) + ")" : "Задолженности нет: расчёты сверены, сальдо 0"] });
+  rows.push({ k: "blank" });
+  rows.push({ k: "info", v: ["От Поставщика: Директор ____________________ " + (firm.director || "")] });
+  rows.push({ k: "blank" });
+  rows.push({ k: "info", v: ["От Покупателя: Директор ____________________ " + (cl.director || "")] });
+  return rows;
+}
+const AKT_UZS_COLS = [5, 12, 56, 18, 18, 18], AKT_UZS_TYPES = ["c", "c", "t", "m", "m", "m"];
+// Excel клиенту для перечисления — тот же порядок (поставки → возвраты → оплаты по датам), но всё в сумах
+function clientSheetRowsUzs(obj, ops, products) {
+  const pc = perechCalc(obj, ops);
+  const cl = (obj.perech || {}).client || {};
+  const rows = [
+    { k: "title", v: ["ОБЪЕКТ: " + (obj.name || "")] },
+    { k: "section", v: ["Клиент: " + (cl.name || obj.client || "—") + (cl.inn ? " · ИНН " + cl.inn : "") + (obj.phone ? " · тел. " + obj.phone : "")] },
+    { k: "section", v: ["Дата: " + new Date().toLocaleDateString("ru-RU") + " · суммы в сумах, с НДС " + PERECH_VAT + "%"] },
+    { k: "blank" },
+  ];
+  const HEAD = ["№", "Наименование", "Кол-во", "Ед.", "Цена", "Сумма"];
+  const ev = [];
+  pc.batches.forEach((b) => ev.push({ day: String(b.date || "").slice(0, 10), kind: 0, b }));
+  const itemById = new Map((obj.items || []).map((i) => [i.id, i]));
+  opsOf(ops, obj.id).filter((o) => !o.voided && o.type === "return").forEach((o) => ev.push({ day: String(o.op_date || o.created_at || "").slice(0, 10), kind: 1, o }));
+  if (pc.live) pc.pays.forEach((p) => ev.push({ day: p.d, kind: 2, p }));
+  ev.sort((a, b) => a.day.localeCompare(b.day) || a.kind - b.kind);
+  // подряд идущие возвраты / оплаты одного дня — одной группой
+  const groups = [];
+  ev.forEach((e) => { const g = groups[groups.length - 1]; if (e.kind && g && g.kind === e.kind && g.day === e.day) g.list.push(e); else groups.push({ kind: e.kind, day: e.day, list: [e] }); });
+  groups.forEach((g) => {
+    if (g.kind === 0) {
+      const b = g.list[0].b;
+      rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
+      if (!b.fixed) { rows.push({ k: "info", v: ["Цены в сумах по этой поставке ещё не зафиксированы"], red: true }); rows.push({ k: "blank" }); return; }
+      rows.push({ k: "head", v: HEAD });
+      const lines = perechDocLines(obj, products, itemsInCatalogOrder(b.items, products));
+      lines.forEach((l) => rows.push({ k: "row", v: [l.n, l.name, l.qty, l.unit, l.price, l.sum] }));
+      rows.push({ k: "total", v: ["Итого по поставке №" + b.no, linesTotal(lines).sum] });
+      rows.push({ k: "blank" });
+    } else if (g.kind === 1) {
+      rows.push({ k: "section", v: ["ВОЗВРАТЫ · " + dt(g.day)], red: true });
+      rows.push({ k: "head", v: HEAD });
+      let sub = 0;
+      g.list.forEach((e, k) => { const it = itemById.get(e.o.item_id); const u0 = it ? perechU0(obj, it) : null; const l = u0 != null ? uzsLine(e.o.qty, u0) : { price: 0, sum: 0 }; sub += l.sum; rows.push({ k: "row", v: [k + 1, e.o.product_name || "", Number(e.o.qty) || "", e.o.unit || "", l.price || "", l.sum], red: true }); });
+      rows.push({ k: "total", v: ["Итого возвратов :", -round2(sub)], red: true });
+      rows.push({ k: "blank" });
+    } else {
+      rows.push({ k: "section", v: ["ОПЛАТЫ · " + dt(g.day)] });
+      rows.push({ k: "head", v: ["№", "Платёж", "", "", "", "Сумма"] });
+      let sub = 0;
+      g.list.forEach((e, k) => { sub += e.p.uzs; rows.push({ k: "row", v: [k + 1, (e.p.uzs < 0 ? "Возврат денег клиенту" : e.p.isUzs && /^Перечисл/.test(e.p.label) ? "Оплата перечислением" : "Оплата (" + e.p.label + ")") + (e.p.o.note ? " · " + e.p.o.note : ""), "", "", "", e.p.uzs] }); });
+      rows.push({ k: "total", v: ["Итого оплачено :", round2(sub)] });
+      rows.push({ k: "blank" });
+    }
+  });
+  const ftot = (label, v, red) => rows.push({ k: "ftotal", v: [label, v], red });
+  ftot("Сумма отгруженного товара:", pc.sale);
+  if (pc.disc) ftot("Скидка:", -pc.disc);
+  if (pc.ret) ftot("Возвраты:", -pc.ret, true);
+  if (pc.exp) ftot("Доп. расходы:", pc.exp);
+  ftot("Оплачено:", pc.paid);
+  if (pc.debt > 0.004) ftot("Долг клиента :", pc.debt, true); else ftot("Баланс :", Math.abs(pc.debt));
+  return rows;
+}
+const perechNextNo = (prev) => { const m = /^(.*?)(\d+)(\D*)$/.exec(String(prev || "").trim()); return m ? m[1] + (Number(m[2]) + 1) + m[3] : ""; };
+const perechSafe = (s) => String(s || "").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
+function perechDownload(name, blob, toast, what) {
+  try { downloadBlob(name, blob); toast(what + " скачан(а)"); } catch (e) { console.error(e); toast("Скачивание заблокировано браузером"); }
+}
+
+/* ---- Окна ---- */
+// реквизиты нашей фирмы (одни на всю программу)
+function PerechFirmModal({ data, reload, toast, onClose }) {
+  const cfg = perechCfg(data);
+  const [v, setV] = useState(() => ({ basis: "Устава", ...(cfg.firm || {}) }));
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    const ok = await cfgSetKey(PERECH_MODE, "firm", Object.fromEntries(Object.entries(v).map(([k, x]) => [k, String(x || "").trim()])));
+    setBusy(false);
+    if (!ok) return;
+    await logAction("Перечисление: реквизиты нашей фирмы", "perech", String(v.name || "") + " · ИНН " + String(v.inn || ""));
+    await reload(["requests"]); toast("Реквизиты фирмы сохранены"); onClose();
+  };
+  return (
+    <Modal title="Наша фирма — реквизиты для договоров и счетов" onClose={() => { if (!busy) onClose(); }} w={680}>
+      <p className="xs mut" style={{ marginBottom: 10 }}>Подставляются в договор, доп. соглашения, счета, накладные и акты сверки по перечислению.</p>
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        {firmFields.map(([k, l, ph]) => <Fld key={k} label={l}><input className="inp" value={v[k] || ""} placeholder={ph} onChange={(e) => setV({ ...v, [k]: e.target.value })} /></Fld>)}
+      </div>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
+        <button className="btn" disabled={busy} onClick={onClose}>Отмена</button>
+        <button className="btn pri" disabled={busy || !String(v.name || "").trim()} onClick={save}>{busy ? "Сохраняю…" : "Сохранить"}</button>
+      </div>
+    </Modal>
+  );
+}
+// включить перечисление у объекта / изменить реквизиты клиента
+function PerechClientModal({ obj, data, reload, toast, onClose }) {
+  const cfg = perechCfg(data);
+  const known = Object.values(cfg.clients || {});
+  const p0 = obj.perech || {};
+  const [v, setV] = useState(() => ({ basis: "Устава", ...(p0.client || { name: obj.client || "", phone: obj.phone || "" }) }));
+  const [markup, setMarkup] = useState(p0.markup != null ? String(p0.markup) : "");
+  const [busy, setBusy] = useState(false);
+  const [q, setQ] = useState("");
+  const hits = q.trim().length >= 2 ? known.filter((c) => (String(c.name || "") + " " + String(c.inn || "")).toLowerCase().includes(q.trim().toLowerCase())).slice(0, 6) : [];
+  const fields = [["name", "Название покупателя (как в договоре)", "ООО «…»"], ["inn", "ИНН", "9 цифр"], ["director", "Директор (кто подписывает)", "Фамилия И. О."], ["director_gen", "Директор — «в лице директора …»", "Фамилии И. О."],
+    ["basis", "Действует на основании", "Устава"], ["address", "Адрес", ""], ["rs", "Расчётный счёт (р/с)", ""], ["bank", "Банк", ""], ["mfo", "МФО", ""], ["vat", "Регистрационный код НДС", ""], ["phone", "Телефон", ""]];
+  const innBad = v.inn && !/^\d{9}$/.test(String(v.inn).replace(/\s/g, ""));
+  const save = async () => {
+    const client = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, String(x || "").trim()]));
+    client.inn = String(client.inn || "").replace(/\s/g, "");
+    setBusy(true);
+    const r = await perechUpdate(obj.id, (cur) => ({ perech: { ...perechOf(cur), on: true, client, markup: markup === "" ? null : parseNum(markup) } }));
+    if (!r.error && client.inn) await cfgSetKey(PERECH_MODE, "clients", { ...(perechCfg(data).clients || {}), [client.inn]: client });
+    setBusy(false);
+    if (r.error) return;
+    await logAction(p0.on ? "Перечисление: реквизиты клиента" : "Объект переведён на перечисление", "object:" + obj.name, client.name + (client.inn ? " · ИНН " + client.inn : ""));
+    await reload(); toast(p0.on ? "Реквизиты клиента сохранены" : "Объект — перечисление: зафиксируйте курс поставки, чтобы появились цены в сумах"); onClose();
+  };
+  const turnOff = async () => {
+    if (!(await askConfirm({ title: "Убрать перечисление?", text: "Объект станет обычным: цены и долг — в $, документы по перечислению не формируются. Курсы, реквизиты и договор сохранятся — можно включить обратно.", cancel: "Нет", ok: "Да, убрать" }))) return;
+    setBusy(true);
+    const r = await perechUpdate(obj.id, (cur) => ({ perech: { ...perechOf(cur), on: false } }));
+    setBusy(false);
+    if (r.error) return;
+    await logAction("Перечисление выключено", "object:" + obj.name, "");
+    await reload(); toast("Перечисление выключено"); onClose();
+  };
+  return (
+    <Modal title={p0.on ? "Покупатель — реквизиты" : "Перечисление: клиент платит через банк"} onClose={() => { if (!busy) onClose(); }} w={700}>
+      {!p0.on && <p className="sm mut" style={{ marginBottom: 10 }}>Клиенту — всё в сумах с НДС {PERECH_VAT}%: договор, счета, накладные, файл для Didox, акт сверки, Excel. Внутренний учёт остаётся в $.</p>}
+      {known.length > 0 && <Fld label="Найти покупателя среди прежних"><input className="inp" value={q} placeholder="название или ИНН" onChange={(e) => setQ(e.target.value)} /></Fld>}
+      {hits.length > 0 && <div className="card" style={{ padding: 0, marginBottom: 10 }}>{hits.map((c) => <div key={c.inn} className="clk pick-row sm" style={{ padding: "7px 11px", borderBottom: "1px solid var(--line)" }} onClick={() => { setV({ basis: "Устава", ...c }); setQ(""); }}><b>{c.name}</b> · ИНН {c.inn}</div>)}</div>}
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        {fields.map(([k, l, ph]) => <Fld key={k} label={l}><input className="inp" value={v[k] || ""} placeholder={ph} onChange={(e) => setV({ ...v, [k]: e.target.value })} style={k === "inn" && innBad ? { borderColor: "var(--bad)" } : undefined} /></Fld>)}
+        <Fld label="Наценка на перечисление, % (по умолчанию для поставок)"><input type="number" className="inp" value={markup} placeholder="например 10" onChange={(e) => setMarkup(e.target.value)} /></Fld>
+      </div>
+      {innBad && <p className="xs" style={{ color: "var(--bad)", marginTop: 6 }}>ИНН — 9 цифр</p>}
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
+        {p0.on && <button className="btn dng" style={{ marginRight: "auto" }} disabled={busy} onClick={turnOff}>Убрать перечисление</button>}
+        <button className="btn" disabled={busy} onClick={onClose}>Отмена</button>
+        <button className="btn pri" disabled={busy || !String(v.name || "").trim() || innBad} onClick={save}>{busy ? "Сохраняю…" : p0.on ? "Сохранить" : "Включить перечисление"}</button>
+      </div>
+    </Modal>
+  );
+}
+// зафиксировать курс поставки: цены позиций в сумах записываются и больше не меняются
+function PerechFixModal({ obj, batch, ops, reload, toast, onClose }) {
+  const cur = perechBatch(obj, batch.no);
+  const [rate, setRate] = useState(cur ? String(cur.rate) : String(lastRate() || ""));
+  const [markup, setMarkup] = useState(cur ? String(cur.markup || 0) : String(((obj.perech || {}).markup) || 0));
+  const [busy, setBusy] = useState(false);
+  const b = { rate: parseNum(rate), markup: parseNum(markup) };
+  const lines = batch.items.map((i) => uzsLine(i.qty, perechU0Calc(i.price, b)));
+  const tot = lines.reduce((a, l) => ({ noVat: a.noVat + l.noVat, vat: a.vat + l.vat, sum: a.sum + l.sum }), { noVat: 0, vat: 0, sum: 0 });
+  const usd = batch.items.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0);
+  const noPrice = batch.items.filter((i) => !(Number(i.price) > 0)).length;
+  const ok = rateOk(b.rate) && b.markup >= 0 && b.markup < 100;
+  const save = async () => {
+    if (cur && !(await askConfirm({ title: "Изменить курс поставки №" + batch.no + "?", text: "Цены этой поставки в сумах пересчитаются. Если клиенту уже отдали счёт или накладную по ней — их нужно выдать заново. Оплаты в $ пересчитаются по новому курсу.", cancel: "Нет", ok: "Да, изменить" }))) return;
+    setBusy(true);
+    const at = new Date().toISOString();
+    const r = await perechUpdate(obj.id, (o) => {
+      const p = perechOf(o);
+      p.batches = { ...(p.batches || {}), [String(batch.no)]: { rate: b.rate, markup: b.markup, date: String(batch.date || "").slice(0, 10), at, user: curUserName() } };
+      const items = (o.items || []).map((i) => ((i.batch_no || 1) === batch.no ? perechFixItem(i, b) : i));
+      return { perech: p, items };
+    });
+    if (r.error) { setBusy(false); return; }
+    try { localStorage.setItem(RATE_KEY, String(b.rate)); } catch (e) {}
+    await logAction("Перечисление: курс поставки №" + batch.no + (cur ? " изменён" : " зафиксирован"), "object:" + obj.name, "курс " + fmt(b.rate) + ", наценка " + fmt(b.markup) + "%: " + fmt2(usd) + " $ → " + uzsText(round2(tot.sum)) + " с НДС" + (cur ? " (было: курс " + fmt(cur.rate) + ", наценка " + fmt(cur.markup) + "%)" : ""));
+    const n = await perechRecalc(r.obj, ops, "курс поставки №" + batch.no);
+    setBusy(false);
+    await reload(); toast("Поставка №" + batch.no + ": " + uzsText(round2(tot.sum)) + " с НДС" + (n ? " · оплаты в $ пересчитаны: " + n : "")); onClose();
+  };
+  return (
+    <Modal title={"Поставка №" + batch.no + " — курс для цен в сумах"} onClose={() => { if (!busy) onClose(); }} w={520}>
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <Fld label="Курс, сум за $1"><input type="number" className="inp" value={rate} onChange={(e) => setRate(e.target.value)} onBlur={() => { const f = rateFix(rate); if (f !== rate) setRate(String(f)); }} style={{ borderColor: rateOk(b.rate) ? undefined : "var(--bad)" }} /></Fld>
+        <Fld label="Наценка на перечисление, %"><input type="number" className="inp" value={markup} onChange={(e) => setMarkup(e.target.value)} /></Fld>
+      </div>
+      <div className="card" style={{ marginTop: 12, padding: "10px 14px" }}>
+        <div className="sm">Поставка от <b>{dt(batch.date)}</b>: {batch.items.length} поз. на <b>{fmt2(usd)} $</b></div>
+        <div className="sm" style={{ marginTop: 4 }}>Клиенту: <b style={{ fontSize: 16 }}>{ok ? uzsText(round2(tot.sum)) : "—"}</b> с НДС</div>
+        {ok && <div className="xs mut">без НДС {uzsText(round2(tot.noVat))} · НДС {PERECH_VAT}% {uzsText(round2(tot.vat))} · цена = $ × {fmt(b.rate)} × {fmt(1 + b.markup / 100)}</div>}
+        {noPrice > 0 && <div className="xs" style={{ color: "var(--warn)", marginTop: 4 }}>⚠ Без цены продажи: {noPrice} поз. — в сумах будет 0</div>}
+      </div>
+      <p className="xs mut" style={{ marginTop: 8 }}>После фиксации цены этой поставки в сумах не меняются, даже если курс завтра другой. Новая поставка фиксируется своим курсом.</p>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
+        <button className="btn" disabled={busy} onClick={onClose}>Отмена</button>
+        <button className="btn pri" disabled={busy || !ok} onClick={save}>{busy ? "Сохраняю…" : cur ? "Изменить курс" : "Зафиксировать"}</button>
+      </div>
+    </Modal>
+  );
+}
+// договор поставки (Word, по вашему шаблону)
+function PerechContractModal({ obj, data, pc, reload, toast, onClose, onFirm }) {
+  const firm = perechCfg(data).firm || {};
+  const c0 = (obj.perech || {}).contract || null;
+  const prevNo = (data.objects || []).map((o) => ((o.perech || {}).contract || {}).no).filter(Boolean).sort((a, b) => String(a).localeCompare(String(b), "ru", { numeric: true })).pop();
+  const [v, setV] = useState(() => ({ no: c0 ? c0.no : perechNextNo(prevNo), date: c0 ? c0.date : today(), spec: c0 ? c0.spec : "one", name: c0 ? c0.name : "Трубы и фитинги в ассортименте", unit: c0 ? c0.unit : "компл.", amount: c0 ? String(c0.amount) : String(Math.ceil(pc.net || 0)) }));
+  const [busy, setBusy] = useState(false);
+  const fixedNos = pc.batches.filter((b) => b.fixed).map((b) => b.no);
+  const lines = perechDocLines(obj, data.products, pc.batches.filter((b) => b.fixed).flatMap((b) => itemsInCatalogOrder(b.items, data.products)));
+  const amt = v.spec === "items" ? linesTotal(lines).sum : parseNum(v.amount);
+  const firmOk = !!(firm.name && firm.inn);
+  const save = async () => {
+    setBusy(true);
+    try {
+      const c = { no: String(v.no || "").trim(), date: v.date, spec: v.spec, name: v.name, unit: v.unit, amount: amt, batch_nos: fixedNos, at: new Date().toISOString() };
+      const blob = await perechContractBlob(obj, firm, c, lines);
+      const r = await perechUpdate(obj.id, (o) => ({ perech: { ...perechOf(o), contract: c } }));
+      if (r.error) { setBusy(false); return; }
+      await logAction(c0 ? "Перечисление: договор изменён" : "Перечисление: договор оформлен", "object:" + obj.name, "№ " + c.no + " от " + dt(c.date) + " на " + uzsText(c.amount));
+      perechDownload("Договор_" + perechSafe(c.no) + "_" + perechSafe((obj.perech.client || {}).name) + ".docx", blob, toast, "Договор");
+      await reload(); onClose();
+    } catch (e) { console.error(e); toast("Договор не сформирован: " + (e.message || e)); }
+    setBusy(false);
+  };
+  return (
+    <Modal title={c0 ? "Договор № " + c0.no : "Оформить договор поставки"} onClose={() => { if (!busy) onClose(); }} w={600}>
+      {!firmOk && <div className="card sm" style={{ borderColor: "var(--warn)", marginBottom: 10, padding: "8px 12px" }}>⚠ Не заполнены реквизиты нашей фирмы. <button className="btn xs" onClick={onFirm}>Заполнить</button></div>}
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <Fld label="Номер договора"><input className="inp" value={v.no} placeholder="А-11" onChange={(e) => setV({ ...v, no: e.target.value })} /></Fld>
+        <Fld label="Дата"><input type="date" className="inp" value={v.date} onChange={(e) => setV({ ...v, date: e.target.value })} /></Fld>
+      </div>
+      <Fld label="Спецификация (п. 1.2)">
+        <div className="seg">
+          <button type="button" className={v.spec === "one" ? "on" : ""} onClick={() => setV({ ...v, spec: "one" })}>Одной строкой</button>
+          <button type="button" className={v.spec === "items" ? "on" : ""} onClick={() => setV({ ...v, spec: "items" })}>Каждый товар ({lines.length})</button>
+        </div>
+      </Fld>
+      {v.spec === "one" ? (
+        <div className="grid" style={{ gridTemplateColumns: "2fr 1fr 1.4fr", marginTop: 8 }}>
+          <Fld label="Наименование"><input className="inp" value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></Fld>
+          <Fld label="Ед. изм."><input className="inp" value={v.unit} onChange={(e) => setV({ ...v, unit: e.target.value })} /></Fld>
+          <Fld label="Сумма договора с НДС, сум"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: e.target.value })} /></Fld>
+        </div>
+      ) : <p className="sm" style={{ marginTop: 8 }}>Позиции всех зафиксированных поставок ({fixedNos.map((n) => "№" + n).join(", ") || "нет"}): <b>{uzsText(amt)}</b> с НДС</p>}
+      <p className="xs mut" style={{ marginTop: 8 }}>Сейчас зафиксировано поставок на {uzsText(pc.net)} с НДС. Сумма договора — ориентировочная (п. 1.3); если отгрузите больше — программа предложит доп. соглашение.</p>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
+        <button className="btn" disabled={busy} onClick={onClose}>Отмена</button>
+        <button className="btn pri" disabled={busy || !firmOk || !String(v.no || "").trim() || !(amt > 0) || (v.spec === "items" && !lines.length)} onClick={save}>{busy ? "Формирую…" : "Скачать договор (Word)"}</button>
+      </div>
+    </Modal>
+  );
+}
+// дополнительное соглашение: новая сумма договора (+ позиции поставок, которых не было в договоре)
+function PerechAddendumModal({ obj, data, pc, reload, toast, onClose }) {
+  const firm = perechCfg(data).firm || {};
+  const p = obj.perech || {};
+  const c = p.contract || {};
+  const ads = p.addenda || [];
+  const covered = new Set([...(c.batch_nos || []), ...ads.flatMap((a) => a.batch_nos || [])]);
+  const newB = pc.batches.filter((b) => b.fixed && !covered.has(b.no));
+  const [v, setV] = useState(() => ({ no: String(ads.length + 1), date: today(), amount: String(Math.ceil(Math.max(pc.net, Number(c.amount) || 0))), withItems: newB.length > 0 }));
+  const [busy, setBusy] = useState(false);
+  const lines = v.withItems ? perechDocLines(obj, data.products, newB.flatMap((b) => itemsInCatalogOrder(b.items, data.products))) : [];
+  const save = async () => {
+    setBusy(true);
+    try {
+      const ad = { no: String(v.no).trim(), date: v.date, amount: parseNum(v.amount), batch_nos: v.withItems ? newB.map((b) => b.no) : [], at: new Date().toISOString() };
+      const blob = await perechAddendumBlob(obj, firm, c, ad, lines);
+      const r = await perechUpdate(obj.id, (o) => { const q = perechOf(o); return { perech: { ...q, addenda: [...(q.addenda || []), ad] } }; });
+      if (r.error) { setBusy(false); return; }
+      await logAction("Перечисление: доп. соглашение № " + ad.no, "object:" + obj.name, "к договору № " + (c.no || "") + ": сумма " + uzsText(Number(c.amount) || 0) + " → " + uzsText(ad.amount));
+      perechDownload("Доп_соглашение_" + perechSafe(ad.no) + "_к_договору_" + perechSafe(c.no) + ".docx", blob, toast, "Доп. соглашение");
+      await reload(); onClose();
+    } catch (e) { console.error(e); toast("Не сформировано: " + (e.message || e)); }
+    setBusy(false);
+  };
+  const lastAmt = ads.length ? ads[ads.length - 1].amount : c.amount;
+  return (
+    <Modal title={"Доп. соглашение к договору № " + (c.no || "")} onClose={() => { if (!busy) onClose(); }} w={560}>
+      <p className="sm">Сумма по договору сейчас: <b>{uzsText(Number(lastAmt) || 0)}</b> · зафиксировано поставок: <b>{uzsText(pc.net)}</b></p>
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr 1.4fr", marginTop: 10 }}>
+        <Fld label="№ доп. соглашения"><input className="inp" value={v.no} onChange={(e) => setV({ ...v, no: e.target.value })} /></Fld>
+        <Fld label="Дата"><input type="date" className="inp" value={v.date} onChange={(e) => setV({ ...v, date: e.target.value })} /></Fld>
+        <Fld label="Новая сумма договора с НДС, сум"><input type="number" className="inp" value={v.amount} onChange={(e) => setV({ ...v, amount: e.target.value })} /></Fld>
+      </div>
+      {newB.length > 0 && <label className="row sm clk" style={{ gap: 6, marginTop: 10 }}><input type="checkbox" checked={v.withItems} onChange={(e) => setV({ ...v, withItems: e.target.checked })} /> дополнить спецификацию позициями поставок {newB.map((b) => "№" + b.no).join(", ")} ({uzsText(linesTotal(perechDocLines(obj, data.products, newB.flatMap((b) => b.items))).sum)})</label>}
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
+        <button className="btn" disabled={busy} onClick={onClose}>Отмена</button>
+        <button className="btn pri" disabled={busy || !(parseNum(v.amount) > 0) || !String(v.no).trim()} onClick={save}>{busy ? "Формирую…" : "Скачать доп. соглашение (Word)"}</button>
+      </div>
+    </Modal>
+  );
+}
+// банковский платёж клиента (в сумах); сумма в $ — по курсам поставок
+function PerechPayModal({ obj, ops, pc, reload, toast, onClose }) {
+  const [v, setV] = useState({ uzs: "", pp: "", note: "", op_date: today(), refund: false });
+  const [busy, setBusy] = useState(false);
+  const uzs = parseNum(v.uzs) * (v.refund ? -1 : 1);
+  // как изменятся суммы: та же раскладка по поставкам, с этой оплатой
+  const fake = { id: "__new", object_id: obj.id, type: "client_payment", amount: 0, reason: "Перечисление: " + fmt(Math.abs(uzs)) + " сум × курс 1", op_date: v.op_date, created_at: "9999" };
+  const pc2 = Math.abs(uzs) > 0 ? perechCalc(obj, [...opsOf(ops, obj.id), { ...fake, amount: uzs < 0 ? -1 : 1 }]) : null;
+  const mine = pc2 ? pc2.pays.find((p) => p.o.id === "__new") : null;
+  const usd = mine && mine.want != null ? mine.want : 0;
+  const ok = uzsOk(Math.abs(uzs)) && Math.abs(usd) > 0;
+  const save = async () => {
+    setBusy(true);
+    const rate = round2(Math.abs(uzs / usd));
+    const note = [v.pp.trim() ? "п/п № " + v.pp.trim() : "", v.note.trim()].filter(Boolean).join(" · ");
+    const op = cleanUuids({ object_id: obj.id, type: "client_payment", amount: usd, reason: "Перечисление: " + fmt(Math.abs(uzs)) + " сум × курс " + fmt(rate), category: "Перечисление",
+      pay_method: "transfer", pay_currency: "UZS", pay_amount: uzs, pay_rate: rate, note, user: curUserName(), op_date: v.op_date || today() });
+    const r = await db.from("finance_ops").insert(op);
+    if (r.error) { setBusy(false); return; }
+    await logAction(uzs < 0 ? "Перечисление: возврат денег клиенту" : "Перечисление: банковский платёж", "object:" + obj.name, uzsText(Math.abs(uzs)) + " = " + fmt2(usd) + " $" + (note ? " · " + note : ""));
+    // остальные оплаты — по новой раскладке (платёж «задним числом» мог сдвинуть курсы)
+    const fresh = await db.from("finance_ops").select().eq("object_id", obj.id);
+    const n = fresh.error ? 0 : await perechRecalc(obj, fresh.data || [], "новый платёж");
+    setBusy(false);
+    await reload(); toast((uzs < 0 ? "Возврат клиенту: " : "Платёж записан: ") + uzsText(Math.abs(uzs)) + " = " + fmt2(Math.abs(usd)) + " $" + (n ? " · пересчитано оплат: " + n : "")); onClose();
+  };
+  return (
+    <Modal title={v.refund ? "Возврат денег клиенту (перечислением)" : "Банковский платёж клиента"} onClose={() => { if (!busy) onClose(); }} w={520}>
+      <div className="seg" style={{ marginBottom: 12 }}>
+        <button type="button" className={!v.refund ? "on" : ""} onClick={() => setV({ ...v, refund: false })}><Ic n="down" /> Клиент оплатил</button>
+        <button type="button" className={v.refund ? "on" : ""} onClick={() => setV({ ...v, refund: true })}><Ic n="up" /> Вернуть деньги</button>
+      </div>
+      <p className="sm" style={{ marginBottom: 10 }}>Долг клиента: <b style={{ color: pc.debt > 0.004 ? "var(--bad)" : "var(--ok)" }}>{pc.debt >= 0 ? uzsText(pc.debt) : "аванс " + uzsText(-pc.debt)}</b> {pc.debt > 0.004 && !v.refund && <button type="button" className="btn xs" onClick={() => setV({ ...v, uzs: String(pc.debt) })}>весь долг</button>}</p>
+      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <Fld label="Сумма, сум"><input type="number" className="inp" value={v.uzs} autoFocus onChange={(e) => setV({ ...v, uzs: e.target.value })} style={{ borderColor: v.uzs !== "" && !uzsOk(Math.abs(uzs)) ? "var(--bad)" : undefined }} /></Fld>
+        <Fld label="Дата платежа"><input type="date" className="inp" value={v.op_date} onChange={(e) => setV({ ...v, op_date: e.target.value })} /></Fld>
+        <Fld label="№ платёжного поручения"><input className="inp" value={v.pp} onChange={(e) => setV({ ...v, pp: e.target.value })} /></Fld>
+        <Fld label="Комментарий"><input className="inp" value={v.note} onChange={(e) => setV({ ...v, note: e.target.value })} /></Fld>
+      </div>
+      <div className="sm" style={{ marginTop: 10 }}>В учёт: <b>{ok ? fmt2(usd) + " $" : "—"}</b> <span className="xs mut">— по курсам поставок{mine && pc2 && pc2.unfixedBatches.length ? " (незафиксированные поставки не учитываются)" : ""}</span></div>
+      {Math.abs(uzs) > 0 && !(pc.kEnd > 0) && <p className="xs" style={{ color: "var(--warn)", marginTop: 6 }}>⚠ Ни одна поставка не зафиксирована — не по чему перевести сумы в $. Сначала зафиксируйте курс поставки.</p>}
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
+        <button className="btn" disabled={busy} onClick={onClose}>Отмена</button>
+        <button className="btn pri" disabled={busy || !ok} onClick={save}>{busy ? "Сохраняю…" : "Сохранить"}</button>
+      </div>
+    </Modal>
+  );
+}
+// ИКПУ (и код упаковки) для позиций: записываются в «Товары» — в следующий раз не спрашиваются
+function PerechIkpuModal({ obj, data, items, reload, toast, onClose }) {
+  const products = data.products || [];
+  const list = useMemo(() => {
+    const seen = new Set(), out = [];
+    items.forEach((i) => { const key = i.product_id || "n:" + String(i.name || "").toLowerCase(); if (seen.has(key)) return; seen.add(key); out.push(i); });
+    return out;
+  }, [items]);
+  const [v, setV] = useState(() => Object.fromEntries(list.map((i) => [i.id, { ikpu: ikpuOf(i, products), code: packOf(i, products).code, name: packOf(i, products).name }])));
+  const [busy, setBusy] = useState(false);
+  const [bulk, setBulk] = useState({}); // из Excel: другие товары базы (не из этого объекта) — id товара → { ikpu, pack_code, pack_name }
+  const fileRef = useRef(null);
+  const set = (id, k, x) => setV((s) => ({ ...s, [id]: { ...s[id], [k]: x } }));
+  const missing = list.filter((i) => !ikpuOk(v[i.id] && v[i.id].ikpu)).length;
+  const bad = list.filter((i) => { const x = v[i.id] && String(v[i.id].ikpu || "").trim(); return x && !ikpuOk(x); }).length;
+  // Excel: колонки «Код» (код товара в «Товары») или «Наименование», «ИКПУ», «Код упаковки», «Упаковка»
+  const imp = async (file) => {
+    try {
+      await loadXLSX();
+      const wb = XLSX_MOD.read(await file.arrayBuffer());
+      const nm = await pickSheet(wb, file.name); if (!nm) return;
+      const rows = sheetRows(wb.Sheets[nm]);
+      const hi = rows.findIndex((r) => r.some((c) => /икпу|ikpu|mxik/i.test(String(c))));
+      if (hi < 0) { toast("В файле нет колонки «ИКПУ»"); return; }
+      const h = rows[hi].map((c) => String(c).toLowerCase());
+      const col = (re) => h.findIndex((c) => re.test(c));
+      const cI = col(/икпу|ikpu|mxik/), cC = col(/^код$|код товара|^№ товара|^code$/), cN = col(/наимен|название|товар/), cP = col(/код упак/), cPn = col(/^упаковка|ед.*изм|упаковки$/);
+      const norm = (s) => String(s || "").toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim();
+      let n = 0;
+      const next = { ...v }, nb = { ...bulk };
+      const byCode = new Map(products.map((p) => [String(p.code), p])), byName = new Map(products.map((p) => [norm(p.name), p]));
+      rows.slice(hi + 1).forEach((r) => {
+        const ik = String(r[cI] || "").replace(/\s/g, "");
+        if (!ikpuOk(ik)) return;
+        const pc = cP >= 0 ? String(r[cP] || "").trim() : null, pn = cPn >= 0 ? String(r[cPn] || "").trim() : null;
+        const hitI = list.find((i) => { const p = perechProd(i, products); return (cC >= 0 && p && String(p.code) === String(r[cC]).trim()) || (cN >= 0 && norm(i.name) === norm(r[cN])); });
+        if (hitI) { next[hitI.id] = { ikpu: ik, code: pc != null ? pc : (next[hitI.id] || {}).code, name: pn != null ? pn : (next[hitI.id] || {}).name }; n++; return; }
+        // остальные товары базы — сразу в «Товары» (по коду, иначе по точному названию)
+        const p = (cC >= 0 && byCode.get(String(r[cC]).trim())) || (cN >= 0 && byName.get(norm(r[cN]))) || null;
+        if (p && (p.ikpu !== ik || (pc != null && (p.pack_code || "") !== pc) || (pn != null && (p.pack_name || "") !== pn))) nb[p.id] = { ikpu: ik, ...(pc != null ? { pack_code: pc || null } : {}), ...(pn != null ? { pack_name: pn || null } : {}) };
+      });
+      setV(next); setBulk(nb);
+      const nb2 = Object.keys(nb).length;
+      toast(n || nb2 ? "Из Excel: в этом объекте " + n + " поз." + (nb2 ? ", других товаров базы: " + nb2 : "") + " — проверьте и сохраните" : "Ни одна строка файла не совпала с товарами (по коду или названию)");
+    } catch (e) { console.error(e); toast("Файл не прочитан: " + (e.message || e)); }
+  };
+  const exportList = () => {
+    const t = [["Код", "Наименование", "Ед.", "ИКПУ", "Код упаковки", "Упаковка"], ...list.map((i) => { const p = perechProd(i, products); return [p ? p.code : "", i.name, i.unit || "", (v[i.id] || {}).ikpu || "", (v[i.id] || {}).code || "", (v[i.id] || {}).name || ""]; })];
+    downloadBlob("ИКПУ_" + perechSafe(obj.name) + ".xlsx", styledXlsxBook([{ ...xlFromTable("ИКПУ", t), opt: { noBrand: true } }]));
+  };
+  const save = async () => {
+    setBusy(true);
+    let np = 0;
+    const byItem = {};
+    for (const i of list) {
+      const x = v[i.id] || {}; const ik = String(x.ikpu || "").replace(/\s/g, "");
+      if (!ikpuOk(ik)) continue;
+      const pack = { code: String(x.code || "").trim(), name: String(x.name || "").trim() };
+      const p = perechProd(i, products);
+      if (p && (p.ikpu !== ik || (p.pack_code || "") !== pack.code || (p.pack_name || "") !== pack.name)) {
+        const r = await db.from("products").update({ ikpu: ik, pack_code: pack.code || null, pack_name: pack.name || null }).eq("id", p.id);
+        if (!r.error) np++;
+      }
+      byItem[i.product_id || "n:" + String(i.name || "").toLowerCase()] = { ikpu: ik, pack_code: pack.code, pack_name: pack.name };
+    }
+    // из Excel — другие товары базы
+    let nbulk = 0;
+    const bl = Object.entries(bulk);
+    for (let k = 0; k < bl.length; k += 8) {
+      const rs = await Promise.all(bl.slice(k, k + 8).map(([pid, x]) => db.from("products").update(x).eq("id", pid)));
+      nbulk += rs.filter((r) => !r.error).length;
+    }
+    if (nbulk) await reload(["products"]);
+    // и в позиции объекта (позиции без связи с «Товары» хранят ИКПУ сами)
+    const r = await perechUpdate(obj.id, (o) => ({ items: (o.items || []).map((i) => { const x = byItem[i.product_id || "n:" + String(i.name || "").toLowerCase()]; return x ? { ...i, ...x } : i; }) }));
+    setBusy(false);
+    if (r.error) return;
+    await logAction("Перечисление: ИКПУ товаров", "object:" + obj.name, "позиций: " + Object.keys(byItem).length + ", в «Товары»: " + (np + nbulk) + (nbulk ? " (из Excel: " + nbulk + ")" : ""));
+    await reload(); toast("ИКПУ сохранены" + (np + nbulk ? " · в «Товары»: " + (np + nbulk) : "")); onClose();
+  };
+  return (
+    <Modal title="ИКПУ товаров для счёт-фактуры" onClose={() => { if (!busy) onClose(); }} w={860}>
+      <div className="row" style={{ gap: 8, marginBottom: 10 }}>
+        <span className="sm" style={{ marginRight: "auto" }}>ИКПУ — 17 цифр (tasnif.soliq.uz). {missing ? <b style={{ color: "var(--warn)" }}>Не хватает: {missing}</b> : <b style={{ color: "var(--ok)" }}>У всех есть ✓</b>}</span>
+        <button className="btn xs" onClick={exportList}><Ic n="download" /> Список в Excel</button>
+        <button className="btn xs" onClick={() => fileRef.current && fileRef.current.click()}><Ic n="upload" /> Загрузить из Excel</button>
+        <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) imp(f); }} />
+      </div>
+      <div className="card" style={{ padding: 0, maxHeight: "55vh", overflow: "auto" }}>
+        <table className="t">
+          <thead><tr><th>Товар</th><th style={{ width: 190 }}>ИКПУ</th><th style={{ width: 120 }}>Код упаковки</th><th style={{ width: 120 }}>Упаковка</th></tr></thead>
+          <tbody>{list.map((i) => { const x = v[i.id] || {}; const badI = x.ikpu && !ikpuOk(x.ikpu); return (
+            <tr key={i.id}>
+              <td className="sm">{i.name}<div className="xs mut">{i.unit}{perechProd(i, products) ? " · код " + perechProd(i, products).code : " · не из «Товары»"}</div></td>
+              <td><input className="inp mono" value={x.ikpu || ""} placeholder="17 цифр" onChange={(e) => set(i.id, "ikpu", e.target.value)} style={{ borderColor: badI ? "var(--bad)" : !x.ikpu ? "var(--warn)" : undefined }} /></td>
+              <td><input className="inp mono" value={x.code || ""} onChange={(e) => set(i.id, "code", e.target.value)} /></td>
+              <td><input className="inp" value={x.name || ""} placeholder={i.unit || ""} onChange={(e) => set(i.id, "name", e.target.value)} /></td>
+            </tr>); })}</tbody>
+        </table>
+      </div>
+      {bad > 0 && <p className="xs" style={{ color: "var(--bad)", marginTop: 6 }}>ИКПУ с ошибкой (не 17 цифр): {bad} — они не сохранятся</p>}
+      {Object.keys(bulk).length > 0 && <p className="xs" style={{ marginTop: 6 }}>Из Excel ещё <b>{Object.keys(bulk).length}</b> товаров базы получат ИКПУ при сохранении.</p>}
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
+        <button className="btn" disabled={busy} onClick={onClose}>Отмена</button>
+        <button className="btn pri" disabled={busy} onClick={save}>{busy ? "Сохраняю…" : "Сохранить"}</button>
+      </div>
+    </Modal>
+  );
+}
+// блок «Перечисление» на странице объекта
+function PerechPanel({ obj, data, reload, toast, onPay }) {
+  const ops = data.finance_ops || [];
+  const pc = useMemo(() => perechCalc(obj, ops), [obj, ops]);
+  const firm = perechCfg(data).firm || {};
+  const p = obj.perech || {};
+  const cl = p.client || {};
+  const c = p.contract || null;
+  const ads = p.addenda || [];
+  const cAmt = ads.length ? Number(ads[ads.length - 1].amount) || 0 : c ? Number(c.amount) || 0 : 0;
+  const [m, setM] = useState(null); // открытое окно: { k, b }
+  const [busy, setBusy] = useState(false);
+  const products = data.products || [];
+  const bLines = (b) => perechDocLines(obj, products, itemsInCatalogOrder(b.items, products));
+  const noIkpu = (list) => list.filter((i) => !ikpuOk(ikpuOf(i, products)));
+  const fixedItems = pc.batches.filter((b) => b.fixed).flatMap((b) => b.items);
+  const ikpuMissing = noIkpu(fixedItems);
+  const firmOk = !!(firm.name && firm.inn);
+  const doBill = (kind, b) => {
+    if (!firmOk) { setM({ k: "firm" }); toast("Сначала — реквизиты нашей фирмы"); return; }
+    const rows = perechBillRows(kind, obj, firm, c, b, bLines(b));
+    const nm = (kind === "bill" ? "Счёт_" : "Накладная_") + perechSafe((c ? c.no + "-" : "") + b.no) + "_" + perechSafe(cl.name) + ".xlsx";
+    downloadBlob(nm, styledXlsxBook([{ name: kind === "bill" ? "Счёт" : "Накладная", rows, cols: fitTextCols(rows, BILL_COLS, BILL_TYPES), types: BILL_TYPES, opt: { noBrand: true } }]));
+    toast((kind === "bill" ? "Счёт на оплату" : "Накладная") + " по поставке №" + b.no + " скачан(а)");
+  };
+  const doDidox = (b) => {
+    const miss = noIkpu(b.items);
+    if (miss.length) { setM({ k: "ikpu", items: b.items }); toast("Нет ИКПУ у " + miss.length + " поз. — без них Didox не примет счёт-фактуру"); return; }
+    downloadBlob("Didox_" + perechSafe((c ? c.no + "-" : "") + b.no) + "_" + perechSafe(cl.name) + ".xlsx", styledXlsxBook([{ ...xlFromTable("Товары", perechDidoxTable(bLines(b))), opt: { noBrand: true } }]));
+    toast("Файл для Didox по поставке №" + b.no + " скачан");
+  };
+  const doAkt = () => {
+    const rows = perechAktRows(obj, firm, pc, ops);
+    downloadBlob("Акт_сверки_" + perechSafe(cl.name) + ".xlsx", styledXlsxBook([{ name: "Акт сверки", rows, cols: fitTextCols(rows, AKT_UZS_COLS, AKT_UZS_TYPES), types: AKT_UZS_TYPES, opt: { noBrand: true } }]));
+    toast("Акт сверки (в сумах) скачан");
+  };
+  const fixMissing = async () => {
+    setBusy(true);
+    const r = await perechUpdate(obj.id, (o) => ({ items: (o.items || []).map((i) => { const b = perechBatch(o, i.batch_no || 1); return b && (i.uzs0 == null || i.uzs0 === "") ? perechFixItem(i, b) : i; }) }));
+    if (!r.error) { await logAction("Перечисление: цены в сумах зафиксированы у добавленных позиций", "object:" + obj.name, pc.unfixedItems + " поз."); await perechRecalc(r.obj, ops, "добавленные позиции"); }
+    setBusy(false); await reload(); if (!r.error) toast("Цены в сумах зафиксированы: " + pc.unfixedItems + " поз.");
+  };
+  const doRecalc = async () => { setBusy(true); const n = await perechRecalc(obj, ops, "вручную"); setBusy(false); await reload(); toast(n ? "Оплаты в $ пересчитаны по курсам поставок: " + n : "Пересчитывать нечего"); };
+  const KP = ({ l, v, col, sub }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: col }}>{sumFmt(v)}</div>{sub && <div className="xs mut kpi-sub">{sub}</div>}</div>;
+  return (
+    <div className="card sect perech" style={{ borderColor: "color-mix(in srgb, var(--acc) 40%, var(--line))" }}>
+      <div className="row" style={{ gap: 8, marginBottom: 10 }}>
+        <Badge c="var(--acc)">Перечисление</Badge>
+        <div style={{ marginRight: "auto" }}>
+          <b>{cl.name || "—"}</b>{cl.inn ? <span className="sm mut"> · ИНН {cl.inn}</span> : null}
+          <div className="xs mut">{c ? <>Договор № <b style={{ color: "var(--txt)" }}>{c.no}</b> от {dt(c.date)} на {uzsText(cAmt)}{ads.length ? " (с доп. соглашениями: " + ads.length + ")" : ""}</> : "Договор ещё не оформлен"}</div>
+        </div>
+        <button className="btn xs" onClick={() => setM({ k: "client" })}><Ic n="pencil" /> Покупатель</button>
+        <button className="btn xs" onClick={() => setM({ k: "firm" })} style={firmOk ? undefined : { borderColor: "var(--warn)", color: "var(--warn)" }}>Наша фирма</button>
+        <button className={"btn xs" + (c ? "" : " pri")} disabled={!pc.batches.some((b) => b.fixed)} title={pc.batches.some((b) => b.fixed) ? "" : "Сначала зафиксируйте курс поставки"} onClick={() => setM({ k: "contract" })}><Ic n="file" /> {c ? "Договор" : "Оформить договор"}</button>
+      </div>
+      <div className="kpis" style={{ marginBottom: 10 }}>
+        <KP l="Отгружено клиенту, сум с НДС" v={pc.net} sub={pc.ret || pc.disc ? "товар " + sumFmt(pc.sale) + (pc.ret ? " − возвраты " + sumFmt(pc.ret) : "") + (pc.disc ? " − скидка " + sumFmt(pc.disc) : "") : null} />
+        <KP l="Оплачено, сум" v={pc.paid} col="var(--ok)" sub={pc.paidIgnored ? "ещё не учитывается: " + sumFmt(pc.paidIgnored) + " (статус)" : null} />
+        <KP l={pc.debt < -0.004 ? "Аванс клиента, сум" : "Долг клиента, сум"} v={Math.abs(pc.debt)} col={pc.debt > 0.004 ? "var(--bad)" : pc.debt < -0.004 ? "var(--txt)" : "var(--mut)"} />
+      </div>
+      {c && pc.net > cAmt + 0.004 && <div className="card sm row" style={{ borderColor: "var(--warn)", padding: "8px 12px", marginBottom: 10, gap: 8 }}><span style={{ marginRight: "auto" }}>⚠ Отгружено на {uzsText(pc.net)} — больше суммы договора ({uzsText(cAmt)})</span><button className="btn xs pri" onClick={() => setM({ k: "add" })}>Доп. соглашение</button></div>}
+      <div style={{ overflow: "auto" }}>
+        <table className="t">
+          <thead><tr><th>Поставка</th><th style={{ textAlign: "right" }}>Курс</th><th style={{ textAlign: "right" }}>Наценка</th><th style={{ textAlign: "right" }}>Сумма, $</th><th style={{ textAlign: "right" }}>Клиенту, сум с НДС</th><th></th></tr></thead>
+          <tbody>
+            {pc.batches.map((b) => (
+              <tr key={b.no}>
+                <td className="sm"><b>№{b.no}</b> · {dt(b.date)} · {b.items.length} поз.{b.unfixed ? <div className="xs" style={{ color: "var(--warn)" }}>добавлено после фиксации: {b.unfixed} поз.</div> : null}{b.drift ? <div className="xs" style={{ color: "var(--warn)" }}>цена в $ изменилась после фиксации: {b.drift} поз. (в сумах — прежняя)</div> : null}</td>
+                <td className="num">{b.fixed ? fmt(b.cfg.rate) : <span className="mut">—</span>}</td>
+                <td className="num">{b.fixed ? fmt(b.cfg.markup || 0) + "%" : <span className="mut">—</span>}</td>
+                <td className="num">{fmt2(b.usd)}</td>
+                <td className="num" style={{ fontWeight: 700 }}>{b.fixed ? sumFmt(b.uzs) : <span className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не зафиксирована</span>}</td>
+                <td><div className="row" style={{ gap: 4, flexWrap: "nowrap", justifyContent: "flex-end" }}>
+                  {b.fixed ? <>
+                    <button className="btn xs" title="Счёт на оплату (Excel)" onClick={() => doBill("bill", b)}>Счёт</button>
+                    <button className="btn xs" title="Накладная (Excel)" onClick={() => doBill("waybill", b)}>Накладная</button>
+                    <button className="btn xs" title="Товары для счёт-фактуры в Didox (Excel)" onClick={() => doDidox(b)}>Didox{noIkpu(b.items).length ? " ⚠" : ""}</button>
+                    <button className="btn xs" title="Изменить курс / наценку" aria-label="Изменить курс" onClick={() => setM({ k: "fix", b })}><Ic n="pencil" /></button>
+                  </> : <button className="btn xs pri" onClick={() => setM({ k: "fix", b })}>Зафиксировать курс</button>}
+                </div></td>
+              </tr>
+            ))}
+            {!pc.batches.length && <tr><td colSpan={6} className="mut sm" style={{ textAlign: "center", padding: 14 }}>Поставок пока нет</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {(pc.unfixedItems > 0 || ikpuMissing.length > 0 || pc.recalc.length > 0) && <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+        {pc.unfixedItems > 0 && <button className="btn xs" disabled={busy} style={{ borderColor: "var(--warn)", color: "var(--warn)" }} onClick={fixMissing} title="Позиции, добавленные в уже зафиксированную поставку, получат цену в сумах по её курсу">Зафиксировать цены добавленных позиций ({pc.unfixedItems})</button>}
+        {ikpuMissing.length > 0 && <button className="btn xs" style={{ borderColor: "var(--warn)", color: "var(--warn)" }} onClick={() => setM({ k: "ikpu", items: fixedItems })}>Нет ИКПУ: {ikpuMissing.length} поз.</button>}
+        {pc.recalc.length > 0 && <button className="btn xs" disabled={busy} style={{ borderColor: "var(--warn)", color: "var(--warn)" }} onClick={doRecalc} title="После возврата, скидки или изменения поставки суммы оплат в $ нужно разложить по курсам поставок заново">Пересчитать оплаты в $ ({pc.recalc.length})</button>}
+      </div>}
+      <div className="row" style={{ gap: 8, marginTop: 10 }}>
+        <button className="btn pri" onClick={onPay}><Ic n="cash" /> Банковский платёж</button>
+        <button className="btn" onClick={doAkt}><Ic n="sheet" /> Акт сверки (сум)</button>
+        {fixedItems.length > 0 && <button className="btn" onClick={() => setM({ k: "ikpu", items: fixedItems })}>ИКПУ</button>}
+        {c && <button className="btn" onClick={() => setM({ k: "add" })}>Доп. соглашение</button>}
+      </div>
+      {m && m.k === "client" && <PerechClientModal obj={obj} data={data} reload={reload} toast={toast} onClose={() => setM(null)} />}
+      {m && m.k === "firm" && <PerechFirmModal data={data} reload={reload} toast={toast} onClose={() => setM(null)} />}
+      {m && m.k === "fix" && <PerechFixModal obj={obj} batch={pc.batches.find((x) => x.no === m.b.no) || m.b} ops={ops} reload={reload} toast={toast} onClose={() => setM(null)} />}
+      {m && m.k === "contract" && <PerechContractModal obj={obj} data={data} pc={pc} reload={reload} toast={toast} onClose={() => setM(null)} onFirm={() => setM({ k: "firm" })} />}
+      {m && m.k === "add" && <PerechAddendumModal obj={obj} data={data} pc={pc} reload={reload} toast={toast} onClose={() => setM(null)} />}
+      {m && m.k === "ikpu" && <PerechIkpuModal obj={obj} data={data} items={m.items} reload={reload} toast={toast} onClose={() => setM(null)} />}
+    </div>
+  );
+}
+
+function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = true, perech = false }) {
   const { objects, finance_ops, suppliers } = data;
   const [delObj, setDelObj] = useState(null);
   const [delBusy, setDelBusy] = useState(false);
@@ -5100,7 +5986,10 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   const [lim, setLim] = useState(150); // длинный список — частями, чтобы экран не тормозил
   // единственный фильтр — по мастеру (лента сверху)
   const [mF, setMF] = useState("");
-  useEffect(() => { setLim(150); }, [q, mF, sort.k, sort.d]);
+  // наличные / перечисление (банк)
+  const [pF, setPF] = useState("");
+  const anyPerech = objects.some(isPerech);
+  useEffect(() => { setLim(150); }, [q, mF, pF, sort.k, sort.d]);
   // по каждому объекту — один раз: суммы, долг, дата последнего действия и текст для поиска
   const masterName = useMemo(() => { const m = {}; (data.masters || []).forEach((x) => { m[x.id] = x.name; }); return m; }, [data.masters]);
   const rowsAll = useMemo(() => objects.map((o) => {
@@ -5114,13 +6003,14 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
     const txt = [o.name, o.client, o.phone, o.address, o.master, o.manager, stById(o.status).label].filter(Boolean).join(" ").toLowerCase().replace(/ё/g, "е");
     const hay = txt + " " + translit(txt) + " " + String(o.phone || "").replace(/\D/g, "");
     const debt = isLive(o) ? f.clientDebt : 0;
-    return { o, f, upd, hay, debt, mk, mn };
+    const pc = isPerech(o) ? perechCalc(o, finance_ops) : null; // перечисление: долг клиента в сумах
+    return { o, f, upd, hay: hay + (pc ? " перечисление perechisleniye " + String(((o.perech || {}).client || {}).inn || "") : ""), debt, mk, mn, pc };
   }), [objects, finance_ops, masterName]);
-  if (obj) return <ObjectDetail obj={obj} data={data} reload={reload} toast={toast} fin={fin} back={() => setOpenId(null)} />;
+  if (obj) return <ObjectDetail obj={obj} data={data} reload={reload} toast={toast} fin={fin} perech={perech} back={() => setOpenId(null)} />;
   // поиск: каждое слово где угодно (название, клиент, телефон, адрес, мастер, менеджер, статус); латиница = кириллица; телефон — по цифрам
   const toks = q.trim().toLowerCase().replace(/ё/g, "е").split(/\s+/).filter(Boolean);
   const hit = (r) => toks.every((t) => r.hay.includes(t) || r.hay.includes(translit(t)) || (/\d/.test(t) && r.hay.includes(t.replace(/\D/g, ""))));
-  const found = rowsAll.filter((r) => !toks.length || hit(r));
+  const found = rowsAll.filter((r) => (!toks.length || hit(r)) && (!pF || (pF === "perech") === !!r.pc));
   const ordIdx = (o) => { const i = [...OBJ_STATUSES, ...OLD_STATUSES].findIndex((x) => x.id === (o.status || "draft")); return i < 0 ? 99 : i; };
   const cmp = {
     name: (a, b) => String(a.o.name || "").localeCompare(String(b.o.name || ""), "ru"),
@@ -5150,6 +6040,11 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
     <div>
       <div className="row sect">
         <h2 style={{ marginRight: "auto" }}>Объекты <span className="mut sm">({shown.length !== objects.length ? shown.length + " из " + objects.length : objects.length})</span></h2>
+        {(anyPerech || perech) && <div className="seg obj-pay" title="Как платит клиент">
+          <button type="button" className={!pF ? "on" : ""} onClick={() => setPF("")}>Все</button>
+          <button type="button" className={pF === "cash" ? "on" : ""} onClick={() => setPF("cash")}>Наличные</button>
+          <button type="button" className={pF === "perech" ? "on" : ""} onClick={() => setPF("perech")}>Перечисление</button>
+        </div>}
         <div className="seg obj-view">
           <button type="button" className={view === "list" ? "on" : ""} onClick={() => setViewSave("list")}>Список</button>
           <button type="button" className={view === "cols" ? "on" : ""} onClick={() => setViewSave("cols")}>По статусам</button>
@@ -5175,16 +6070,16 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
             <SortTh k="sum" num w={110}>Сумма</SortTh><SortTh k="debt" num w={120}>Долг клиента</SortTh><SortTh k="upd" w={110}>Изменён</SortTh><th style={{ width: 76 }}></th>
           </tr></thead>
           <tbody>
-            {sortedRows.slice(0, lim).map(({ o, f, upd, debt }) => {
+            {sortedRows.slice(0, lim).map(({ o, f, upd, debt, pc }) => {
               const st = stById(o.status);
               return (
                 <tr key={o.id} className="clk" onClick={() => setOpenId(o.id)}>
-                  <td className="objt-name"><div style={{ fontWeight: 700 }}>{o.name}</div>{o.address && <div className="xs mut">{o.address}</div>}</td>
+                  <td className="objt-name"><div style={{ fontWeight: 700 }}>{o.name}{pc && <> <Badge c="var(--acc)">Перечисление</Badge></>}</div>{o.address && <div className="xs mut">{o.address}</div>}</td>
                   <td className="objt-cl"><div>{o.client || "—"}</div>{o.phone && <div className="xs mut mono">{o.phone}</div>}</td>
                   <td className="objt-ms sm">{o.master || masterName[o.master_id] || <span className="mut">—</span>}{o.manager && <div className="xs mut">{o.manager}</div>}</td>
                   <td className="objt-st"><Badge c={st.c}>{st.label.replace(" (старый статус)", "")}</Badge></td>
                   <td className="num objt-sum">{fmt(f.saleNet)}</td>
-                  <td className="num objt-debt" style={{ fontWeight: 700, color: debt > 0.004 ? "var(--bad)" : debt < -0.004 ? "var(--ok)" : "var(--mut)" }} title={debt < -0.004 ? "переплата клиента" : ""}>{debt > 0.004 ? fmt(debt) : debt < -0.004 ? "+" + fmt(-debt) : "—"}</td>
+                  <td className="num objt-debt" style={{ fontWeight: 700, color: debt > 0.004 ? "var(--bad)" : debt < -0.004 ? "var(--ok)" : "var(--mut)" }} title={debt < -0.004 ? "переплата клиента" : ""}>{debt > 0.004 ? fmt(debt) : debt < -0.004 ? "+" + fmt(-debt) : "—"}{pc && isLive(o) && Math.abs(pc.debt) > 0.004 && <div className="xs" style={{ fontWeight: 600 }}>{pc.debt > 0 ? sumFmt(pc.debt) + " сум" : "аванс " + sumFmt(-pc.debt) + " сум"}</div>}</td>
                   <td className="xs mut mono objt-upd">{dt(upd.slice(0, 10))}</td>
                   <td className="objt-act" onClick={(e) => e.stopPropagation()}><div className="row" style={{ gap: 4, flexWrap: "nowrap", justifyContent: "flex-end" }}>
                     <button className="btn xs" title="Изменить объект" aria-label="Изменить" onClick={() => setEditO(o)}><Ic n="pencil" /></button>
@@ -5212,7 +6107,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
                   <tr key={o.id} className="clk" onClick={() => setOpenId(o.id)}>
                     <td>
                       <div style={{ fontWeight: 700 }}>{o.name}</div>
-                      {<div style={{ margin: "3px 0" }}><Badge c={st.c}>{st.label.replace(" (старый статус)", "")}</Badge></div>}
+                      {<div style={{ margin: "3px 0" }}><Badge c={st.c}>{st.label.replace(" (старый статус)", "")}</Badge>{isPerech(o) && <> <Badge c="var(--acc)">Перечисление</Badge></>}</div>}
                       <div className="xs mut">{[o.client, o.phone, o.master].filter(Boolean).join(" · ")}</div>
                       {o.address && <div className="xs mut">{o.address}</div>}
                     </td>
@@ -5318,7 +6213,7 @@ function ObjectEditModal({ obj, data, reload, toast, onClose }) {
   );
 }
 
-function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
+function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = false }) {
   const { finance_ops, suppliers, products, masters } = data;
   const wh = useMemo(() => whAvailIndex(data.warehouse, products, suppliers, data.objects, data.wh_moves), [data.warehouse, products, suppliers, data.objects, data.wh_moves]);
   const f = calcObject(obj, finance_ops);
@@ -5339,6 +6234,11 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   const [shipForm, setShipForm] = useState(false);
   const [pctForm, setPctForm] = useState(false);
   const [editObj, setEditObj] = useState(false);
+  const [perechPay, setPerechPay] = useState(false);
+  const [perechSetup, setPerechSetup] = useState(false);
+  const pObj = isPerech(obj);
+  // перечисление: после возврата, скидки, изменения или удаления оплаты — суммы оплат в $ заново по курсам поставок
+  const perechAfter = async (why) => { if (!pObj) return 0; const fr = await db.from("finance_ops").select().eq("object_id", obj.id); return fr.error ? 0 : perechRecalc(obj, fr.data || [], why); };
   // «Себестоимость подряд»: себестоимость всех позиций вводится в таблице одна за другой (Enter — к следующей)
   const [costMode, setCostMode] = useState(false);
   const [costDraft, setCostDraft] = useState({});
@@ -5435,7 +6335,12 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
   // замена позиции другим товаром из базы (та же строка: количество, поставка, отметка — остаются)
   const replaceItem = async (item) => {
     const it0 = (obj.items || []).find((i) => i.id === item.id) || {};
-    const ok = await saveItems((cur) => cur.map((i) => (i.id === item.id ? { ...i, ...item } : i)));
+    const ok = await saveItems((cur) => cur.map((i) => {
+      if (i.id !== item.id) return i;
+      const n = { ...i, ...item };
+      if (isPerech(obj)) ["uzs0", "uzs_src", "ikpu", "pack_code", "pack_name"].forEach((k) => { delete n[k]; }); // перечисление: цена в сумах — по курсу поставки заново
+      return n;
+    }));
     if (!ok) return false;
     await logAction("Заменена позиция", "object:" + obj.name, (it0.name || "") + " × " + fmt(it0.qty) + " по " + fmt2(it0.price) + " → " + (item.name || "") + " × " + fmt(item.qty) + " по " + fmt2(item.price) + (item.supplier_id !== it0.supplier_id ? " · поставщик: " + supName(it0.supplier_id) + " → " + supName(item.supplier_id) : ""));
     await syncReturns((obj.items || []).map((i) => (i.id === item.id ? { ...i, ...item } : i)));
@@ -5637,6 +6542,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     await logDeleted("Удалена операция: " + opLabel(op.type), "object:" + obj.name,
       fmt(op.amount) + " от " + dt(op.op_date || op.created_at) + [op.product_name, op.reason, op.note].filter(Boolean).map((x) => " · " + x).join("") + whNote,
       { label: opLabel(op.type) + " " + fmt(op.amount) + " (объект «" + obj.name + "»)", rows: { finance_ops: [op] }, after: whBack });
+    await perechAfter("удалена операция");
     setDelAsk(null); await reload(); toast("Операция удалена" + whNote);
   };
   const safe = (s) => String(s || "object").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
@@ -5845,7 +6751,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
     { label: "Новая поставка", keys: "Alt+N", code: "KeyN", run: () => setAddItems("newbatch") },
     { label: "+ Список вручную", keys: "Alt+L", code: "KeyL", run: () => setAddItems(true) },
     (obj.items || []).length && !costMode ? { label: "Себестоимость подряд", keys: "Alt+S", code: "KeyS", run: startCost } : null,
-    (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes("client_payment") && payLive(obj) ? { label: "+ Оплата клиента", keys: "Alt+P", code: "KeyP", run: () => setOpForm({ type: "client_payment" }) } : null,
+    pObj ? (perech ? { label: "+ Банковский платёж", keys: "Alt+P", code: "KeyP", run: () => setPerechPay(true) } : null)
+      : (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes("client_payment") && payLive(obj) ? { label: "+ Оплата клиента", keys: "Alt+P", code: "KeyP", run: () => setOpForm({ type: "client_payment" }) } : null,
     isLive(obj) && (obj.items || []).some((i) => !i.from_warehouse) ? { label: "Отгрузить товар", keys: "Alt+O", code: "KeyO", run: () => setShipForm(true) } : null,
     { label: "Excel клиенту", run: exportClient },
     { label: "Лист доставки", run: exportDelivery },
@@ -5874,6 +6781,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         <select className="inp" style={{ maxWidth: 240 }} value={obj.status} onChange={(e) => setStatus(e.target.value)}>
           {statusOptions(obj.status).map((s) => { const off = s.id === "paid" && obj.status !== "paid" && !fullyPaid(obj, finance_ops); return <option key={s.id} value={s.id} disabled={off}>{s.label}{off ? " — после оплаты 100%" : ""}</option>; })}
         </select>
+        {perech && !pObj && <button className="btn" onClick={() => setPerechSetup(true)} title="Клиент платит через банк: договор, счета, накладные и долг — в сумах с НДС"><Ic n="file" /> Перечисление</button>}
         {/* выгрузки Excel — вместе, в одном ряду и всегда в этом порядке */}
         <div className="xl-group">
           <button className="btn" onClick={exportClient}><Ic n="download" /> Excel клиенту</button>
@@ -5895,6 +6803,9 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
           ? <KPI l={f.clientDebt < 0 ? "Переплата клиента" : "Долг клиента"} v={Math.abs(f.clientDebt)} c={f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--txt)" : "var(--mut)"} />
           : <KPI l="Долг клиента — не учитывается" v={Math.max(0, f.clientDebt)} c="var(--mut)" />}
       </div>
+      {pObj && (perech
+        ? <PerechPanel obj={obj} data={data} reload={reload} toast={toast} onPay={() => setPerechPay(true)} />
+        : <div className="card sect sm" style={{ padding: "10px 14px" }}><Badge c="var(--acc)">Перечисление</Badge> Клиент платит через банк: «Excel клиенту» — в сумах. Договор, счета и банковские платежи — у сотрудников с правом «Перечисление».</div>)}
 
       <div className="row sect" style={{ marginBottom: 8 }}>
         <h3 style={{ marginRight: "auto" }}>Материалы объекта</h3>
@@ -5994,8 +6905,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
       )}
       <div className="row sect">
         <h3 style={{ marginRight: "auto" }}>Финансовые операции</h3>
-        {OP_TYPES.filter((t) => (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes(t.id) && (t.id !== "client_payment" || payLive(obj)) && t.id !== "return").map((t) => <React.Fragment key={t.id}>
-          <button className="btn xs" onClick={() => setOpForm({ type: t.id })}>+ {t.label}</button>
+        {OP_TYPES.filter((t) => (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes(t.id) && (t.id !== "client_payment" || (pObj ? perech : payLive(obj))) && t.id !== "return").map((t) => <React.Fragment key={t.id}>
+          <button className="btn xs" onClick={() => (t.id === "client_payment" && pObj ? setPerechPay(true) : setOpForm({ type: t.id }))}>+ {t.id === "client_payment" && pObj ? "Банковский платёж" : t.label}</button>
           {t.id === "discount" && (obj.items || []).length > 0 && <button className="btn xs" onClick={() => setPctForm(true)} title="Цена продажи = себестоимость ÷ (1 − %)">+ Прибыль от себестоимости</button>}
         </React.Fragment>)}
         {(obj.items || []).length > 0 && !costMode && <button className="btn xs cq-start" onClick={startCost} title="Себестоимость всех позиций — в таблице одна за другой: ввели, Enter — следующая (Alt+S)"><Ic n="pencil" /> Себестоимость подряд</button>}
@@ -6063,6 +6974,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         if (r.error) return;
         const pt = (o) => (isPayType(editOp.type) ? " (" + payText(o) + ")" : "");
         await logAction("Изменена операция: " + opLabel(editOp.type), "object:" + obj.name, "было " + fmt(editOp.amount) + pt(editOp) + (patch.amount != null ? " → " + fmt(patch.amount) + pt({ ...editOp, ...patch }) : ""));
+        await perechAfter("изменена операция");
         setEditOp(null); await reload(); toast("Операция изменена (было и стало — в «Журнале»)");
       }} />}
       {opForm && opForm.type === "return" && <ReturnForm obj={obj} ops={ops} onClose={() => setOpForm(null)} onSave={async (list) => {
@@ -6073,6 +6985,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
         const toSup = list.length - toWh.length;
         const whFail = toWh.length ? await warehouseIn(toWh, obj.name) : 0;
         await logAction("Возврат товара", "object:" + obj.name, "позиций: " + list.length + (toWh.length ? ", на склад: " + toWh.length : "") + (toSup ? ", поставщику: " + toSup : "") + ", сумма: " + fmt(list.reduce((a,x)=>a+(x.amount||0),0)) + (whFail ? ", НЕ оприходовано на склад: " + whFail : ""));
+        await perechAfter("возврат товара");
         setOpForm(null); await reload();
         toast("Возврат оформлен: " + list.length + " поз." + (toWh.length ? " → Склад Thermo: " + (toWh.length - whFail) : "") + (toSup ? " → поставщику: " + toSup + " (долг уменьшен)" : "") + (whFail ? " · ⚠ на склад не записано: " + whFail + " — проверьте Склад" : ""));
       }} />}
@@ -6081,8 +6994,10 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true }) {
           if (op.type === "bonus") op.master_id = obj.master_id || null;
           const r = await db.from("finance_ops").insert(cleanUuids(op));
           if (r.error) return; // ошибка уже показана, окно остаётся открытым
-          await logAction(opName(op), "object:" + obj.name, fmt(op.amount) + (isPayType(op.type) ? " · " + payText(op) : "") + (op.note ? " · " + op.note : "")); setOpForm(null); await reload(); toast(isRefund(op) ? "Возврат денег клиенту записан: " + fmt2(-op.amount) + " $" : "Операция добавлена");
+          await logAction(opName(op), "object:" + obj.name, fmt(op.amount) + (isPayType(op.type) ? " · " + payText(op) : "") + (op.note ? " · " + op.note : "")); await perechAfter(opName(op)); setOpForm(null); await reload(); toast(isRefund(op) ? "Возврат денег клиенту записан: " + fmt2(-op.amount) + " $" : "Операция добавлена");
         }} />}
+      {perechPay && <PerechPayModal obj={obj} ops={finance_ops} pc={perechCalc(obj, finance_ops)} reload={reload} toast={toast} onClose={() => setPerechPay(false)} />}
+      {perechSetup && <PerechClientModal obj={obj} data={data} reload={reload} toast={toast} onClose={() => setPerechSetup(false)} />}
     </div>
   );
 }
@@ -8229,7 +9144,32 @@ function PayMethodsCard({ objects, ops, from, to, mgr }) {
   );
 }
 
+// Дашборд: «Все» / «Наличные» / «Перечисление» — по объектам (расходы и приходы компании — только во «Все»)
 function Dashboard({ data }) {
+  const [kind, setKind] = useState("");
+  const anyPerech = (data.objects || []).some(isPerech);
+  const d2 = useMemo(() => {
+    if (!kind || !anyPerech) return data;
+    const objs = (data.objects || []).filter((o) => (kind === "perech") === isPerech(o));
+    const ids = new Set(objs.map((o) => o.id));
+    return { ...data, objects: objs, finance_ops: (data.finance_ops || []).filter((x) => x.object_id && ids.has(x.object_id)) };
+  }, [data, kind, anyPerech]);
+  return (
+    <>
+      {anyPerech && <div className="row sect dash-pay" style={{ gap: 8 }}>
+        <span className="sm mut">Объекты:</span>
+        <div className="seg">
+          <button type="button" className={!kind ? "on" : ""} onClick={() => setKind("")}>Все</button>
+          <button type="button" className={kind === "cash" ? "on" : ""} onClick={() => setKind("cash")}>Наличные</button>
+          <button type="button" className={kind === "perech" ? "on" : ""} onClick={() => setKind("perech")}>Перечисление</button>
+        </div>
+        {kind && <span className="xs mut">только операции по этим объектам; расходы и приходы компании — во «Все»</span>}
+      </div>}
+      <DashboardMain data={d2} />
+    </>
+  );
+}
+function DashboardMain({ data }) {
   const { objects, finance_ops, products, suppliers, warehouse = [] } = data;
   const [preset, setPreset] = useState("30d");
   const [range, setRange] = useState(() => dashPreset("30d"));
@@ -11149,7 +12089,7 @@ function AppInner() {
         {palette && <CommandPalette tabs={allTabs} objects={data.objects || []} onTab={goTab} onObject={(id) => { setTab("objects"); setOpenId(id); }} onClose={() => setPalette(false)} />}
         {keysHelp && <KeysHelp tabs={allTabs} onClose={() => setKeysHelp(false)} />}
         {cloudChange && <CloudChange user={currentUser} toast={toast} onClose={() => setCloudChange(false)} />}
-        {tab === "objects" && <ObjectsTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} goRequest={() => setTab("request")} fin={!!acc.perms.fin} />}
+        {tab === "objects" && <ObjectsTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} goRequest={() => setTab("request")} fin={!!acc.perms.fin} perech={!!acc.perms.perech} />}
         {tab === "request" && <RequestTabs data={data} reload={reload} toast={toast} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "products" && <ProductsTab data={data} reload={reload} toast={toast} />}
         {tab === "suppliers" && <SuppliersTab data={data} reload={reload} toast={toast} fin={!!acc.perms.fin} />}
