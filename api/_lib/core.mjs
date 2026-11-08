@@ -1273,6 +1273,7 @@ function clientSheetRows(obj, ops, products, f) {
   if (f.discount) ftot("\u0421\u043A\u0438\u0434\u043A\u0430:", -round2(f.discount));
   if (f.retSale) ftot("\u0412\u043E\u0437\u0432\u0440\u0430\u0442\u044B:", -round2(f.retSale), true);
   if (f.clientExp) ftot("\u0414\u043E\u043F. \u0440\u0430\u0441\u0445\u043E\u0434\u044B:", round2(f.clientExp));
+  if (f.discount) ftot("\u0421\u0443\u043C\u043C\u0430 \u0441\u043E \u0441\u043A\u0438\u0434\u043A\u043E\u0439:", round2(f.saleNet));
   ftot("\u041E\u043F\u043B\u0430\u0447\u0435\u043D\u043E:", round2(f.paidClient));
   const debt = round2(f.saleNet - f.paidClient);
   if (debt > 4e-3) ftot("\u0414\u043E\u043B\u0433 \u043A\u043B\u0438\u0435\u043D\u0442\u0430 :", debt, true);
@@ -1660,6 +1661,7 @@ function clientSheetRowsUzs(obj, ops, products) {
   if (pc.disc) ftot("\u0421\u043A\u0438\u0434\u043A\u0430:", -pc.disc);
   if (pc.ret) ftot("\u0412\u043E\u0437\u0432\u0440\u0430\u0442\u044B:", -pc.ret, true);
   if (pc.exp) ftot("\u0414\u043E\u043F. \u0440\u0430\u0441\u0445\u043E\u0434\u044B:", pc.exp);
+  if (pc.disc) ftot("\u0421\u0443\u043C\u043C\u0430 \u0441\u043E \u0441\u043A\u0438\u0434\u043A\u043E\u0439:", pc.net);
   ftot("\u041E\u043F\u043B\u0430\u0447\u0435\u043D\u043E:", pc.paid);
   if (pc.debt > 4e-3) ftot("\u0414\u043E\u043B\u0433 \u043A\u043B\u0438\u0435\u043D\u0442\u0430 :", pc.debt, true);
   else ftot("\u0411\u0430\u043B\u0430\u043D\u0441 :", Math.abs(pc.debt));

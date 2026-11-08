@@ -1782,6 +1782,7 @@ function clientSheetRows(obj, ops, products, f) {
   if (f.discount) ftot("Скидка:", -round2(f.discount));
   if (f.retSale) ftot("Возвраты:", -round2(f.retSale), true);
   if (f.clientExp) ftot("Доп. расходы:", round2(f.clientExp));
+  if (f.discount) ftot("Сумма со скидкой:", round2(f.saleNet)); // при скидке — итог к оплате перед «Оплачено»
   ftot("Оплачено:", round2(f.paidClient));
   // по просьбе руководителя: клиент должен — «Долг клиента :» (красным) и сколько осталось оплатить;
   // «Баланс :» — только когда клиент переплатил (сумма переплаты) или всё ровно (0)
@@ -5569,6 +5570,7 @@ function clientSheetRowsUzs(obj, ops, products) {
   if (pc.disc) ftot("Скидка:", -pc.disc);
   if (pc.ret) ftot("Возвраты:", -pc.ret, true);
   if (pc.exp) ftot("Доп. расходы:", pc.exp);
+  if (pc.disc) ftot("Сумма со скидкой:", pc.net); // при скидке — итог к оплате перед «Оплачено»
   ftot("Оплачено:", pc.paid);
   if (pc.debt > 0.004) ftot("Долг клиента :", pc.debt, true); else ftot("Баланс :", Math.abs(pc.debt));
   return rows;
