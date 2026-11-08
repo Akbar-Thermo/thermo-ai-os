@@ -206,9 +206,8 @@ const PERMS = [
   { id: "salary", label: "Зарплата сотрудников" },
   { id: "backup", label: "Бэкап базы и Excel-архив" },
   { id: "accounts", label: "Аккаунты: создавать и менять (кроме руководителей)" },
-  { id: "perech", label: "Перечисление: договоры, счета, накладные, банковские платежи" },
 ];
-const ALL_PERMS = { fin: true, del: true, salary: true, backup: true, accounts: true, perech: true };
+const ALL_PERMS = { fin: true, del: true, salary: true, backup: true, accounts: true };
 const rolesCfgRow = (data) => ((data && data.requests) || []).find((x) => x.mode === ROLE_CFG_MODE) || null;
 function allRoles(data) {
   const row = rolesCfgRow(data);
@@ -2980,7 +2979,7 @@ const ProductRow = memo(function ProductRow({ p, checked, sup, onToggle, onEdit 
     </tr>
   );
 });
-function ProductsTab({ data, reload, toast }) {
+function ProductsTab({ data, reload, toast, pmode = false, setPmode = null, allProducts = null }) {
   const { products, suppliers } = data;
   const [q, setQ] = useState("");
   const [sfs, setSfs] = useState([]); // поставщики (можно несколько) и бренды внутри них — как в поиске товара
@@ -2994,6 +2993,33 @@ function ProductsTab({ data, reload, toast }) {
   const [sel, setSel] = useState([]);
   const [confirmDel, setConfirmDel] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // копия выбранных товаров в базу перечисления (независимые строки; уже скопированные — пропускаются)
+  const [copyAsk, setCopyAsk] = useState(false);
+  const [copyBusy, setCopyBusy] = useState(false);
+  const doCopy = async () => {
+    setCopyBusy(true);
+    const pAll = (allProducts || []).filter((x) => x.perech);
+    const nk = (x) => String(x == null ? "" : x).toLowerCase().replace(/ё/g, "е").replace(/[«»"“”„'`]/g, "").replace(/\s+/g, " ").trim();
+    const key = (x) => nk(x.name) + "|" + String(x.size || "").trim() + "|" + (x.supplier_id || "");
+    const have = new Set(pAll.map(key));
+    let code = nextProductCode(pAll);
+    const now = new Date().toISOString();
+    const out = [];
+    products.filter((x) => selSet.has(x.id)).sort(productOrder).forEach((x) => {
+      if (have.has(key(x))) return;
+      have.add(key(x));
+      const { id, created_at, updated_at, code: c0, ...rest } = x;
+      out.push({ ...rest, code: String(code++), stock: 0, perech: true, price_updated: now });
+    });
+    try {
+      if (out.length) await batchInsert("products", out.map(cleanUuids), 500, () => {});
+      await logAction("Товары скопированы в перечисление", "products", "копий: " + out.length + (out.length <= 10 ? " · " + out.map((x) => x.name).join(", ") : ""));
+      const skip = sel.length - out.length;
+      setCopyAsk(false); setSel([]); await reload(["products"]);
+      toast("В перечисление скопировано: " + out.length + (skip ? " · уже были: " + skip : "") + " — цены меняйте там (галочка «Перечисление»)");
+    } catch (e) { toast("Не скопировано: " + (e.message || e)); }
+    setCopyBusy(false);
+  };
   // показываем ВСЕ товары одним списком с прокруткой; браузер рисует только видимые строки
   // (15 000 строк таблицы сразу — это секунды на каждое действие). Поиск откладывается, чтобы ввод не тормозил.
   const dq = useDeferredValue(q);
@@ -3070,7 +3096,9 @@ function ProductsTab({ data, reload, toast }) {
   return (
     <div>
       <div className="row sect">
-        <h2 style={{ marginRight: "auto" }}>База товаров <span className="mut sm">({list.length !== products.length ? list.length + " из " + products.length : products.length})</span></h2>
+        <h2 style={{ marginRight: "auto" }}>{pmode ? "Товары — перечисление" : "База товаров"} <span className="mut sm">({list.length !== products.length ? list.length + " из " + products.length : products.length})</span></h2>
+        {setPmode && <PerechToggle on={pmode} set={(v) => { setSel([]); setPmode(v); }} />}
+        {!pmode && sel.length > 0 && <button className="btn" onClick={() => setCopyAsk(true)} title="Копии станут отдельными товарами перечисления: их цену и себестоимость меняете отдельно">→ В перечисление ({sel.length})</button>}
         <input className="inp" style={{ maxWidth: 200 }} placeholder="Поиск…" value={q} onChange={(e) => setQ(e.target.value)} />
         <SupBrandFilter suppliers={suppliers} products={products} sfs={sfs} setSfs={setSfs} sbr={sbr} setSbr={setSbr} width={200} />
         <select className="inp" style={{ maxWidth: 150 }} value={brandF} onChange={(e) => setBrandF(e.target.value)}>
@@ -3106,6 +3134,7 @@ function ProductsTab({ data, reload, toast }) {
         const { id, created_at, ...rest } = vals;
         const priceChanged = !id || Number(edit.cost) !== Number(rest.cost) || Number(edit.price) !== Number(rest.price);
         if (priceChanged) rest.price_updated = new Date().toISOString();
+        if (!id) rest.perech = pmode; // новый товар — в ту базу, которая открыта
         const r = id ? await db.from("products").update(cleanUuids(rest)).eq("id", id) : await db.from("products").insert(cleanUuids(rest));
         if (r.error) return false; // ошибка показана, окно остаётся открытым
         await logAction(id ? "Изменён товар" : "Добавлен товар", "product:" + (rest.name || ""), "код " + (rest.code || "—") + (priceChanged && id ? " · себест. " + fmt2(rest.cost) + ", цена " + fmt2(rest.price) : ""));
@@ -3126,7 +3155,17 @@ function ProductsTab({ data, reload, toast }) {
         </Modal>
       )}
       {fromObj && <CostFromObjectsModal data={data} onClose={() => setFromObj(false)} onDone={async (msg) => { setFromObj(false); await reload(["products"]); toast(msg); }} />}
-      {imp && <ImportModal products={products} suppliers={suppliers} onClose={() => setImp(false)} onDone={async (msg) => { setImp(false); await reload("all"); toast(msg); }} />}
+      {copyAsk && (
+        <Modal title="Скопировать в перечисление" onClose={() => { if (!copyBusy) setCopyAsk(false); }} w={480}>
+          <p style={{ marginBottom: 8 }}>Скопировать <b>{sel.length}</b> товар(ов) в базу перечисления?</p>
+          <p className="sm mut" style={{ marginBottom: 14 }}>Копия — отдельный товар: её цену и себестоимость меняете отдельно, на наличные она не влияет (и наоборот), даже при одинаковом названии. Товары, которые уже есть в перечислении (то же название, размер и поставщик), пропускаются.</p>
+          <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
+            <button className="btn" disabled={copyBusy} onClick={() => setCopyAsk(false)}>Отмена</button>
+            <button className="btn pri" disabled={copyBusy} onClick={doCopy}>{copyBusy ? "Копирую…" : "Скопировать"}</button>
+          </div>
+        </Modal>
+      )}
+      {imp && <ImportModal perech={pmode} products={products} suppliers={suppliers} onClose={() => setImp(false)} onDone={async (msg) => { setImp(false); await reload("all"); toast(msg); }} />}
       {confirmDel && (
         <Modal title="Подтверждение удаления" onClose={() => setConfirmDel(false)} w={440}>
           <p style={{ marginBottom: 6 }}>Удалить <b style={{ color: "var(--bad)" }}>{sel.length}</b> {sel.length === 1 ? "товар" : sel.length < 5 ? "товара" : "товаров"} из базы?</p>
@@ -3248,7 +3287,7 @@ function CostFromObjectsModal({ data, onClose, onDone }) {
     </Modal>
   );
 }
-function ImportModal({ products = [], suppliers, onClose, onDone }) {
+function ImportModal({ products = [], suppliers, onClose, onDone, perech = false }) {
   const prodList = products; // уже существующие товары (для следующего номера кода)
   const FIELDS = [
     { id: "name", label: "Название*", kw: ["наименован", "назван", "товар", "name", "номенклат"] },
@@ -3391,7 +3430,7 @@ function ImportModal({ products = [], suppliers, onClose, onDone }) {
             supplier_id = supCache[k];
           }
           out.push({ code: String(code++), sku: it.sku || null, name: it.name, category: it.category, size: it.size, unit: it.unit, cost: it.cost, price: it.price, stock: it.stock,
-            brand: it.brand, supplier_id, status: "active", min_stock: 0, price_updated: new Date().toISOString() });
+            brand: it.brand, supplier_id, status: "active", min_stock: 0, price_updated: new Date().toISOString(), ...(perech ? { perech: true } : {}) });
         }
         await batchInsert("products", out, 500, (d, n) => setProg("новые: " + d + " / " + n));
         added = out.length;
@@ -3897,7 +3936,7 @@ const activeSuppliers = (suppliers, keepId) => suppliers.filter((s) => s.status 
 const signedMoney = (b) => (b < 0 ? "−" + fmt(-b) : fmt(b));
 const balColor = (b) => (b > 0 ? "var(--bad)" : b < 0 ? "var(--ok)" : "var(--mut)");
 
-function SuppliersTab({ data, reload, toast, fin = true }) {
+function SuppliersTab({ data, reload, toast, fin = true, pmode = false, setPmode = null }) {
   const { suppliers, objects, finance_ops, products, wh_moves } = data;
   const [edit, setEdit] = useState(null);
   const [del, setDel] = useState(null);
@@ -3973,7 +4012,7 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
         <div className="row sect">
           <button className="btn" onClick={() => setOpenId(null)}>← Поставщики</button>
           <div style={{ marginRight: "auto" }}>
-            <h2>{cur.name} {cur.status === "inactive" && <Badge c="#9a9a9a">неактивен</Badge>}</h2>
+            <h2>{cur.name} {cur.status === "inactive" && <Badge c="#9a9a9a">неактивен</Badge>} {pmode && <Badge c="var(--acc)">перечисление</Badge>}</h2>
             <div className="sm mut">{[cur.contact, cur.phone, "товаров: " + (prodCnt[cur.id] || 0)].filter(Boolean).join(" · ")}
               {(() => { const r = rows.find((x) => x.s.id === cur.id); const di = r && r.di; return di && di.days != null ? <span className="sup-age" style={di.days > SUP_DEBT_DAYS ? { color: "var(--bad)", fontWeight: 800 } : null}> · долг не оплачен {di.days > SUP_DEBT_DAYS ? SUP_DEBT_DAYS + "+" : di.days} дн. (с {dt(di.since)})</span> : null; })()}</div>
           </div>
@@ -3985,7 +4024,8 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
         <AktSverkaModal inline s={cur} objects={objects} ops={finance_ops} whMoves={wh_moves} products={products} toast={toast} reload={reload} canEdit={fin} onClose={() => setOpenId(null)} />
       </> : <>
       <div className="row sect">
-        <h2 style={{ marginRight: "auto" }}>Поставщики <span className="mut sm">({suppliers.length})</span></h2>
+        <h2 style={{ marginRight: "auto" }}>{pmode ? "Поставщики — перечисление" : "Поставщики"} <span className="mut sm">({suppliers.length})</span></h2>
+        {setPmode && <PerechToggle on={pmode} set={(v) => { setOpenId(null); setPmode(v); }} />}
         <input className="inp" style={{ maxWidth: 220 }} placeholder="Поиск поставщика…" value={q} onChange={(e) => setQ(e.target.value)} />
         <button className="btn" title="Все расчёты со всеми поставщиками: сводка + лист на каждого" onClick={() => history(shown.map((x) => x.s), "История_поставщики_" + today() + ".xlsx")}><Ic n="download" /> История (Excel)</button>
         <button className="btn pri" onClick={() => setEdit({ status: "active" })}>+ Поставщик</button>
@@ -4055,9 +4095,10 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
       {pay && <SupplierPayModal s={pay} objects={objects} ops={finance_ops} whMoves={wh_moves} fin={fin} onClose={() => setPay(null)}
         onRateFixed={async (usd) => { await reload(); toast("Исправлено: " + fmt(usd) + " $"); }}
         onSave={async (op) => {
-          const r = await db.from("finance_ops").insert(cleanUuids(op));
+          const r = await db.from("finance_ops").insert(cleanUuids(pmode ? { ...op, perech: true } : op)); // перечисление: оплата уменьшает только долг по перечислению
           if (r.error) return false;
-          await logAction("Оплата поставщику", "supplier:" + pay.name, fmt(op.amount) + " · " + payText(op) + (op.note ? " · " + op.note : "")); await reload(); toast("Оплата поставщику записана: " + fmt(op.amount) + " · " + payText(op)); return true;
+          if (pmode && (r.dropped || []).includes("perech")) toast("⚠ В базе нет колонки finance_ops.perech — оплата записана как наличная. Обновите базу (supabase/perech/02_perech_catalog.sql)");
+          await logAction(pmode ? "Оплата поставщику (перечисление)" : "Оплата поставщику", "supplier:" + pay.name, fmt(op.amount) + " · " + payText(op) + (op.note ? " · " + op.note : "")); await reload(); toast("Оплата поставщику записана: " + fmt(op.amount) + " · " + payText(op)); return true;
         }}
         onEditPay={async (o, patch) => {
           const log = [...(o.edit_log || []), { at: new Date().toISOString(), before: { amount: o.amount, op_date: o.op_date, note: o.note, reason: o.reason } }];
@@ -4286,7 +4327,10 @@ function RequestTabs(props) {
   return (
     <div>
       <div className="row" style={{ marginBottom: 10 }}>
-        <h2 style={{ marginRight: "auto" }}>Новая заявка</h2>
+        <h2 style={{ marginRight: "auto" }}>{props.pmode ? "Новая заявка — перечисление" : "Новая заявка"}</h2>
+        {props.setPmode && (((meta[active.id] || {}).count || 0) > 0
+          ? <span title="В заявке уже есть позиции из другой базы товаров — сначала сохраните или закройте её, потом переключайте"><button className="btn" disabled style={props.pmode ? { borderColor: "var(--acc)", color: "var(--acc)" } : undefined}>{props.pmode ? "☑" : "☐"} Перечисление</button></span>
+          : <PerechToggle on={!!props.pmode} set={props.setPmode} />)}
       </div>
       <div className="row" style={{ gap: 6, flexWrap: "wrap", marginBottom: 14, borderBottom: "1px solid var(--line)", paddingBottom: 8 }}>
         {state.tabs.map((t) => {
@@ -4306,7 +4350,7 @@ function RequestTabs(props) {
         })}
         <button className="btn xs" onClick={addTab} title="Открыть ещё одну заявку">+ Новая заявка</button>
       </div>
-      <RequestWizard key={active.id} {...props} draftKey={wzDraftKey(active.id)}
+      <RequestWizard key={active.id + (props.pmode ? ":p" : "")} {...props} draftKey={wzDraftKey(active.id)}
         onMeta={(m) => setMeta((prev) => ({ ...prev, [active.id]: m }))}
         onSaved={() => removeTab(active.id)} />
       {closing && (
@@ -4550,6 +4594,7 @@ function RequestExcelImport({ products, onClose, onAdd }) {
   );
 }
 function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onMeta, onSaved }) {
+  const pmode = !!data.perechMode;
   const { products, suppliers, objects, masters } = data;
   const [step, setStep] = useState(() => { try { return JSON.parse(localStorage.getItem(draftKey) || "{}").step || 0; } catch { return 0; } });
   const [objId, setObjId] = useState(() => { try { return JSON.parse(localStorage.getItem(draftKey) || "{}").objId || ""; } catch { return ""; } });
@@ -4700,7 +4745,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
         items = mkItems(1);
         // менеджер — тот, кто вошёл в систему и создаёт заявку
         const me = CURRENT_USER ? String(CURRENT_USER.name || CURRENT_USER.username || "").trim() : "";
-        const objData = cleanUuids({ ...newObj, manager: me || newObj.manager || null, name: String(newObj.name || "").trim(), status: saveStatus || "draft", items });
+        const objData = cleanUuids({ ...newObj, manager: me || newObj.manager || null, name: String(newObj.name || "").trim(), status: saveStatus || "draft", items, ...(pmode ? { perech: { on: true, client: { name: String(newObj.client || "").trim(), phone: String(newObj.phone || "").trim(), basis: "Устава" } } } : {}) });
         const { data: ins, error: insErr } = await db.from("objects").insert(objData);
         if (insErr) throw new Error("объект не создан: " + (insErr.message || insErr));
         obj = ins && ins[0];
@@ -5082,6 +5127,26 @@ function MasterBar({ items, value, onPick, noun = ["объект", "объект
    Суммы оплат в $ пересчитываются (perechRecalc), когда меняются поставки: новая фиксация, возврат, новая оплата.
    Реквизиты нашей фирмы и клиентов — служебная запись requests (mode = "te_perech", lines = { firm, clients: { ИНН: {…} } }). */
 const PERECH_MODE = "te_perech";
+// Перечисление — отдельный «мир» внутри программы: своя база товаров (products.perech = true — свои цены и себестоимость,
+// даже если название как у товара за наличные), свои объекты (objects.perech.on) и свои оплаты поставщикам (finance_ops.perech).
+// Галочка «Перечисление» в «Объекты», «Товары», «Поставщики», «Новая заявка» переключает раздел в этот мир (одна на всех, запоминается).
+const PERECH_KEY = "te:perech";
+function perechWorld(data, on) {
+  const objs = data.objects || [];
+  const pid = new Set(objs.filter((o) => o && o.perech && o.perech.on).map((o) => o.id));
+  const opP = (x) => x.perech === true || (!!x.object_id && pid.has(x.object_id));
+  return { ...data, perechMode: on, products: (data.products || []).filter((x) => !!x.perech === on), objects: objs.filter((o) => pid.has(o.id) === on),
+    finance_ops: (data.finance_ops || []).filter((x) => opP(x) === on), warehouse: on ? [] : data.warehouse || [], wh_moves: on ? [] : data.wh_moves || [] };
+}
+// товары для объекта: у объекта на перечислении — только база перечисления; Склад Thermo — только для наличных
+const objWorld = (data, obj) => { const on = !!(obj && obj.perech && obj.perech.on); return { ...data, products: (data.products || []).filter((x) => !!x.perech === on), warehouse: on ? [] : data.warehouse || [] }; };
+function PerechToggle({ on, set, n }) {
+  return (
+    <label className={"btn perech-tg" + (on ? " on" : "")} title="Перечисление: отдельные объекты, отдельная база товаров, отдельные долги поставщикам" style={on ? { borderColor: "var(--acc)", color: "var(--acc)", background: "var(--acc-tint)" } : undefined}>
+      <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} style={{ margin: 0 }} /> Перечисление{n != null ? <span className="xs mut"> · {n}</span> : null}
+    </label>
+  );
+}
 const PERECH_VAT = 12;
 const isPerech = (o) => !!(o && o.perech && o.perech.on);
 const perechCfg = (data) => { const r = ((data && data.requests) || []).find((x) => x.mode === PERECH_MODE); return (r && r.lines && !Array.isArray(r.lines) && r.lines) || {}; };
@@ -5950,13 +6015,14 @@ function PerechPanel({ obj, data, reload, toast, onPay }) {
   );
 }
 
-function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = true, perech = false }) {
-  const { objects, finance_ops, suppliers } = data;
+function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = true, perech = true, pmode = false, setPmode = null }) {
+  const { finance_ops, suppliers } = data;
+  const objects = useMemo(() => (data.objects || []).filter((o) => isPerech(o) === pmode), [data.objects, pmode]);
   const [delObj, setDelObj] = useState(null);
   const [delBusy, setDelBusy] = useState(false);
   const [editO, setEditO] = useState(null);
   const [q, setQ] = useState("");
-  const obj = objects.find((o) => o.id === openId);
+  const obj = (data.objects || []).find((o) => o.id === openId); // открыть можно любой объект (ссылка с дашборда и т.п.)
   const opsCount = useMemo(() => { const m = {}; finance_ops.forEach((x) => { if (x.object_id) m[x.object_id] = (m[x.object_id] || 0) + 1; }); return m; }, [finance_ops]);
   // объект с оплатами/возвратами удаляет только руководитель; менеджер может удалить только «пустой» (ошибочный) объект
   const canDelete = (o) => fin || !opsCount[o.id];
@@ -5986,10 +6052,8 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   const [lim, setLim] = useState(150); // длинный список — частями, чтобы экран не тормозил
   // единственный фильтр — по мастеру (лента сверху)
   const [mF, setMF] = useState("");
-  // наличные / перечисление (банк)
-  const [pF, setPF] = useState("");
-  const anyPerech = objects.some(isPerech);
-  useEffect(() => { setLim(150); }, [q, mF, pF, sort.k, sort.d]);
+  useEffect(() => { setLim(150); setMF(""); }, [pmode]);
+  useEffect(() => { setLim(150); }, [q, mF, sort.k, sort.d]);
   // по каждому объекту — один раз: суммы, долг, дата последнего действия и текст для поиска
   const masterName = useMemo(() => { const m = {}; (data.masters || []).forEach((x) => { m[x.id] = x.name; }); return m; }, [data.masters]);
   const rowsAll = useMemo(() => objects.map((o) => {
@@ -6006,11 +6070,11 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
     const pc = isPerech(o) ? perechCalc(o, finance_ops) : null; // перечисление: долг клиента в сумах
     return { o, f, upd, hay: hay + (pc ? " перечисление perechisleniye " + String(((o.perech || {}).client || {}).inn || "") : ""), debt, mk, mn, pc };
   }), [objects, finance_ops, masterName]);
-  if (obj) return <ObjectDetail obj={obj} data={data} reload={reload} toast={toast} fin={fin} perech={perech} back={() => setOpenId(null)} />;
+  if (obj) return <ObjectDetail obj={obj} data={objWorld(data, obj)} reload={reload} toast={toast} fin={fin} perech={perech} back={() => setOpenId(null)} />;
   // поиск: каждое слово где угодно (название, клиент, телефон, адрес, мастер, менеджер, статус); латиница = кириллица; телефон — по цифрам
   const toks = q.trim().toLowerCase().replace(/ё/g, "е").split(/\s+/).filter(Boolean);
   const hit = (r) => toks.every((t) => r.hay.includes(t) || r.hay.includes(translit(t)) || (/\d/.test(t) && r.hay.includes(t.replace(/\D/g, ""))));
-  const found = rowsAll.filter((r) => (!toks.length || hit(r)) && (!pF || (pF === "perech") === !!r.pc));
+  const found = rowsAll.filter((r) => !toks.length || hit(r));
   const ordIdx = (o) => { const i = [...OBJ_STATUSES, ...OLD_STATUSES].findIndex((x) => x.id === (o.status || "draft")); return i < 0 ? 99 : i; };
   const cmp = {
     name: (a, b) => String(a.o.name || "").localeCompare(String(b.o.name || ""), "ru"),
@@ -6039,12 +6103,8 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   return (
     <div>
       <div className="row sect">
-        <h2 style={{ marginRight: "auto" }}>Объекты <span className="mut sm">({shown.length !== objects.length ? shown.length + " из " + objects.length : objects.length})</span></h2>
-        {(anyPerech || perech) && <div className="seg obj-pay" title="Как платит клиент">
-          <button type="button" className={!pF ? "on" : ""} onClick={() => setPF("")}>Все</button>
-          <button type="button" className={pF === "cash" ? "on" : ""} onClick={() => setPF("cash")}>Наличные</button>
-          <button type="button" className={pF === "perech" ? "on" : ""} onClick={() => setPF("perech")}>Перечисление</button>
-        </div>}
+        <h2 style={{ marginRight: "auto" }}>{pmode ? "Объекты — перечисление" : "Объекты"} <span className="mut sm">({shown.length !== objects.length ? shown.length + " из " + objects.length : objects.length})</span></h2>
+        {setPmode && <PerechToggle on={pmode} set={setPmode} />}
         <div className="seg obj-view">
           <button type="button" className={view === "list" ? "on" : ""} onClick={() => setViewSave("list")}>Список</button>
           <button type="button" className={view === "cols" ? "on" : ""} onClick={() => setViewSave("cols")}>По статусам</button>
@@ -6074,7 +6134,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
               const st = stById(o.status);
               return (
                 <tr key={o.id} className="clk" onClick={() => setOpenId(o.id)}>
-                  <td className="objt-name"><div style={{ fontWeight: 700 }}>{o.name}{pc && <> <Badge c="var(--acc)">Перечисление</Badge></>}</div>{o.address && <div className="xs mut">{o.address}</div>}</td>
+                  <td className="objt-name"><div style={{ fontWeight: 700 }}>{o.name}</div>{o.address && <div className="xs mut">{o.address}</div>}</td>
                   <td className="objt-cl"><div>{o.client || "—"}</div>{o.phone && <div className="xs mut mono">{o.phone}</div>}</td>
                   <td className="objt-ms sm">{o.master || masterName[o.master_id] || <span className="mut">—</span>}{o.manager && <div className="xs mut">{o.manager}</div>}</td>
                   <td className="objt-st"><Badge c={st.c}>{st.label.replace(" (старый статус)", "")}</Badge></td>
@@ -6964,7 +7024,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
       {shipForm && <ShipModal obj={obj} batches={batches} fin={fin} supName={supName} onClose={() => setShipForm(false)}
         onShip={async (ids, date) => { if (await shipItems(ids, date, true)) setShipForm(false); }}
         onUnship={async (ids) => { await shipItems(ids, null, false); }} />}
-      {addItems && <AddItemsModal onProductsAdded={() => reload(["products"])} products={products} suppliers={suppliers} whQty={wh.qty} whSim={wh.sim} whStock={wh.stock} whRes={wh.res} whAge={wh.age} whExact={wh.exact} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} batches={batches} onSave={async (rows, t) => { if (await addManualItems(rows, t && typeof t === "object" ? t : { newBatch: addItems === "newbatch", date: t })) setAddItems(false); }} />}
+      {addItems && <AddItemsModal perechCat={pObj} onProductsAdded={() => reload(["products"])} products={products} suppliers={suppliers} whQty={wh.qty} whSim={wh.sim} whStock={wh.stock} whRes={wh.res} whAge={wh.age} whExact={wh.exact} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} batches={batches} onSave={async (rows, t) => { if (await addManualItems(rows, t && typeof t === "object" ? t : { newBatch: addItems === "newbatch", date: t })) setAddItems(false); }} />}
       {impItems && <ObjectExcelImport products={products} suppliers={suppliers} onClose={() => setImpItems(false)} onSave={async (rows) => { if (batches.length) { setImpPick(rows); return; } if (await addManualItems(rows, false)) setImpItems(false); }} />}
       {impPick && <BatchPickDialog batches={batches} count={impPick.length} total={impPick.reduce((a, r) => a + parseNum(r.qty) * parseNum(r.price), 0)} busy={impBusy} onBack={() => setImpPick(null)}
         onPick={async (t) => { setImpBusy(true); const ok = await addManualItems(impPick, t); setImpBusy(false); setImpPick(null); if (ok) setImpItems(false); }} />}
@@ -7453,7 +7513,7 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
     </>
   );
 }
-function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty = {}, whSim = {}, whStock = null, whRes = null, whAge = null, whExact = {}, batches = [], onProductsAdded = null }) {
+function AddItemsModal({ perechCat = false, products, suppliers, newBatch, onClose, onSave, whQty = {}, whSim = {}, whStock = null, whRes = null, whAge = null, whExact = {}, batches = [], onProductsAdded = null }) {
   const [rows, setRows] = useState([]);
   // новая строка — сверху списка; в объект строки сохраняются в порядке добавления
   const addRow = (r) => setRows((prev) => [{ ...r, _k: uuid() }, ...prev]);
@@ -7483,7 +7543,7 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
       if (r.same) { ids[r._k] = r.same.id; return; } // такой товар уже есть — только связываем, не дублируем
       const id = uuid(); ids[r._k] = id;
       fresh.push({ id, code: String(code++), sku: null, name: String(r.name).trim(), category: "", size: r.size || "", unit: r.unit || "шт",
-        cost: parseNum(r.cost), price: parseNum(r.price), stock: 0, brand: "", supplier_id: r.supplier_id || null, status: "active", min_stock: 0, price_updated: new Date().toISOString() });
+        cost: parseNum(r.cost), price: parseNum(r.price), stock: 0, brand: "", supplier_id: r.supplier_id || null, status: "active", min_stock: 0, price_updated: new Date().toISOString(), ...(perechCat ? { perech: true } : {}) });
     });
     if (fresh.length) {
       const res = await db.from("products").insert(fresh.map(cleanUuids));
@@ -11372,6 +11432,11 @@ function AppInner() {
   }, [ready]);
   useEffect(() => { if (introOut && !introGone) { const t = setTimeout(() => setIntroGone(true), 800); return () => clearTimeout(t); } }, [introOut]);
   const [data, setData] = useState({ products: [], suppliers: [], objects: [], finance_ops: [], requests: [], masters: [], warehouse: [], wh_moves: [], users: [], audit_log: [] });
+  // перечисление: галочка в «Объекты», «Товары», «Поставщики», «Новая заявка» — одна на все, запоминается на устройстве
+  const [pmode, setPmode0] = useState(() => { try { return localStorage.getItem(PERECH_KEY) === "1"; } catch (e) { return false; } });
+  const setPmode = (v) => { setPmode0(!!v); try { localStorage.setItem(PERECH_KEY, v ? "1" : "0"); } catch (e) {} };
+  const pWorld = useMemo(() => perechWorld(data, pmode), [data, pmode]);
+  const cashWorld = useMemo(() => perechWorld(data, false), [data]);
   const [tab, setTab] = useState("dash");
   const [tabNonce, setTabNonce] = useState(0);
   const [currentUser, setCurrentUser] = useState(null);
@@ -12089,12 +12154,12 @@ function AppInner() {
         {palette && <CommandPalette tabs={allTabs} objects={data.objects || []} onTab={goTab} onObject={(id) => { setTab("objects"); setOpenId(id); }} onClose={() => setPalette(false)} />}
         {keysHelp && <KeysHelp tabs={allTabs} onClose={() => setKeysHelp(false)} />}
         {cloudChange && <CloudChange user={currentUser} toast={toast} onClose={() => setCloudChange(false)} />}
-        {tab === "objects" && <ObjectsTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} goRequest={() => setTab("request")} fin={!!acc.perms.fin} perech={!!acc.perms.perech} />}
-        {tab === "request" && <RequestTabs data={data} reload={reload} toast={toast} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
-        {tab === "products" && <ProductsTab data={data} reload={reload} toast={toast} />}
-        {tab === "suppliers" && <SuppliersTab data={data} reload={reload} toast={toast} fin={!!acc.perms.fin} />}
+        {tab === "objects" && <ObjectsTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} goRequest={() => setTab("request")} fin={!!acc.perms.fin} pmode={pmode} setPmode={setPmode} />}
+        {tab === "request" && <RequestTabs data={pWorld} pmode={pmode} setPmode={setPmode} reload={reload} toast={toast} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
+        {tab === "products" && <ProductsTab data={pWorld} allProducts={data.products} pmode={pmode} setPmode={setPmode} reload={reload} toast={toast} />}
+        {tab === "suppliers" && <SuppliersTab data={{ ...pWorld, products: data.products }} pmode={pmode} setPmode={setPmode} reload={reload} toast={toast} fin={!!acc.perms.fin} />}
         {tab === "masters" && <MastersTab data={data} reload={reload} toast={toast} fin={true} canDel={!!acc.perms.del} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
-        {tab === "wh" && <WarehouseTab data={data} reload={reload} toast={toast} readOnly={role === "driver"} openObject={(id) => { if (role === "driver") { setTab("delivery"); setOpenId(id); } else { setOpenId(id); setTab("objects"); } }} />}
+        {tab === "wh" && <WarehouseTab data={cashWorld} reload={reload} toast={toast} readOnly={role === "driver"} openObject={(id) => { if (role === "driver") { setTab("delivery"); setOpenId(id); } else { setOpenId(id); setTab("objects"); } }} />}
         {tab === "delivery" && <DeliveryTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} />}
         {tab === "log" && <LogTab data={data} reload={reload} toast={toast} onBackup={acc.perms.backup ? () => setBackupOpen(true) : null} />}
         {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} isBoss={role === "boss"} />}

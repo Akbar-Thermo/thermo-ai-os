@@ -42,6 +42,8 @@ export function makeRest({ url, anon, login, password, fetchImpl = globalThis.fe
   const fail = (what, r) => { const e = new Error(what + ": " + ((r.data && (r.data.message || r.data.hint)) || r.text || r.status)); e.status = r.status; e.body = r.data; return e; };
   // все строки таблицы — страницами по 1000 (больше REST за раз не отдаёт)
   async function all(table, query = "", cols = "*") {
+    // товары перечисления — отдельная база (products.perech): бот работает с наличной базой, если не спросили явно
+    if (table === "products" && !/(^|&)perech=/.test(query)) query = (query ? query + "&" : "") + "perech=not.is.true";
     let out = [];
     for (let from = 0; from < 2000000; from += 1000) {
       const q = table + "?select=" + cols + (query ? "&" + query : "") + "&order=created_at.asc,id.asc&offset=" + from + "&limit=1000";
