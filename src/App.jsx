@@ -526,6 +526,7 @@ table.t tr:hover td{background:var(--hover)}
 .kpi{min-width:0}
 .kpi .l{font-size:var(--fs-xs);color:var(--mut);font-weight:600}
 .kpi .kpi-sub{margin-top:4px;line-height:1.35}
+.modal-bg.thru{pointer-events:none}.modal-bg.thru .modal{pointer-events:auto}
 .modal-bg{position:fixed;inset:0;background:rgba(18,24,27,.45);display:flex;align-items:flex-start;justify-content:center;z-index:100;padding:30px 14px;overflow:auto;backdrop-filter:blur(2px)}
 .modal{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-xl);padding:22px;width:100%;box-shadow:0 24px 60px rgba(18,24,27,.22)}
 .te.dark .modal{box-shadow:0 24px 60px rgba(0,0,0,.5)}
@@ -998,6 +999,9 @@ function wheelRoot(el) {
 function installWheelTrap() {
   const h = (e) => {
     if (e.ctrlKey) return; // Ctrl + колёсико — масштаб
+    // числовое поле в фокусе: колёсико меняло бы число (кол-во, цена) — снимаем фокус, число остаётся как было; меняется только набором с клавиатуры
+    const ae = document.activeElement;
+    if (ae && ae.tagName === "INPUT" && ae.type === "number" && (e.target === ae || (e.target instanceof Element && ae.contains(e.target)))) ae.blur();
     let dx = e.deltaX, dy = e.deltaY;
     if (e.shiftKey && !dx) { dx = dy; dy = 0; }
     if (!dx && !dy) return;
@@ -1397,16 +1401,17 @@ function renumberBatches(items, createdAt) {
   return items.map((i) => { const no = i.batch_no || 1; return map[no] === no && i.batch_no ? i : { ...i, batch_no: map[no] }; });
 }
 // «Лист доставки» (Excel без цен): по поставкам и поставщикам / Складу Thermo
-function downloadDeliverySheet(obj, suppliers) {
+// only — номер поставки (одна поставка) или пусто (все поставки)
+function downloadDeliverySheet(obj, suppliers, only = null) {
   const supName = (id) => ((suppliers || []).find((x) => x.id === id) || {}).name || "—";
   const rows = [
-    { k: "title", v: ["ЛИСТ ДОСТАВКИ: " + (obj.name || "")] },
+    { k: "title", v: ["ЛИСТ ДОСТАВКИ: " + (obj.name || "") + (only ? " · поставка №" + only : "")] },
     { k: "info", v: ["Адрес: " + (obj.address || "—")] },
     { k: "info", v: ["Клиент: " + (obj.client || "—") + (obj.phone ? " · тел. " + obj.phone : "")] },
     { k: "info", v: ["Мастер: " + (obj.master || "—")] },
     { k: "blank" },
   ];
-  objBatches(obj).forEach((b) => {
+  objBatches(obj).filter((b) => !only || b.no === only).forEach((b) => {
     rows.push({ k: "section", v: ["ПОСТАВКА №" + b.no + " от " + dt(b.date)] });
     const g = {};
     b.items.forEach((i) => { const k = i.from_warehouse ? "СКЛАД THERMO" : supName(i.supplier_id); (g[k] = g[k] || []).push(i); });
@@ -1418,8 +1423,33 @@ function downloadDeliverySheet(obj, suppliers) {
     });
   });
   const safeName = String(obj.name || "object").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
-  return downloadStyledXLSX("Доставка_" + safeName + ".xlsx", "Доставка", rows, [6, 66, 10, 8, 15], ["c", "t", "n", "c", "c"]);
+  return downloadStyledXLSX("Доставка_" + safeName + (only ? "_поставка" + only : "") + ".xlsx", "Доставка", rows, [6, 66, 10, 8, 15], ["c", "t", "n", "c", "c"]);
 }
+// «Лист доставки»: выбрать — все поставки или одна из них (если поставка в объекте одна, окно не показывается)
+function DeliverySheetPick({ obj, suppliers, onClose, toast }) {
+  const batches = objBatches(obj);
+  const total = batches.reduce((a, b) => a + b.items.length, 0);
+  const go = (only) => {
+    const r = downloadDeliverySheet(obj, suppliers, only);
+    toast(r === "xlsx" ? "Лист доставки скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
+    onClose();
+  };
+  return (
+    <Modal title="Лист доставки — какую поставку?" onClose={onClose} w={460}>
+      <div className="col dsp-list" style={{ gap: 8 }}>
+        <button type="button" className="btn pri dsp-all" style={{ justifyContent: "space-between" }} onClick={() => go(null)}><span>Все поставки</span><span>{total} поз.</span></button>
+        {batches.map((b) => (
+          <button type="button" key={b.no} className="btn dsp-b" style={{ justifyContent: "space-between" }} onClick={() => go(b.no)}><span>Поставка №{b.no} · {dt(b.date)}</span><span className="mut">{b.items.length} поз.</span></button>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+const deliverySheetStart = (obj, suppliers, toast, ask) => {
+  if (objBatches(obj).length > 1) return ask();
+  const r = downloadDeliverySheet(obj, suppliers);
+  toast(r === "xlsx" ? "Лист доставки скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
+};
 async function warehouseOut(lines, targetObj, user) {
   let failed = 0;
   for (const l of lines) {
@@ -1884,7 +1914,8 @@ function useTopKeys(ref, keys) {
   }, []);
 }
 // окно: фокус сразу в первое поле; Esc — закрыть (если в поле не набран текст); Ctrl+Enter — главная кнопка окна
-function Modal({ title, onClose, children, w = 640, cls = "", noBgClose = false }) {
+// thru — фон окна не перехватывает щелчки: можно перейти в другой раздел, не закрывая окно
+function Modal({ title, onClose, children, w = 640, cls = "", noBgClose = false, thru = false }) {
   const bgRef = useRef(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -1919,7 +1950,7 @@ function Modal({ title, onClose, children, w = 640, cls = "", noBgClose = false 
     return () => { clearTimeout(t); window.removeEventListener("keydown", h); };
   }, []);
   return (
-    <div ref={bgRef} className="modal-bg" onMouseDown={(e) => { if (e.target === e.currentTarget && !noBgClose) onClose(); }}>
+    <div ref={bgRef} className={"modal-bg" + (thru ? " thru" : "")} onMouseDown={(e) => { if (e.target === e.currentTarget && !noBgClose) onClose(); }}>
       <div className={"modal" + (cls ? " " + cls : "")} style={{ maxWidth: w }}>
         <div className="row" style={{ justifyContent: "space-between", marginBottom: 14 }}>
           <h3>{title}</h3>
@@ -5004,6 +5035,17 @@ const M_COLORS = ["#2563eb", "#0d9488", "#7c3aed", "#ea580c", "#0891b2", "#c026d
 const mColor = (s) => { let h = 7; for (const ch of String(s || "").toLowerCase()) h = (h * 31 + ch.codePointAt(0)) >>> 0; return M_COLORS[h % M_COLORS.length]; };
 const mInitials = (s) => { const w = String(s || "").replace(/[^\p{L}\p{N}\s]/gu, " ").trim().split(/\s+/).filter(Boolean); if (!w.length) return "?"; return (w.length > 1 ? w[0][0] + w[1][0] : w[0].slice(0, 2)).toUpperCase(); };
 const plural = (n, one, few, many) => { const a = Math.abs(n) % 100, b = a % 10; return a > 10 && a < 20 ? many : b === 1 ? one : b >= 2 && b <= 4 ? few : many; };
+// фильтр по статусу объекта (Все · Черновик · Согласовано · В процессе · Оплачено · Старые) — с числом объектов; «Старые» — только если такие есть
+const stKey = (o) => (OBJ_STATUSES.some((x) => x.id === (o.status || "draft")) ? (o.status || "draft") : "old");
+function StatusFilter({ list, value, onPick }) {
+  const cnt = {}; list.forEach((o) => { const k = stKey(o); cnt[k] = (cnt[k] || 0) + 1; });
+  const items = [{ id: "", label: "Все статусы", n: list.length }, ...OBJ_STATUSES.map((x) => ({ id: x.id, label: x.label, n: cnt[x.id] || 0 })), ...(cnt.old || value === "old" ? [{ id: "old", label: "Старые статусы", n: cnt.old || 0 }] : [])];
+  return (
+    <div className="seg st-filter" role="group" aria-label="Фильтр по статусу" style={{ flexWrap: "wrap" }}>
+      {items.map((x) => <button type="button" key={x.id || "all"} className={value === x.id ? "on" : ""} onClick={() => onPick(x.id)}>{x.label} <span className="mut">{x.n}</span></button>)}
+    </div>
+  );
+}
 function MasterBar({ items, value, onPick, noun = ["объект", "объекта", "объектов"], label = "Фильтр по мастеру", allTitle = "Все объекты" }) {
   const ref = useRef(null);
   const [edge, setEdge] = useState({ l: false, r: false });
@@ -5975,9 +6017,8 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
     return true;
   };
   useHotActions(() => (obj ? [] : [{ label: "+ Новая заявка", keys: "Alt+N", code: "KeyN", run: goRequest }]));
-  // вид списка: «Список» (таблица с сортировкой) или «По статусам» (колонки) — запоминается на этом устройстве
-  const [view, setView] = useState(() => { try { return localStorage.getItem("te:objview") === "cols" ? "cols" : "list"; } catch (e) { return "list"; } });
-  const setViewSave = (v) => { setView(v); try { localStorage.setItem("te:objview", v); } catch (e) {} };
+  // фильтр по статусу (вместо прежнего вида «По статусам»)
+  const [sF, setSF] = useState("");
   const [sort, setSort] = useState(() => { try { const x = JSON.parse(localStorage.getItem("te:objsort") || "null"); return x && x.k ? x : { k: "upd", d: -1 }; } catch (e) { return { k: "upd", d: -1 }; } });
   const sortBy = (k) => { const n = sort.k === k ? { k, d: -sort.d } : { k, d: k === "name" || k === "client" || k === "master" || k === "status" ? 1 : -1 }; setSort(n); try { localStorage.setItem("te:objsort", JSON.stringify(n)); } catch (e) {} };
   const [lim, setLim] = useState(150); // длинный список — частями, чтобы экран не тормозил
@@ -5986,7 +6027,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   // наличные / перечисление (банк)
   const [pF, setPF] = useState("");
   const anyPerech = objects.some(isPerech);
-  useEffect(() => { setLim(150); }, [q, mF, pF, sort.k, sort.d]);
+  useEffect(() => { setLim(150); }, [q, mF, pF, sF, sort.k, sort.d]);
   // по каждому объекту — один раз: суммы, долг, дата последнего действия и текст для поиска
   const masterName = useMemo(() => { const m = {}; (data.masters || []).forEach((x) => { m[x.id] = x.name; }); return m; }, [data.masters]);
   const rowsAll = useMemo(() => objects.map((o) => {
@@ -6019,7 +6060,8 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
     upd: (a, b) => a.upd.localeCompare(b.upd),
   }[sort.k] || ((a, b) => a.upd.localeCompare(b.upd));
   const mOk = (r) => !mF || r.mk === mF;
-  const sortedRows = found.filter(mOk).sort((a, b) => cmp(a, b) * sort.d || b.upd.localeCompare(a.upd));
+  const sOk = (r) => !sF || stKey(r.o) === sF;
+  const sortedRows = found.filter(mOk).filter(sOk).sort((a, b) => cmp(a, b) * sort.d || b.upd.localeCompare(a.upd));
   const shown = sortedRows.map((r) => r.o);
   // мастера — с числом объектов (с учётом поиска) и долгом клиентов по их объектам; больше объектов — левее
   const mAgg = new Map();
@@ -6030,9 +6072,6 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   const mNone = mAgg.get("none");
   const mItems = [{ key: "", kind: "all", name: "Все мастера", n: found.length, debt: allDebt }, ...mList.map((m) => ({ ...m, kind: "m" })), ...(mNone ? [{ ...mNone, kind: "none" }] : [])];
   const SortTh = ({ k, children, num, w }) => <th className={"clk objt-th" + (num ? " num" : "")} style={w ? { width: w } : undefined} onClick={() => sortBy(k)} title="Сортировать">{children}<span className="objt-arr">{sort.k === k ? (sort.d > 0 ? " ↑" : " ↓") : ""}</span></th>;
-  // список по статусам: «Черновик» и «Согласовано» вместе, «В процессе» и «Оплачено» вместе, старые статусы — в конце
-  const groups = OBJ_GROUPS.map((g) => ({ ...g, list: shown.filter((o) => (g.ids ? g.ids.includes(o.status || "draft") : !OBJ_GROUPS.some((x) => x.ids && x.ids.includes(o.status || "draft")))) }))
-    .filter((g) => g.list.length || g.ids); // три основные колонки — всегда, «старые статусы» — только если есть
   return (
     <div>
       <div className="row sect">
@@ -6042,10 +6081,6 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
           <button type="button" className={pF === "cash" ? "on" : ""} onClick={() => setPF("cash")}>Наличные</button>
           <button type="button" className={pF === "perech" ? "on" : ""} onClick={() => setPF("perech")}>Перечисление</button>
         </div>}
-        <div className="seg obj-view">
-          <button type="button" className={view === "list" ? "on" : ""} onClick={() => setViewSave("list")}>Список</button>
-          <button type="button" className={view === "cols" ? "on" : ""} onClick={() => setViewSave("cols")}>По статусам</button>
-        </div>
         <button className="btn pri" onClick={goRequest}>+ Новая заявка</button>
       </div>
       <MasterBar items={mItems} value={mF} onPick={setMF} />
@@ -6058,8 +6093,8 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
           {q && <button type="button" className="obj-q-x" title="Очистить" onClick={() => setQ("")}>✕</button>}
         </div>
       </div>
-      {/* статусы — колонками рядом: Черновик и Согласовано · В процессе и Оплачено (· старые статусы) */}
-      {!shown.length ? <div className="card mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? <>Ничего не найдено{(q || mF) && <> · <button type="button" className="btn xs" onClick={() => { setQ(""); setMF(""); }}>Показать все</button></>}</> : "Объектов пока нет — создайте через «Новая заявка»"}</div> : view === "list" ? (
+      <div className="sect"><StatusFilter list={found.filter(mOk).map((r) => r.o)} value={sF} onPick={setSF} /></div>
+      {!shown.length ? <div className="card mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? <>Ничего не найдено{(q || mF || sF) && <> · <button type="button" className="btn xs" onClick={() => { setQ(""); setMF(""); setSF(""); }}>Показать все</button></>}</> : "Объектов пока нет — создайте через «Новая заявка»"}</div> : (
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t objt">
           <thead><tr>
@@ -6089,40 +6124,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         </table>
         {sortedRows.length > lim && <div style={{ padding: 10, textAlign: "center" }}><button type="button" className="btn" onClick={() => setLim(lim + 300)}>Показать ещё ({sortedRows.length - lim})</button></div>}
       </div>
-      ) : (
-      <div className="obj-cols">
-        {groups.map((g) => {
-          const debt = g.list.reduce((a, o) => a + (isLive(o) ? Math.max(0, calcObject(o, finance_ops).clientDebt) : 0), 0);
-          return (
-          <div key={g.key} className="card obj-col" style={{ padding: 0 }}>
-            <div className="obj-grp row" style={{ gap: 6 }}><span style={{ marginRight: "auto" }}>{g.label} <span className="mut">· {g.list.length}</span></span>{debt > 0.004 && <span className="xs" style={{ color: "var(--bad)", textTransform: "none", letterSpacing: 0 }}>долг {fmt(debt)}</span>}</div>
-            <table className="t obj-t"><tbody>
-              {g.list.map((o) => {
-                const f = calcObject(o, finance_ops);
-                const st = stById(o.status);
-                return (
-                  <tr key={o.id} className="clk" onClick={() => setOpenId(o.id)}>
-                    <td>
-                      <div style={{ fontWeight: 700 }}>{o.name}</div>
-                      {<div style={{ margin: "3px 0" }}><Badge c={st.c}>{st.label.replace(" (старый статус)", "")}</Badge>{isPerech(o) && <> <Badge c="var(--acc)">Перечисление</Badge></>}</div>}
-                      <div className="xs mut">{[o.client, o.phone, o.master].filter(Boolean).join(" · ")}</div>
-                      {o.address && <div className="xs mut">{o.address}</div>}
-                    </td>
-                    <td className="num" style={{ whiteSpace: "nowrap" }}>
-                      <div>{fmt(f.saleNet)}</div>
-                      {isLive(o) && Math.abs(f.clientDebt) > 0.004 && <div className="xs" style={{ color: f.clientDebt > 0 ? "var(--bad)" : "var(--ok)", fontWeight: 700 }} title={f.clientDebt > 0 ? "долг клиента" : "переплата клиента"}>{f.clientDebt > 0 ? "долг " + fmt(f.clientDebt) : "переплата " + fmt(-f.clientDebt)}</div>}
-                      <div className="xs mut mono">{dt(o.created_at)}</div>
-                      <div className="obj-act"><button className="btn xs" title="Изменить объект" onClick={(e) => { e.stopPropagation(); setEditO(o); }} aria-label="Изменить"><Ic n="pencil" /></button>{canDelete(o) ? <button className="btn xs dng" title="Удалить объект" onClick={(e) => { e.stopPropagation(); setDelObj(o); }}>✕</button> : null}</div>
-                    </td>
-                  </tr>
-                );
-              })}
-              {!g.list.length && <tr><td colSpan={2} className="mut sm" style={{ textAlign: "center", padding: 18 }}>—</td></tr>}
-            </tbody></table>
-          </div>
-          );
-        })}
-      </div>)}
+      )}
       {editO && <ObjectEditModal obj={editO} data={data} reload={reload} toast={toast} onClose={() => setEditO(null)} />}
       {delObj && (() => { const f = calcObject(delObj, finance_ops); return (
         <Modal title="Удалить объект" onClose={() => { if (!delBusy) setDelObj(null); }} w={460}>
@@ -6224,6 +6226,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
   const [editItem, setEditItem] = useState(null);
   const [replItem, setReplItem] = useState(null);
   const [addItems, setAddItems] = useState(false);
+  // сколько строк лежит в черновике «вручную» / «новая поставка» (пересчитывается при закрытии окна)
+  const draftCnt = useMemo(() => { const n = (nb) => { const d = loadAddDraft(addDraftKey(obj.id, nb)); return d ? d.rows.length : 0; }; return { m: n(false), nb: n(true) }; }, [obj.id, addItems]);
   const [impItems, setImpItems] = useState(false);
   const [impPick, setImpPick] = useState(null); // строки из «Импорт Excel» ждут ответа «в какую поставку»
   const [impBusy, setImpBusy] = useState(false);
@@ -6618,10 +6622,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
     const r = downloadStyledXLSX("Себестоимость_" + safe(obj.name) + ".xlsx", "Себестоимость", rows, [5, 46, 8, 6, 12, 12, 12, 11, 13, 13, 12], ["c", "t", "n", "c", "p", "m", "p", "m", "m", "m", "m"], { green: [10] });
     toast(r === "xlsx" ? "Excel с себестоимостью скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
-  const exportDelivery = () => {
-    const r = downloadDeliverySheet(obj, suppliers);
-    toast(r === "xlsx" ? "Лист доставки скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
-  };
+  const [delPick, setDelPick] = useState(false);
+  const exportDelivery = () => deliverySheetStart(obj, suppliers, toast, () => setDelPick(true));
   const batches = useMemo(() => objBatches(obj), [obj]);
   const batchHead = batches.length > 1 || (obj.items || []).some((i) => i.batch_no);
   // свёрнута, пока не нажали на строку поставки; в «Себестоимости подряд» раскрыты все
@@ -6808,8 +6810,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
         <h3 style={{ marginRight: "auto" }}>Материалы объекта</h3>
         {costMode ? <span className="sm" style={{ fontWeight: 700, color: "var(--acc)" }}><Ic n="pencil" /> Себестоимость подряд</span> : <>
           {isLive(obj) && (obj.items || []).some((i) => !i.from_warehouse) && <button className="btn" style={unshippedCnt ? { borderColor: "var(--warn)", color: "var(--warn)", fontWeight: 700 } : undefined} onClick={() => setShipForm(true)}><Ic n="truck" /> Отгрузить товар{unshippedCnt ? " (" + unshippedCnt + ")" : " ✓"}</button>}
-          <button className="btn" onClick={() => setAddItems(true)}>+ Список вручную</button>
-          <button className="btn pri" onClick={() => setAddItems("newbatch")}><Ic n="package" /> Новая поставка</button>
+          <button className="btn" onClick={() => setAddItems(true)}>+ Список вручную{draftCnt.m ? " · черновик " + draftCnt.m : ""}</button>
+          <button className="btn pri" onClick={() => setAddItems("newbatch")}><Ic n="package" /> Новая поставка{draftCnt.nb ? " · черновик " + draftCnt.nb : ""}</button>
           <button className="btn" onClick={() => setImpItems(true)}><Ic n="sheet" /> Импорт Excel</button>
           {canReturn && <button className="btn" onClick={() => setOpForm({ type: "return" })}>+ Возврат товара</button>}
         </>}
@@ -6954,6 +6956,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
           </div>
         </Modal>
       )}
+      {delPick && <DeliverySheetPick obj={obj} suppliers={suppliers} toast={toast} onClose={() => setDelPick(false)} />}
       {replItem && <ItemReplaceModal item={replItem} products={products} suppliers={suppliers} fin={fin} onClose={() => setReplItem(null)} onSave={async (it) => { if (await replaceItem(it)) setReplItem(null); }} />}
       {editItem && <ItemEditModal item={editItem} suppliers={suppliers} fin={fin} onClose={() => setEditItem(null)} onSave={async (it) => { if (await saveItem(it)) setEditItem(null); }} />}
       {pctForm && <PercentModal obj={obj} batches={batches} onClose={() => setPctForm(false)} onApply={async (pct, no) => { if (await applyPercent(pct, no)) setPctForm(false); }} />}
@@ -6961,7 +6964,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
       {shipForm && <ShipModal obj={obj} batches={batches} fin={fin} supName={supName} onClose={() => setShipForm(false)}
         onShip={async (ids, date) => { if (await shipItems(ids, date, true)) setShipForm(false); }}
         onUnship={async (ids) => { await shipItems(ids, null, false); }} />}
-      {addItems && <AddItemsModal onProductsAdded={() => reload(["products"])} products={products} suppliers={suppliers} whQty={wh.qty} whSim={wh.sim} whStock={wh.stock} whRes={wh.res} whAge={wh.age} whExact={wh.exact} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} batches={batches} onSave={async (rows, t) => { if (await addManualItems(rows, t && typeof t === "object" ? t : { newBatch: addItems === "newbatch", date: t })) setAddItems(false); }} />}
+      {addItems && <AddItemsModal draftKey={addDraftKey(obj.id, addItems === "newbatch")} fin={fin} onProductsAdded={() => reload(["products"])} products={products} suppliers={suppliers} whQty={wh.qty} whSim={wh.sim} whStock={wh.stock} whRes={wh.res} whAge={wh.age} whExact={wh.exact} newBatch={addItems === "newbatch"} onClose={() => setAddItems(false)} batches={batches} onSave={async (rows, t) => { if (await addManualItems(rows, t && typeof t === "object" ? t : { newBatch: addItems === "newbatch", date: t })) { saveAddDraft(addDraftKey(obj.id, addItems === "newbatch"), [], ""); setAddItems(false); } }} />}
       {impItems && <ObjectExcelImport products={products} suppliers={suppliers} onClose={() => setImpItems(false)} onSave={async (rows) => { if (batches.length) { setImpPick(rows); return; } if (await addManualItems(rows, false)) setImpItems(false); }} />}
       {impPick && <BatchPickDialog batches={batches} count={impPick.length} total={impPick.reduce((a, r) => a + parseNum(r.qty) * parseNum(r.price), 0)} busy={impBusy} onBack={() => setImpPick(null)}
         onPick={async (t) => { setImpBusy(true); const ok = await addManualItems(impPick, t); setImpBusy(false); setImpPick(null); if (ok) setImpItems(false); }} />}
@@ -7450,8 +7453,13 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
     </>
   );
 }
-function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty = {}, whSim = {}, whStock = null, whRes = null, whAge = null, whExact = {}, batches = [], onProductsAdded = null }) {
-  const [rows, setRows] = useState([]);
+// черновик «Добавить позиции вручную / Новая поставка»: хранится на этом устройстве по объекту; не пропадает, если закрыть окно или уйти в другой раздел
+const addDraftKey = (objId, newBatch) => "te:adddraft:" + objId + ":" + (newBatch ? "nb" : "m");
+function loadAddDraft(key) { try { const d = JSON.parse(localStorage.getItem(key) || "null"); return d && Array.isArray(d.rows) && d.rows.length ? d : null; } catch (e) { return null; } }
+function saveAddDraft(key, rows, bDate) { try { if (rows.length) localStorage.setItem(key, JSON.stringify({ rows, bDate, at: Date.now() })); else localStorage.removeItem(key); } catch (e) {} }
+function AddItemsModal({ draftKey = "", fin = true, products, suppliers, newBatch, onClose, onSave, whQty = {}, whSim = {}, whStock = null, whRes = null, whAge = null, whExact = {}, batches = [], onProductsAdded = null }) {
+  const draft0 = useMemo(() => (draftKey ? loadAddDraft(draftKey) : null), []);
+  const [rows, setRows] = useState(() => (draft0 ? draft0.rows : []));
   // новая строка — сверху списка; в объект строки сохраняются в порядке добавления
   const addRow = (r) => setRows((prev) => [{ ...r, _k: uuid() }, ...prev]);
   const blank = () => addRow({ product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: 0, price: 0, supplier_id: "" });
@@ -7491,15 +7499,16 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
     setBusy(false); setAskBase(null);
     await proceed(validK.map(({ _k, ...r }) => (ids[_k] ? { ...r, product_id: ids[_k] } : r)));
   };
-  const [bDate, setBDate] = useState(today()); // дата накладной для новой поставки
+  const [bDate, setBDate] = useState(() => (draft0 && /^\d{4}-\d{2}-\d{2}$/.test(draft0.bDate || "") && draft0.bDate <= today() ? draft0.bDate : today())); // дата накладной для новой поставки
+  useEffect(() => { if (draftKey) saveAddDraft(draftKey, rows, bDate); }, [rows, bDate]);
   // «+ Список вручную»: перед добавлением — в какую поставку (или новая)
   const [pickBatch, setPickBatch] = useState(null); // null — окно выбора закрыто; иначе выбранный вариант: номер поставки или "new"
   const lastBatch = batches.length ? batches[batches.length - 1].no : null;
   const [askCancel, setAskCancel] = useState(false);
-  const tryClose = () => setAskCancel(true);
+  const tryClose = onClose; // без вопроса: введённое остаётся черновиком и вернётся при следующем открытии
   return (
     <>
-    <Modal title={newBatch ? "Новая поставка" : "Добавить позиции вручную"} onClose={tryClose} w={860}>
+    <Modal title={newBatch ? "Новая поставка" : "Добавить позиции вручную"} onClose={tryClose} w={fin ? 960 : 860} thru>
       <div className="row" style={{ marginBottom: 10 }}>
         <ProductPicker askQty products={products} suppliers={suppliers} whQty={whQty} whSim={whSim} whStock={whStock} placeholder="найти товар в базе и добавить строку…" whRes={whRes} whAge={whAge} whExact={whExact} onPick={async (p, n) => {
           // аналог другого поставщика на складе — только если своего не хватает и согласились
@@ -7515,8 +7524,8 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
         {bDate !== today() && <span className="xs" style={{ color: "var(--warn)" }}>задним числом — поставки выстроятся по датам</span>}
       </div>}
       <div style={{ overflow: "auto", border: "1px solid var(--line)", borderRadius: 8, maxHeight: 360 }}>
-        <table className="t" style={{ minWidth: 760 }}>
-          <thead><tr><th>Наименование</th><th style={{width:70}}>Ед.</th><th style={{width:80}}>Кол-во</th><th style={{width:110}}>Цена</th><th style={{width:140}}>Поставщик</th><th></th></tr></thead>
+        <table className="t" style={{ minWidth: fin ? 860 : 760 }}>
+          <thead><tr><th>Наименование</th><th style={{width:70}}>Ед.</th><th style={{width:80}}>Кол-во</th>{fin && <th style={{width:100}}>Себест.</th>}<th style={{width:110}}>Цена</th><th style={{width:140}}>Поставщик</th><th></th></tr></thead>
           <tbody>
             {rows.map((r, i) => (
               <tr key={r._k || i}>
@@ -7535,19 +7544,21 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
                   })() : null}</td>
                 <td><input className="inp" value={r.unit} onChange={(e) => upd(i, "unit", e.target.value)} /></td>
                 <td><input type="number" className="inp" min={0} value={r.qty} onChange={(e) => upd(i, "qty", e.target.value)} style={{ borderColor: parseNum(r.qty) > 0 ? undefined : "var(--bad)" }} /></td>
+                {fin && <td><input type="number" className="inp num" min={0} value={r.cost} onChange={(e) => upd(i, "cost", e.target.value)} title="Себестоимость (закупочная цена)" /></td>}
                 <td><input type="number" className="inp num" value={r.price} onChange={(e) => upd(i, "price", e.target.value)} /></td>
                 <td><select className="inp" value={r.supplier_id || ""} onChange={(e) => upd(i, "supplier_id", e.target.value)}><option value="">—</option>{activeSuppliers(suppliers, r.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></td>
                 <td><button className="btn xs dng" onClick={() => del(i)}>✕</button></td>
               </tr>
             ))}
-            {!rows.length && <tr><td colSpan={6} className="mut" style={{ textAlign: "center", padding: 20 }}>Добавьте строки через поиск по базе или «Пустая строка»</td></tr>}
+            {!rows.length && <tr><td colSpan={fin ? 7 : 6} className="mut" style={{ textAlign: "center", padding: 20 }}>Добавьте строки через поиск по базе или «Пустая строка»</td></tr>}
           </tbody>
         </table>
       </div>
       <div className="row" style={{ justifyContent: "space-between", marginTop: 14 }}>
         <div className="mono" style={{ fontWeight: 700 }}>Позиций: {rows.length} · Сумма: <span style={{ color: "var(--acc2)" }}>{money(total)}</span></div>
         <div className="row">
-          <button className="btn" onClick={tryClose}>Отмена</button>
+          {rows.length > 0 && <button className="btn" title="Удалить все введённые строки" onClick={() => setRows([])}>Очистить</button>}
+          <button className="btn" title="Введённое сохранится — можно вернуться позже" onClick={tryClose}>Закрыть</button>
           <button className="btn pri" disabled={!valid.length || busy} onClick={async () => {
             if (!(await confirmLowPrice(valid.map((r) => ({ name: r.name, price: parseNum(r.price), cost: parseNum(r.cost) }))))) return;
             const manual = validK.filter((r) => !r.product_id);
@@ -7577,9 +7588,6 @@ function AddItemsModal({ products, suppliers, newBatch, onClose, onSave, whQty =
     )}
     {pickBatch != null && <BatchPickDialog batches={batches} count={(pending || valid).length} total={total} initial={pickBatch} busy={busy} onBack={() => setPickBatch(null)}
       onPick={async (t) => { setBusy(true); const ok = await onSave(pending || valid, t); setBusy(false); if (ok === false) setPickBatch(null); }} />}
-    {askCancel && <DiscardConfirm
-      text={rows.length ? "Добавленные строки (" + rows.length + ") не будут сохранены в объект." : "Окно будет закрыто, в объект ничего не добавится."}
-      onStay={() => setAskCancel(false)} onDiscard={onClose} />}
     </>
   );
 }
@@ -7900,6 +7908,8 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
     setDelOp(null); await reload(); toast("Операция удалена");
   };
   const payOps = finance_ops.filter((x) => x.master_id === m.id && ["bonus", "bonus_payment"].includes(x.type));
+  const [sF, setSF] = useState(""); // фильтр по статусу объектов мастера
+  const rowsShown = st.rows.filter((r) => !sF || stKey(r.o) === sF);
   const KPI = ({ l, v, c }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}</div></div>;
   return (
     <div>
@@ -7924,11 +7934,12 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
         {fin && <KPI l="Долг мастеру" v={st.debtToMaster} c={st.debtToMaster > 0 ? "var(--warn)" : "var(--mut)"} />}
         <KPI l="Долги клиентов (его объекты)" v={st.clientDebt} c={st.clientDebt > 0 ? "var(--bad)" : "var(--mut)"} />
       </div>
+      {st.rows.length > 0 && <div className="sect"><StatusFilter list={st.rows.map((r) => r.o)} value={sF} onPick={setSF} /></div>}
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
           <thead><tr><th>Объект</th><th>Клиент</th><th>Статус</th><th style={{textAlign:"right"}}>Сумма товара</th>{fin && <th style={{textAlign:"right"}}>Вал. прибыль</th>}{fin && <th style={{textAlign:"right"}}>Бонус начислен</th>}<th style={{textAlign:"right"}}>Долг клиента</th></tr></thead>
           <tbody>
-            {st.rows.map(({ o, f }) => (
+            {rowsShown.map(({ o, f }) => (
               <tr key={o.id} className="clk" onClick={() => openObject(o.id)}>
                 <td style={{ fontWeight: 600 }}>{o.name}</td>
                 <td className="sm">{o.client}</td>
@@ -7940,6 +7951,7 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
               </tr>
             ))}
             {!st.rows.length && <tr><td colSpan={fin ? 7 : 5} className="mut" style={{ textAlign: "center", padding: 22 }}>Объектов не прикреплено — назначьте мастера в карточке объекта</td></tr>}
+            {st.rows.length > 0 && !rowsShown.length && <tr><td colSpan={fin ? 7 : 5} className="mut" style={{ textAlign: "center", padding: 22 }}>С таким статусом объектов нет</td></tr>}
           </tbody>
         </table>
       </div>
@@ -8226,6 +8238,7 @@ function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
   const [q, setQ] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [ship, setShip] = useState(false);
+  const [delPick, setDelPick] = useState(false);
   const supName = (id) => (suppliers.find((x) => x.id === id) || {}).name || "—";
   const pending = (o) => (o.items || []).filter((i) => !i.from_warehouse && !isShipped(i)).length;
   const list = objects.filter((o) => isLive(o) && o.status !== "closed" && (o.items || []).length)
@@ -8250,7 +8263,7 @@ function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
         <div className="row sect">
           <button className="btn" onClick={() => setOpenId(null)}>← Доставка</button>
           <h2 style={{ marginRight: "auto" }}>{obj.name}</h2>
-          <button className="btn" onClick={() => { const r = downloadDeliverySheet(obj, suppliers); toast(r === "xlsx" ? "Лист доставки скачан" : "Скачивание заблокировано браузером"); }}>📄 Лист доставки</button>
+          <button className="btn" onClick={() => deliverySheetStart(obj, suppliers, toast, () => setDelPick(true))}>📄 Лист доставки</button>
           {(obj.items || []).some((i) => !i.from_warehouse) && <button className="btn pri" onClick={() => setShip(true)}><Ic n="truck" /> Отгрузить / Доставлено{pending(obj) ? " (" + pending(obj) + ")" : " ✓"}</button>}
         </div>
         <div className="card sect">
@@ -8282,6 +8295,7 @@ function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
             </div>
           );
         })}
+        {delPick && <DeliverySheetPick obj={obj} suppliers={suppliers} toast={toast} onClose={() => setDelPick(false)} />}
         {ship && <ShipModal obj={obj} batches={batches} fin={false} supName={supName} onClose={() => setShip(false)}
           onShip={async (ids, date) => { if (await doShip(ids, date, true)) setShip(false); }} onUnship={async () => {}} />}
       </div>
