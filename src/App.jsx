@@ -3937,11 +3937,15 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
   const [pay, setPay] = useState(null);
   const [openId, setOpenId] = useState(null); // страница поставщика (как у объекта): оплата и акт-сверка — внутри
   const [q, setQ] = useState("");
+  const [bF, setBF] = useState(""); // фильтр по расчётам: debt — мы должны · zero — долга нет · over — мы переплатили
   const prodCnt = useMemo(() => { const m = {}; products.forEach((p) => { if (p.supplier_id) m[p.supplier_id] = (m[p.supplier_id] || 0) + 1; }); return m; }, [products]);
   const rows = useMemo(() => suppliers.map((s) => ({ s, st: supplierStats(s, objects, finance_ops, wh_moves), di: supplierDebtInfo(s, objects, finance_ops, wh_moves) }))
     .sort((a, b) => ((a.s.status === "inactive") - (b.s.status === "inactive")) || String(a.s.name || "").localeCompare(String(b.s.name || ""), "ru")),
     [suppliers, objects, finance_ops, wh_moves]);
-  const shown = rows.filter(({ s }) => !q || (String(s.name || "") + " " + (s.contact || "") + " " + (s.phone || "")).toLowerCase().includes(q.toLowerCase()));
+  const bKind = (st) => (st.balance > 0.004 ? "debt" : st.balance < -0.004 ? "over" : "zero");
+  const found = rows.filter(({ s }) => !q || (String(s.name || "") + " " + (s.contact || "") + " " + (s.phone || "")).toLowerCase().includes(q.toLowerCase()));
+  const bCnt = { debt: 0, zero: 0, over: 0 }; found.forEach(({ st }) => { bCnt[bKind(st)]++; });
+  const shown = found.filter(({ st }) => !bF || bKind(st) === bF);
   const tot = shown.reduce((a, { st }) => ({ purchases: a.purchases + st.purchases, paid: a.paid + st.paid, returns: a.returns + st.returns, debt: a.debt + st.debt }), { purchases: 0, paid: 0, returns: 0, debt: 0 });
   // оплаты поставщикам без указанного поставщика (форма объекта раньше это позволяла) — не уменьшают ничей долг
   const orphan = finance_ops.filter((o) => o.type === "supplier_payment" && !o.voided && !o.supplier_id);
@@ -4036,6 +4040,9 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
           </div>
         );
       })()}
+      <div className="sect"><div className="seg sup-filter" role="group" aria-label="Фильтр по расчётам">
+        {[["", "Все", found.length], ["debt", "Должны им (долг)", bCnt.debt], ["zero", "Долга нет", bCnt.zero], ["over", "Переплата (аванс)", bCnt.over]].map(([k, l, n]) => <button type="button" key={k || "all"} className={bF === k ? "on" : ""} onClick={() => setBF(k)}>{l} <span className="mut">{n}</span></button>)}
+      </div></div>
       {orphan.length > 0 && (
         <div className="card sect" style={{ borderColor: "var(--warn)" }}>
           <div style={{ fontWeight: 800, color: "var(--warn)", marginBottom: 4 }}>⚠ Оплаты поставщикам без указанного поставщика: {orphan.length} на {fmt(orphan.reduce((a, o) => a + (o.amount || 0), 0))}</div>
@@ -4068,10 +4075,10 @@ function SuppliersTab({ data, reload, toast, fin = true }) {
                 <td className="num">{prodCnt[s.id] || 0}</td>
               </tr>
             ))}
-            {!shown.length && <tr><td colSpan={8} className="mut" style={{ textAlign: "center", padding: 24 }}>{suppliers.length ? "Ничего не найдено" : "Поставщиков пока нет — добавьте через «+ Поставщик»"}</td></tr>}
+            {!shown.length && <tr><td colSpan={8} className="mut" style={{ textAlign: "center", padding: 24 }}>{suppliers.length ? <>Ничего не найдено{bF && <> · <button type="button" className="btn xs" onClick={() => setBF("")}>Показать всех</button></>}</> : "Поставщиков пока нет — добавьте через «+ Поставщик»"}</td></tr>}
             {shown.length > 1 && (
               <tr style={{ background: "var(--panel2)" }}>
-                <td colSpan={2} style={{ fontWeight: 800 }}>Итого{q ? " (по найденным)" : ""}</td>
+                <td colSpan={2} style={{ fontWeight: 800 }}>Итого{q || bF ? " (по найденным)" : ""}</td>
                 <td className="num" style={{ fontWeight: 800 }}>{fmt(tot.purchases)}</td>
                 <td className="num" style={{ fontWeight: 800, color: "var(--ok)" }}>{fmt(tot.paid)}</td>
                 <td className="num" style={{ fontWeight: 800 }}>{fmt(tot.returns)}</td>
