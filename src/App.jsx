@@ -1356,7 +1356,7 @@ async function warehouseIn(returnOps, sourceObjName, note = "возврат с �
   return failed;
 }
 // отгрузка со склада: остаток берём свежий из базы (на экране он мог устареть). Возвращает число ошибок.
-// строки, которые есть на Складе Thermo, берём сначала со склада (fromWh !== false), остаток — у поставщика.
+// строки, которые есть на Складе Thermo, берём сначала со склада (только если fromWh === true — галочка), остаток — у поставщика.
 // mk(row, qty, whRow|null) → позиция объекта. Возвращает { items, whOut } (whOut — что списать со склада после сохранения).
 // rowsFor(товар) — строки склада, откуда можно взять: сначала тот же товар, потом такой же у другого поставщика (whAvailIndex).
 // Взятый «такой же» товар записывается в объект под своим названием и товаром склада (цена продажи — как у заказанного).
@@ -1365,7 +1365,7 @@ function splitByWarehouse(rows, warehouse, mk, rowsFor) {
   const left = {}, items = [], whOut = [];
   rows.forEach((r) => {
     let q = Number(r.qty) || 0;
-    if (r.product_id && r.fromWh !== false) {
+    if (r.product_id && r.fromWh === true) {
       for (const w of find(r.product_id)) {
         if (!(q > 0)) break;
         if (w.product_id && w.product_id !== r.product_id && !r.alt) continue; // аналог другого поставщика — только если согласились
@@ -4957,8 +4957,8 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                         </td>
                         <td><input type="number" className="inp" style={{ width: 100, textAlign: "right", fontWeight: 700, ...(l.manualPrice != null && l.manualPrice !== "" && parseNum(l.manualPrice) < (p ? Number(p.cost) || 0 : parseNum(l.cost)) ? { color: "var(--bad)", borderColor: "var(--bad)" } : { color: "var(--ok)" }) }} placeholder={l.manual ? "цена" : "авто"} value={l.manualPrice != null ? l.manualPrice : ""} onChange={(e) => setLine(l.id, { manualPrice: e.target.value === "" ? null : e.target.value })} title="Цена продажи (оставьте пустым — рассчитается по прибыли %)" /></td>
                         <td className="sm">{p && whQty[p.id] ? (<>
-                          {whFor(l, p.id) > 0 && <label className="row" style={{ gap: 5, flexWrap: "nowrap", cursor: "pointer", color: l.fromWh !== false ? "var(--ok)" : "var(--mut)", fontWeight: 700 }} title="Отдать со Склада Thermo (снимите галочку — закупить у поставщика)">
-                            <input type="checkbox" checked={l.fromWh !== false} onChange={(e) => setLine(l.id, { fromWh: e.target.checked })} />
+                          {whFor(l, p.id) > 0 && <label className="row" style={{ gap: 5, flexWrap: "nowrap", cursor: "pointer", color: l.fromWh === true ? "var(--ok)" : "var(--mut)", fontWeight: 700 }} title="Отдать со Склада Thermo (без галочки — закупить у поставщика)">
+                            <input type="checkbox" checked={l.fromWh === true} onChange={(e) => setLine(l.id, { fromWh: e.target.checked })} />
                             <span>со склада: {fmt(Math.min(qn(l.qty), whFor(l, p.id)))}{qn(l.qty) > whFor(l, p.id) ? <span className="xs mut" style={{ fontWeight: 400 }}> (+{fmt(round2(qn(l.qty) - whFor(l, p.id)))} у пост.)</span> : null}</span>
                           </label>}
                           {wh.sim[p.id] && <label className="row xs wh-alt" style={{ gap: 5, flexWrap: "nowrap", cursor: "pointer", fontWeight: 500, marginTop: 2 }} title="Такой же товар другого поставщика на складе — в объект запишется он">
@@ -7540,8 +7540,8 @@ function AddItemsModal({ draftKey = "", fin = true, products, suppliers, newBatc
                   {r.product_id && whQty[r.product_id] ? (() => {
                     const pid = r.product_id, exQ = whExact[pid] || 0, sm = whSim[pid], have = round2(exQ + (r.alt && sm ? sm.qty : 0));
                     return <>
-                      {have > 0 && <label className="row xs" style={{ gap: 5, marginTop: 3, cursor: "pointer", color: r.fromWh !== false ? "var(--ok)" : "var(--mut)", fontWeight: 700 }}>
-                        <input type="checkbox" checked={r.fromWh !== false} onChange={(e) => upd(i, "fromWh", e.target.checked)} />
+                      {have > 0 && <label className="row xs" style={{ gap: 5, marginTop: 3, cursor: "pointer", color: r.fromWh === true ? "var(--ok)" : "var(--mut)", fontWeight: 700 }}>
+                        <input type="checkbox" checked={r.fromWh === true} onChange={(e) => upd(i, "fromWh", e.target.checked)} />
                         <Ic n="warehouse" /> со Склада Thermo (есть {fmt(have)}){parseNum(r.qty) > have ? " · остальное у поставщика" : ""}
                       </label>}
                       {sm && <label className="row xs wh-alt" style={{ gap: 5, marginTop: 3, cursor: "pointer", fontWeight: 500 }} title="Такой же товар другого поставщика на складе — в объект запишется он">
