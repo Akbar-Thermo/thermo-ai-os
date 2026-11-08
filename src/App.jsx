@@ -3625,15 +3625,17 @@ function AktEditModal({ ed, s, onClose, onDone }) {
 }
 /* Данные акта сверки поставщика: получено (по поставкам), возвраты, оплаты, баланс. Без React — нужно и для «Истории (Excel)». */
 // строки акта сверки с поставщиком (Excel): общий для «Поставщиков» и для объекта (там — только по этому объекту)
-function aktExcelRows(s, d, objTitle) {
-  const { batches, returns, payments, totalReceived, totalReturns, totalPaid, balance } = d;
+// onlyReceived (акт по объекту): только накладные полученных товаров, по порядку поставок; без возвратов, оплат и долга
+function aktExcelRows(s, d, objTitle, onlyReceived = false) {
+  const { batches: allBatches, returns, payments, totalReceived, totalReturns, totalPaid, balance } = d;
     const rows = [
       { k: "title", v: ["АКТ СВЕРКИ: " + s.name + (objTitle ? " · объект «" + objTitle + "»" : "")] },
       { k: "info", v: ["Thermo Engineering · составлен " + new Date().toLocaleDateString("ru-RU") + " · суммы в $ по себестоимости"] },
       { k: "blank" },
-      { k: "section", v: ["1. ПОЛУЧЕНО ТОВАРОВ"] },
+      { k: "section", v: [(onlyReceived ? "" : "1. ") + "ПОЛУЧЕНО ТОВАРОВ"] },
       { k: "head", v: ["№", "Наименование", "Кол-во", "Ед.", "Себест.", "Сумма"] },
     ];
+    const batches = onlyReceived ? [...allBatches].sort((a, b) => (a.no - b.no) || String(a.date || "").localeCompare(String(b.date || ""))) : allBatches;
     // каждая накладная: позиции с 1, под ней — сумма накладной
     batches.forEach((g) => {
       rows.push({ k: "section", v: [g.obj_name + (String(g.obj_id).startsWith("wh:") ? "" : " · Поставка №" + g.no) + " от " + dt(g.date)] });
@@ -3642,6 +3644,7 @@ function aktExcelRows(s, d, objTitle) {
     });
     if (!batches.length) rows.push({ k: "info", v: ["Поступлений нет"] });
     rows.push({ k: "total", v: ["Итого получено", round2(totalReceived)] }, { k: "blank" });
+    if (onlyReceived) { rows.push({ k: "blank" }, { k: "info", v: ["Thermo Engineering: ____________________          " + s.name + ": ____________________"] }); return rows; }
     rows.push({ k: "section", v: ["2. ВОЗВРАТЫ ПОСТАВЩИКУ"] });
     if (returns.length) {
       rows.push({ k: "head", v: ["№", "Наименование · дата", "Кол-во", "Ед.", "Себест.", "Сумма"] });
@@ -6579,7 +6582,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
     let rows = [];
     objSups.forEach((sp, k) => {
       if (k) rows.push({ k: "blank" }, { k: "blank" });
-      rows = rows.concat(aktExcelRows(sp, aktData(sp, [obj], objOps, data.wh_moves || []), obj.name));
+      rows = rows.concat(aktExcelRows(sp, aktData(sp, [obj], objOps, data.wh_moves || []), obj.name, true));
     });
     const r = downloadStyledXLSX("Акт_сверки_" + safe(obj.name) + ".xlsx", "Акт сверки", rows, [6, 60, 10, 7, 13, 15], ["c", "t", "n", "c", "m", "m"]);
     toast(r === "xlsx" ? "Акт сверки по объекту скачан" + (objSups.length > 1 ? " (поставщиков: " + objSups.length + ")" : "") : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
