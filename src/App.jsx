@@ -4812,9 +4812,6 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
                 <Fld label="Клиент"><ClientInput value={newObj.client} objects={data.objects || []}
                   onChange={(v) => setNewObj((x) => ({ ...x, client: v }))}
                   onPick={(c) => setNewObj((x) => ({ ...x, client: c.client, phone: c.phone || x.phone, ...clientMaster(x, c) }))} /></Fld>
-                <Fld label={"Теле\u2060фон клиента"}><ClientInput phoneMode value={newObj.phone} objects={data.objects || []}
-                  onChange={(v) => setNewObj((x) => ({ ...x, phone: v }))}
-                  onPick={(c) => setNewObj((x) => ({ ...x, phone: c.phone, client: x.client && x.client.trim() ? x.client : c.client, ...clientMaster(x, c) }))} /></Fld>
                 <div className="fld">
                   <label>Мастер</label>
                   {!addingMaster ? (

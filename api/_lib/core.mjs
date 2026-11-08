@@ -821,9 +821,10 @@ var PERMS = [
   { id: "del", label: "\u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435: \u043E\u0431\u044A\u0435\u043A\u0442\u044B \u0441 \u043E\u043F\u043B\u0430\u0442\u0430\u043C\u0438, \u043E\u043F\u0435\u0440\u0430\u0446\u0438\u0438, \u043C\u0430\u0441\u0442\u0435\u0440\u0430" },
   { id: "salary", label: "\u0417\u0430\u0440\u043F\u043B\u0430\u0442\u0430 \u0441\u043E\u0442\u0440\u0443\u0434\u043D\u0438\u043A\u043E\u0432" },
   { id: "backup", label: "\u0411\u044D\u043A\u0430\u043F \u0431\u0430\u0437\u044B \u0438 Excel-\u0430\u0440\u0445\u0438\u0432" },
-  { id: "accounts", label: "\u0410\u043A\u043A\u0430\u0443\u043D\u0442\u044B: \u0441\u043E\u0437\u0434\u0430\u0432\u0430\u0442\u044C \u0438 \u043C\u0435\u043D\u044F\u0442\u044C (\u043A\u0440\u043E\u043C\u0435 \u0440\u0443\u043A\u043E\u0432\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439)" }
+  { id: "accounts", label: "\u0410\u043A\u043A\u0430\u0443\u043D\u0442\u044B: \u0441\u043E\u0437\u0434\u0430\u0432\u0430\u0442\u044C \u0438 \u043C\u0435\u043D\u044F\u0442\u044C (\u043A\u0440\u043E\u043C\u0435 \u0440\u0443\u043A\u043E\u0432\u043E\u0434\u0438\u0442\u0435\u043B\u0435\u0439)" },
+  { id: "perech", label: "\u041F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0435\u043D\u0438\u0435: \u0434\u043E\u0433\u043E\u0432\u043E\u0440\u044B, \u0441\u0447\u0435\u0442\u0430, \u043D\u0430\u043A\u043B\u0430\u0434\u043D\u044B\u0435, \u0431\u0430\u043D\u043A\u043E\u0432\u0441\u043A\u0438\u0435 \u043F\u043B\u0430\u0442\u0435\u0436\u0438" }
 ];
-var ALL_PERMS = { fin: true, del: true, salary: true, backup: true, accounts: true };
+var ALL_PERMS = { fin: true, del: true, salary: true, backup: true, accounts: true, perech: true };
 var rolesCfgRow = (data) => (data && data.requests || []).find((x) => x.mode === ROLE_CFG_MODE) || null;
 function allRoles(data) {
   const row = rolesCfgRow(data);
@@ -1091,7 +1092,7 @@ var XL_REDSTYLE = { 2: 22, 4: 15, 9: 21, 7: 18, 10: 16, 11: 17, 12: 19, 13: 20, 
 var XL_GREENSTYLE = { 11: 23, 12: 24 };
 var XL_BRAND = "Thermo Engineering";
 function xlSheetXml(rows0, cols, types, opt = {}) {
-  const rows = [{ k: "brand" }, ...rows0];
+  const rows = opt.noBrand ? rows0 : [{ k: "brand" }, ...rows0];
   const n = cols.length, merges = [];
   const green = new Set(opt.green || []);
   let red = false;
@@ -1181,6 +1182,7 @@ function xlFromTable(name, table) {
 var CLIENT_XL_COLS = [6, 60, 10, 7, 13, 15];
 var CLIENT_XL_TYPES = ["c", "t", "n", "c", "m", "m"];
 function clientSheetRows(obj, ops, products, f) {
+  if (isPerech(obj)) return clientSheetRowsUzs(obj, ops, products);
   const batches = objBatches(obj);
   const rows = [
     { k: "title", v: ["\u041E\u0411\u042A\u0415\u041A\u0422: " + (obj.name || "")] },
@@ -1465,6 +1467,204 @@ function buildMatcher(products) {
 }
 var MATCH_OK = 0.75;
 var MATCH_MIN = 0.45;
+var PERECH_VAT = 12;
+var isPerech = (o) => !!(o && o.perech && o.perech.on);
+var perechBatch = (obj, no) => {
+  const i = (obj && obj.items || []).find((x) => (x.batch_no || 1) === no && Number(x.uzs_rate) > 0);
+  return i ? { rate: Number(i.uzs_rate), markup: Number(i.uzs_markup) || 0, date: String(i.batch_date || "").slice(0, 10) } : null;
+};
+var perechU0Calc = (price, b) => Math.round((Number(price) || 0) * (Number(b.rate) || 0) * (1 + (Number(b.markup) || 0) / 100) / (1 + PERECH_VAT / 100));
+var perechU0 = (obj, i) => i.uzs0 != null && i.uzs0 !== "" ? Number(i.uzs0) || 0 : (() => {
+  const b = perechBatch(obj, i.batch_no || 1);
+  return b ? perechU0Calc(i.price, b) : null;
+})();
+var uzsLine = (qty, u0) => {
+  const noVat = round2((Number(qty) || 0) * (Number(u0) || 0));
+  const vat = round2(noVat * PERECH_VAT / 100);
+  return { noVat, vat, sum: round2(noVat + vat), price: round2((Number(u0) || 0) * (1 + PERECH_VAT / 100)) };
+};
+var perechProd = (i, products) => i.product_id && (products || []).find((p) => p.id === i.product_id) || null;
+var ikpuOf = (i, products) => String(i.ikpu || (perechProd(i, products) || {}).ikpu || "").trim();
+var packOf = (i, products) => {
+  const p = perechProd(i, products) || {};
+  return { code: String(i.pack_code || p.pack_code || "").trim(), name: String(i.pack_name || p.pack_name || "").trim() };
+};
+function perechCalc(obj, allOps) {
+  const ops = opsOf(allOps, obj.id).filter((o) => !o.voided);
+  const batches = objBatches(obj).map((b) => {
+    const cfg = perechBatch(obj, b.no);
+    let usd = 0, uzs = 0, noVat = 0, vat = 0, unfixed = 0, drift = 0;
+    b.items.forEach((i) => {
+      usd += (Number(i.qty) || 0) * (Number(i.price) || 0);
+      const u0 = perechU0(obj, i);
+      if (u0 == null) return;
+      if (i.uzs0 == null || i.uzs0 === "") unfixed++;
+      else if (i.uzs_src != null && Math.abs(Number(i.uzs_src) - (Number(i.price) || 0)) > 1e-5) drift++;
+      const l = uzsLine(i.qty, u0);
+      uzs += l.sum;
+      noVat += l.noVat;
+      vat += l.vat;
+    });
+    return { no: b.no, date: b.date, items: b.items, cfg, fixed: !!cfg, usd: round2(usd), uzs: round2(uzs), noVat: round2(noVat), vat: round2(vat), unfixed, drift, retUsd: 0, retUzs: 0, adjUsd: 0, adjUzs: 0 };
+  });
+  const byNo = new Map(batches.map((b) => [b.no, b]));
+  const itemById = new Map((obj.items || []).map((i) => [i.id, i]));
+  let retUzs = 0;
+  ops.filter((o) => o.type === "return").forEach((o) => {
+    const it = itemById.get(o.item_id);
+    const b = it && byNo.get(it.batch_no || 1) || batches[batches.length - 1];
+    if (!b) return;
+    b.retUsd += Number(o.amount) || 0;
+    const u0 = it ? perechU0(obj, it) : null;
+    const ru = u0 != null ? uzsLine(o.qty, u0).sum : b.fixed && b.usd > 0 ? Math.round((Number(o.amount) || 0) * b.uzs / b.usd) : 0;
+    b.retUzs += ru;
+    if (b.fixed) retUzs += ru;
+  });
+  const fixedB = batches.filter((b) => b.fixed && b.usd > 0);
+  const last = fixedB[fixedB.length - 1];
+  const kLast = last ? last.uzs / last.usd : 0;
+  let discUsd = 0, expUsd = 0;
+  ops.forEach((o) => {
+    if (o.type === "discount") discUsd += Number(o.amount) || 0;
+    if (o.type === "expense" && o.size === EXP_CLIENT) expUsd += Number(o.amount) || 0;
+  });
+  const discUzs = Math.round(discUsd * kLast), expUzs = Math.round(expUsd * kLast);
+  if (last) {
+    last.adjUsd = expUsd - discUsd;
+    last.adjUzs = expUzs - discUzs;
+  }
+  batches.forEach((b) => {
+    b.netUsd = round2(b.usd - b.retUsd + b.adjUsd);
+    b.netUzs = round2(b.uzs - b.retUzs + b.adjUzs);
+  });
+  const segs = batches.filter((b) => b.fixed && b.netUzs > 4e-3 && b.netUsd > 4e-3).map((b) => ({ uzs: b.netUzs, usd: b.netUsd }));
+  const k0 = segs.length ? segs[0].uzs / segs[0].usd : kLast;
+  const kEnd = kLast || (segs.length ? segs[segs.length - 1].uzs / segs[segs.length - 1].usd : 0);
+  const U = (C2) => {
+    if (C2 <= 0) return k0 ? C2 / k0 : 0;
+    let rest = C2, usd = 0;
+    for (const s of segs) {
+      if (rest <= s.uzs + 1e-9) return usd + rest * s.usd / s.uzs;
+      usd += s.usd;
+      rest -= s.uzs;
+    }
+    return usd + (kEnd ? rest / kEnd : 0);
+  };
+  const canMap = segs.length > 0 || kEnd > 0;
+  const pays = ops.filter((o) => o.type === "client_payment").map((o, idx) => {
+    const pi = payInfo(o);
+    const isUzs = pi.cur === "uzs" && Math.abs(pi.uzs) > 0;
+    return { o, idx, d: String(o.op_date || o.created_at || "").slice(0, 10), c: String(o.created_at || ""), isUzs, uzs: isUzs ? pi.uzs : Math.round((Number(o.amount) || 0) * kEnd), label: pi.label || "\u041E\u043F\u043B\u0430\u0442\u0430" };
+  }).sort((a, b) => a.d.localeCompare(b.d) || a.c.localeCompare(b.c) || a.idx - b.idx);
+  let C = 0, prev = 0;
+  pays.forEach((p) => {
+    C += p.uzs;
+    const cum = round2(U(C));
+    p.want = p.isUzs && canMap ? round2(cum - prev) : null;
+    prev = p.isUzs && canMap ? cum : round2(prev + (Number(p.o.amount) || 0));
+  });
+  const live = payLive(obj);
+  const sale = round2(batches.filter((b) => b.fixed).reduce((a, b) => a + b.uzs, 0));
+  const net = round2(batches.filter((b) => b.fixed).reduce((a, b) => a + b.netUzs, 0));
+  const paidAll = round2(pays.reduce((a, p) => a + p.uzs, 0));
+  const paid = live ? paidAll : 0;
+  return {
+    batches,
+    pays,
+    kLast,
+    kEnd,
+    live,
+    sale,
+    ret: round2(retUzs),
+    disc: discUzs,
+    exp: expUzs,
+    net,
+    paid,
+    paidIgnored: live ? 0 : paidAll,
+    debt: round2(net - paid),
+    unfixedBatches: batches.filter((b) => !b.fixed && b.items.length),
+    unfixedItems: batches.reduce((a, b) => a + (b.fixed ? b.unfixed : 0), 0),
+    driftItems: batches.reduce((a, b) => a + b.drift, 0),
+    recalc: pays.filter((p) => p.want != null && Math.abs(p.want - (Number(p.o.amount) || 0)) > 4e-3)
+  };
+}
+var perechDocLines = (obj, products, list) => list.map((i, k) => {
+  const u0 = perechU0(obj, i) || 0;
+  const l = uzsLine(i.qty, u0);
+  return { n: k + 1, name: i.name, unit: i.unit || "\u0448\u0442", qty: Number(i.qty) || 0, price: l.price, u0, noVat: l.noVat, vat: l.vat, sum: l.sum, ikpu: ikpuOf(i, products), pack: packOf(i, products) };
+});
+var linesTotal = (lines) => lines.reduce((a, l) => ({ noVat: round2(a.noVat + l.noVat), vat: round2(a.vat + l.vat), sum: round2(a.sum + l.sum) }), { noVat: 0, vat: 0, sum: 0 });
+function clientSheetRowsUzs(obj, ops, products) {
+  const pc = perechCalc(obj, ops);
+  const cl = (obj.perech || {}).client || {};
+  const rows = [
+    { k: "title", v: ["\u041E\u0411\u042A\u0415\u041A\u0422: " + (obj.name || "")] },
+    { k: "section", v: ["\u041A\u043B\u0438\u0435\u043D\u0442: " + (cl.name || obj.client || "\u2014") + (cl.inn ? " \xB7 \u0418\u041D\u041D " + cl.inn : "") + (obj.phone ? " \xB7 \u0442\u0435\u043B. " + obj.phone : "")] },
+    { k: "section", v: ["\u0414\u0430\u0442\u0430: " + (/* @__PURE__ */ new Date()).toLocaleDateString("ru-RU") + " \xB7 \u0441\u0443\u043C\u043C\u044B \u0432 \u0441\u0443\u043C\u0430\u0445, \u0441 \u041D\u0414\u0421 " + PERECH_VAT + "%"] },
+    { k: "blank" }
+  ];
+  const HEAD = ["\u2116", "\u041D\u0430\u0438\u043C\u0435\u043D\u043E\u0432\u0430\u043D\u0438\u0435", "\u041A\u043E\u043B-\u0432\u043E", "\u0415\u0434.", "\u0426\u0435\u043D\u0430", "\u0421\u0443\u043C\u043C\u0430"];
+  const ev = [];
+  pc.batches.forEach((b) => ev.push({ day: String(b.date || "").slice(0, 10), kind: 0, b }));
+  const itemById = new Map((obj.items || []).map((i) => [i.id, i]));
+  opsOf(ops, obj.id).filter((o) => !o.voided && o.type === "return").forEach((o) => ev.push({ day: String(o.op_date || o.created_at || "").slice(0, 10), kind: 1, o }));
+  if (pc.live) pc.pays.forEach((p) => ev.push({ day: p.d, kind: 2, p }));
+  ev.sort((a, b) => a.day.localeCompare(b.day) || a.kind - b.kind);
+  const groups = [];
+  ev.forEach((e) => {
+    const g = groups[groups.length - 1];
+    if (e.kind && g && g.kind === e.kind && g.day === e.day) g.list.push(e);
+    else groups.push({ kind: e.kind, day: e.day, list: [e] });
+  });
+  groups.forEach((g) => {
+    if (g.kind === 0) {
+      const b = g.list[0].b;
+      rows.push({ k: "section", v: ["\u041F\u041E\u0421\u0422\u0410\u0412\u041A\u0410 \u2116" + b.no + " \u043E\u0442 " + dt(b.date)] });
+      if (!b.fixed) {
+        rows.push({ k: "info", v: ["\u0426\u0435\u043D\u044B \u0432 \u0441\u0443\u043C\u0430\u0445 \u043F\u043E \u044D\u0442\u043E\u0439 \u043F\u043E\u0441\u0442\u0430\u0432\u043A\u0435 \u0435\u0449\u0451 \u043D\u0435 \u0437\u0430\u0444\u0438\u043A\u0441\u0438\u0440\u043E\u0432\u0430\u043D\u044B"], red: true });
+        rows.push({ k: "blank" });
+        return;
+      }
+      rows.push({ k: "head", v: HEAD });
+      const lines = perechDocLines(obj, products, itemsInCatalogOrder(b.items, products));
+      lines.forEach((l) => rows.push({ k: "row", v: [l.n, l.name, l.qty, l.unit, l.price, l.sum] }));
+      rows.push({ k: "total", v: ["\u0418\u0442\u043E\u0433\u043E \u043F\u043E \u043F\u043E\u0441\u0442\u0430\u0432\u043A\u0435 \u2116" + b.no, linesTotal(lines).sum] });
+      rows.push({ k: "blank" });
+    } else if (g.kind === 1) {
+      rows.push({ k: "section", v: ["\u0412\u041E\u0417\u0412\u0420\u0410\u0422\u042B \xB7 " + dt(g.day)], red: true });
+      rows.push({ k: "head", v: HEAD });
+      let sub = 0;
+      g.list.forEach((e, k) => {
+        const it = itemById.get(e.o.item_id);
+        const u0 = it ? perechU0(obj, it) : null;
+        const l = u0 != null ? uzsLine(e.o.qty, u0) : { price: 0, sum: 0 };
+        sub += l.sum;
+        rows.push({ k: "row", v: [k + 1, e.o.product_name || "", Number(e.o.qty) || "", e.o.unit || "", l.price || "", l.sum], red: true });
+      });
+      rows.push({ k: "total", v: ["\u0418\u0442\u043E\u0433\u043E \u0432\u043E\u0437\u0432\u0440\u0430\u0442\u043E\u0432 :", -round2(sub)], red: true });
+      rows.push({ k: "blank" });
+    } else {
+      rows.push({ k: "section", v: ["\u041E\u041F\u041B\u0410\u0422\u042B \xB7 " + dt(g.day)] });
+      rows.push({ k: "head", v: ["\u2116", "\u041F\u043B\u0430\u0442\u0451\u0436", "", "", "", "\u0421\u0443\u043C\u043C\u0430"] });
+      let sub = 0;
+      g.list.forEach((e, k) => {
+        sub += e.p.uzs;
+        rows.push({ k: "row", v: [k + 1, (e.p.uzs < 0 ? "\u0412\u043E\u0437\u0432\u0440\u0430\u0442 \u0434\u0435\u043D\u0435\u0433 \u043A\u043B\u0438\u0435\u043D\u0442\u0443" : e.p.isUzs && /^Перечисл/.test(e.p.label) ? "\u041E\u043F\u043B\u0430\u0442\u0430 \u043F\u0435\u0440\u0435\u0447\u0438\u0441\u043B\u0435\u043D\u0438\u0435\u043C" : "\u041E\u043F\u043B\u0430\u0442\u0430 (" + e.p.label + ")") + (e.p.o.note ? " \xB7 " + e.p.o.note : ""), "", "", "", e.p.uzs] });
+      });
+      rows.push({ k: "total", v: ["\u0418\u0442\u043E\u0433\u043E \u043E\u043F\u043B\u0430\u0447\u0435\u043D\u043E :", round2(sub)] });
+      rows.push({ k: "blank" });
+    }
+  });
+  const ftot = (label, v, red) => rows.push({ k: "ftotal", v: [label, v], red });
+  ftot("\u0421\u0443\u043C\u043C\u0430 \u043E\u0442\u0433\u0440\u0443\u0436\u0435\u043D\u043D\u043E\u0433\u043E \u0442\u043E\u0432\u0430\u0440\u0430:", pc.sale);
+  if (pc.disc) ftot("\u0421\u043A\u0438\u0434\u043A\u0430:", -pc.disc);
+  if (pc.ret) ftot("\u0412\u043E\u0437\u0432\u0440\u0430\u0442\u044B:", -pc.ret, true);
+  if (pc.exp) ftot("\u0414\u043E\u043F. \u0440\u0430\u0441\u0445\u043E\u0434\u044B:", pc.exp);
+  ftot("\u041E\u043F\u043B\u0430\u0447\u0435\u043D\u043E:", pc.paid);
+  if (pc.debt > 4e-3) ftot("\u0414\u043E\u043B\u0433 \u043A\u043B\u0438\u0435\u043D\u0442\u0430 :", pc.debt, true);
+  else ftot("\u0411\u0430\u043B\u0430\u043D\u0441 :", Math.abs(pc.debt));
+  return rows;
+}
 var INCOME_CATEGORIES = ["\u0418\u043D\u0432\u0435\u0441\u0442\u0438\u0446\u0438\u044F / \u0432\u043B\u043E\u0436\u0435\u043D\u0438\u0435", "\u0417\u0430\u0439\u043C", "\u0412\u043E\u0437\u0432\u0440\u0430\u0442 \u0434\u043E\u043B\u0433\u0430", "\u0410\u0440\u0435\u043D\u0434\u0430 (\u0434\u043E\u0445\u043E\u0434)", "\u041F\u0440\u043E\u0434\u0430\u0436\u0430 \u0438\u043C\u0443\u0449\u0435\u0441\u0442\u0432\u0430", "\u041F\u0440\u043E\u0447\u0435\u0435"];
 var KASSA_TYPES = ["company_income", "client_payment", "company_expense", "expense", "bonus_payment", "supplier_payment"];
 var KASSA_IN_T = ["company_income", "client_payment"];
