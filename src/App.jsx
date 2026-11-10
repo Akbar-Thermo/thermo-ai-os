@@ -162,6 +162,8 @@ const ROLE_CFG_MODE = "te_roles";
 const CLOUD_MODE = "te_2fa";
 const MIGR_MODE = "te_migr"; // отметки о разовых переходах данных
 const NOTE_ORD_MODE = "te_noteord"; // свой порядок заметок у каждого сотрудника: lines = { user_id, ids }
+// чат сотрудников: te_chat — одно сообщение, te_seen — у каждого аккаунта своя запись «был в сети» + что прочитано
+const CHAT_MODE = "te_chat", SEEN_MODE = "te_seen", CHAT_MODES = [CHAT_MODE, SEEN_MODE];
 const TG_MODE = "te_tg", TG_PEND_MODE = "te_tgpend"; // Telegram-бот: разрешённые группы (руководитель) / куда бота добавили (бот)
 // Telegram ↔ аккаунт: одноразовые ссылки «Подключить» (хэш, 10 минут) и список подключённых (пишет бот)
 const TG_LINK_MODE = "te_tglink", TG_USERS_MODE = "te_tgusers";
@@ -673,6 +675,58 @@ body.fw-busy,body.fw-busy *{user-select:none!important}
 .npanel-comp:focus-within{border-color:var(--line2)}
 .npanel textarea.npanel-new{display:block;width:100%;min-height:76px;resize:none;border:0;background:transparent;box-shadow:none!important;outline:none;font-family:inherit;font-size:var(--fs-lg);line-height:1.45;padding:8px 10px;color:var(--txt)}
 .npanel-comp-foot{display:flex;justify-content:flex-end;padding:0 4px}
+/* чат сотрудников: окно справа внизу, программа под ним продолжает работать */
+.hdr-chat{position:relative}
+.chat-badge{min-width:18px;height:18px;padding:0 5px;border-radius:var(--r-pill);background:#ff1f30;color:#fff;font:700 11px/18px var(--sans);text-align:center;flex:none}
+.hdr-chat .chat-badge{position:absolute;top:-6px;right:-6px}
+.mnav .mnav-badge{position:absolute;top:-5px;right:-5px}
+.te.hdr-off.fine.side .hdr .hdr-chat,.te.touch .hdr .hdr-chat{grid-column:1/-1;height:40px;border-radius:var(--r-md);font-size:var(--fs-sm);font-weight:600;justify-content:center}
+.te.hdr-off.fine.side .hdr .hdr-chat .hdr-lbl,.te.touch .hdr .hdr-chat .hdr-lbl{display:inline}
+.chat-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--mut);opacity:.55;flex:none}
+.chat-dot.on{background:#2fd06b;opacity:1;box-shadow:0 0 0 2px rgba(47,208,107,.2)}
+.online-mark{display:inline-flex;align-items:center;gap:6px}
+.chat-win{position:fixed;right:16px;bottom:16px;z-index:940;width:min(780px,calc(100vw - 32px));height:min(600px,calc(100dvh - 32px));display:grid;grid-template-columns:250px 1fr;border-radius:var(--r-xl);background:var(--panel);border:1px solid var(--line2);box-shadow:0 30px 80px rgba(0,0,0,.45);overflow:hidden;overscroll-behavior:contain}
+.chat-list{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line);background:var(--panel2)}
+.chat-head{display:flex;align-items:center;gap:8px;padding:12px 12px 10px;border-bottom:1px solid var(--line);min-height:58px}
+.chat-head>b{font-size:var(--fs-xl);margin-right:auto}
+.chat-items{overflow:auto;padding:6px;display:flex;flex-direction:column;gap:2px}
+.chat-it{display:flex;align-items:center;gap:10px;width:100%;padding:8px;border:0;border-radius:var(--r-md);background:none;color:var(--txt);text-align:left;cursor:pointer;font:inherit}
+.chat-it:hover{background:var(--panel)}
+.chat-it.on{background:var(--acc-tint)}
+.chat-av{position:relative;width:34px;height:34px;flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--panel);border:1px solid var(--line);font-size:12px;font-weight:700}
+.chat-av .chat-dot{position:absolute;right:-1px;bottom:-1px;border:2px solid var(--panel2);width:11px;height:11px;box-shadow:none}
+.chat-it-t{display:flex;flex-direction:column;min-width:0;flex:1}
+.chat-it-t b{font-size:var(--fs-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-it-t span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-conv{display:flex;flex-direction:column;min-height:0;min-width:0}
+.chat-conv-t{display:flex;flex-direction:column;min-width:0;margin-right:auto}
+.chat-conv-t b{font-size:var(--fs-md);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-back{display:none}
+.chat-msgs{flex:1;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.chat-empty{margin:auto;text-align:center;max-width:300px}
+.chat-day{text-align:center;margin:8px 0 2px}
+.chat-day span{font-size:var(--fs-xs);color:var(--mut);background:var(--panel2);border:1px solid var(--line);border-radius:var(--r-pill);padding:2px 10px}
+.chat-m{align-self:flex-start;max-width:78%;padding:7px 10px 5px;border-radius:14px 14px 14px 4px;background:var(--panel2);border:1px solid var(--line)}
+.chat-m.me{align-self:flex-end;border-radius:14px 14px 4px 14px;background:var(--acc-tint);border-color:var(--acc-ring)}
+.chat-a{font-size:var(--fs-xs);font-weight:700;color:var(--acc);margin-bottom:2px}
+.chat-t{white-space:pre-wrap;word-break:break-word;font-size:var(--fs-sm);line-height:1.4}
+.chat-tm{display:flex;align-items:center;justify-content:flex-end;gap:6px;font-size:10px;color:var(--mut);margin-top:2px}
+.chat-del{border:0;background:none;color:var(--mut);cursor:pointer;padding:0 2px;font-size:11px;opacity:0;transition:opacity .15s}
+.chat-m:hover .chat-del,.te.touch .chat-del{opacity:.8}
+.chat-del:hover{color:var(--bad)}
+.chat-comp{display:flex;gap:8px;align-items:flex-end;padding:10px 12px 12px;border-top:1px solid var(--line)}
+.chat-comp textarea.inp{flex:1;min-width:0;resize:none;min-height:40px;max-height:140px;font-family:var(--sans);font-size:var(--fs-sm);line-height:1.4;padding:9px 11px}
+.chat-comp .btn{height:40px}
+@media(max-width:640px){
+.chat-win{inset:0;width:auto;height:auto;border-radius:0;border:0;grid-template-columns:1fr}
+.chat-win .chat-conv{display:none}
+.chat-win.conv .chat-list{display:none}
+.chat-win.conv .chat-conv{display:flex}
+.chat-back{display:inline-flex}
+.chat-head{padding-top:calc(12px + env(safe-area-inset-top,0px))}
+.chat-comp{padding-bottom:calc(12px + env(safe-area-inset-bottom,0px))}
+}
+@media(min-width:641px){.chat-x2{display:none}}
 .npanel-comp-foot .btn{border-radius:var(--r-md)}
 .npanel-search{position:relative}
 .npanel-search .inp{width:100%;padding-left:32px;border-radius:var(--r-md);height:36px}
@@ -1056,16 +1110,19 @@ async function freshDump(note) {
    Сортировка created_at + id — стабильная (у строк из одного пакетного импорта created_at одинаковый).
    Ошибку загрузки не прячем (раньше при сбое сети таблица молча становилась пустой) — бросаем её,
    а reload() оставляет на экране прежние данные и показывает сообщение. */
-async function fetchAllRows(t) {
+// light: для экрана — без сообщений чата и отметок «в сети» (их читает только useTeamChat); бэкап читает всё
+async function fetchAllRows(t, light = false) {
+  const noChat = light && t === "requests";
   if (!sb) {
     const { data, error } = await db.from(t).select().order("created_at", { ascending: true });
     if (error) throw new Error(t + ": " + (error.message || error));
-    return data || [];
+    return noChat ? (data || []).filter((r) => !CHAT_MODES.includes(r.mode)) : data || [];
   }
   const PAGE = 1000;
-  const page = (from) => sb.from(t).select("*").order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, from + PAGE - 1);
+  const flt = (q) => (noChat ? q.or("mode.is.null,mode.not.in.(" + CHAT_MODES.join(",") + ")") : q);
+  const page = (from) => flt(sb.from(t).select("*")).order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, from + PAGE - 1);
   // узнаём общее количество и грузим страницы параллельно
-  const { count, error: cErr } = await sb.from(t).select("*", { count: "exact", head: true });
+  const { count, error: cErr } = await flt(sb.from(t).select("*", { count: "exact", head: true }));
   if (!cErr && typeof count === "number") {
     const froms = [];
     for (let f = 0; f < count; f += PAGE) froms.push(f);
@@ -1877,7 +1934,7 @@ function NoAutofillGuard() {
 // бейдж: старые яркие hex-цвета переводятся в спокойные тона темы (читаются и в светлой, и в тёмной теме)
 const BADGE_TONE = { "#fff": "--t-strong", "#ffffff": "--t-strong", "#9a9a9a": "--t-neutral", "#d6d6d6": "--t-neutral", "#ffb020": "--t-warn", "#ff707b": "--t-bad", "#ff4d5e": "--t-bad", "#3ddc7d": "--t-ok", "#4db8ff": "--t-info" };
 /* Иконки — один набор (контурные, в стиле Lucide), вместо эмодзи. <Ic n="truck" /> — размер по тексту (1.1em) или s={20} */
-const IC = {"history": "<path d=\"M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8\"/><path d=\"M3 3v5h5\"/><path d=\"M12 7v5l4 2\"/>", "chevL": "<path d=\"m15 18-6-6 6-6\"/>", "chevR": "<path d=\"m9 18 6-6-6-6\"/>", "truck": "<path d=\"M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2\"/><path d=\"M15 18H9\"/><path d=\"M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14\"/><circle cx=\"17\" cy=\"18\" r=\"2\"/><circle cx=\"7\" cy=\"18\" r=\"2\"/>", "sheet": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h2\"/><path d=\"M14 13h2\"/><path d=\"M8 17h2\"/><path d=\"M14 17h2\"/>", "download": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" x2=\"12\" y1=\"15\" y2=\"3\"/>", "upload": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"17 8 12 3 7 8\"/><line x1=\"12\" x2=\"12\" y1=\"3\" y2=\"15\"/>", "down": "<path d=\"M12 5v14\"/><path d=\"m19 12-7 7-7-7\"/>", "up": "<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>", "save": "<path d=\"M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z\"/><path d=\"M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7\"/><path d=\"M7 3v4a1 1 0 0 0 1 1h7\"/>", "note": "<path d=\"M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z\"/><path d=\"M15 3v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h8\"/><path d=\"M8 17h5\"/>", "calc": "<rect width=\"16\" height=\"20\" x=\"4\" y=\"2\" rx=\"2\"/><line x1=\"8\" x2=\"16\" y1=\"6\" y2=\"6\"/><line x1=\"16\" x2=\"16\" y1=\"14\" y2=\"18\"/><path d=\"M16 10h.01\"/><path d=\"M12 10h.01\"/><path d=\"M8 10h.01\"/><path d=\"M12 14h.01\"/><path d=\"M8 14h.01\"/><path d=\"M12 18h.01\"/><path d=\"M8 18h.01\"/>", "warehouse": "<path d=\"M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z\"/><path d=\"M6 18h12\"/><path d=\"M6 14h12\"/><rect width=\"12\" height=\"12\" x=\"6\" y=\"10\"/>", "search": "<circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/>", "lock": "<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\"/><path d=\"M7 11V7a5 5 0 0 1 10 0v4\"/>", "pin": "<path d=\"M12 17v5\"/><path d=\"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z\"/>", "eye": "<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>", "eyeoff": "<path d=\"M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49\"/><path d=\"M14.084 14.158a3 3 0 0 1-4.242-4.242\"/><path d=\"M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143\"/><path d=\"m2 2 20 20\"/>", "file": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/>", "trash": "<path d=\"M3 6h18\"/><path d=\"M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6\"/><path d=\"M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2\"/>", "cash": "<rect width=\"20\" height=\"12\" x=\"2\" y=\"6\" rx=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/><path d=\"M6 12h.01M18 12h.01\"/>", "pencil": "<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>", "users": "<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/>", "sun": "<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2\"/><path d=\"M12 20v2\"/><path d=\"m4.93 4.93 1.41 1.41\"/><path d=\"m17.66 17.66 1.41 1.41\"/><path d=\"M2 12h2\"/><path d=\"M20 12h2\"/><path d=\"m6.34 17.66-1.41 1.41\"/><path d=\"m19.07 4.93-1.41 1.41\"/>", "moon": "<path d=\"M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z\"/>", "package": "<path d=\"M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z\"/><path d=\"M12 22V12\"/><path d=\"m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7\"/><path d=\"m7.5 4.27 9 5.15\"/>", "wrench": "<path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z\"/>", "cloud": "<path d=\"M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z\"/>", "link": "<path d=\"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71\"/><path d=\"M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71\"/>", "clipboard": "<rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/>", "folder": "<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "eraser": "<path d=\"m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21\"/><path d=\"M22 21H7\"/><path d=\"m5 11 9 9\"/>", "hourglass": "<path d=\"M5 22h14\"/><path d=\"M5 2h14\"/><path d=\"M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22\"/><path d=\"M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2\"/>", "undo": "<path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"/>", "menu": "<line x1=\"4\" x2=\"20\" y1=\"12\" y2=\"12\"/><line x1=\"4\" x2=\"20\" y1=\"6\" y2=\"6\"/><line x1=\"4\" x2=\"20\" y1=\"18\" y2=\"18\"/>", "copy": "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>"};
+const IC = {"history": "<path d=\"M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8\"/><path d=\"M3 3v5h5\"/><path d=\"M12 7v5l4 2\"/>", "chevL": "<path d=\"m15 18-6-6 6-6\"/>", "chevR": "<path d=\"m9 18 6-6-6-6\"/>", "truck": "<path d=\"M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2\"/><path d=\"M15 18H9\"/><path d=\"M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14\"/><circle cx=\"17\" cy=\"18\" r=\"2\"/><circle cx=\"7\" cy=\"18\" r=\"2\"/>", "sheet": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h2\"/><path d=\"M14 13h2\"/><path d=\"M8 17h2\"/><path d=\"M14 17h2\"/>", "download": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" x2=\"12\" y1=\"15\" y2=\"3\"/>", "upload": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"17 8 12 3 7 8\"/><line x1=\"12\" x2=\"12\" y1=\"3\" y2=\"15\"/>", "down": "<path d=\"M12 5v14\"/><path d=\"m19 12-7 7-7-7\"/>", "up": "<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>", "save": "<path d=\"M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z\"/><path d=\"M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7\"/><path d=\"M7 3v4a1 1 0 0 0 1 1h7\"/>", "note": "<path d=\"M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z\"/><path d=\"M15 3v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h8\"/><path d=\"M8 17h5\"/>", "calc": "<rect width=\"16\" height=\"20\" x=\"4\" y=\"2\" rx=\"2\"/><line x1=\"8\" x2=\"16\" y1=\"6\" y2=\"6\"/><line x1=\"16\" x2=\"16\" y1=\"14\" y2=\"18\"/><path d=\"M16 10h.01\"/><path d=\"M12 10h.01\"/><path d=\"M8 10h.01\"/><path d=\"M12 14h.01\"/><path d=\"M8 14h.01\"/><path d=\"M12 18h.01\"/><path d=\"M8 18h.01\"/>", "warehouse": "<path d=\"M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z\"/><path d=\"M6 18h12\"/><path d=\"M6 14h12\"/><rect width=\"12\" height=\"12\" x=\"6\" y=\"10\"/>", "search": "<circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/>", "lock": "<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\"/><path d=\"M7 11V7a5 5 0 0 1 10 0v4\"/>", "pin": "<path d=\"M12 17v5\"/><path d=\"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z\"/>", "eye": "<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>", "eyeoff": "<path d=\"M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49\"/><path d=\"M14.084 14.158a3 3 0 0 1-4.242-4.242\"/><path d=\"M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143\"/><path d=\"m2 2 20 20\"/>", "file": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/>", "trash": "<path d=\"M3 6h18\"/><path d=\"M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6\"/><path d=\"M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2\"/>", "cash": "<rect width=\"20\" height=\"12\" x=\"2\" y=\"6\" rx=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/><path d=\"M6 12h.01M18 12h.01\"/>", "pencil": "<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>", "users": "<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/>", "sun": "<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2\"/><path d=\"M12 20v2\"/><path d=\"m4.93 4.93 1.41 1.41\"/><path d=\"m17.66 17.66 1.41 1.41\"/><path d=\"M2 12h2\"/><path d=\"M20 12h2\"/><path d=\"m6.34 17.66-1.41 1.41\"/><path d=\"m19.07 4.93-1.41 1.41\"/>", "moon": "<path d=\"M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z\"/>", "package": "<path d=\"M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z\"/><path d=\"M12 22V12\"/><path d=\"m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7\"/><path d=\"m7.5 4.27 9 5.15\"/>", "wrench": "<path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z\"/>", "cloud": "<path d=\"M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z\"/>", "link": "<path d=\"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71\"/><path d=\"M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71\"/>", "clipboard": "<rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/>", "folder": "<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "eraser": "<path d=\"m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21\"/><path d=\"M22 21H7\"/><path d=\"m5 11 9 9\"/>", "hourglass": "<path d=\"M5 22h14\"/><path d=\"M5 2h14\"/><path d=\"M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22\"/><path d=\"M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2\"/>", "undo": "<path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"/>", "menu": "<line x1=\"4\" x2=\"20\" y1=\"12\" y2=\"12\"/><line x1=\"4\" x2=\"20\" y1=\"6\" y2=\"6\"/><line x1=\"4\" x2=\"20\" y1=\"18\" y2=\"18\"/>", "chat": "<path d=\"M7.9 20A9 9 0 1 0 4 16.1L2 22Z\"/>", "copy": "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>"};
 const Ic = ({ n, s, style, title, className = "" }) => <svg className={"ic " + className} width={s || "1.1em"} height={s || "1.1em"} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden={title ? undefined : "true"} role={title ? "img" : undefined} style={style} dangerouslySetInnerHTML={{ __html: (title ? "<title>" + title + "</title>" : "") + (IC[n] || "") }} />;
 const Badge = ({ c, children }) => {
   const col = String(c || "").startsWith("var(") ? c : BADGE_TONE[String(c || "").toLowerCase()] ? "var(" + BADGE_TONE[String(c).toLowerCase()] + ")" : c;
@@ -10223,6 +10280,239 @@ function useFloatWin(key, { minW = 320, minH = 260, def = null } = {}) {
 // уголок для изменения размера окна (только мышь, на телефоне скрыт)
 const FwGrip = ({ fw }) => <div className="fw-grip" title="Потяните, чтобы изменить размер окна" onPointerDown={fw.sizeDown} onDoubleClick={(e) => e.stopPropagation()} />;
 
+/* ===== Чат сотрудников и «в сети» =====
+   te_seen — у каждого аккаунта одна запись: { user_id, at — когда программа была открыта (раз в 45 с),
+             since — с какого момента считаются непрочитанные, read: { all | id собеседника → время последнего прочитанного } }
+   te_chat — одно сообщение: { from, author, to: "" — общий чат, иначе id получателя, text }.
+   Личные сообщения программа показывает только двоим. При включённой защите базы «от кого» ставит сама база.
+   В общую загрузку данных (reload) эти записи не попадают — их читает только useTeamChat. */
+const ONLINE_MS = 150000, SEEN_EVERY = 45000, CHAT_POLL = 6000, CHAT_POLL_IDLE = 25000, CHAT_KEEP = 500, CHAT_MAX = 2000;
+const tms = (x) => { const t = Date.parse(x || ""); return isNaN(t) ? 0 : t; };
+const isOnline = (at, now = Date.now()) => !!at && now - tms(at) < ONLINE_MS;
+function lastSeenText(at, now = Date.now()) {
+  if (!at) return "ещё не заходил(а)";
+  if (isOnline(at, now)) return "в сети";
+  const d = new Date(at), t = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const day = (x) => { const y = new Date(x); y.setHours(0, 0, 0, 0); return y.getTime(); };
+  const diff = Math.round((day(now) - day(d)) / 86400000);
+  return "был(а) " + (diff === 0 ? "в " + t : diff === 1 ? "вчера в " + t : d.toLocaleDateString("ru-RU") + " в " + t);
+}
+const chatKey = (L, meId) => (!L.to ? "all" : L.from === meId ? L.to : L.from);
+// кому можно писать: действующие аккаунты, кроме сотрудников-для-зарплаты и аккаунта Telegram-бота
+function chatPeople(data, meId) {
+  const tg = ((data && data.requests) || []).find((x) => x.mode === TG_MODE);
+  const bot = tg && tg.lines && tg.lines.bot_user;
+  return ((data && data.users) || []).filter((u) => !isStaff(u) && u.status === "active" && u.id !== meId && u.id !== bot);
+}
+function useTeamChat(me, active) {
+  const meId = (me && me.id) || null;
+  const [seen, setSeen] = useState({}); // user_id → lines записи te_seen
+  const [msgs, setMsgs] = useState([]); // сообщения, видимые мне (старые → новые)
+  const mine = useRef(null); // моя запись te_seen { id, lines }
+  const lastTs = useRef(""); // created_at самого нового полученного сообщения
+  const wq = useRef(Promise.resolve());
+  const act = useRef(active); act.current = active;
+  const kick = useRef(null);
+  const vis = (L) => !!L && (L.from === meId || !L.to || L.to === meId);
+
+  // запись «в сети» / прочитано — по очереди, чтобы отметка «прочитано» не затёрлась отметкой «в сети»
+  const writeSeen = (patch) => {
+    wq.current = wq.current.then(async () => {
+      if (!sb || !meId) return;
+      const row = mine.current;
+      const old = (row && row.lines) || {};
+      const now = new Date().toISOString();
+      const lines = { ...old, ...(typeof patch === "function" ? patch(old) : patch || {}), user_id: meId, at: now };
+      if (!lines.since) lines.since = now;
+      let r = row ? await sb.from("requests").update({ lines }).eq("id", row.id).select("id,lines") : null;
+      if (!r || (!r.error && !(r.data || []).length)) r = await sb.from("requests").insert({ mode: SEEN_MODE, source: "chat", lines }).select("id,lines");
+      if (!r.error && r.data && r.data[0]) { mine.current = r.data[0]; setSeen((s) => ({ ...s, [meId]: r.data[0].lines })); }
+    }).catch(() => {});
+    return wq.current;
+  };
+  const loadSeen = async () => {
+    const r = await sb.from("requests").select("id,lines").eq("mode", SEEN_MODE);
+    if (r.error) return;
+    const m = {}, rowOf = {};
+    (r.data || []).forEach((x) => { const L = x.lines || {}; if (!L.user_id) return; if (!m[L.user_id] || tms(L.at) > tms(m[L.user_id].at)) { m[L.user_id] = L; rowOf[L.user_id] = x; } });
+    if (rowOf[meId] && (!mine.current || tms(rowOf[meId].lines.at) >= tms(mine.current.lines && mine.current.lines.at))) mine.current = rowOf[meId];
+    if (mine.current) m[meId] = mine.current.lines;
+    setSeen(m);
+  };
+  const loadMsgs = async (full) => {
+    const first = full || !lastTs.current;
+    let q = sb.from("requests").select("id,created_at,lines").eq("mode", CHAT_MODE);
+    q = first ? q.order("created_at", { ascending: false }).limit(CHAT_KEEP) : q.gte("created_at", lastTs.current).order("created_at", { ascending: true }).limit(CHAT_KEEP);
+    const r = await q;
+    if (r.error) return;
+    const all = r.data || [];
+    if (first) all.reverse();
+    if (all.length) lastTs.current = all.reduce((a, x) => (tms(x.created_at) > tms(a) ? x.created_at : a), lastTs.current || all[0].created_at);
+    const rows = all.filter((x) => vis(x.lines));
+    setMsgs((old) => {
+      const base = first ? [] : old;
+      const ids = new Set(base.map((x) => x.id));
+      const add = rows.filter((x) => !ids.has(x.id));
+      if (!first && !add.length) return old;
+      const out = base.concat(add).sort((a, b) => tms(a.created_at) - tms(b.created_at));
+      return out.length > CHAT_KEEP ? out.slice(-CHAT_KEEP) : out;
+    });
+  };
+
+  useEffect(() => {
+    setSeen({}); setMsgs([]); mine.current = null; lastTs.current = "";
+    if (!meId || !sb) return;
+    let stop = false, n = 0, timer = null;
+    const run = async () => {
+      clearTimeout(timer);
+      if (stop) return;
+      try {
+        if (n === 0) { await loadSeen(); await writeSeen(); }
+        else if (n % 2 === 0) await loadSeen();
+        await loadMsgs(n > 0 && n % 15 === 0); // время от времени — заново целиком (удалённые сообщения исчезают)
+      } catch (e) {}
+      n++;
+      if (!stop) timer = setTimeout(run, act.current && !document.hidden ? CHAT_POLL : CHAT_POLL_IDLE);
+    };
+    kick.current = () => { if (n > 0) run(); };
+    run();
+    const hb = setInterval(() => writeSeen(), SEEN_EVERY);
+    const onVis = () => { if (!document.hidden) { writeSeen(); kick.current && kick.current(); } };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop = true; clearTimeout(timer); clearInterval(hb); document.removeEventListener("visibilitychange", onVis); kick.current = null; };
+  }, [meId]);
+  // открыли чат — сразу свежие сообщения
+  useEffect(() => { if (active && kick.current) kick.current(); }, [active]);
+
+  const myL = (meId && seen[meId]) || {};
+  const unread = useMemo(() => {
+    const u = { total: 0 };
+    const since = tms(myL.since), read = myL.read || {};
+    if (!since) return u;
+    msgs.forEach((m) => {
+      const L = m.lines || {};
+      if (L.from === meId) return;
+      const k = chatKey(L, meId);
+      if (tms(m.created_at) > Math.max(since, tms(read[k]))) { u[k] = (u[k] || 0) + 1; u.total++; }
+    });
+    return u;
+  }, [msgs, myL.since, myL.read, meId]);
+  const markRead = (k) => {
+    const last = msgs.filter((m) => chatKey(m.lines || {}, meId) === k).pop();
+    if (!last) return;
+    writeSeen((old) => ({ read: { ...(old.read || {}), [k]: last.created_at } }));
+  };
+  const send = async (k, text) => {
+    const t = String(text || "").trim().slice(0, CHAT_MAX);
+    if (!t || !sb || !meId) return false;
+    const r = await sb.from("requests").insert({ mode: CHAT_MODE, source: "chat", lines: { from: meId, author: (me.name || me.username || "").trim(), to: k === "all" ? "" : k, text: t } }).select("id,created_at,lines");
+    if (r.error || !r.data || !r.data[0]) { console.error("[chat]", r.error && r.error.message); return false; }
+    const row = r.data[0];
+    setMsgs((old) => (old.some((x) => x.id === row.id) ? old : old.concat(row)));
+    writeSeen((old) => ({ read: { ...(old.read || {}), [k]: row.created_at } }));
+    return true;
+  };
+  const remove = async (id) => {
+    const r = await sb.from("requests").delete().eq("id", id).eq("mode", CHAT_MODE);
+    if (r.error) return false;
+    setMsgs((old) => old.filter((x) => x.id !== id));
+    return true;
+  };
+  return { meId, seen, msgs, unread, markRead, send, remove };
+}
+// точка и подпись «в сети» / «был(а) …»
+function OnlineMark({ at, self = false }) {
+  const on = self || isOnline(at);
+  return <span className="online-mark"><i className={"chat-dot" + (on ? " on" : "")} />{self ? "в сети (вы)" : lastSeenText(at)}</span>;
+}
+function chatDay(x) {
+  const d = new Date(x), now = new Date();
+  const day = (v) => { const y = new Date(v); y.setHours(0, 0, 0, 0); return y.getTime(); };
+  const diff = Math.round((day(now) - day(d)) / 86400000);
+  return diff === 0 ? "Сегодня" : diff === 1 ? "Вчера" : d.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: d.getFullYear() === now.getFullYear() ? undefined : "numeric" });
+}
+// окно чата: слева — общий чат и люди (кто в сети), справа — переписка. Не закрывает программу: можно работать дальше
+function ChatWin({ team, data, me, start, onClose, toast }) {
+  const [cur, setCur] = useState(start || "all");
+  const [pane, setPane] = useState(start ? "conv" : "list"); // на узком экране — список или переписка
+  const [drafts, setDrafts] = useState({});
+  const [sending, setSending] = useState(false);
+  const boxRef = useRef(null), taRef = useRef(null);
+  useEffect(() => { if (start) { setCur(start); setPane("conv"); } }, [start]);
+  const people = useMemo(() => chatPeople(data, me.id).slice().sort((a, b) => (isOnline(team.seen[b.id] && team.seen[b.id].at) - isOnline(team.seen[a.id] && team.seen[a.id].at)) || String(a.name || a.username).localeCompare(String(b.name || b.username))), [data.users, data.requests, team.seen, me.id]);
+  const onlineCnt = people.filter((u) => isOnline(team.seen[u.id] && team.seen[u.id].at)).length + 1;
+  const conv = useMemo(() => team.msgs.filter((m) => chatKey(m.lines || {}, me.id) === cur), [team.msgs, cur, me.id]);
+  const who = cur === "all" ? null : (data.users || []).find((u) => u.id === cur);
+  const nameOf = (u) => (u && (u.name || u.username)) || "—";
+  // новые сообщения в открытой переписке — прочитаны; прокрутка вниз
+  useEffect(() => { if (team.unread[cur] && !document.hidden) team.markRead(cur); }, [team.unread[cur], cur]);
+  useEffect(() => { const el = boxRef.current; if (el) el.scrollTop = el.scrollHeight; }, [conv.length, cur, pane]);
+  useEffect(() => { const k = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, []);
+  const pick = (k) => { setCur(k); setPane("conv"); setTimeout(() => taRef.current && taRef.current.focus(), 30); };
+  const txt = drafts[cur] || "";
+  const doSend = async () => {
+    if (!txt.trim() || sending) return;
+    setSending(true);
+    const ok = await team.send(cur, txt);
+    setSending(false);
+    if (ok) setDrafts((d) => ({ ...d, [cur]: "" })); else toast && toast("Сообщение не отправлено — проверьте интернет");
+  };
+  const item = (k, title, sub, av, dot) => (
+    <button type="button" key={k} className={"chat-it" + (cur === k ? " on" : "")} onClick={() => pick(k)}>
+      <span className="chat-av">{av}{dot != null && <i className={"chat-dot" + (dot ? " on" : "")} />}</span>
+      <span className="chat-it-t"><b>{title}</b><span className="xs mut">{sub}</span></span>
+      {team.unread[k] > 0 && <span className="chat-badge">{team.unread[k]}</span>}
+    </button>
+  );
+  let lastDay = "";
+  return (
+    <div className={"chat-win" + (pane === "conv" ? " conv" : "")} role="dialog" aria-label="Чат">
+      <aside className="chat-list">
+        <div className="chat-head"><b>Чат</b><button type="button" className="npanel-x" onClick={onClose} title="Закрыть (Esc)">✕</button></div>
+        <div className="chat-items">
+          {item("all", "Общий чат", "в сети: " + onlineCnt, <Ic n="users" s={16} />, null)}
+          {people.map((u) => item(u.id, nameOf(u), lastSeenText(team.seen[u.id] && team.seen[u.id].at), mInitials(nameOf(u)), isOnline(team.seen[u.id] && team.seen[u.id].at)))}
+          {!people.length && <p className="xs mut" style={{ padding: "8px 10px" }}>Других аккаунтов пока нет</p>}
+        </div>
+      </aside>
+      <section className="chat-conv">
+        <div className="chat-head">
+          <button type="button" className="btn xs chat-back" onClick={() => setPane("list")} title="К списку">‹</button>
+          <span className="chat-conv-t"><b>{who ? nameOf(who) : "Общий чат"}</b><span className="xs mut">{who ? lastSeenText(team.seen[who.id] && team.seen[who.id].at) : "видят все сотрудники"}</span></span>
+          <button type="button" className="npanel-x chat-x2" onClick={onClose} title="Закрыть (Esc)">✕</button>
+        </div>
+        <div className="chat-msgs" ref={boxRef}>
+          {!conv.length && <div className="chat-empty sm mut">{who ? "Напишите первое сообщение — его увидит только " + nameOf(who) : "Сообщений пока нет"}</div>}
+          {conv.map((m) => {
+            const L = m.lines || {}, my = L.from === me.id, d = chatDay(m.created_at);
+            const sep = d !== lastDay; lastDay = d;
+            return (
+              <React.Fragment key={m.id}>
+                {sep && <div className="chat-day"><span>{d}</span></div>}
+                <div className={"chat-m" + (my ? " me" : "")}>
+                  {!my && cur === "all" && <div className="chat-a">{L.author || "—"}</div>}
+                  <div className="chat-t">{L.text}</div>
+                  <div className="chat-tm">{new Date(m.created_at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+                    {my && <button type="button" className="chat-del" title="Удалить сообщение" onClick={async () => {
+                      if (!(await askConfirm({ title: "Удалить сообщение?", text: "Оно исчезнет у всех.", ok: "Удалить", cancel: "Нет" }))) return;
+                      if (!(await team.remove(m.id)) && toast) toast("Не удалось удалить");
+                    }}>✕</button>}
+                  </div>
+                </div>
+              </React.Fragment>
+            );
+          })}
+        </div>
+        <div className="chat-comp">
+          <textarea ref={taRef} className="inp" rows={Math.min(5, txt.split("\n").length)} maxLength={CHAT_MAX} placeholder={who ? "Сообщение для " + nameOf(who) + "…" : "Сообщение всем…"} value={txt}
+            onChange={(e) => { const v = e.target.value; setDrafts((d) => ({ ...d, [cur]: v })); }}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); doSend(); } }} />
+          <button type="button" className="btn pri" disabled={!txt.trim() || sending} onClick={doSend}>{sending ? "…" : "Отправить"}</button>
+        </div>
+      </section>
+    </div>
+  );
+}
 function NotesPanel({ data, reload, toast, user, boss = false, onClose }) {
   const boxRef = useRef(null), taRef = useRef(null);
   const [q, setQ] = useState("");
@@ -10582,7 +10872,7 @@ async function saveRolesCfg(data, roles) {
   await logAction("Изменены роли и права", "roles", lines.map((r) => r.label + ": " + r.tabs.map((t) => TAB_NAMES[t]).join(", ") + (PERMS.some((p) => r.perms[p.id]) ? " + " + PERMS.filter((p) => r.perms[p.id]).map((p) => p.id).join(",") : "")).join(" | "));
   return "";
 }
-function AdminTab({ data, reload, toast, currentUser, isBoss = true }) {
+function AdminTab({ data, reload, toast, currentUser, isBoss = true, seen = {}, onChat = null }) {
   const users = (data.users || []).filter((u) => !isStaff(u)); // сотрудники (для зарплаты) — не аккаунты
   const [edit, setEdit] = useState(null);
   const [del, setDel] = useState(null);
@@ -10598,7 +10888,7 @@ function AdminTab({ data, reload, toast, currentUser, isBoss = true }) {
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
-          <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th>Что может</th><th>Статус</th><th></th></tr></thead>
+          <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th>Что может</th><th>Статус</th><th>В сети</th><th></th></tr></thead>
           <tbody>
             {users.map((u) => (
               <tr key={u.id} style={{ opacity: u.status === "active" ? 1 : 0.45 }}>
@@ -10607,7 +10897,9 @@ function AdminTab({ data, reload, toast, currentUser, isBoss = true }) {
                 <td><Badge c={u.role === "boss" ? "#ff707b" : "#fff"}>{accessOf(u, roles, uperms).label}</Badge></td>
                 <td style={{ minWidth: 220 }}><RoleCan r={accessOf(u, roles, uperms)} /></td>
                 <td className="sm">{u.status === "active" ? "активен" : "отключён"}</td>
+                <td className="sm" style={{ whiteSpace: "nowrap" }}>{u.status === "active" && <OnlineMark at={seen[u.id] && seen[u.id].at} self={u.id === currentUser.id} />}</td>
                 <td><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
+                  {onChat && u.id !== currentUser.id && u.status === "active" && <button className="btn xs" onClick={() => onChat(u.id)} title="Написать в чат"><Ic n="chat" s={13} /> Написать</button>}
                   {/* не руководитель с правом «Аккаунты»: аккаунты руководителей не меняет и не удаляет */}
                   {(isBoss || u.role !== "boss") && <button className="btn xs" onClick={() => setEdit(u)}>ред.</button>}
                   {u.id !== currentUser.id && (isBoss || u.role !== "boss") && <button className="btn xs dng" onClick={() => setDel(u)}>✕</button>}
@@ -11500,7 +11792,7 @@ function AppInner() {
     const all = opt === "all";
     const tables = all ? TABLES : Array.isArray(opt) ? opt : TABLES.filter((t) => !["products", "audit_log", "requests"].includes(t));
     const seq = ++reloadSeq.current;
-    const res = await Promise.all(tables.map((t) => fetchAllRows(t).then((rows) => ({ t, rows }), (err) => ({ t, err }))));
+    const res = await Promise.all(tables.map((t) => fetchAllRows(t, true).then((rows) => ({ t, rows }), (err) => ({ t, err }))));
     const upd = {}, failed = [];
     res.forEach(({ t, rows, err }) => {
       if (err) { failed.push(t + " (" + String(err.message || err).replace(/^\w+: /, "") + ")"); return; }
@@ -11842,6 +12134,15 @@ function AppInner() {
   const [backupOpen, setBackupOpen] = useState(false);
   const [calcOpen, setCalcOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  // чат сотрудников и «в сети» (Аккаунты — колонка «В сети»; кнопка «Чат» в верхней панели)
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatStart, setChatStart] = useState(null);
+  const team = useTeamChat(currentUser, chatOpen || tab === "admin");
+  const openChat = (k) => { setChatStart(k || null); setChatOpen(true); if (!finePtr) setHdrPeek(false); };
+  useEffect(() => { // непрочитанные — числом во вкладке браузера
+    const n = team.unread.total || 0, base = document.title.replace(/^\(\d+\) /, "");
+    document.title = n ? "(" + n + ") " + base : base;
+  }, [team.unread.total]);
   // Alt+X — открыть / закрыть калькулятор. Заметки: левый + правый Alt вместе ИЛИ двойное нажатие Alt (любого)
   // (правый Alt на многих клавиатурах — AltGr: браузер шлёт ещё и Ctrl, поэтому Ctrl/Shift не сбрасывают счёт)
   useEffect(() => {
@@ -12121,7 +12422,7 @@ function AppInner() {
     <PeopleCtx.Provider value={peopleCtx}>
     <div className={"te" + (darkMode ? " dark" : "") + (isPhone() && !finePtr ? " phone" : "") + (finePtr ? " fine" : " touch") + (hdrOff ? " hdr-off" : "") + (hdrSide ? " side" : "")}>
       <style>{CSS}</style>
-      {!finePtr && <button type="button" className={"mnav" + (hdrHidden && !hdrPeek ? " hide-on-scroll" : "")} title="Меню" aria-label="Меню" onClick={() => setHdrPeek(true)}><Ic n="menu" s={22} /></button>}
+      {!finePtr && <button type="button" className={"mnav" + (hdrHidden && !hdrPeek ? " hide-on-scroll" : "")} title="Меню" aria-label="Меню" onClick={() => setHdrPeek(true)}><Ic n="menu" s={22} />{team.unread.total > 0 && <span className="chat-badge mnav-badge">{team.unread.total}</span>}</button>}
       {!finePtr && <div className={"mnav-bg" + (hdrPeek ? " on" : "")} onClick={() => setHdrPeek(false)} />}
       <div className={"hdr" + (hdrHidden && finePtr && !hdrOff ? " hide-on-scroll" : "") + (hdrPeek ? " peek" : "")} onMouseLeave={hdrLeave} onMouseEnter={hdrEnter}>
         <div className="logo">THERMO<span>•</span>ENGINEERING</div>
@@ -12150,6 +12451,7 @@ function AppInner() {
         </div>
         <button className="burger" onClick={() => setMobileMenuOpen((v) => !v)} title="Меню">{mobileMenuOpen ? "✕" : <Ic n="menu" s={20} />}</button>
         <button className={"btn xs npanel-btn" + (notesOpen ? " pri" : "")} title="Заметки: Alt два раза подряд (или левый + правый Alt)" onClick={() => { setNotesOpen((v) => !v); if (!finePtr) setHdrPeek(false); }}><Ic n="note" /><span className="hdr-lbl"> Заметки</span></button>
+        <button className={"btn xs hdr-chat" + (chatOpen ? " pri" : "")} title="Чат сотрудников" onClick={() => (chatOpen ? setChatOpen(false) : openChat(null))}><Ic n="chat" /><span className="hdr-lbl"> Чат</span>{team.unread.total > 0 && <span className="chat-badge">{team.unread.total}</span>}</button>
         {role !== "driver" && <button className={"btn xs hdr-calc" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => { setCalcOpen((v) => !v); if (!finePtr) setHdrPeek(false); }}><Ic n="calc" /><span className="hdr-lbl"> Калькулятор</span></button>}
         <button className="btn xs hdr-hide" title="Скрыть панель — будет выезжать, когда мышь у края экрана" onClick={() => { setHdrOffSave(true); setMobileMenuOpen(false); }}>⌃</button>
         <span className="hdr-side" title="Откуда выезжает панель, когда она скрыта">
@@ -12185,7 +12487,7 @@ function AppInner() {
         {tab === "wh" && <WarehouseTab data={cashWorld} reload={reload} toast={toast} readOnly={role === "driver"} openObject={(id) => { if (role === "driver") { setTab("delivery"); setOpenId(id); } else { setOpenId(id); setTab("objects"); } }} />}
         {tab === "delivery" && <DeliveryTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} />}
         {tab === "log" && <LogTab data={data} reload={reload} toast={toast} onBackup={acc.perms.backup ? () => setBackupOpen(true) : null} />}
-        {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} isBoss={role === "boss"} />}
+        {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} isBoss={role === "boss"} seen={team.seen} onChat={openChat} />}
         {tab === "finance" && <FinanceTab data={data} reload={reload} toast={toast} boss={!!acc.perms.salary} />}
       </div>
       {backupOpen && acc.perms.backup && <BackupModal who={currentUser.name || currentUser.username} data={data} reload={reload} onClose={() => { setBackupOpen(false); setAbTick((n) => n + 1); }} toast={toast} onFilePick={() => restoreRef.current.click()} onRestoreText={async (text) => {
@@ -12198,6 +12500,7 @@ function AppInner() {
         await reload("all"); setWipeOpen(false); setOpenId(null); toast("База очищена. Товары, поставщики и мастера сохранены.");
       }} />}
       {calcOpen && <Calculator onClose={() => setCalcOpen(false)} />}
+      {chatOpen && currentUser && <ChatWin team={team} data={data} me={currentUser} start={chatStart} toast={toast} onClose={() => setChatOpen(false)} />}
       {notesOpen && currentUser && <NotesPanel data={data} reload={reload} toast={toast} user={currentUser} boss={role === "boss"} onClose={() => setNotesOpen(false)} />}
       <ConfirmHost />
       <SheetPickHost />

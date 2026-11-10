@@ -6,6 +6,7 @@
 --     кто вошёл: при записи имя подставляет база, при изменении записи его нельзя поменять;
 --   · журнал действий (audit_log) — только дописывать: изменить или удалить запись нельзя;
 --   · заметки: новая заметка — всегда от имени вошедшего; менять / удалять — только свою;
+--   · чат: сообщение — всегда от имени вошедшего, удалить можно только своё; отметку «в сети» — только свою;
 --   · права и роли (te_perms, te_roles) меняет руководитель или тот, у кого есть право «Аккаунты»
 --     (себе права он менять не может);
 --   · облачный пароль (te_2fa) — каждый только свой; чужие сбрасывает руководитель или право «Аккаунты»
@@ -121,6 +122,28 @@ begin
   -- (руководитель / право «Аккаунты» — тоже)
   if m in ('te_tgremind', 'te_rate', 'te_tgmem', 'te_tgai', 'te_tgact', 'te_tgq', 'te_tgmatch', 'te_tgrules') and not (acc or bot) then
     raise exception 'te_forbidden: эту запись меняет только Telegram-бот' using errcode = '42501';
+  end if;
+
+  -- чат сотрудников: сообщение — всегда от имени вошедшего; изменить нельзя; удалить — только своё
+  if m = 'te_chat' then
+    if tg_op = 'INSERT' then
+      new.lines := coalesce(new.lines, '{}'::jsonb) || jsonb_build_object('from', uid, 'author', coalesce(public.te_session_name(), ''));
+      return new;
+    end if;
+    if coalesce(old.lines ->> 'from', '') <> uid then
+      raise exception 'te_forbidden: чужое сообщение удаляет только руководитель' using errcode = '42501';
+    end if;
+    if tg_op = 'DELETE' then return old; end if;
+    raise exception 'te_forbidden: сообщение нельзя изменить' using errcode = '42501';
+  end if;
+  -- «в сети» и «прочитано»: у каждого своя запись — менять только свою
+  if m = 'te_seen' then
+    if tg_op <> 'INSERT' and coalesce(old.lines ->> 'user_id', '') <> uid then
+      raise exception 'te_forbidden: чужую отметку «в сети» менять нельзя' using errcode = '42501';
+    end if;
+    if tg_op = 'DELETE' then return old; end if;
+    new.lines := coalesce(new.lines, '{}'::jsonb) || jsonb_build_object('user_id', uid);
+    return new;
   end if;
 
   if m = 'te_note' then
