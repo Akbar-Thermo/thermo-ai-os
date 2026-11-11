@@ -359,13 +359,16 @@ const CSS = `
 /* Премиум-тема: спокойные графитовые нейтральные тона без чистого белого и чёрного + фирменный красный Thermo #ff1f30
    (активная вкладка, главные кнопки, акценты). Цифры — табличные, без моноширинного шрифта. */
 :root{
-  --bg:#eef0ee; --panel:#fbfbfa; --panel2:#f3f5f3; --line:#e0e4e1; --line2:#cfd5d1;
-  --txt:#1f2629; --mut:#66706f; --acc:#ff1f30; --acc2:#d6001a; --acc-tint:rgba(255,31,48,.06); --wh-tint:rgba(44,122,82,.07); --acc-ring:rgba(255,31,48,.22);
+  --bg:#ebeeec; --panel:#fdfdfc; --panel2:#f4f6f5; --line:#e1e5e2; --line2:#ccd3cf;
+  --txt:#1f2629; --mut:#66706f; --acc:#ff1f30; --acc2:#d6001a; --acc-tint:rgba(255,31,48,.06); --wh-tint:rgba(44,122,82,.07); --acc-ring:rgba(255,31,48,.18);
   --ok:#2c7a52; --warn:#99650f; --bad:#b33a3a;
   --t-neutral:#66706f; --t-ok:#2c7a52; --t-warn:#99650f; --t-bad:#b33a3a; --t-info:#2f6a9e; --t-violet:#6a55a3; --t-strong:#1f2629;
   --mono:'JetBrains Mono',ui-monospace,monospace; --sans:'Onest',system-ui,sans-serif;
   --hdr-bg:#1f2629; --hdr-txt:#eef1ef; --hdr-mut:#9aa5a3; --hdr-line:#334046; --hdr-panel2:#28323a;
-  --shadow:0 1px 2px rgba(31,38,41,.05),0 2px 8px rgba(31,38,41,.04); --hover:rgba(31,38,41,.035);
+  --shadow:0 1px 2px rgba(20,28,32,.04),0 6px 18px -10px rgba(20,28,32,.12); --hover:rgba(31,38,41,.035);
+  --shadow-pop:0 2px 6px rgba(20,28,32,.06),0 24px 56px -16px rgba(20,28,32,.28);
+  /* движение: короткое и мягкое, одно на всё приложение */
+  --ease:cubic-bezier(.2,.7,.2,1); --ease-out:cubic-bezier(.16,1,.3,1); --dur:.16s;
   /* шкалы дизайна (одни на всё приложение): размеры шрифта, скругления, отступы, высота кнопок */
   --fs-2xs:11px; --fs-xs:12px; --fs-sm:13px; --fs-md:14px; --fs-lg:16px; --fs-xl:18px; --fs-2xl:22px; --fs-3xl:28px;
   --r-xs:6px; --r-sm:8px; --r-md:10px; --r-lg:14px; --r-xl:20px; --r-pill:999px;
@@ -373,12 +376,13 @@ const CSS = `
   --h-btn:36px; --h-btn-xs:28px;
 }
 .te.dark{
-  --bg:#15191b; --panel:#1b2023; --panel2:#21282b; --line:#2b3438; --line2:#374247;
-  --txt:#dfe4e2; --mut:#8d9896; --acc:#ff1f30; --acc2:#ff4553; --acc-tint:rgba(255,31,48,.09); --wh-tint:rgba(61,220,125,.08); --acc-ring:rgba(255,31,48,.32);
+  --bg:#121618; --panel:#191e21; --panel2:#20272a; --line:#2a3337; --line2:#364146;
+  --txt:#dfe4e2; --mut:#8d9896; --acc:#ff1f30; --acc2:#ff4553; --acc-tint:rgba(255,31,48,.09); --wh-tint:rgba(61,220,125,.08); --acc-ring:rgba(255,31,48,.26);
   --ok:#5fb88a; --warn:#d4a24c; --bad:#e07272;
   --t-neutral:#9aa5a3; --t-ok:#5fb88a; --t-warn:#d4a24c; --t-bad:#e07272; --t-info:#6ea9de; --t-violet:#a597de; --t-strong:#dfe4e2;
   --hdr-bg:#101416; --hdr-line:#253035; --hdr-panel2:#1b2327;
-  --shadow:0 1px 2px rgba(0,0,0,.25); --hover:rgba(255,255,255,.035);
+  --shadow:0 1px 2px rgba(0,0,0,.28),0 8px 22px -14px rgba(0,0,0,.6); --hover:rgba(255,255,255,.035);
+  --shadow-pop:0 2px 8px rgba(0,0,0,.35),0 28px 64px -18px rgba(0,0,0,.7);
 }
 .te{--viz-s1:#2a78d6;--viz-s2:#eb6834;--viz-grid:#e1e4e1;--viz-axis:#c4cac6}
 .te.dark{--viz-s1:#3987e5;--viz-s2:#d95926;--viz-grid:#2a3236;--viz-axis:#3a454a}
@@ -680,7 +684,7 @@ body.fw-busy,body.fw-busy *{user-select:none!important}
 .chat-badge{min-width:18px;height:18px;padding:0 5px;border-radius:var(--r-pill);background:#ff1f30;color:#fff;font:700 11px/18px var(--sans);text-align:center;flex:none}
 .hdr-chat .chat-badge{position:absolute;top:-6px;right:-6px}
 .mnav .mnav-badge{position:absolute;top:-5px;right:-5px}
-.te.hdr-off.fine.side .hdr .hdr-chat,.te.touch .hdr .hdr-chat{grid-column:1/-1;height:40px;border-radius:var(--r-md);font-size:var(--fs-sm);font-weight:600;justify-content:center}
+.te.hdr-off.fine.side .hdr .hdr-chat,.te.touch .hdr .hdr-chat{grid-column:2;height:40px;border-radius:var(--r-md);font-size:var(--fs-sm);font-weight:600;justify-content:center}
 .te.hdr-off.fine.side .hdr .hdr-chat .hdr-lbl,.te.touch .hdr .hdr-chat .hdr-lbl{display:inline}
 .chat-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--mut);opacity:.55;flex:none}
 .chat-dot.on{background:#2fd06b;opacity:1;box-shadow:0 0 0 2px rgba(47,208,107,.2)}
@@ -916,21 +920,93 @@ table.t td{position:static}
 /* ============ Плавное появление страниц и карточек (телефон и компьютер) ============
    Анимация без «заливки» после окончания (backwards): по завершении не остаётся слоёв,
    которые могли бы закрыть окна (modal) шапкой. */
-@keyframes fxRise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes fxRise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes fxIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes fxPop{from{opacity:0;transform:translateY(10px) scale(.975)}to{opacity:1;transform:none}}
 @keyframes fxFade{from{opacity:0}to{opacity:1}}
 @media all{
-  .body{animation:fxFade .45s ease backwards}
-  .card{animation:fxRise .5s cubic-bezier(.2,.7,.2,1) backwards}
-  .kpi{animation:fxRise .5s cubic-bezier(.2,.7,.2,1) backwards}
-  .kpis .kpi:nth-child(2){animation-delay:.05s}.kpis .kpi:nth-child(3){animation-delay:.1s}.kpis .kpi:nth-child(4){animation-delay:.15s}
-  .kpis .kpi:nth-child(5){animation-delay:.2s}.kpis .kpi:nth-child(6){animation-delay:.25s}.kpis .kpi:nth-child(n+7){animation-delay:.3s}
-  .modal{animation:fxRise .4s cubic-bezier(.2,.7,.2,1) backwards}
+  .body{animation:fxIn .28s var(--ease) backwards}
+  .card{animation:fxRise .38s var(--ease) backwards}
+  .kpi{animation:fxRise .38s var(--ease) backwards}
+  .kpis .kpi:nth-child(2){animation-delay:.03s}.kpis .kpi:nth-child(3){animation-delay:.06s}.kpis .kpi:nth-child(4){animation-delay:.09s}
+  .kpis .kpi:nth-child(5){animation-delay:.12s}.kpis .kpi:nth-child(6){animation-delay:.15s}.kpis .kpi:nth-child(n+7){animation-delay:.18s}
+  .modal-bg{animation:fxFade .18s ease backwards}
+  .modal{animation:fxPop .26s var(--ease-out) backwards}
 }
 @media(prefers-reduced-motion:reduce){
-  .body,.card,.kpi,.modal{animation:none!important}
+  .body,.card,.kpi,.modal,.modal-bg,.chat-win,.toast{animation:none!important}
+  .btn,.tab,.inp,table.t td,.chat-it,.seg button{transition:none!important}
+  .btn:active,.btn.pri:hover{transform:none!important}
 }
 /* телефон: страница и карточки появляются сразу, без «подъезда» (на телефоне это выглядело как дрожание экрана) */
 html.phone-boot .body,html.phone-boot .card,html.phone-boot .kpi{animation:none!important}
+
+/* ================= Дизайн 2 (ноябрь 2026): шапка, кнопки, поля, таблицы, окна, движение =================
+   Настроение: надёжно, спокойно, быстро. Фирменный красный — только для главного действия и активного раздела. */
+/* шапка на компьютере (закреплена сверху): 1-я строка — логотип · заметки/чат/калькулятор · аккаунт; 2-я — разделы.
+   Края шапки совпадают с краями страницы (ширина .body 1300px) */
+@media(min-width:821px){
+  .te.fine:not(.hdr-off) .hdr{padding:12px max(24px,calc((100% - 1300px)/2 + 24px)) 0;row-gap:10px;column-gap:8px;box-shadow:0 1px 0 rgba(0,0,0,.2)}
+  .te.fine:not(.hdr-off) .hdr .logo{order:0;margin-right:12px}
+  .te.fine:not(.hdr-off) .hdr .npanel-btn{order:2;margin-left:auto}
+  .te.fine:not(.hdr-off) .hdr .hdr-chat{order:3}
+  .te.fine:not(.hdr-off) .hdr .hdr-calc{order:4}
+  .te.fine:not(.hdr-off) .hdr .hdr-user{order:5;margin-left:8px;padding:3px 3px 3px 14px;border-radius:var(--r-pill);background:var(--hdr-panel2);border:1px solid var(--hdr-line);gap:6px!important}
+  .te.fine:not(.hdr-off) .hdr .hdr-user>div{text-align:left!important;line-height:1.15;margin-right:4px}
+  .te.fine:not(.hdr-off) .hdr .hdr-user .btn.xs{border-radius:var(--r-pill);min-height:30px;padding:4px 11px;background:var(--hdr-bg)}
+  .te.fine:not(.hdr-off) .hdr .tabs{order:9;flex-basis:100%;margin:0 0 0 -12px;padding-bottom:8px;gap:2px}
+  .te.fine:not(.hdr-off) .hdr .npanel-btn,.te.fine:not(.hdr-off) .hdr .hdr-chat,.te.fine:not(.hdr-off) .hdr .hdr-calc{min-height:32px;padding:5px 12px;border-radius:var(--r-pill)}
+}
+@media(min-width:821px) and (max-width:1120px){.te.fine:not(.hdr-off) .hdr .hdr-lbl{display:none}}
+.hdr .btn{transition:background var(--dur),border-color var(--dur),color var(--dur)}
+.hdr .btn:hover{border-color:var(--hdr-mut);background:var(--hdr-line);color:#fff}
+.hdr .btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.tab{transition:background var(--dur),color var(--dur),box-shadow var(--dur)}
+.tab.on{box-shadow:0 2px 10px rgba(255,31,48,.3)}
+.tab.on:hover{background:var(--acc);color:#fff}
+/* кнопки: мягкая реакция на наведение и нажатие */
+.btn{transition:background var(--dur),border-color var(--dur),color var(--dur),box-shadow var(--dur),transform .1s}
+.btn:hover{border-color:color-mix(in srgb,var(--mut) 55%,var(--line2))}
+.btn:active:not(:disabled){transform:translateY(1px)}
+.btn.pri{box-shadow:0 1px 2px rgba(214,0,26,.25),0 4px 12px -4px rgba(255,31,48,.45)}
+.btn.pri:hover{box-shadow:0 2px 4px rgba(214,0,26,.25),0 8px 18px -6px rgba(255,31,48,.55)}
+.btn.pri:disabled{box-shadow:none}
+.btn.dng:hover{background:color-mix(in srgb,var(--bad) 8%,transparent)}
+/* поля ввода */
+.inp{transition:border-color var(--dur),box-shadow var(--dur),background var(--dur)}
+.inp:hover:not(:focus):not(:disabled){border-color:color-mix(in srgb,var(--mut) 45%,var(--line2))}
+.inp::placeholder{color:color-mix(in srgb,var(--mut) 80%,transparent)}
+.inp:focus{box-shadow:0 0 0 3px var(--acc-ring)}
+.inp:focus-visible{outline:none} /* фокус поля уже виден по рамке и мягкому кольцу — без второго контура */
+/* таблицы: спокойная шапка, плавная подсветка строки */
+table.t th{letter-spacing:.2px}
+table.t td{transition:background .12s}
+/* шапка поставки в объекте: вместо розовой заливки — нейтральная строка с красной меткой слева */
+tr.batch-head>td{background:var(--panel2)!important;box-shadow:inset 3px 0 0 var(--acc);font-weight:700!important;letter-spacing:.3px!important}
+tr.batch-head:hover>td{background:color-mix(in srgb,var(--txt) 4%,var(--panel2))!important}
+.batch-del{border-color:transparent!important;background:none!important;color:var(--mut)!important;box-shadow:none!important}
+.batch-del:hover{color:var(--bad)!important;border-color:color-mix(in srgb,var(--bad) 40%,transparent)!important;background:color-mix(in srgb,var(--bad) 8%,transparent)!important}
+/* сегменты-фильтры */
+.seg button{transition:background var(--dur),color var(--dur),box-shadow var(--dur)}
+/* окна */
+.modal-bg{background:rgba(14,19,22,.5);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+.modal{box-shadow:var(--shadow-pop)}
+.te.dark .modal{box-shadow:var(--shadow-pop)}
+/* уведомление снизу */
+@keyframes toastin{from{opacity:0;transform:translate(-50%,16px) scale(.98)}to{opacity:1;transform:translate(-50%,0)}}
+.toast{animation:toastin .3s var(--ease-out);border-left-width:4px;box-shadow:var(--shadow-pop);width:max-content}
+.te.touch .hdr .hdr-calc,.te.hdr-off.fine.side .hdr .hdr-calc{grid-column:1/-1}
+@media(max-width:820px){.toast{bottom:calc(16px + env(safe-area-inset-bottom,0px))}}
+/* галочки и переключатели — фирменного цвета; календарь, списки и полосы прокрутки браузера — в цвет темы */
+.te{color-scheme:light;accent-color:var(--acc)}
+.te.dark{color-scheme:dark}
+.te input[type=checkbox],.te input[type=radio]{width:16px;height:16px;vertical-align:-3px;cursor:pointer}
+.te input[type=checkbox]:disabled,.te input[type=radio]:disabled{cursor:default}
+/* предупреждение о бэкапе — мягкая жёлтая подложка вместо одной рамки */
+.abwarn{background:color-mix(in srgb,var(--warn) 7%,var(--panel))!important}
+/* чат и карточки — та же тень окон */
+.chat-win{box-shadow:var(--shadow-pop);animation:fxPop .24s var(--ease-out) backwards}
+.chat-it{transition:background var(--dur)}
 `;
 
 /* ============ DATA LAYER = Supabase (db из ./db.js) ============ */
