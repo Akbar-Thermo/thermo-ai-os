@@ -669,13 +669,13 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const all = await zkCands(supId, items);
     const b0 = all[0], b1 = all[1];
     const sure = !!b0 && items.length > 0 && ((b0.s >= 0.5 && (!b1 || b1.s < b0.s * 0.7)) || (all.length === 1 && b0.s >= 0.3));
+    // в группу расходов — только после подтверждения выбирающего («Объект выбирает»): уверенный вариант бота — первым, с ✅
     const L = { kind: "inv", sup: supId || null, supName: (sups.find((s) => s.id === supId) || {}).name || (inv && inv.supplier) || "", chat: chatId, msg: msg.message_id,
-      obj: sure ? b0.o.id : null, name: sure ? b0.o.name || "" : "", batch: sure ? b0.b.no : null, diff: sure ? zkDiff(b0.its, items) : [],
-      cands: sure ? [] : all.slice(0, 6).map((c) => ({ obj: c.o.id, name: c.o.name || "", batch: c.b.no })),
+      obj: null, name: "", batch: null, diff: [], guess: sure ? 0 : -1,
+      cands: all.slice(0, 6).map((c) => ({ obj: c.o.id, name: c.o.name || "", batch: c.b.no })),
       items, cur, rate, total: numv(inv && inv.total), number: String((inv && inv.number) || "").slice(0, 40), date: (inv && inv.date) || "", at: now().toISOString() };
     const row = (await db.insert("requests", { mode: ZK_INV, source: "config", lines: L }))[0];
     if (!row) return;
-    if (sure || !L.cands.length) return zkPost(row.id, L, z);
     return zkAsk(row.id, L, z);
   }
   // в группу расходов: копия фото / PDF с подписью (объект, поставщик, сумма, расхождения) — без кнопок
@@ -689,13 +689,16 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     await db.update("requests", "id=eq." + id, { lines: L });
     return L;
   }
-  // объект не ясен: карточки выбора — в личный чат тем, кто выбирает (не в группу)
+  // каждая накладная: сначала карточка в личный чат тем, кто выбирает объект (не в группу); в расходы — после их ответа
   async function zkAsk(id, L, z) {
     const P = await people(), who = zkPickers(P, z);
     const it = L.items || [];
     const tot = it.reduce((a, x) => a + (Number(x.qty) || 0) * (Number(x.price) || 0), 0) || Number(L.total) || 0;
-    const cap = cut("🧾 <b>Nakladnoy</b> · " + esc(L.supName || "?") + (L.number ? " · №" + esc(L.number) : "") + (tot ? " · " + (L.cur === "uzs" ? sum(tot) : usd(tot)) : "") + "\nQaysi obyekt?", 1000);
-    const kb = { inline_keyboard: [...L.cands.map((c, i) => [{ text: cut("🏠 " + c.name + " · " + c.batch + "-postavka", 60), callback_data: "zo:" + id + ":" + i }]), [{ text: "❌ Kerak emas", callback_data: "zn:" + id }]] };
+    const g = L.guess >= 0 ? (L.cands || [])[L.guess] : null;
+    const cap = cut("🧾 <b>Nakladnoy</b> · " + esc(L.supName || "?") + (L.number ? " · №" + esc(L.number) : "") + (tot ? " · " + (L.cur === "uzs" ? sum(tot) : usd(tot)) : "") +
+      (g ? "\nBot taxmini: 🏠 <b>" + esc(g.name) + "</b> · " + g.batch + "-postavka" : "") + "\n" + ((L.cands || []).length ? "Qaysi obyekt? Tanlang — keyin rasxodlar guruhiga yuboraman." : "Bu postavshikdan ochiq postavka topilmadi."), 1000);
+    const kb = { inline_keyboard: [...(L.cands || []).map((c, i) => [{ text: cut((i === L.guess ? "✅ " : "🏠 ") + c.name + " · " + c.batch + "-postavka", 60), callback_data: "zo:" + id + ":" + i }]),
+      [{ text: "📤 Obyektsiz yuborish", callback_data: "zu:" + id }, { text: "❌ Kerak emas", callback_data: "zn:" + id }]] };
     const pm = [];
     for (const m of who) {
       try { const r = await tg("copyMessage", { chat_id: m.tg, from_chat_id: L.chat, message_id: L.msg, caption: cap, parse_mode: "HTML", reply_markup: kb }); pm.push({ tg: String(m.tg), msg: r && r.message_id, cap: true }); }
@@ -807,7 +810,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const me = await whoAmI(cq.from && cq.from.id);
     if (!me) return ans("Akkauntingiz ulanmagan (Thermo bot orqali ulang)", true);
     if (act === "zl" || act === "zk" || act === "zw" || act === "zb") return zkPriceCb(act, id, n2, cq, ans, me);
-    if (act !== "zo" && act !== "zn") return ans();
+    if (act !== "zo" && act !== "zn" && act !== "zu") return ans();
     if (!/^[0-9a-f-]{36}$/i.test(id || "")) return ans();
     const row = (await db.select("requests", "id=eq." + id + "&mode=eq." + ZK_INV + "&select=id,lines"))[0];
     if (!row) return ans("Topilmadi", true);
@@ -826,7 +829,14 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       return ans();
     }
     if (!zkCanPick(me, z) && !L.pm.some((p) => p.tg === String(me.tg))) return ans("Bu bo'lim sizga ochilmagan", true);
-    if (L.obj || L.skip) return ans("Allaqachon tanlangan" + (L.by ? ": " + L.by : ""), true);
+    if (L.obj || L.skip || L.noobj) return ans("Allaqachon tanlangan" + (L.by ? ": " + L.by : ""), true);
+    if (act === "zu") { // объект не нашёлся — в расходы с пометкой «obyekt aniqlanmadi»
+      L = { ...L, noobj: true, by: me.name };
+      await db.update("requests", "id=eq." + row.id, { lines: L });
+      await ans("Yuborildi");
+      L = await zkPost(row.id, L, z);
+      return zkPmDone(L, "📤 " + esc(L.supName || "") + " — obyektsiz yuborildi (" + esc(me.name) + ")");
+    }
     if (act === "zn") {
       L = { ...L, skip: me.name };
       await db.update("requests", "id=eq." + row.id, { lines: L });
@@ -844,7 +854,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     L = await zkPost(row.id, L, z);
     await zkPmDone(L, "✅ 🏠 <b>" + esc(L.name) + "</b> · " + L.batch + "-postavka — " + esc(L.supName || "") + " (" + esc(me.name) + ")");
   }
-  const ZK_HELLO = "📦 <b>Thermo postavka</b>\n\nPostavshik guruhga tashlagan nakladnoy rasxodlar guruhiga obyekt nomi bilan boradi. Obyekt aniq bo'lmasa, sizga shu yerda tanlash uchun keladi.\nPrayslarni eslab qolaman: <b>prayslar</b> deb yozing.";
+  const ZK_HELLO = "📦 <b>Thermo postavka</b>\n\nPostavshik guruhga tashlagan nakladnoy rasxodlar guruhiga obyekt nomi bilan boradi. Har bir nakladnoy avval sizga shu yerda keladi: obyektni tasdiqlang yoki tanlang — keyin rasxodlar guruhiga yuboraman.\nPrayslarni eslab qolaman: <b>prayslar</b> deb yozing.";
   async function onZakazMessage(msg) {
     const chat = msg.chat || {};
     if (msg.from && msg.from.is_bot) return;

@@ -11072,7 +11072,7 @@ function ZakazCard({ data, reload, toast, users = [] }) {
         </div>
       ))}
       <div className="zk-pick" style={{ padding: "8px 0", borderTop: "1px solid var(--line)" }}>
-        <div className="sm" style={{ marginBottom: 6 }}><b>Объект выбирает</b> <span className="xs mut">— если по накладной объект не ясен</span></div>
+        <div className="sm" style={{ marginBottom: 6 }}><b>Объект выбирает</b> <span className="xs mut">— каждая накладная сначала приходит ему в личный чат; в группу расходов — после подтверждения</span></div>
         {pickers.length ? <div className="row" style={{ gap: 14, flexWrap: "wrap" }}>{pickers.map((u) => (
           <label key={u.id} className="row sm zk-pick-u" style={{ gap: 6, cursor: "pointer" }}><input type="checkbox" checked={pick.includes(u.id)} disabled={busy} onChange={() => togglePick(u.id)} />{u.name || u.username}</label>
         ))}</div> : <div className="xs mut">Нет сотрудников, подключённых к Telegram-боту.</div>}
