@@ -1557,6 +1557,38 @@ function downloadDeliverySheet(obj, suppliers, only = null) {
   const safeName = String(obj.name || "object").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
   return downloadStyledXLSX("Доставка_" + safeName + (only ? "_поставка" + only : "") + ".xlsx", "Доставка", rows, [6, 66, 10, 8, 15], ["c", "t", "n", "c", "c"]);
 }
+// «Объекты → Excel: долги»: долги клиентов по объектам, сгруппированные по мастерам (все мастера — со сводкой сверху; один мастер — только он)
+function downloadMasterDebts(list, masterLabel, perech = false) {
+  const debtors = list.filter((r) => r.debt > 0.004);
+  const by = new Map();
+  debtors.forEach((r) => { const k = r.mk; const g = by.get(k) || { name: r.mn || "Без мастера", rows: [], debt: 0, uzs: 0 }; g.rows.push(r); g.debt += r.debt; if (r.pc && r.pc.debt > 0) g.uzs += r.pc.debt; by.set(k, g); });
+  const groups = [...by.values()].sort((a, b) => (a.name === "Без мастера") - (b.name === "Без мастера") || b.debt - a.debt);
+  groups.forEach((g) => g.rows.sort((a, b) => b.debt - a.debt));
+  const total = groups.reduce((a, g) => a + g.debt, 0), totUzs = groups.reduce((a, g) => a + g.uzs, 0);
+  const head = ["№", "Объект", "Клиент", "Телефон", "Статус", "Сумма, $", "Оплачено, $", "Долг, $"].concat(perech ? ["Долг, сум"] : []);
+  const rows = [
+    { k: "title", v: [(masterLabel ? "ДОЛГИ КЛИЕНТОВ — мастер " + masterLabel : "ДОЛГИ КЛИЕНТОВ ПО МАСТЕРАМ") + (perech ? " (перечисление)" : "")] },
+    { k: "info", v: ["На " + dt(today()) + " · объектов с долгом: " + debtors.length + " · общий долг: " + fmt(total) + (perech && totUzs ? " · " + sumFmt(totUzs) + " сум" : "")] },
+    { k: "blank" },
+  ];
+  if (!masterLabel && groups.length > 1) {
+    rows.push({ k: "section", v: ["СВОДКА ПО МАСТЕРАМ"] });
+    rows.push({ k: "head", v: ["№", "Мастер", "", "", "Объектов", "", "", "Долг, $"].concat(perech ? ["Долг, сум"] : []), merge: [[1, 3], [4, 6]] });
+    groups.forEach((g, i) => rows.push({ k: "row", v: [i + 1, g.name, "", "", String(g.rows.length), "", "", round2(g.debt)].concat(perech ? [g.uzs ? Math.round(g.uzs) : ""] : []), merge: [[1, 3], [4, 6]] }));
+    rows.push({ k: "sum", v: ["", "Итого", "", "", String(debtors.length), "", "", round2(total)].concat(perech ? [totUzs ? Math.round(totUzs) : ""] : []), merge: [[1, 3], [4, 6]] });
+    rows.push({ k: "blank" });
+  }
+  groups.forEach((g) => {
+    rows.push({ k: "section", v: ["МАСТЕР: " + g.name + " · объектов: " + g.rows.length + " · долг: " + fmt(g.debt)] });
+    rows.push({ k: "head", v: head });
+    g.rows.forEach((r, i) => rows.push({ k: "row", v: [i + 1, r.o.name || "", r.o.client || "", r.o.phone || "", stById(r.o.status).label.replace(" (старый статус)", ""), round2(r.f.saleNet), round2(r.f.paidClient), round2(r.debt)].concat(perech ? [r.pc && r.pc.debt > 0 ? Math.round(r.pc.debt) : ""] : []) }));
+    rows.push({ k: "sum", v: ["", "Итого по мастеру", "", "", "", round2(g.rows.reduce((a, r) => a + r.f.saleNet, 0)), round2(g.rows.reduce((a, r) => a + r.f.paidClient, 0)), round2(g.debt)].concat(perech ? [g.uzs ? Math.round(g.uzs) : ""] : []) });
+    rows.push({ k: "blank" });
+  });
+  if (!groups.length) rows.push({ k: "info", v: ["Долгов нет"] });
+  const nm = String(masterLabel || "все_мастера").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
+  return downloadStyledXLSX("Долги_" + nm + "_" + today() + ".xlsx", "Долги", rows, [5, 34, 24, 17, 14, 12, 12, 12].concat(perech ? [14] : []), ["c", "t", "t", "t", "t", "m", "m", "m"].concat(perech ? ["m"] : []));
+}
 // «Лист доставки»: выбрать — все поставки или одна из них (если поставка в объекте одна, окно не показывается)
 function DeliverySheetPick({ obj, suppliers, onClose, toast }) {
   const batches = objBatches(obj);
@@ -6286,6 +6318,11 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
       <div className="row sect">
         <h2 style={{ marginRight: "auto" }}>{pmode ? "Объекты — перечисление" : "Объекты"} <span className="mut sm">({shown.length !== objects.length ? shown.length + " из " + objects.length : objects.length})</span></h2>
         {setPmode && <PerechToggle on={pmode} set={setPmode} />}
+        {fin && <button className="btn obj-debts-x" title={mF ? "Excel: долги клиентов по объектам выбранного мастера" : "Excel: долги клиентов по всем мастерам"} onClick={() => {
+          const it = mItems.find((x) => x.key === mF);
+          const r = downloadMasterDebts(sortedRows, mF ? (it && it.name) || "—" : "", pmode);
+          toast(r === "xlsx" ? "Excel с долгами скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
+        }}><Ic n="download" /> Excel: долги</button>}
         <button className="btn pri" onClick={goRequest}>+ Новая заявка</button>
       </div>
       <MasterBar items={mItems} value={mF} onPick={setMF} />
