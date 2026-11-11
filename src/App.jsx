@@ -1582,12 +1582,12 @@ function downloadMasterDebts(list, masterLabel, perech = false) {
     rows.push({ k: "section", v: ["МАСТЕР: " + g.name + " · объектов: " + g.rows.length + " · долг: " + fmt(g.debt)] });
     rows.push({ k: "head", v: head });
     g.rows.forEach((r, i) => rows.push({ k: "row", v: [i + 1, r.o.name || "", r.o.client || "", r.o.phone || "", stById(r.o.status).label.replace(" (старый статус)", ""), round2(r.f.saleNet), round2(r.f.paidClient), round2(r.debt)].concat(perech ? [r.pc && r.pc.debt > 0 ? Math.round(r.pc.debt) : ""] : []) }));
-    rows.push({ k: "sum", v: ["", "Итого по мастеру", "", "", "", round2(g.rows.reduce((a, r) => a + r.f.saleNet, 0)), round2(g.rows.reduce((a, r) => a + r.f.paidClient, 0)), round2(g.debt)].concat(perech ? [g.uzs ? Math.round(g.uzs) : ""] : []) });
+    rows.push({ k: "sum", merge: [[0, 4]], v: ["Итого по мастеру", "", "", "", "", round2(g.rows.reduce((a, r) => a + r.f.saleNet, 0)), round2(g.rows.reduce((a, r) => a + r.f.paidClient, 0)), round2(g.debt)].concat(perech ? [g.uzs ? Math.round(g.uzs) : ""] : []) });
     rows.push({ k: "blank" });
   });
   if (!groups.length) rows.push({ k: "info", v: ["Долгов нет"] });
   const nm = String(masterLabel || "все_мастера").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
-  return downloadStyledXLSX("Долги_" + nm + "_" + today() + ".xlsx", "Долги", rows, [5, 34, 24, 17, 14, 12, 12, 12].concat(perech ? [14] : []), ["c", "t", "t", "t", "t", "m", "m", "m"].concat(perech ? ["m"] : []));
+  return downloadStyledXLSX("Долги_" + nm + "_" + today() + ".xlsx", "Долги", rows, [5, 34, 24, 17, 14, 12, 12, 12].concat(perech ? [14] : []), ["c", "t", "t", "t", "t", "m", "m", "m"].concat(perech ? ["m"] : []), { green: [6], red: [7].concat(perech ? [8] : []) });
 }
 // «Лист доставки»: выбрать — все поставки или одна из них (если поставка в объекте одна, окно не показывается)
 function DeliverySheetPick({ obj, suppliers, onClose, toast }) {
@@ -1762,13 +1762,14 @@ function xlSheetXml(rows0, cols, types, opt = {}) {
   const rows = opt.noBrand ? rows0 : [{ k: "brand" }, ...rows0];
   const n = cols.length, merges = [];
   const green = new Set(opt.green || []); // колонки, где числа зелёные (например «Прибыль»)
+  const redC = new Set(opt.red || []); // колонки, где числа красные (например «Долг»)
   let red = false;
   const cell = (r, c, v, s) => {
     const ref = xlCol(c) + (r + 1);
     const isNum = typeof v === "number" && isFinite(v);
     // числа и строки только из цифр (даты, телефоны) — шрифтом для цифр
     if ((isNum || (typeof v === "string" && /^[\d\s.,:\/+\-−]+$/.test(v) && /\d/.test(v))) && XL_NUMSTYLE[s] != null) s = XL_NUMSTYLE[s];
-    if (red && XL_REDSTYLE[s] != null) s = XL_REDSTYLE[s];
+    if ((red || (redC.has(c) && isNum)) && XL_REDSTYLE[s] != null) s = XL_REDSTYLE[s];
     else if (!red && green.has(c) && XL_GREENSTYLE[s] != null && !(typeof v === "number" && v < 0)) s = XL_GREENSTYLE[s];
     if (v === "" || v == null) return '<c r="' + ref + '" s="' + s + '"/>';
     if (isNum) return '<c r="' + ref + '" s="' + s + '"><v>' + v + "</v></c>";
@@ -1790,7 +1791,8 @@ function xlSheetXml(rows0, cols, types, opt = {}) {
       cs = cols.map((_, c) => { const t = types[c] || "t"; return cell(r, c, v[c], t === "p" ? (typeof v[c] === "number" ? 26 : 6) : t === "m" ? 6 : t === "n" ? 5 : t === "c" ? 9 : 4); }).join("");
     } else if (k === "sum") {
       // итоговая строка таблицы: подписи жирно вправо, числа жирно
-      cs = cols.map((_, c) => { const x = v[c]; return cell(r, c, x, typeof x === "number" ? 8 : x ? 7 : 0); }).join("");
+      const inM = (c) => (row.merge || []).some(([a, b]) => c >= a && c <= b); // объединённые ячейки — с рамкой, как подпись
+      cs = cols.map((_, c) => { const x = v[c]; return cell(r, c, x, typeof x === "number" ? 8 : x || inM(c) ? 7 : 0); }).join("");
     } else if (k === "ftotal") {
       // итоговый блок внизу (шаблон клиента): подпись по центру колонок 3…n-1, сумма в последней, без рамок
       cs = cell(r, 0, "", 0) + cell(r, 1, "", 0);

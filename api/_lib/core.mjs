@@ -1094,12 +1094,13 @@ function xlSheetXml(rows0, cols, types, opt = {}) {
   const rows = opt.noBrand ? rows0 : [{ k: "brand" }, ...rows0];
   const n = cols.length, merges = [];
   const green = new Set(opt.green || []);
+  const redC = new Set(opt.red || []);
   let red = false;
   const cell = (r, c, v, s) => {
     const ref = xlCol(c) + (r + 1);
     const isNum = typeof v === "number" && isFinite(v);
     if ((isNum || typeof v === "string" && /^[\d\s.,:\/+\-−]+$/.test(v) && /\d/.test(v)) && XL_NUMSTYLE[s] != null) s = XL_NUMSTYLE[s];
-    if (red && XL_REDSTYLE[s] != null) s = XL_REDSTYLE[s];
+    if ((red || redC.has(c) && isNum) && XL_REDSTYLE[s] != null) s = XL_REDSTYLE[s];
     else if (!red && green.has(c) && XL_GREENSTYLE[s] != null && !(typeof v === "number" && v < 0)) s = XL_GREENSTYLE[s];
     if (v === "" || v == null) return '<c r="' + ref + '" s="' + s + '"/>';
     if (isNum) return '<c r="' + ref + '" s="' + s + '"><v>' + v + "</v></c>";
@@ -1123,9 +1124,10 @@ function xlSheetXml(rows0, cols, types, opt = {}) {
         return cell(r, c, v[c], t === "p" ? typeof v[c] === "number" ? 26 : 6 : t === "m" ? 6 : t === "n" ? 5 : t === "c" ? 9 : 4);
       }).join("");
     } else if (k === "sum") {
+      const inM = (c) => (row.merge || []).some(([a, b]) => c >= a && c <= b);
       cs = cols.map((_, c) => {
         const x = v[c];
-        return cell(r, c, x, typeof x === "number" ? 8 : x ? 7 : 0);
+        return cell(r, c, x, typeof x === "number" ? 8 : x || inM(c) ? 7 : 0);
       }).join("");
     } else if (k === "ftotal") {
       cs = cell(r, 0, "", 0) + cell(r, 1, "", 0);
