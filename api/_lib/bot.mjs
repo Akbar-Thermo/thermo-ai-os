@@ -483,6 +483,15 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     if (z.p) await db.update("requests", "id=eq." + z.p.id, { lines: { ...(z.p.lines || {}), groups } });
     else await db.insert("requests", { mode: ZK_PEND, source: "config", lines: { groups } });
   }
+  // бота удалили из группы — убираем её из списка в программе и из настроек (поставщик / расходы)
+  async function zkGone(z, chat) {
+    const id = String(chat.id);
+    if (z.p && z.groups.some((g) => String(g.id) === id)) await db.update("requests", "id=eq." + z.p.id, { lines: { ...(z.p.lines || {}), groups: z.groups.filter((g) => String(g.id) !== id) } });
+    if (z.c && (z.sup[id] || z.exp === id)) {
+      const sup = { ...z.sup }; delete sup[id];
+      await db.update("requests", "id=eq." + z.c.id, { lines: { ...(z.c.lines || {}), sup, exp: z.exp === id ? "" : z.exp } });
+    }
+  }
   async function zkSaveName() {
     const me = await botMe(); if (!me) return;
     const z = await zkCfg();
@@ -2565,7 +2574,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
         if (!menuDone) { menuDone = true; try { for (const scope of [{ type: "default" }, { type: "all_group_chats" }, { type: "all_private_chats" }]) await tg("deleteMyCommands", { scope }); await zkSaveName(); } catch (e) { menuDone = false; } }
         if (upd.callback_query) return /^z[a-z]:/.test(String(upd.callback_query.data || "")) ? zkCallback(upd.callback_query, (text, alert) => tg("answerCallbackQuery", { callback_query_id: upd.callback_query.id, text: text || "", show_alert: !!alert }).catch(() => {})) : undefined;
         if (upd.message) return onZakazMessage(upd.message);
-        if (upd.my_chat_member) { const ch = upd.my_chat_member.chat || {}, st = upd.my_chat_member.new_chat_member && upd.my_chat_member.new_chat_member.status; if ((ch.type === "group" || ch.type === "supergroup") && (st === "member" || st === "administrator")) await zkPending(await zkCfg(), ch); }
+        if (upd.my_chat_member) { const ch = upd.my_chat_member.chat || {}, st = upd.my_chat_member.new_chat_member && upd.my_chat_member.new_chat_member.status; if (ch.type === "group" || ch.type === "supergroup") { if (st === "member" || st === "administrator") await zkPending(await zkCfg(), ch); else if (st === "left" || st === "kicked") await zkGone(await zkCfg(), ch); } }
         return;
       }
       if (!menuDone) { menuDone = true; try { if (smeta) { for (const scope of [{ type: "default" }, { type: "all_group_chats" }]) await tg("deleteMyCommands", { scope }); await tg("setMyCommands", { commands: [{ command: "start", description: "Qanday ishlatish" }, { command: "qoidalar", description: "Qaysi tovar qaysi postavshikdan" }], scope: { type: "all_private_chats" } }); } else { await setupMenu(tg); await saveBotName(); } } catch (e) { menuDone = false; } }

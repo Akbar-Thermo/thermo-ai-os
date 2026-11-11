@@ -11055,6 +11055,23 @@ function ZakazCard({ data, reload, toast, users = [] }) {
     await logAction("Бот поставщиков: группы", "telegram", Object.entries(sup).map(([c, id]) => ((groups.find((g) => String(g.id) === c) || {}).title || c) + " → " + sn(id)).join("; ") + (exp ? " · расходы: " + ((groups.find((g) => String(g.id) === exp) || {}).title || exp) : "") + " · объект выбирает: " + (pick.length ? pick.map(un).join(", ") : "руководители"));
     await reload(["requests"]); toast("Настройки бота поставщиков сохранены");
   };
+  // убрать группу из списка (бота уже нет в ней) — и из настроек поставщика / расходов
+  const dropGroup = async (g) => {
+    const id = String(g.id);
+    if (!(await askConfirm({ title: "Убрать группу «" + (g.title || id) + "»?", text: "Бот перестанет её учитывать. Если бота снова добавят в группу, она появится здесь сама.", ok: "Убрать", cancel: "Отмена" }))) return;
+    setBusy(true);
+    const pr = (((await db.from("requests").select().eq("mode", ZK_PEND_MODE)) || {}).data || [])[0];
+    const cr = (((await db.from("requests").select().eq("mode", ZK_MODE)) || {}).data || [])[0];
+    if (pr) await db.from("requests").update({ lines: { ...(pr.lines || {}), groups: ((pr.lines && pr.lines.groups) || []).filter((x) => String(x.id) !== id) } }).eq("id", pr.id);
+    if (cr && cr.lines && ((cr.lines.sup || {})[id] || String(cr.lines.exp || "") === id)) {
+      const sup = { ...(cr.lines.sup || {}) }; delete sup[id];
+      await db.from("requests").update({ lines: { ...cr.lines, sup, exp: String(cr.lines.exp || "") === id ? "" : cr.lines.exp } }).eq("id", cr.id);
+    }
+    setV((x) => { const n = { ...x }; delete n[id]; return n; });
+    setBusy(false);
+    await logAction("Бот поставщиков: группа убрана", "telegram", (g.title || "") + " " + id);
+    await reload(["requests"]); toast("Группа убрана");
+  };
   const dupExp = Object.values(v).filter((x) => x === "__exp").length > 1;
   const togglePick = (id) => setPick((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   return (
@@ -11069,6 +11086,7 @@ function ZakazCard({ data, reload, toast, users = [] }) {
             <option value="__exp">💸 Группа расходов (накладные)</option>
             {sups.map((x) => <option key={x.id} value={x.id}>{"Поставщик: " + x.name}</option>)}
           </select>
+          <button type="button" className="btn xs dng" disabled={busy} title="Убрать группу из списка" onClick={() => dropGroup(g)}>✕</button>
         </div>
       ))}
       <div className="zk-pick" style={{ padding: "8px 0", borderTop: "1px solid var(--line)" }}>
