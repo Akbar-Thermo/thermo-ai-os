@@ -11054,9 +11054,81 @@ function AdminTab({ data, reload, toast, currentUser, isBoss = true, seen = {}, 
           </div>
         </Modal>
       )}
+      {isBoss && <BotsCard toast={toast} />}
       <TelegramCard data={data} reload={reload} toast={toast} users={users} roles={roles} uperms={uperms} />
       <ZakazCard data={data} reload={reload} toast={toast} users={users} />
       <OstatkaCard data={data} reload={reload} toast={toast} />
+    </div>
+  );
+}
+/* Пульт всех Telegram-ботов (функция Supabase «bots», supabase/functions/bots): работает ли каждый бот, подключён ли
+   он к своей функции, сколько сообщений ждёт и последняя ошибка Telegram; «Подключить» / «Остановить».
+   Только руководитель (функция проверяет сессию программы). Доступ людей — в карточках ботов ниже. */
+const BOT_STATE = {
+  ok: ["✓ работает", "var(--ok)"], errors: ["⚠ ошибки", "var(--warn, #e0a100)"], stopped: ["⏸ остановлен", "var(--mut)"],
+  elsewhere: ["⚠ подключён не туда", "var(--bad)"], no_token: ["нет токена", "var(--mut)"], bad_token: ["✕ токен неверный", "var(--bad)"],
+};
+const BOT_ACCESS = { tg: "доступ — «Сотрудники в Telegram» ниже", zakaz: "группы и «Объект выбирает» — ниже", smeta: "доступ — «Сотрудники в Telegram» (раздел «Товары»)", ostatka: "доступ — «Бот остатка» ниже" };
+function BotsCard({ toast }) {
+  const [list, setList] = useState(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState("");
+  const call = async (body) => {
+    const r = await fetch(import.meta.env.VITE_SUPABASE_URL + "/functions/v1/bots", {
+      method: "POST", headers: { "Content-Type": "application/json", "x-te-session": (dbModule.getSession && dbModule.getSession()) || "" }, body: JSON.stringify(body),
+    });
+    const j = await r.json().catch(() => ({ ok: false, error: "Функция «bots» не отвечает" }));
+    if (!j.ok && j.error) throw new Error(j.error);
+    return j;
+  };
+  const load = async () => {
+    setBusy("*"); setErr("");
+    try { setList((await call({ action: "status" })).bots || []); } catch (e) { setErr(e.message || String(e)); }
+    setBusy("");
+  };
+  useEffect(() => { load(); }, []);
+  const act = async (b, action) => {
+    if (action === "stop" && !(await askConfirm({ title: "Остановить «" + b.title + "»?", text: "Бот перестанет отвечать. Сообщения Telegram хранит до 24 часов, но при «Подключить» они сбрасываются.", ok: "Остановить" }))) return;
+    setBusy(b.slug); setErr("");
+    try {
+      const j = await call({ action, bot: b.slug });
+      if (j.bot) setList((l) => (l || []).map((x) => (x.slug === b.slug ? j.bot : x)));
+      await logAction(action === "stop" ? "Бот остановлен" : "Бот подключён", "telegram", b.title + (b.username ? " @" + b.username : ""));
+      toast(action === "stop" ? "Бот остановлен: " + b.title : "Бот подключён: " + b.title);
+    } catch (e) { setErr(b.title + ": " + (e.message || e)); }
+    setBusy("");
+  };
+  const ago = (iso) => { const m = Math.round((Date.now() - Date.parse(iso)) / 60000); return m < 60 ? m + " мин назад" : Math.round(m / 60) + " ч назад"; };
+  return (
+    <div className="card sect bots-card" style={{ marginTop: 16 }}>
+      <div className="row" style={{ marginBottom: 6 }}><h3 style={{ marginRight: "auto" }}>Боты</h3><button className="btn xs" disabled={!!busy} onClick={load}>{busy === "*" ? "Проверяю…" : "Проверить"}</button></div>
+      {err && <div className="xs" style={{ color: "var(--bad)", marginBottom: 6 }}>{err}</div>}
+      {!list && !err && <div className="sm mut" style={{ padding: "8px 0" }}>Проверяю ботов…</div>}
+      {(list || []).map((b) => {
+        const [lbl, col] = BOT_STATE[b.state] || ["?", "var(--mut)"];
+        const fnDown = b.fn && b.fn.ok === false;
+        return (
+          <div key={b.slug} className="row bots-row" style={{ gap: 10, padding: "8px 0", borderTop: "1px solid var(--line)", alignItems: "flex-start" }}>
+            <div style={{ marginRight: "auto", minWidth: 0 }}>
+              <b>{b.title}</b>{b.username && <> <a className="xs" href={"https://t.me/" + b.username} target="_blank" rel="noreferrer">@{b.username}</a></>}
+              <div className="xs mut">
+                {b.state === "no_token" ? "В Supabase → Edge Functions → Secrets добавьте " + b.secret + " (токен от @BotFather)"
+                  : b.state === "elsewhere" ? "Вебхук ведёт на " + (b.webhook || "другой адрес") + " — нажмите «Подключить»"
+                  : b.state === "stopped" ? "Бот не получает сообщения — нажмите «Подключить»"
+                  : BOT_ACCESS[b.slug] || ""}
+                {b.pending > 0 && <> · ждут ответа: {b.pending}</>}
+                {fnDown && <> · <span style={{ color: "var(--bad)" }}>функция «{b.slug}» не отвечает</span></>}
+              </div>
+              {b.error && <div className="xs" style={{ color: "var(--bad)" }}>Telegram: {b.error}{b.error_at ? " (" + ago(b.error_at) + ")" : ""}</div>}
+            </div>
+            <span className="xs" style={{ color: col, fontWeight: 700, whiteSpace: "nowrap" }}>{lbl}</span>
+            {b.token && <>
+              <button className="btn xs" disabled={!!busy} onClick={() => act(b, "setup")}>{busy === b.slug ? "…" : b.state === "ok" ? "Переподключить" : "Подключить"}</button>
+              {b.state !== "stopped" && b.state !== "bad_token" && <button className="btn xs dng" disabled={!!busy} onClick={() => act(b, "stop")}>Остановить</button>}
+            </>}
+          </div>
+        );
+      })}
     </div>
   );
 }
