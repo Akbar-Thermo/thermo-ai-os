@@ -1,13 +1,13 @@
 // Thermo ostatka — Telegram-бот остатка по счёт-фактурам (функция Supabase «ostatka»).
 // «prixod» / «rasxod» + файлы .xls (или .zip) → /ostatka: итог и Excel. Без ИИ.
-// Секрет функции (руководитель ставит сам): OSTATKA_BOT_TOKEN — токен бота от @BotFather.
+// Секрет функции (руководитель ставит сам): OSTATKA_BOT_TOKEN (или OSTATKA_bot) — токен бота от @BotFather.
 // База: таблицы ostatka_invoices / ostatka_chats (supabase/ostatka/01_ostatka.sql) — только через ключ service role.
 // Кто может пользоваться — программа: Аккаунты → «Бот остатка». Подключение: один раз ?setup=1.
 import { createHash } from "node:crypto";
 import { makeOstatkaBot, makeDb, OS_PEND_MODE } from "./bot.mjs";
 
 const env = (k) => (Deno.env.get(k) || "").trim();
-const TOKEN = env("OSTATKA_BOT_TOKEN").replace(/\s+/g, "").replace(/^["'`]+|["'`]+$/g, "").replace(/^bot(?=\d)/i, "");
+const TOKEN = (env("OSTATKA_BOT_TOKEN") || env("OSTATKA_bot")).replace(/\s+/g, "").replace(/^["'`]+|["'`]+$/g, "").replace(/^bot(?=\d)/i, "");
 const SECRET = TOKEN ? createHash("sha256").update("thermo-ostatka:" + TOKEN).digest("hex").slice(0, 48) : "";
 const URL_ = env("SUPABASE_URL"), KEY = env("SUPABASE_SERVICE_ROLE_KEY");
 
