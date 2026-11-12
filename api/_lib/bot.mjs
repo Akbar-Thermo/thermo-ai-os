@@ -585,7 +585,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   }
 
   // ---------- накладная / прайс из группы поставщика ----------
-  const ZK_DOC_SYS = "A supplier of a plumbing/heating materials buyer posted this image or PDF in a Telegram group. Decide what it is: \"invoice\" — накладная, счёт-фактура, hisob-faktura, товарный чек, отгрузка: goods with quantities sold/delivered to the buyer; \"price\" — прайс-лист / narxlar: list of goods with prices, usually without quantities; \"other\" — anything else (photo of goods, chat screenshot, payment receipt, contract, advertisement). Reply with JSON only: {\"kind\":\"invoice\"|\"price\"|\"other\",\"supplier\":\"seller company name or empty\",\"number\":\"document number or empty\",\"date\":\"YYYY-MM-DD or empty\",\"currency\":\"uzs\"|\"usd\",\"items\":[{\"name\":\"goods name with size\",\"code\":\"article/code or empty\",\"qty\":number,\"unit\":\"шт|м|кг|...\",\"price\":number}],\"total\":number}. For \"other\" items is []. For a price list qty is 0 and price is the wholesale/dealer price if several are given. price — per unit, without VAT if both are given. Numbers like «1 250 000,00» → 1250000. Use exactly what is written; do not invent lines.";
+  const ZK_DOC_SYS = "A supplier of a plumbing/heating materials buyer posted this image or PDF in a Telegram group. Decide what it is: \"invoice\" — накладная, счёт-фактура, hisob-faktura, товарный чек, отгрузка: goods with quantities sold/delivered to the buyer; \"return\" — возвратная накладная / накладная на возврат / возврат товара от покупателя / qaytarish / vozvrat: goods the BUYER RETURNED to the supplier (often titled «Возврат», or quantities/sums are negative — give qty and price as positive numbers); \"price\" — прайс-лист / narxlar: list of goods with prices, usually without quantities; \"other\" — anything else (photo of goods, chat screenshot, payment receipt, contract, advertisement). Reply with JSON only: {\"kind\":\"invoice\"|\"return\"|\"price\"|\"other\",\"supplier\":\"seller company name or empty\",\"number\":\"document number or empty\",\"date\":\"YYYY-MM-DD or empty\",\"currency\":\"uzs\"|\"usd\",\"items\":[{\"name\":\"goods name with size\",\"code\":\"article/code or empty\",\"qty\":number,\"unit\":\"шт|м|кг|...\",\"price\":number}],\"total\":number}. For \"other\" items is []. For a price list qty is 0 and price is the wholesale/dealer price if several are given. price — per unit, without VAT if both are given. Numbers like «1 250 000,00» → 1250000. Use exactly what is written; do not invent lines.";
   const numv = (v) => (typeof v === "number" ? v : Number(String(v == null ? "" : v).replace(/[\s  ']/g, "").replace(/,(?=\d{1,2}$)/, ".").replace(/,/g, "").replace(/[^\d.\-]/g, "")) || 0);
   const unitOf = (u) => { u = String(u || "").trim().toLowerCase().replace(/\.$/, ""); return UNIT[u] || u.slice(0, 12); };
   const curOf = (c, prices) => { if (c === "usd" || c === "uzs") return c; const p = prices.filter((x) => x > 0).sort((a, b) => a - b); return (p[Math.floor(p.length / 2)] || 0) >= 1000 ? "uzs" : "usd"; };
@@ -619,8 +619,10 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const items = rows.slice(r + 1).map((row) => ({ name: String(g(row, hd.name) || "").replace(/\s+/g, " ").trim().slice(0, 200), code: String(g(row, hd.code) || "").trim().slice(0, 40), unit: unitOf(g(row, hd.unit)), qty: numv(g(row, hd.qty)), price: numv(g(row, hd.price)) })).filter((x) => x.name && x.price > 0);
     if (!items.length) return null;
     const head = rows.slice(0, r + 1).map((x) => x.join(" ")).join(" ");
+    const ret = hd.qty >= 0 && items.length <= 300 && /возврат|qaytar|vozvrat/i.test(head);
     const inv = hd.qty >= 0 && items.length <= 300 && items.some((x) => x.qty > 0) && /наклад|счет|счёт|фактур|hisob|отгруз|расход/i.test(head);
-    return { kind: inv ? "invoice" : "price", currency: hd.cur, items, supplier: "", number: "", date: "" };
+    if (ret) items.forEach((x) => { x.qty = Math.abs(x.qty); x.price = Math.abs(x.price); });
+    return { kind: ret ? "return" : inv ? "invoice" : "price", currency: hd.cur, items, supplier: "", number: "", date: "" };
   }
   async function zkDoc(msg, z, supId) {
     const d = msg.document, src = mediaSource(msg);
@@ -636,7 +638,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
         try { const f = await file(d.file_id); sheets = await sheet(f.bytes, d.file_name); } catch (e) { console.error("zk sheet:", e && e.message); return; }
         const p = await zkSheet(sheets, st.ok, m);
         if (!p) return;
-        return p.kind === "invoice" ? await zkInvoice(msg, z, supId, p) : await zkPrice(msg, z, supId, p);
+        return p.kind === "return" ? await zkReturn(msg, z, supId, p) : p.kind === "invoice" ? await zkInvoice(msg, z, supId, p) : await zkPrice(msg, z, supId, p);
       }
       if (!st.ok) return await zkInvoice(msg, z, supId, null); // ИИ нет / лимит — объект выберут люди
       let j = null;
@@ -647,11 +649,13 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       } catch (e) { console.error("zk read:", e && e.message); }
       if (j && j.kind === "other") return;
       if (j && j.kind === "price") return await zkPrice(msg, z, supId, j);
+      if (j && j.kind === "return") return await zkReturn(msg, z, supId, j);
       return await zkInvoice(msg, z, supId, j);
     } finally { await spend(m, null); }
   }
   // ---------- накладная: чья (объект + поставка) ----------
   function zkCaption(L) {
+    if (L.kind === "ret") return zkRetCaption(L);
     const it = L.items || [];
     const tot = it.reduce((a, x) => a + (Number(x.qty) || 0) * (Number(x.price) || 0), 0) || Number(L.total) || 0;
     const totU = it.reduce((a, x) => a + (Number(x.qty) || 0) * (Number(x.cost) || 0), 0) || (L.cur === "uzs" && L.rate >= 1000 ? C.round2(tot / L.rate) : 0);
@@ -711,6 +715,90 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     if (!row) return;
     return zkAsk(row.id, L, z);
   }
+  // ---------- возвратная накладная поставщика: наш ли это возврат и не посчитал ли поставщик меньше ----------
+  // наши возвраты этому поставщику (программа, 90 дней): одно оформление возврата (batch_id) или день + объект; уже сверенные — не предлагаем
+  async function zkOurReturns(supId) {
+    if (!supId) return [];
+    const since = tzDate(new Date(now().getTime() - 90 * 864e5));
+    const ops = (await db.select("finance_ops", "type=eq.return&supplier_id=eq." + supId + "&select=id,object_id,product_name,qty,unit,cost_amount,op_date,batch_id,voided")).filter((x) => !x.voided && String(x.op_date || "") >= since);
+    if (!ops.length) return [];
+    const used = new Set();
+    (await db.select("requests", "mode=eq." + ZK_INV + "&order=created_at.desc&limit=300&select=lines")).forEach((r) => { const L = r.lines || {}; if (L.kind === "ret" && L.retKey) used.add(L.retKey); });
+    const objs = await db.all("objects", "", "id,name");
+    const g = new Map();
+    ops.forEach((x) => {
+      const k = x.batch_id || String(x.op_date) + ":" + (x.object_id || "wh");
+      const e = g.get(k) || { key: k, date: String(x.op_date || "").slice(0, 10), obj: x.object_id || null, items: [] };
+      const q = Number(x.qty) || 0, sm = Number(x.cost_amount) || 0;
+      e.items.push({ name: String(x.product_name || "").slice(0, 120), qty: q, unit: x.unit || "", cost: q ? C.round2(sm / q) : 0, sum: sm });
+      g.set(k, e);
+    });
+    return [...g.values()].filter((e) => !used.has(e.key)).map((e) => ({ ...e, name: e.obj ? (objs.find((o) => o.id === e.obj) || {}).name || "Obyekt" : "Sklad Thermo", sum: C.round2(e.items.reduce((a, i) => a + i.sum, 0)) }))
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  }
+  // сверка в $: что мы вернули (себестоимость в программе) ↔ что поставщик записал
+  function zkRetCmp(our, L) {
+    const inv = (L.items || []).map((x) => ({ ...x, usd: L.cur === "uzs" ? (L.rate >= 1000 ? (Number(x.price) || 0) / L.rate : 0) : Number(x.price) || 0 }));
+    const lines = [], used = new Set();
+    let ourSum = 0;
+    (our.items || []).forEach((o) => {
+      ourSum += o.sum;
+      const best = inv.map((x, i) => ({ x, i, s: nameSim(o.name, x.name) })).filter((b) => !used.has(b.i)).sort((a, b) => b.s - a.s)[0];
+      if (!best || best.s < 0.5) { lines.push(esc(cut(o.name, 32)) + " — vozvrat nakladnoyda yo'q (" + C.fmt(o.qty) + " " + esc(o.unit) + ", " + usd(o.sum) + ")"); return; }
+      used.add(best.i);
+      const q = Number(best.x.qty) || 0;
+      if (q + 0.001 < o.qty) lines.push(esc(cut(o.name, 32)) + ": biz " + C.fmt(o.qty) + " qaytardik, ular " + C.fmt(q) + " yozgan");
+      if (best.x.usd > 0 && o.cost > 0 && best.x.usd < o.cost * 0.99) lines.push(esc(cut(o.name, 32)) + ": narx " + usd(o.cost) + " o'rniga " + usd(C.round2(best.x.usd)));
+    });
+    let theirSum = inv.reduce((a, x) => a + (Number(x.qty) || 0) * x.usd, 0);
+    if (!theirSum) theirSum = L.cur === "uzs" ? (L.rate >= 1000 ? (Number(L.total) || 0) / L.rate : 0) : Number(L.total) || 0;
+    const extra = inv.filter((x, i) => !used.has(i)).map((x) => esc(cut(x.name, 32)));
+    ourSum = C.round2(ourSum); theirSum = C.round2(theirSum);
+    const less = theirSum > 0 && theirSum + 0.5 < ourSum;
+    return { lines, ourSum, theirSum, less, diff: C.round2(ourSum - theirSum), extra };
+  }
+  async function zkReturn(msg, z, supId, inv) {
+    const sups = await db.all("suppliers", "", "id,name");
+    const raw = normItems(inv && inv.items).map((i) => ({ ...i, qty: Math.abs(i.qty), price: Math.abs(i.price) }));
+    const cur = curOf(inv && inv.currency, raw.map((i) => i.price));
+    const rate = cur === "uzs" ? await rateAt(tzDate(now())) : 0;
+    const items = raw.map((i) => ({ name: i.name, qty: i.qty, unit: i.unit, price: i.price, cost: cur === "uzs" ? (rate >= 1000 ? C.round2(i.price / rate) : 0) : C.round2(i.price) }));
+    const ours = await zkOurReturns(supId);
+    const sc = (g) => (items.length ? items.filter((x) => g.items.some((y) => nameSim(x.name, y.name) >= 0.5)).length / Math.max(items.length, g.items.length, 1) : 0);
+    const all = ours.map((g) => ({ g, s: sc(g) })).sort((a, b) => b.s - a.s || String(b.g.date).localeCompare(String(a.g.date)));
+    const b0 = all[0], b1 = all[1];
+    const sure = !!b0 && items.length > 0 && ((b0.s >= 0.5 && (!b1 || b1.s < b0.s * 0.7)) || (all.length === 1 && b0.s >= 0.3));
+    const L = { kind: "ret", sup: supId || null, supName: (sups.find((s) => s.id === supId) || {}).name || (inv && inv.supplier) || "", chat: String(msg.chat.id), msg: msg.message_id,
+      obj: null, retKey: null, name: "", guess: sure ? 0 : -1,
+      cands: all.slice(0, 6).map((x) => ({ key: x.g.key, name: x.g.name, date: x.g.date, obj: x.g.obj, sum: x.g.sum, items: x.g.items })),
+      items, cur, rate, total: Math.abs(numv(inv && inv.total)), number: String((inv && inv.number) || "").slice(0, 40), date: (inv && inv.date) || "", at: now().toISOString() };
+    const row = (await db.insert("requests", { mode: ZK_INV, source: "config", lines: L }))[0];
+    if (!row) return;
+    return zkAsk(row.id, L, z);
+  }
+  function zkRetSumText(L, tot) { return tot ? (L.cur === "uzs" ? sum(tot) + (L.rate >= 1000 ? " ≈ " + usd(C.round2(tot / L.rate)) : "") : usd(tot)) : ""; }
+  function zkRetAskText(L, tot, g) {
+    const c = g ? zkRetCmp(g, L) : null;
+    return cut("↩️ <b>VOZVRAT nakladnoy</b> · " + esc(L.supName || "?") + (L.number ? " · №" + esc(L.number) : "") + (tot ? " · " + zkRetSumText(L, tot) : "") +
+      (g ? "\nBot taxmini: ↩️ <b>" + esc(g.name) + "</b> · " + dt(g.date) + " · biz qaytargan " + usd(g.sum) + (c && c.less ? "\n⚠️ <b>Kam hisoblangan</b>: farq " + usd(c.diff) : c && c.lines.length ? "\n⚠️ Farqlar bor" : "") : "") +
+      "\n" + ((L.cands || []).length ? "Qaysi vozvratimiz? Tanlang — solishtirib, rasxodlar guruhiga yuboraman." : "Dasturda bu postavshikka vozvrat topilmadi (90 kun)."), 1000);
+  }
+  function zkRetCaption(L) {
+    const it = L.items || [];
+    const tot = it.reduce((a, x) => a + (Number(x.qty) || 0) * (Number(x.price) || 0), 0) || Number(L.total) || 0;
+    const head = "↩️ <b>VOZVRAT</b>" + (L.retKey ? " · 🏠 <b>" + esc(L.name || "—") + "</b> · " + dt(L.retDate) : L.manual && L.name ? " · 🏠 <b>" + esc(L.name) + "</b>" : "");
+    const lines = [head,
+      "🧾 " + esc(L.supName || "?") + (L.number ? " · №" + esc(L.number) : "") + (/^\d{4}-\d{2}-\d{2}$/.test(L.date || "") ? " · " + dt(L.date) : ""),
+      tot ? "Summa: <b>" + zkRetSumText(L, tot) + "</b>" + (it.length ? " · " + it.length + " poz." : "") : "Summa: o'qilmadi"];
+    const c = L.cmp;
+    if (c) {
+      if (c.less) lines.push("⚠️ <b>KAM HISOBLANGAN</b>: biz qaytardik " + usd(c.ourSum) + ", ular " + usd(c.theirSum) + " yozgan — farq <b>" + usd(c.diff) + "</b>");
+      c.lines.slice(0, 6).forEach((x) => lines.push("⚠️ " + x));
+      if (!c.less && !c.lines.length) lines.push("✅ Dasturdagi vozvrat bilan mos (" + usd(c.ourSum) + ")");
+      if (c.extra.length) lines.push("ℹ️ Dasturda yo'q: " + c.extra.slice(0, 3).join("; "));
+    } else lines.push("ℹ️ Dasturdagi vozvrat bilan solishtirilmadi");
+    return cut(lines.join("\n"), 1000);
+  }
   // в группу расходов: копия фото / PDF с подписью (объект, поставщик, сумма, расхождения) — без кнопок
   async function zkPost(id, L, z) {
     if (!z.exp) return L;
@@ -728,11 +816,12 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const it = L.items || [];
     const tot = it.reduce((a, x) => a + (Number(x.qty) || 0) * (Number(x.price) || 0), 0) || Number(L.total) || 0;
     const g = L.guess >= 0 ? (L.cands || [])[L.guess] : null;
-    const cap = cut("🧾 <b>Nakladnoy</b> · " + esc(L.supName || "?") + (L.number ? " · №" + esc(L.number) : "") + (tot ? " · " + (L.cur === "uzs" ? sum(tot) : usd(tot)) : "") +
+    const ret = L.kind === "ret";
+    const cap = ret ? zkRetAskText(L, tot, g) : cut("🧾 <b>Nakladnoy</b> · " + esc(L.supName || "?") + (L.number ? " · №" + esc(L.number) : "") + (tot ? " · " + (L.cur === "uzs" ? sum(tot) : usd(tot)) : "") +
       (g ? "\nBot taxmini: 🏠 <b>" + esc(g.name) + "</b> · " + g.batch + "-postavka" : "") + "\n" + ((L.cands || []).length ? "Qaysi obyekt? Tanlang — keyin rasxodlar guruhiga yuboraman." : "Bu postavshikdan ochiq postavka topilmadi."), 1000);
-    const kb = { inline_keyboard: [...(L.cands || []).map((c, i) => [{ text: cut((i === L.guess ? "✅ " : "🏠 ") + c.name + " · " + c.batch + "-postavka", 60), callback_data: "zo:" + id + ":" + i }]),
+    const kb = { inline_keyboard: [...(L.cands || []).map((c, i) => [{ text: cut((i === L.guess ? "✅ " : ret ? "↩️ " : "🏠 ") + c.name + (ret ? " · " + dt(c.date) + " · " + usd(c.sum) : " · " + c.batch + "-postavka"), 60), callback_data: "zo:" + id + ":" + i }]),
       [{ text: "✍️ Qo'lda kiritish", callback_data: "zm:" + id }],
-      [{ text: "📤 Obyektsiz yuborish", callback_data: "zu:" + id }, { text: "❌ Kerak emas", callback_data: "zn:" + id }]] };
+      [{ text: ret ? "📤 Solishtirmasdan yuborish" : "📤 Obyektsiz yuborish", callback_data: "zu:" + id }, { text: "❌ Kerak emas", callback_data: "zn:" + id }]] };
     const pm = [];
     for (const m of who) {
       try { const r = await tg("copyMessage", { chat_id: m.tg, from_chat_id: L.chat, message_id: L.msg, caption: cap, parse_mode: "HTML", reply_markup: kb }); pm.push({ tg: String(m.tg), msg: r && r.message_id, cap: true }); }
@@ -863,7 +952,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       return ans();
     }
     if (!zkCanPick(me, z) && !L.pm.some((p) => p.tg === String(me.tg))) return ans("Bu bo'lim sizga ochilmagan", true);
-    if (L.obj || L.skip || L.noobj || L.manual) return ans("Allaqachon tanlangan" + (L.by ? ": " + L.by : ""), true);
+    if (L.obj || L.retKey || L.skip || L.noobj || L.manual) return ans("Allaqachon tanlangan" + (L.by ? ": " + L.by : ""), true);
     if (act === "zm") { // «Qo'lda kiritish»: что человек напишет — то и будет объектом в подписи (без поиска по программе)
       L = { ...L, wait: { tg: String(me.tg), at: now().toISOString() } };
       await db.update("requests", "id=eq." + row.id, { lines: L });
@@ -885,6 +974,13 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     }
     const c = (L.cands || [])[Number(n2)];
     if (!c) return ans("Topilmadi", true);
+    if (L.kind === "ret") { // возврат: сверяем с выбранным нашим возвратом и — в группу расходов
+      L = { ...L, retKey: c.key, name: c.name, retDate: c.date, cmp: zkRetCmp(c, L), by: me.name };
+      await db.update("requests", "id=eq." + row.id, { lines: L });
+      await ans("Yuborildi");
+      L = await zkPost(row.id, L, z);
+      return zkPmDone(L, "↩️ <b>" + esc(L.name) + "</b> · " + dt(L.retDate) + " — " + esc(L.supName || "") + " (" + esc(me.name) + ")\n" + (L.cmp.less ? "⚠️ <b>Kam hisoblangan</b>: farq " + usd(L.cmp.diff) : L.cmp.lines.length ? "⚠️ Farqlar bor — guruhda ko'ring" : "✅ Dasturdagi vozvrat bilan mos"));
+    }
     const o = (await db.select("objects", "id=eq." + c.obj + "&select=*"))[0];
     const b = o && C.objBatches(o).find((x) => x.no === c.batch);
     const its = b ? (b.items || []).filter((i) => i && !i.from_warehouse && (!L.sup || i.supplier_id === L.sup)) : [];
@@ -899,7 +995,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const tgId = String(me.tg || "");
     const rows = await db.select("requests", "mode=eq." + ZK_INV + "&order=created_at.desc&limit=40&select=id,lines");
     const hour = now().getTime() - 3600e3;
-    const row = rows.find((r) => { const L = r.lines || {}; return L.kind === "inv" && L.wait && L.wait.tg === tgId && Date.parse(L.wait.at) > hour && !L.obj && !L.skip && !L.noobj && !L.manual; });
+    const row = rows.find((r) => { const L = r.lines || {}; return (L.kind === "inv" || L.kind === "ret") && L.wait && L.wait.tg === tgId && Date.parse(L.wait.at) > hour && !L.obj && !L.retKey && !L.skip && !L.noobj && !L.manual; });
     if (!row) return null;
     const name = cut(q.replace(/\s+/g, " ").trim(), 120);
     let L = { ...row.lines, name, manual: true, by: me.name, wait: null };
