@@ -169,7 +169,9 @@ const TG_MODE = "te_tg", TG_PEND_MODE = "te_tgpend"; // Telegram-бот: раз�
 const TG_LINK_MODE = "te_tglink", TG_USERS_MODE = "te_tgusers";
 const TG_AI_MODE = "te_tgai";
 const ZK_MODE = "te_zk", ZK_PEND_MODE = "te_zkpend"; // бот поставщиков: группы ↔ поставщики + группа расходов (руководитель) / группы бота (пишет бот) // расход ИИ бота за месяц (пишет бот): lines = { month, usd, claude, speech, calls, sec, … }
-const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note", MIGR_MODE, NOTE_ORD_MODE, TG_MODE, TG_PEND_MODE, TG_LINK_MODE, TG_USERS_MODE, TG_AI_MODE, ZK_MODE, ZK_PEND_MODE, "te_perech"];
+// бот остатка (функция «ostatka»): кто может пользоваться (руководитель) / кто писал боту + сколько фактур (пишет бот)
+const OS_MODE = "te_os", OS_PEND_MODE = "te_ospend";
+const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note", MIGR_MODE, NOTE_ORD_MODE, TG_MODE, TG_PEND_MODE, TG_LINK_MODE, TG_USERS_MODE, TG_AI_MODE, ZK_MODE, ZK_PEND_MODE, "te_perech", OS_MODE, OS_PEND_MODE];
 // служебная запись-словарь в requests: прочитать свежую и поменять один ключ
 async function cfgSetKey(mode, key, value) {
   const r0 = await db.from("requests").select().eq("mode", mode);
@@ -11054,6 +11056,69 @@ function AdminTab({ data, reload, toast, currentUser, isBoss = true, seen = {}, 
       )}
       <TelegramCard data={data} reload={reload} toast={toast} users={users} roles={roles} uperms={uperms} />
       <ZakazCard data={data} reload={reload} toast={toast} users={users} />
+      <OstatkaCard data={data} reload={reload} toast={toast} />
+    </div>
+  );
+}
+/* Бот остатка (функция Supabase «ostatka», supabase/functions/ostatka): в Telegram — «prixod»/«rasxod» + счёт-фактуры .xls,
+   /ostatka → остаток и Excel. Здесь руководитель решает, кто может им пользоваться: человек пишет боту — появляется в списке —
+   «Разрешить». Фактуры хранятся в ostatka_invoices (только функция), здесь видно, сколько их у каждого. */
+function OstatkaCard({ data, reload, toast }) {
+  const reqs = data.requests || [];
+  const cfgRow = reqs.find((r) => r.mode === OS_MODE) || null, pendRow = reqs.find((r) => r.mode === OS_PEND_MODE) || null;
+  const cfg = (cfgRow && cfgRow.lines && !Array.isArray(cfgRow.lines) ? cfgRow.lines : {}) || {};
+  const pend = (pendRow && pendRow.lines && !Array.isArray(pendRow.lines) ? pendRow.lines : {}) || {};
+  const allowed = Array.isArray(cfg.allowed) ? cfg.allowed : [];
+  const seen = Array.isArray(pend.seen) ? pend.seen : [];
+  const botName = pend.bot || "";
+  const isOn = (id) => allowed.some((a) => String(a.id) === String(id));
+  const people = [...allowed.map((a) => ({ ...(seen.find((s) => String(s.id) === String(a.id)) || {}), ...a, on: true })),
+    ...seen.filter((s) => !isOn(s.id)).map((s) => ({ ...s, on: false }))];
+  const [busy, setBusy] = useState(false);
+  const [setupMsg, setSetupMsg] = useState("");
+  const save = async (next, act, p) => {
+    setBusy(true);
+    const r0 = await db.from("requests").select().eq("mode", OS_MODE);
+    const row = ((r0 && r0.data) || [])[0] || cfgRow;
+    const lines = { ...((row && row.lines && !Array.isArray(row.lines) ? row.lines : {}) || {}), allowed: next };
+    const r = row ? await db.from("requests").update({ lines }).eq("id", row.id) : await db.from("requests").insert({ mode: OS_MODE, source: "config", lines });
+    setBusy(false);
+    if (r.error) return;
+    await logAction(act, "telegram", (p.name || "") + (p.username ? " @" + p.username : "") + " · " + p.id);
+    await reload(["requests"]); toast(act);
+  };
+  const allow = (p) => save([...allowed, { id: String(p.id), name: p.name || "", at: new Date().toISOString() }], "Бот остатка: доступ разрешён", p);
+  const deny = async (p) => {
+    if (!(await askConfirm({ title: "Отключить от бота остатка?", text: (p.name || p.id) + " больше не сможет пользоваться ботом. Его фактуры в боте сохранятся.", ok: "Отключить" }))) return;
+    await save(allowed.filter((a) => String(a.id) !== String(p.id)), "Бот остатка: доступ отключён", p);
+  };
+  // один раз после того, как токен поставлен в Supabase: связать бота с функцией
+  const setup = async () => {
+    setBusy(true); setSetupMsg("");
+    try {
+      const j = await (await fetch(import.meta.env.VITE_SUPABASE_URL + "/functions/v1/ostatka?setup=1")).json();
+      setSetupMsg(!j.bot ? "Токен не найден: в Supabase → Edge Functions → Secrets добавьте OSTATKA_BOT_TOKEN." : j.webhook === "ok" ? "✓ Бот подключён: @" + (j.username || "") : "Ошибка: " + (j.webhook || "нет ответа"));
+      if (j.webhook === "ok") await reload(["requests"]);
+    } catch (e) { setSetupMsg("Функция «ostatka» не отвечает."); }
+    setBusy(false);
+  };
+  const st = (p) => { const s = p.stats; if (!s) return ""; return "приход " + (s.prixod || 0) + " · расход " + (s.rasxod || 0) + (s.wait ? " · ждут " + s.wait : "") + " фактур"; };
+  return (
+    <div className="card sect os-card" style={{ marginTop: 16 }}>
+      <div className="row" style={{ marginBottom: 6 }}><h3 style={{ marginRight: "auto" }}>Бот остатка</h3>{botName && <a className="xs" href={"https://t.me/" + botName} target="_blank" rel="noreferrer">@{botName}</a>}</div>
+      <div className="xs mut" style={{ marginBottom: 8 }}>Счёт-фактуры прихода и расхода (.xls из Didox) → остаток по товарам и Excel. В Telegram: «prixod» или «rasxod», затем файлы, затем /ostatka.</div>
+      {!people.length && <div className="sm mut" style={{ padding: "8px 0", borderTop: "1px solid var(--line)" }}>Пока никто не писал боту. Человек пишет боту /start — появляется здесь — «Разрешить».</div>}
+      {people.map((p) => (
+        <div key={p.id} className="row os-row" style={{ gap: 10, padding: "7px 0", borderTop: "1px solid var(--line)" }}>
+          <div style={{ marginRight: "auto" }}><b>{p.name || "—"}</b>{p.username && <span className="xs mut"> @{p.username}</span>} <span className="xs mut mono">{p.id}</span>{st(p) && <div className="xs mut">{st(p)}</div>}</div>
+          {p.on ? <><span className="xs" style={{ color: "var(--ok)", fontWeight: 700 }}>✓ доступ есть</span><button className="btn xs" disabled={busy} onClick={() => deny(p)}>Отключить</button></>
+            : <button className="btn xs pri" disabled={busy} onClick={() => allow(p)}>Разрешить</button>}
+        </div>
+      ))}
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 8, gap: 10 }}>
+        {setupMsg && <span className="xs" style={{ marginRight: "auto" }}>{setupMsg}</span>}
+        <button className="btn xs" disabled={busy} title="После того как токен бота поставлен в Supabase (секрет OSTATKA_BOT_TOKEN)" onClick={setup}>{botName ? "Переподключить бота" : "Подключить бота"}</button>
+      </div>
     </div>
   );
 }
