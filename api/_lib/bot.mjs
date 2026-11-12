@@ -1027,6 +1027,8 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     if (!z.groups.some((g) => String(g.id) === String(chat.id) && g.title === (chat.title || ""))) await zkPending(z, chat);
     const sup = z.sup[String(chat.id)];
     if (!sup || !(msg.photo || msg.document)) return;
+    // накладную/заказ написал наш сотрудник (Jamoliddin и др., аккаунт привязан к боту) — это не документ поставщика: не разбираем и никому не шлём
+    if (msg.from && (await whoAmI(msg.from.id))) return;
     return zkDoc(msg, z, sup);
   }
   // ---------- отдельный бот смет ----------
