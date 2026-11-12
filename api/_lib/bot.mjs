@@ -25,6 +25,30 @@ export const MATCH_MODE = "te_tgmatch";  // память смет: «как на
 export const RULES_MODE = "te_tgrules";  // правила «что у кого брать»: lines.rules = [{ id, q, sup, by, at }]
 // ключ памяти: слова названия без порядка, латиница/кириллица одинаково («Труба PPR 20» = «ppr truba 20»)
 export const mkey = (s) => [...new Set(low(C.translit(String(s || ""))).replace(/[^\p{L}\p{N}/.]+/gu, " ").split(" ").filter(Boolean))].sort().join(" ");     // действие, предложенное ботом, ждёт «✅»: lines = { tg, user_id, kind, data, exp }
+// похожесть названий товара (накладная ↔ программа): слова без учёта окончаний и порядка, размеры — строго.
+// «Кран шаровой с электроприводом Stahlmann 3/4F 12B» ≈ «Электропривод с шаровым краном Stahlmann 3/4»; «Кран 1/2» ≠ «Кран 3/4»
+export function nameSim(a, b) {
+  const words = (s) => [...new Set(mkey(s).split(" ").map((w) => (/\d/.test(w) ? w.replace(/[^\d/.,x×]+/g, "") : w)).filter((w) => w.length > 1 || /\d/.test(w)))];
+  const A = words(a), B = words(b);
+  if (!A.length || !B.length) return 0;
+  const same = (x, y) => {
+    if (x === y) return true;
+    if (/\d/.test(x) || /\d/.test(y)) return false; // размеры и числа — только точно
+    const s = x.length <= y.length ? x : y, l = s === x ? y : x;
+    if (s.length >= 4 && l.startsWith(s)) return true; // кран ↔ краном, электропривод ↔ электроприводом
+    let k = 0; while (k < s.length && x[k] === y[k]) k++;
+    return k >= 6 || (k >= 5 && s.length <= 7); // шаровой ↔ шаровым
+  };
+  const w = (x) => (/\d/.test(x) ? 0.5 : 1); // размер весит вполовину слова: совпали только бренд и размер — ещё не тот же товар
+  const W = (L) => L.reduce((a, x) => a + w(x), 0);
+  const m = A.filter((x) => B.some((y) => same(x, y))).reduce((a, x) => a + w(x), 0);
+  const dice = (2 * m) / (W(A) + W(B)), cover = m / Math.min(W(A), W(B));
+  let sc = Math.max(dice, cover * 0.85);
+  if (m < 2 && Math.min(A.length, B.length) >= 2) sc *= 0.7; // совпало одно слово из нескольких («Кронштейн радиатора» ≠ «Радиатор 500/10»)
+  const dA = A.filter((w) => /\d/.test(w)), dB = B.filter((w) => /\d/.test(w));
+  if (dA.length && dB.length && !dA.some((x) => dB.includes(x))) sc = Math.min(sc, 0.3); // размеры разные — это другой товар
+  return sc;
+}
 
 // ---------- дата и числа ----------
 export const tzDate = (d = new Date()) => d.toLocaleDateString("sv-SE", { timeZone: "Asia/Tashkent" });
@@ -638,7 +662,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     return cut(lines.join("\n"), 1000);
   }
   const tok = (s) => new Set(mkey(s).split(" ").filter((w) => w.length > 1));
-  const simil = (a, b) => { const A = tok(a), B = tok(b); if (!A.size || !B.size) return 0; let n = 0; A.forEach((w) => { if (B.has(w)) n++; }); return (2 * n) / (A.size + B.size); };
+  const simil = nameSim;
   function zkDiff(ordItems, invItems) {
     const out = [];
     if (!invItems.length) return out;
