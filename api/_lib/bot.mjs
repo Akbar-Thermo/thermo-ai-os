@@ -707,6 +707,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const cap = cut("🧾 <b>Nakladnoy</b> · " + esc(L.supName || "?") + (L.number ? " · №" + esc(L.number) : "") + (tot ? " · " + (L.cur === "uzs" ? sum(tot) : usd(tot)) : "") +
       (g ? "\nBot taxmini: 🏠 <b>" + esc(g.name) + "</b> · " + g.batch + "-postavka" : "") + "\n" + ((L.cands || []).length ? "Qaysi obyekt? Tanlang — keyin rasxodlar guruhiga yuboraman." : "Bu postavshikdan ochiq postavka topilmadi."), 1000);
     const kb = { inline_keyboard: [...(L.cands || []).map((c, i) => [{ text: cut((i === L.guess ? "✅ " : "🏠 ") + c.name + " · " + c.batch + "-postavka", 60), callback_data: "zo:" + id + ":" + i }]),
+      [{ text: "✍️ Qo'lda kiritish", callback_data: "zm:" + id }],
       [{ text: "📤 Obyektsiz yuborish", callback_data: "zu:" + id }, { text: "❌ Kerak emas", callback_data: "zn:" + id }]] };
     const pm = [];
     for (const m of who) {
@@ -819,7 +820,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const me = await whoAmI(cq.from && cq.from.id);
     if (!me) return ans("Akkauntingiz ulanmagan (Thermo bot orqali ulang)", true);
     if (act === "zl" || act === "zk" || act === "zw" || act === "zb") return zkPriceCb(act, id, n2, cq, ans, me);
-    if (act !== "zo" && act !== "zn" && act !== "zu") return ans();
+    if (act !== "zo" && act !== "zn" && act !== "zu" && act !== "zm" && act !== "zq") return ans();
     if (!/^[0-9a-f-]{36}$/i.test(id || "")) return ans();
     const row = (await db.select("requests", "id=eq." + id + "&mode=eq." + ZK_INV + "&select=id,lines"))[0];
     if (!row) return ans("Topilmadi", true);
@@ -839,6 +840,27 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     }
     if (!zkCanPick(me, z) && !L.pm.some((p) => p.tg === String(me.tg))) return ans("Bu bo'lim sizga ochilmagan", true);
     if (L.obj || L.skip || L.noobj) return ans("Allaqachon tanlangan" + (L.by ? ": " + L.by : ""), true);
+    if (act === "zm") { // «Qo'lda kiritish»: ждём от этого человека название объекта или имя клиента текстом
+      L = { ...L, wait: { tg: String(me.tg), at: now().toISOString() } };
+      await db.update("requests", "id=eq." + row.id, { lines: L });
+      await ans();
+      return send(me.tg, "✍️ <b>" + esc(L.supName || "Nakladnoy") + "</b>" + (L.number ? " · №" + esc(L.number) : "") + "\nObyekt nomini yoki klient ismini yozing:", { reply_markup: { force_reply: true, input_field_placeholder: "masalan: Yunusobod kottej yoki Karimova" } });
+    }
+    if (act === "zq") { // выбран объект из ручного поиска
+      const oid = (L.mq || [])[Number(n2)];
+      const o = oid && (await db.select("objects", "id=eq." + oid + "&select=*"))[0];
+      if (!o) return ans("Topilmadi", true);
+      // поставка этого поставщика в объекте: где больше совпадений с накладной, иначе последняя
+      const bs = C.objBatches(o).map((b) => ({ b, its: (b.items || []).filter((i) => i && !i.from_warehouse && (!L.sup || i.supplier_id === L.sup)) })).filter((x) => x.its.length);
+      const sc = (x) => ((L.items || []).length ? (L.items || []).filter((a) => x.its.some((y) => simil(a.name, y.name) >= 0.5)).length : 0);
+      const best = bs.sort((a, b) => sc(b) - sc(a) || (Number(b.b.no) || 0) - (Number(a.b.no) || 0))[0];
+      L = { ...L, obj: o.id, name: o.name || "", batch: best ? best.b.no : null, diff: best ? zkDiff(best.its, L.items || []) : [], by: me.name, manual: true, wait: null, mq: null };
+      await db.update("requests", "id=eq." + row.id, { lines: L });
+      await ans("Yuborildi");
+      try { await tg("editMessageReplyMarkup", { chat_id: cq.message.chat.id, message_id: cq.message.message_id, reply_markup: { inline_keyboard: [] } }); } catch (e) {}
+      L = await zkPost(row.id, L, z);
+      return zkPmDone(L, "✍️ 🏠 <b>" + esc(L.name) + "</b>" + (L.batch ? " · " + L.batch + "-postavka" : "") + " — " + esc(L.supName || "") + " (" + esc(me.name) + ", qo'lda)");
+    }
     if (act === "zu") { // объект не нашёлся — в расходы с пометкой «obyekt aniqlanmadi»
       L = { ...L, noobj: true, by: me.name };
       await db.update("requests", "id=eq." + row.id, { lines: L });
@@ -863,6 +885,23 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     L = await zkPost(row.id, L, z);
     await zkPmDone(L, "✅ 🏠 <b>" + esc(L.name) + "</b> · " + L.batch + "-postavka — " + esc(L.supName || "") + " (" + esc(me.name) + ")");
   }
+  // ручной ввод объекта: ищем по названию, клиенту, адресу; до 6 вариантов кнопками
+  async function zkManual(me, q) {
+    const tgId = String(me.tg || "");
+    const rows = await db.select("requests", "mode=eq." + ZK_INV + "&order=created_at.desc&limit=40&select=id,lines");
+    const hour = now().getTime() - 3600e3;
+    const row = rows.find((r) => { const L = r.lines || {}; return L.kind === "inv" && L.wait && L.wait.tg === tgId && Date.parse(L.wait.at) > hour && !L.obj && !L.skip && !L.noobj; });
+    if (!row) return null;
+    const objs = (await db.all("objects")).filter((o) => C.isLive(o));
+    // доля слов запроса, с которых начинается какое-нибудь слово объекта («yunus» → «Юнусабад»; кириллица/латиница — одинаково)
+    const qw = [...tok(q)].filter((w) => w.length >= 2);
+    const sc = (o) => { const hw = [...tok([o.name, o.client, o.address].filter(Boolean).join(" "))]; if (!qw.length || !hw.length) return 0; return qw.filter((w) => hw.some((h) => h.startsWith(w) || (h.length >= 4 && w.startsWith(h)) || (w.length >= 4 && h.length >= 4 && w.slice(0, 4) === h.slice(0, 4)))).length / qw.length; }; // «Chilonzor» ≈ «Чиланзар»
+    const hits = objs.map((o) => ({ o, s: sc(o) })).filter((x) => x.s >= 0.5).sort((a, b) => b.s - a.s || String(b.o.updated_at || b.o.created_at || "").localeCompare(String(a.o.updated_at || a.o.created_at || ""))).slice(0, 6);
+    if (!hits.length) return send(me.tg, "🔍 «" + esc(cut(q, 60)) + "» bo'yicha obyekt topilmadi. Boshqacha yozib ko'ring (obyekt nomi yoki klient ismi):", { reply_markup: { force_reply: true } });
+    const L = { ...row.lines, mq: hits.map((x) => x.o.id) };
+    await db.update("requests", "id=eq." + row.id, { lines: L });
+    return send(me.tg, "🔍 Qaysi biri? — " + esc(L.supName || "nakladnoy"), { reply_markup: { inline_keyboard: hits.map((x, i) => [{ text: cut("🏠 " + (x.o.name || "—") + (x.o.client ? " · " + x.o.client : ""), 60), callback_data: "zq:" + row.id + ":" + i }]) } });
+  }
   const ZK_HELLO = "📦 <b>Thermo postavka</b>\n\nPostavshik guruhga tashlagan nakladnoy rasxodlar guruhiga obyekt nomi bilan boradi. Har bir nakladnoy avval sizga shu yerda keladi: obyektni tasdiqlang yoki tanlang — keyin rasxodlar guruhiga yuboraman.\nPrayslarni eslab qolaman: <b>prayslar</b> deb yozing.";
   async function onZakazMessage(msg) {
     const chat = msg.chat || {};
@@ -875,6 +914,8 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
         const v = zkPriceListView(await zkPriceRows());
         return send(chat.id, v.text, { reply_markup: v.reply_markup });
       }
+      const q = String(msg.text || "").trim();
+      if (q && !q.startsWith("/")) { const w = await zkManual(me, q); if (w) return w; }
       return send(chat.id, ZK_HELLO);
     }
     if (chat.type !== "group" && chat.type !== "supergroup") return;
