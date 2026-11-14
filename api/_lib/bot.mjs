@@ -655,6 +655,18 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   }
   // ---------- накладная: чья (объект + поставка) ----------
   const zkSupHead = (L) => "📦 <b>" + esc(String(L.supName || "Postavshik ?").toLocaleUpperCase("ru")) + "</b>";
+  const zkMasterLine = (L) => (L.master ? ["👷 Usta: <b>" + esc(L.master) + "</b>"] : []);
+  // usta — obyekt kartochkasidan (Объекты → «Мастер»)
+  async function zkMaster(oid) {
+    if (!oid) return "";
+    try {
+      const o = (await db.select("objects", "id=eq." + oid + "&select=master,master_id"))[0];
+      if (!o) return "";
+      if (String(o.master || "").trim()) return String(o.master).trim();
+      if (o.master_id) { const m = (await db.select("masters", "id=eq." + o.master_id + "&select=name"))[0]; return (m && String(m.name || "").trim()) || ""; }
+    } catch (e) { console.error("zk master:", e && e.message); }
+    return "";
+  }
   const zkNumDate = (L) => [L.number ? "№" + esc(L.number) : "", /^\d{4}-\d{2}-\d{2}$/.test(L.date || "") ? dt(L.date) : ""].filter(Boolean).join(" · ");
   function zkCaption(L) {
     if (L.kind === "ret") return zkRetCaption(L);
@@ -664,6 +676,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     // 1-qator — postavshik (qalin, katta harflar), 2-qator — obyekt, keyin № / sana va summa
     const lines = [zkSupHead(L),
       L.obj ? "🏠 <b>" + esc(L.name || "—") + "</b>" + (L.batch ? " · " + L.batch + "-postavka" : "") : L.manual && L.name ? "🏠 <b>" + esc(L.name) + "</b>" : "🏠 Obyekt: aniqlanmadi",
+      ...zkMasterLine(L),
       ...(zkNumDate(L) ? ["🧾 " + zkNumDate(L)] : []),
       tot ? "Summa: <b>" + (L.cur === "uzs" ? sum(tot) + "</b>" + (totU ? " ≈ " + usd(totU) : "") : usd(tot) + "</b>") + (it.length ? " · " + it.length + " poz." : "") : "Summa: o'qilmadi"];
     if (L.diff && L.diff.length) lines.push("⚠️ " + L.diff.slice(0, 5).join("; "));
@@ -792,6 +805,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const tot = it.reduce((a, x) => a + (Number(x.qty) || 0) * (Number(x.price) || 0), 0) || Number(L.total) || 0;
     const lines = ["↩️ <b>VOZVRAT</b> · " + zkSupHead(L).replace(/^📦 /, ""),
       L.retKey ? "🏠 <b>" + esc(L.name || "—") + "</b> · " + dt(L.retDate) : L.manual && L.name ? "🏠 <b>" + esc(L.name) + "</b>" : "🏠 Obyekt: aniqlanmadi",
+      ...zkMasterLine(L),
       ...(zkNumDate(L) ? ["🧾 " + zkNumDate(L)] : []),
       tot ? "Summa: <b>" + zkRetSumText(L, tot) + "</b>" + (it.length ? " · " + it.length + " poz." : "") : "Summa: o'qilmadi"];
     const c = L.cmp;
@@ -806,6 +820,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   // в группу расходов: копия фото / PDF с подписью (объект, поставщик, сумма, расхождения) — без кнопок
   async function zkPost(id, L, z) {
     if (!z.exp) return L;
+    if ((L.obj || L.retObj) && L.master == null) L = { ...L, master: await zkMaster(L.obj || L.retObj) };
     const cap = zkCaption(L);
     let r = null;
     try { r = await tg("copyMessage", { chat_id: z.exp, from_chat_id: L.chat, message_id: L.msg, caption: cap, parse_mode: "HTML" }); }
@@ -949,7 +964,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       const m = cq.message || {};
       if (L.done || L.skip || L.obj && act === "zo") return zkDropKb(cq, ans, "Allaqachon belgilangan");
       if (act === "zn") L = { ...L, skip: me.name };
-      else { const oid = (L.cands || [])[Number(n2)]; const ord = typeof oid === "string" ? (await db.select("requests", "id=eq." + oid + "&select=id,lines"))[0] : null; if (!ord) return ans("Topilmadi", true); L = { ...L, ord: ord.id, obj: ord.lines.obj, name: ord.lines.name, batch: ord.lines.batch, diff: zkDiff(ord.lines.items, L.items || []) }; }
+      else { const oid = (L.cands || [])[Number(n2)]; const ord = typeof oid === "string" ? (await db.select("requests", "id=eq." + oid + "&select=id,lines"))[0] : null; if (!ord) return ans("Topilmadi", true); L = { ...L, ord: ord.id, obj: ord.lines.obj, name: ord.lines.name, batch: ord.lines.batch, diff: zkDiff(ord.lines.items, L.items || []) }; L = { ...L, master: await zkMaster(L.obj) }; }
       await db.update("requests", "id=eq." + row.id, { lines: L });
       const cap = zkCaption(L) + (L.skip ? "\n❌ Kerak emas (" + esc(L.skip) + ")" : "");
       try { await tg("editMessageCaption", { chat_id: m.chat.id, message_id: m.message_id, caption: cap, parse_mode: "HTML", reply_markup: { inline_keyboard: [] } }); } catch (e) { await tg("editMessageText", { chat_id: m.chat.id, message_id: m.message_id, text: cap, parse_mode: "HTML", reply_markup: { inline_keyboard: [] } }).catch(() => {}); }
@@ -979,7 +994,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const c = (L.cands || [])[Number(n2)];
     if (!c) return ans("Topilmadi", true);
     if (L.kind === "ret") { // возврат: сверяем с выбранным нашим возвратом и — в группу расходов
-      L = { ...L, retKey: c.key, name: c.name, retDate: c.date, cmp: zkRetCmp(c, L), by: me.name };
+      L = { ...L, retKey: c.key, name: c.name, retDate: c.date, retObj: c.obj || null, cmp: zkRetCmp(c, L), by: me.name };
       await db.update("requests", "id=eq." + row.id, { lines: L });
       await ans("Yuborildi");
       L = await zkPost(row.id, L, z);
