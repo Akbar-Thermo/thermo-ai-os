@@ -654,13 +654,17 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     } finally { await spend(m, null); }
   }
   // ---------- накладная: чья (объект + поставка) ----------
+  const zkSupHead = (L) => "📦 <b>" + esc(String(L.supName || "Postavshik ?").toLocaleUpperCase("ru")) + "</b>";
+  const zkNumDate = (L) => [L.number ? "№" + esc(L.number) : "", /^\d{4}-\d{2}-\d{2}$/.test(L.date || "") ? dt(L.date) : ""].filter(Boolean).join(" · ");
   function zkCaption(L) {
     if (L.kind === "ret") return zkRetCaption(L);
     const it = L.items || [];
     const tot = it.reduce((a, x) => a + (Number(x.qty) || 0) * (Number(x.price) || 0), 0) || Number(L.total) || 0;
     const totU = it.reduce((a, x) => a + (Number(x.qty) || 0) * (Number(x.cost) || 0), 0) || (L.cur === "uzs" && L.rate >= 1000 ? C.round2(tot / L.rate) : 0);
-    const lines = [L.obj ? "🏠 <b>" + esc(L.name || "—") + "</b>" + (L.batch ? " · " + L.batch + "-postavka" : "") : L.manual && L.name ? "🏠 <b>" + esc(L.name) + "</b>" : "🏠 Obyekt: aniqlanmadi",
-      "🧾 " + esc(L.supName || "?") + (L.number ? " · №" + esc(L.number) : "") + (/^\d{4}-\d{2}-\d{2}$/.test(L.date || "") ? " · " + dt(L.date) : ""),
+    // 1-qator — postavshik (qalin, katta harflar), 2-qator — obyekt, keyin № / sana va summa
+    const lines = [zkSupHead(L),
+      L.obj ? "🏠 <b>" + esc(L.name || "—") + "</b>" + (L.batch ? " · " + L.batch + "-postavka" : "") : L.manual && L.name ? "🏠 <b>" + esc(L.name) + "</b>" : "🏠 Obyekt: aniqlanmadi",
+      ...(zkNumDate(L) ? ["🧾 " + zkNumDate(L)] : []),
       tot ? "Summa: <b>" + (L.cur === "uzs" ? sum(tot) + "</b>" + (totU ? " ≈ " + usd(totU) : "") : usd(tot) + "</b>") + (it.length ? " · " + it.length + " poz." : "") : "Summa: o'qilmadi"];
     if (L.diff && L.diff.length) lines.push("⚠️ " + L.diff.slice(0, 5).join("; "));
     return cut(lines.join("\n"), 1000);
@@ -786,9 +790,9 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   function zkRetCaption(L) {
     const it = L.items || [];
     const tot = it.reduce((a, x) => a + (Number(x.qty) || 0) * (Number(x.price) || 0), 0) || Number(L.total) || 0;
-    const head = "↩️ <b>VOZVRAT</b>" + (L.retKey ? " · 🏠 <b>" + esc(L.name || "—") + "</b> · " + dt(L.retDate) : L.manual && L.name ? " · 🏠 <b>" + esc(L.name) + "</b>" : "");
-    const lines = [head,
-      "🧾 " + esc(L.supName || "?") + (L.number ? " · №" + esc(L.number) : "") + (/^\d{4}-\d{2}-\d{2}$/.test(L.date || "") ? " · " + dt(L.date) : ""),
+    const lines = ["↩️ <b>VOZVRAT</b> · " + zkSupHead(L).replace(/^📦 /, ""),
+      L.retKey ? "🏠 <b>" + esc(L.name || "—") + "</b> · " + dt(L.retDate) : L.manual && L.name ? "🏠 <b>" + esc(L.name) + "</b>" : "🏠 Obyekt: aniqlanmadi",
+      ...(zkNumDate(L) ? ["🧾 " + zkNumDate(L)] : []),
       tot ? "Summa: <b>" + zkRetSumText(L, tot) + "</b>" + (it.length ? " · " + it.length + " poz." : "") : "Summa: o'qilmadi"];
     const c = L.cmp;
     if (c) {
