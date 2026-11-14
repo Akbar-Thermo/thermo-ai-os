@@ -818,6 +818,27 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     return cut(lines.join("\n"), 1000);
   }
   // в группу расходов: копия фото / PDF с подписью (объект, поставщик, сумма, расхождения) — без кнопок
+  // уже отправленные в группу расходов накладные — подпись заново по текущему виду (поставщик / объект / мастер)
+  async function zkRecaption() {
+    const rows = await db.select("requests", "mode=eq." + ZK_INV + "&order=created_at.asc&limit=500&select=id,lines");
+    const out = { total: 0, edited: 0, same: 0, failed: 0 };
+    for (const r of rows) {
+      let L = r.lines;
+      if (!L || !L.exp || !L.expMsg) continue;
+      out.total++;
+      if ((L.obj || L.retObj) && !L.master) L = { ...L, master: await zkMaster(L.obj || L.retObj) };
+      const cap = zkCaption(L) + (L.skip ? "\n❌ Kerak emas (" + esc(L.skip) + ")" : "");
+      const q = { chat_id: L.exp, message_id: L.expMsg, parse_mode: "HTML" };
+      let res = "failed";
+      for (const [m, k] of [["editMessageCaption", "caption"], ["editMessageText", "text"]]) {
+        try { await tg(m, { ...q, [k]: cap }); res = "edited"; break; }
+        catch (e) { const t = String((e && e.message) || e); if (/not modified/i.test(t)) { res = "same"; break; } if (!/no caption|no text|there is no|can't be edited|MESSAGE_ID_INVALID|not found/i.test(t)) { console.error("zk recaption:", t); break; } }
+      }
+      out[res]++;
+      if (L !== r.lines) await db.update("requests", "id=eq." + r.id, { lines: L });
+    }
+    return out;
+  }
   async function zkPost(id, L, z) {
     if (!z.exp) return L;
     if ((L.obj || L.retObj) && L.master == null) L = { ...L, master: await zkMaster(L.obj || L.retObj) };
@@ -2734,6 +2755,7 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   return {
     async handle(upd) {
       if (upd && upd.te_cron) return smeta ? undefined : zakaz ? zkTick() : tick();
+      if (upd && upd.te_recaption) return zakaz ? zkRecaption() : undefined;
       if (zakaz) {
         if (!menuDone) { menuDone = true; try { for (const scope of [{ type: "default" }, { type: "all_group_chats" }, { type: "all_private_chats" }]) await tg("deleteMyCommands", { scope }); await zkSaveName(); } catch (e) { menuDone = false; } }
         if (upd.callback_query) return /^z[a-z]:/.test(String(upd.callback_query.data || "")) ? zkCallback(upd.callback_query, (text, alert) => tg("answerCallbackQuery", { callback_query_id: upd.callback_query.id, text: text || "", show_alert: !!alert }).catch(() => {})) : undefined;

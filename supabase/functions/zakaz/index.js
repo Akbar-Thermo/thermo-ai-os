@@ -66,6 +66,11 @@ Deno.serve(async (req) => {
         return json(200, { ...st, webhook: "ok", username: me && me.username });
       } catch (e) { return json(200, { ...st, webhook: "error: " + String(e.message || e).slice(0, 200) }); }
     }
+    // ?recaption=1 — подписи уже отправленных в группу расходов накладных — заново, по текущему виду (только правка своих сообщений)
+    if (TOKEN && new URL(req.url).searchParams.get("recaption") === "1") {
+      try { return json(200, { ok: true, recaption: await getBot().handle({ te_recaption: true }) }); }
+      catch (e) { return json(200, { ok: false, error: String(e.message || e).slice(0, 200) }); }
+    }
     return json(200, st);
   }
   if (!TOKEN || req.headers.get("x-telegram-bot-api-secret-token") !== SECRET) return json(401, { ok: false });
