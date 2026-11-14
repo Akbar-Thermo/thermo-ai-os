@@ -1009,6 +1009,8 @@ tr.batch-head:hover>td{background:color-mix(in srgb,var(--txt) 4%,var(--panel2))
 /* чат и карточки — та же тень окон */
 .chat-win{box-shadow:var(--shadow-pop);animation:fxPop .24s var(--ease-out) backwards}
 .chat-it{transition:background var(--dur)}
+/* окно-вопрос: выбранная кнопка хорошо видна — отвечают с клавиатуры (←/→, Enter) */
+.cfm-box .btn:focus{outline:2px solid var(--acc);outline-offset:2px;box-shadow:0 0 0 5px var(--acc-ring)}
 `;
 
 /* ============ DATA LAYER = Supabase (db из ./db.js) ============ */
@@ -2651,13 +2653,25 @@ function SelectPopupHost() {
 function ConfirmHost() {
   const [c, setC] = useState(null);
   const kRef = useRef(null);
-  useTopKeys(kRef, { Escape: () => { if (c) { c.res(false); setC(null); } } });
-  useEffect(() => { _confirmSet = setC; return () => { _confirmSet = null; }; }, []);
+  useTopKeys(kRef, { Escape: () => { if (c) { c.res(false); setC(null); const el = prevFocus.current; prevFocus.current = null; setTimeout(() => { try { if (el && el.isConnected) el.focus(); } catch (e) {} }, 0); } } });
+  const prevFocus = useRef(null), okRef = useRef(null), noRef = useRef(null);
+  useEffect(() => { _confirmSet = (o) => { prevFocus.current = document.activeElement; setC(o); }; return () => { _confirmSet = null; }; }, []);
+  // фокус — на кнопку по умолчанию (focus: "ok" — «Да»), чтобы ответить с клавиатуры
+  useEffect(() => { if (c) setTimeout(() => { const b = c.focus === "ok" ? okRef.current : noRef.current; if (b) b.focus(); }, 0); }, [c]);
   if (!c) return null;
-  const done = (v) => { c.res(v); setC(null); };
+  // после ответа — курсор обратно туда, где печатали (ввод товаров продолжается без мышки)
+  const done = (v) => { c.res(v); setC(null); const el = prevFocus.current; prevFocus.current = null; setTimeout(() => { try { if (el && el.isConnected && !document.querySelector(".cfm-box")) el.focus(); } catch (e) {} }, 0); };
+  // клавиатура: ←/→/↑/↓/Tab — между кнопками, Enter/Пробел — выбрать, Y/Д/1 — «Да», N/Н/2 — «Нет», Esc — «Нет»
+  const onKey = (e) => {
+    const k = e.key, lk = String(k).toLowerCase();
+    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Tab"].includes(k)) { e.preventDefault(); e.stopPropagation(); (document.activeElement === okRef.current ? noRef.current : okRef.current).focus(); return; }
+    if (k === "Enter" || k === " ") { e.preventDefault(); e.stopPropagation(); done(document.activeElement === okRef.current); return; }
+    if (["y", "д", "1"].includes(lk)) { e.preventDefault(); e.stopPropagation(); done(true); return; }
+    if (["n", "н", "2"].includes(lk)) { e.preventDefault(); e.stopPropagation(); done(false); }
+  };
   return (
-    <div ref={kRef} className="modal-bg" style={{ zIndex: 1100 }} onMouseDown={(e) => { if (e.target === e.currentTarget) done(false); }}>
-      <div className="modal" style={{ maxWidth: 520, marginTop: "14vh" }}>
+    <div ref={kRef} className="modal-bg" style={{ zIndex: 1100 }} onKeyDown={onKey} onMouseDown={(e) => { if (e.target === e.currentTarget) done(false); }}>
+      <div className="modal cfm-box" style={{ maxWidth: 520, marginTop: "14vh" }}>
         <h3 style={{ marginBottom: 10, color: "var(--warn)" }}>⚠ {c.title}</h3>
         {c.text && <p className="sm" style={{ marginBottom: 8, whiteSpace: "pre-line" }}>{c.text}</p>}
         {c.items && c.items.length > 0 && (
@@ -2666,8 +2680,8 @@ function ConfirmHost() {
           </div>
         )}
         <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
-          <button className="btn" autoFocus onClick={() => done(false)}>{c.cancel || "Нет, исправить"}</button>
-          <button className="btn dng" onClick={() => done(true)}>{c.ok || "Да, сохранить"}</button>
+          <button ref={noRef} className="btn" onClick={() => done(false)}>{c.cancel || "Нет, исправить"}</button>
+          <button ref={okRef} className="btn dng" onClick={() => done(true)}>{c.ok || "Да, сохранить"}</button>
         </div>
       </div>
     </div>
@@ -2854,7 +2868,7 @@ const askWhAlt = (p, exQ, sim, want) => askConfirm({
   title: "Аналог на Складе Thermo",
   text: (exQ > 0 ? "«" + p.name + "» на складе: " + fmt(exQ) + " — не хватает " + fmt(round2(want - exQ)) + ". " : "«" + p.name + "» на складе нет. ")
     + "Есть такой же товар другого поставщика: «" + sim.name + "» — " + fmt(sim.qty) + " " + (p.unit || "шт") + ". Взять его со склада?",
-  ok: "Да, со склада", cancel: "Нет, у поставщика",
+  ok: "Да, со склада", cancel: "Нет, у поставщика", focus: "ok",
 });
 const whQtyMap = (warehouse) => { const m = {}; (warehouse || []).forEach((w) => { if (w.product_id && Number(w.qty) > 0) m[w.product_id] = (m[w.product_id] || 0) + Number(w.qty); }); return m; };
 /* Фильтр «поставщики → бренды» (поиск товара в заявке/объекте/складе и «Товары»):
