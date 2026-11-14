@@ -3022,8 +3022,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
   }, [open]);
   // список виден, пока поиск «открыт» (клик мимо — закрывает, текст поиска остаётся; клик в поле — снова открывает)
   const active = open && (q.trim().length >= 2 || sf);
-  // товары со Склада Thermo — первыми (склад нужно распродавать); выбран поставщик / бренд — только его товары со склада
-  // (аналоги других поставщиков видны в строке товара: «такой же у другого поставщика»)
+  // порядок — обычный (как в «Товары»); товары со Склада Thermo вперёд НЕ поднимаем (мешали искать) — остаток склада виден в строке товара
   const whSet = useMemo(() => new Set((whStock || []).map((p) => p.id)), [whStock]);
   const whLabel = (p) => {
     if (!whQty || !whQty[p.id]) return null;
@@ -3034,24 +3033,18 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
   const hits = useMemo(() => {
     const words = searchWords(q);
     if (!active) return [];
-    const wh = [], out = [];
-    (whStock || []).forEach((p) => {
-      if (sf && !sfSet.has(p.supplier_id)) return;
-      const bf = sbr[p.supplier_id];
-      if (bf && bf.length && !bf.includes(String(p.brand || "").trim())) return;
-      const s = prodSearchText(p, supName[p.supplier_id]); if (words.every((w) => s.includes(w))) wh.push(p);
-    });
+    const out = [];
     for (const i of order) {
       const p = products[i];
-      if (p.status === "archive" || whSet.has(p.id)) continue;
+      if (p.status === "archive" && !whSet.has(p.id)) continue; // архивный товар, который лежит на складе, — найти можно
       if (sf && !sfSet.has(p.supplier_id)) continue;
       const bf = sbr[p.supplier_id];
       if (bf && bf.length && !bf.includes(String(p.brand || "").trim())) continue;
       const s = idx[i];
       if (words.every((w) => s.includes(w))) out.push(p);
     }
-    return wh.length ? [...wh, ...out] : out;
-  }, [q, products, idx, sfSet, sf, sbr, active, order, whStock, whSet, supName]);
+    return out;
+  }, [q, products, idx, sfSet, sf, sbr, active, order, whSet]);
   useEffect(() => { setTop(0); if (listRef.current) listRef.current.scrollTop = 0; }, [q, sfSet, sbr]);
   // при навигации стрелками держим активную строку в видимой области
   useEffect(() => {
