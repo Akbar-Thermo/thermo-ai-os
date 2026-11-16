@@ -185,6 +185,8 @@ async function cfgSetKey(mode, key, value) {
   return !r.error;
 }
 const cloudHash = (uid, pw) => hashPass("te2fa:" + uid + ":" + pw);
+// аккаунты, которые входят без облачного пароля: «Claude» (Claude AI) — ИИ вносит данные в программу сам
+const NO_CLOUD_IDS = ["2d2fdcc5-d08f-4cd9-b369-47bea29c9a36"];
 // «облачный пароль введён» — только до закрытия вкладки/окна (sessionStorage): обновление страницы не спрашивает, закрыли (✕) и открыли — спросит снова
 const cloudOkKey = (uid) => "te:cloud:" + uid;
 // на телефоне вкладки закрываются сами (браузер выгружает их) — облачный пароль спрашивается один раз после входа и до «Выйти»
@@ -11555,7 +11557,10 @@ function UserForm({ u, users, self, onClose, onSave, data = null, uperms = {}, h
           </div>
         </Fld></div>
       </div>
-      {u.id && <div className="row cloud-row">
+      {u.id && NO_CLOUD_IDS.includes(u.id) && <div className="row cloud-row">
+        <span className="sm mut" style={{ marginRight: "auto" }}><Ic n="cloud" /> Входит без облачного пароля (аккаунт Claude)</span>
+      </div>}
+      {u.id && !NO_CLOUD_IDS.includes(u.id) && <div className="row cloud-row">
         <span className="sm" style={{ marginRight: "auto", color: cloudHas ? "var(--ok)" : "var(--warn)" }}><Ic n="cloud" /> {cloudHas ? "Облачный пароль есть" : "Облачного пароля нет — создаст при входе"}</span>
         {cloudHas && onCloudReset && <button type="button" className="btn xs" onClick={async () => { if (await onCloudReset()) setCloudHas(false); }}>Сбросить</button>}
       </div>}
@@ -12085,7 +12090,8 @@ function AppInner() {
   const acc = currentUser ? accessOf(currentUser, rolesList, userPerms) : { base: "boss", label: "", tabs: ROLES[1].tabs, perms: ALL_PERMS };
   const role = acc.base;
   // проектировщик, у которого только «Расчёт отопления», входит без облачного пароля (дадут другие разделы — пароль спросится)
-  const noCloud = role === "designer" && acc.tabs.every((t) => t === "heat");
+  // аккаунт Claude (ИИ вносит данные сам) — тоже без облачного пароля
+  const noCloud = (role === "designer" && acc.tabs.every((t) => t === "heat")) || !!(currentUser && NO_CLOUD_IDS.includes(currentUser.id));
   const [openId, setOpenId] = useState(null);
   const [msg, setMsg] = useState("");
 
