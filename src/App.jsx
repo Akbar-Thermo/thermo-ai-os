@@ -3056,7 +3056,8 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
   }, [activeIdx]);
   const pick = (p) => {
     if (askQty) { setPend(p); setPq("1"); return; }
-    onPick(p); setQ(""); setActiveIdx(-1); if (closeOnPick) setOpen(false);
+    const r = onPick(p); setQ(""); setActiveIdx(-1); if (closeOnPick) setOpen(false);
+    if (r && typeof r.then === "function") r.then(backToSearch, backToSearch); // был вопрос «со склада?» — после ответа снова в поиск
   };
   // после добавления текст поиска (например «отвод 50 100») остаётся выделенным, список найденного — открытым:
   // можно сразу взять следующий товар из того же списка (↓ / мышью) или просто начать печатать новый запрос
@@ -3064,9 +3065,11 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
   const confirmQty = () => {
     const n = parseNum(pq);
     if (!(n > 0) || !pend) return;
-    onPick(pend, n); setPend(null);
+    const r = onPick(pend, n); setPend(null);
     if (closeOnPick) { setQ(""); setActiveIdx(-1); setOpen(false); }
     backToSearch();
+    // если добавление спросило «со склада?» — после ответа курсор снова в поиске (а не в пропавшем поле количества)
+    if (r && typeof r.then === "function") r.then(backToSearch, backToSearch);
   };
   const cancelQty = () => { setPend(null); backToSearch(); };
   const supCount = useMemo(() => { const m = {}; products.forEach((p) => { if (p.supplier_id && p.status !== "archive") m[p.supplier_id] = (m[p.supplier_id] || 0) + 1; }); return m; }, [products]);
