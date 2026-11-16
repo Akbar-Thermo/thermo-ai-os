@@ -8514,7 +8514,18 @@ function HeatCalcTab({ lang, userName }) {
   const doc = useMemo(() => (html ? html.replace("<!--HOST-->", () => "<script>window.__ISITISH_HOST=" + JSON.stringify({ lang: lang === "uz" ? "uz" : "ru", user: userName || "", company: "Thermo Engineering" }).replace(/</g, "\\u003c") + "</script>") : ""), [html, lang, userName]);
   if (err) return <div className="card sect" style={{ color: "var(--warn)" }}>Не удалось загрузить расчёт отопления: {err}</div>;
   if (!html) return <div className="card sect mut">Загрузка…</div>;
-  return <iframe ref={ref} key={lang} title={lang === "uz" ? "Isitish hisobi" : "Расчёт отопления"} srcDoc={doc}
+  // движения мыши внутри окна калькулятора передаются программе: панель меню у края экрана открывается и закрывается как обычно
+  const onLoad = () => {
+    const fr = ref.current, w = fr && fr.contentWindow;
+    if (!w) return;
+    try {
+      w.document.addEventListener("mousemove", (e) => {
+        const r = fr.getBoundingClientRect();
+        fr.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: r.left + e.clientX, clientY: r.top + e.clientY }));
+      });
+    } catch (e) { /* окно недоступно — ничего страшного */ }
+  };
+  return <iframe ref={ref} key={lang} onLoad={onLoad} title={lang === "uz" ? "Isitish hisobi" : "Расчёт отопления"} srcDoc={doc}
     style={{ display: "block", width: "100%", height: h, border: 0, borderRadius: 12, background: "#F5F3EE" }} />;
 }
 
@@ -12511,7 +12522,8 @@ function AppInner() {
     document.addEventListener("mousemove", mv);
     return () => document.removeEventListener("mousemove", mv);
   }, [hdrOff, hdrSide, finePtr]);
-  const hdrLeave = () => {};
+  // мышь ушла с панели (в т.ч. в окно «Расчёта отопления», откуда движения мыши сюда не доходят) — закрыть
+  const hdrLeave = () => { if (hdrOff && finePtr) { clearTimeout(peekT.current); peekT.current = null; setHdrPeek(false); } };
   const hdrEnter = () => { clearTimeout(peekT.current); peekT.current = null; };
   // телефон: провести пальцем справа налево в любом месте экрана — открыть меню (оно выезжает справа);
   // меню открыто — провести слева направо или тапнуть мимо — закрыть.
