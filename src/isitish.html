@@ -1,0 +1,1295 @@
+<!DOCTYPE html>
+<html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Isitish kalkulyatori</title><style>:root{--bg:#F5F3EE;--panel:#FDFCFA;--border:#E2DED6;--ink:#14213D;--muted:#5B6472;--accent:#B5471B;--accent-2:#E8590C;--blue:#1F5F9E;--ov:#FFF4E8;--r:14px;
+  --font:'Segoe UI',Roboto,'Helvetica Neue',Arial,'Noto Sans','Liberation Sans',sans-serif}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.4;-webkit-text-size-adjust:100%}
+button,input,select{font:inherit;color:inherit}
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 24px 10px;max-width:1500px;margin:0 auto;flex-wrap:wrap}
+.brand{display:flex;gap:14px;align-items:center}
+.brand .mark{width:40px;height:40px;border-radius:11px;background:linear-gradient(135deg,#8F3A14,#E8590C 55%,#1F5F9E);flex:none}
+.brand h1{margin:0;font-size:21px;font-weight:800;letter-spacing:-.01em}
+.brand p{margin:2px 0 0;color:var(--muted);font-size:13.5px}
+.tabs{display:flex;gap:4px;padding:0 24px;max-width:1500px;margin:0 auto;border-bottom:1.5px solid var(--border)}
+.tab{background:none;border:0;padding:11px 14px;cursor:pointer;color:var(--muted);font-weight:600;border-bottom:3px solid transparent;margin-bottom:-1.5px}
+.tab.on{color:var(--ink);border-bottom-color:var(--accent-2)}
+.tab:hover{color:var(--ink)}
+main{max-width:1500px;margin:0 auto;padding:20px 24px 60px}
+.cols{display:grid;grid-template-columns:minmax(330px,430px) minmax(0,1fr);gap:20px;align-items:start}
+.out{position:sticky;top:12px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.form{display:flex;flex-direction:column;gap:16px;min-width:0}
+.single{max-width:760px}
+.card{background:var(--panel);border:1.5px solid var(--border);border-radius:var(--r);padding:18px 20px}
+.card h2{margin:0 0 14px;font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+.card h3{margin:18px 0 10px;font-size:13.5px;font-weight:800;color:var(--ink)}
+.card h4{margin:0 0 8px;font-size:13.5px;font-weight:700;color:var(--muted)}
+.hint{color:var(--muted);font-size:12.5px;margin:6px 0 0;font-weight:400}
+.card>.hint+.fld,.card>.hint+label.fld{margin-top:14px}
+.empty{color:var(--muted);margin:0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px 14px}
+.fld{display:flex;flex-direction:column;gap:5px;min-width:0}
+.fld.narrow{max-width:280px;margin-top:12px}
+.lbl{font-size:12.5px;font-weight:600;color:var(--muted)}
+input[type=text],select{width:100%;min-width:0;height:40px;padding:0 11px;border:1.5px solid var(--border);border-radius:9px;background:#fff;outline:none;transition:border-color .15s,box-shadow .15s}
+input[type=text]:focus,select:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(31,95,158,.15)}
+input::placeholder{color:#9AA1AC}
+.auto .inp{position:relative;display:block}
+.auto.is-ov input{background:var(--ov);border-color:#F2B98A}
+.auto .rst{position:absolute;right:5px;top:50%;transform:translateY(-50%);width:30px;height:30px;border-radius:7px;border:0;background:transparent;cursor:pointer;color:var(--accent);font-size:17px}
+.auto .rst:hover{background:#fbe3cf}
+.auto.is-ov input{padding-right:36px}
+.auto .hint{margin:0;font-size:11.5px}
+.auto.is-ov .hint{color:var(--accent);font-weight:600}
+.seg{display:inline-flex;flex-wrap:wrap;background:#ECE8E0;border-radius:10px;padding:3px;gap:3px}
+.seg button{border:0;background:transparent;padding:7px 12px;border-radius:8px;cursor:pointer;font-weight:600;font-size:13.5px;color:var(--muted)}
+.seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(20,33,61,.12)}
+.card .seg{display:flex}
+.card .seg button{flex:1 1 auto}
+.chk{display:flex;align-items:center;gap:9px;cursor:pointer;font-weight:600;font-size:14px;min-width:0}
+.chk input{width:18px;height:18px;accent-color:var(--blue);flex:none;margin:0}
+.dot{width:12px;height:12px;border-radius:3px;flex:none;display:inline-block}
+.loadrow{display:grid;grid-template-columns:1fr 120px;gap:12px;align-items:center;margin-bottom:10px}
+.sysrow{display:grid;grid-template-columns:1fr 104px 104px;gap:10px;align-items:center;margin-bottom:9px}
+.sysrow.head{font-size:11.5px;color:var(--muted);font-weight:600;align-items:end;margin-bottom:6px}
+.sub{border:1.5px dashed var(--border);border-radius:11px;padding:12px;margin-bottom:10px}
+.mtab{display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:8px 10px;align-items:center;font-size:12px;color:var(--muted);font-weight:600}
+.mtab .mname{color:var(--ink);font-size:13.5px}
+.ttab{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;align-items:center;max-width:460px}
+.ttab .th{font-size:12px;color:var(--muted);font-weight:600}
+.tcell{height:40px;display:flex;align-items:center;padding:0 11px;color:var(--muted);font-weight:600}
+details.adv summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px}
+details.adv summary::-webkit-details-marker{display:none}
+details.adv summary h2{margin:0}
+details.adv summary::after{content:"▾";color:var(--muted);margin-left:auto;transition:transform .2s}
+details.adv[open] summary::after{transform:rotate(180deg)}
+details.adv[open] summary{margin-bottom:6px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:38px;padding:0 15px;border-radius:9px;border:1.5px solid var(--ink);background:var(--ink);color:#fff;font-weight:700;font-size:13.5px;cursor:pointer;white-space:nowrap}
+.btn:hover{background:#22325a}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--border)}
+.btn.ghost:hover{border-color:var(--ink)}
+.btn.small{height:32px;padding:0 11px;font-size:12.5px}
+.btn:focus-visible,.tab:focus-visible,.seg button:focus-visible{outline:3px solid rgba(31,95,158,.35);outline-offset:2px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.bar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.bar h2{margin:0}
+.res{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
+.res li{display:grid;grid-template-columns:12px minmax(140px,240px) 1fr 70px;gap:10px;align-items:center;font-size:14px}
+.res b{text-align:right;font-variant-numeric:tabular-nums;font-size:15px}
+.barwrap{height:10px;background:#EFECE6;border-radius:5px;overflow:hidden}
+.barfill{display:block;height:100%;border-radius:5px}
+#pages{display:flex;flex-direction:column;gap:18px}
+.page{margin:0}
+.sheet{border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(20,33,61,.12),0 6px 24px rgba(20,33,61,.07);background:var(--bg);line-height:0}
+.sheet svg{width:100%;height:auto;display:block}
+.page figcaption{display:flex;justify-content:space-between;align-items:center;margin-top:8px;color:var(--muted);font-size:13px}
+.logo-row{display:flex;gap:10px;align-items:center;min-height:40px}
+.logo-prev{max-height:36px;max-width:120px;border-radius:4px}
+.saved{list-style:none;margin:0 0 6px;padding:0}
+.saved li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1.5px solid var(--border)}
+.saved li div:first-child{display:flex;flex-direction:column}
+.badge{background:var(--ov);color:var(--accent);border:1.5px solid #F2B98A;border-radius:999px;padding:4px 10px;font-size:12.5px;font-weight:700}
+#toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,20px);background:var(--ink);color:#fff;padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px;opacity:0;pointer-events:none;transition:.2s;z-index:10}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+/* Kompyuterda forma va infografika alohida aylanadi */
+@media (min-width:1061px){
+  #app.split{height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+  #app.split .top,#app.split .tabs{flex:none;width:100%}
+  #app.split main{flex:1;min-height:0;width:100%;padding-bottom:0}
+  #app.split .cols{height:100%}
+  #app.split .form,#app.split .out{height:100%;overflow-y:auto;overscroll-behavior:contain;padding:0 8px 28px 2px;scrollbar-width:thin;scrollbar-color:#C9C4BA transparent}
+  #app.split .out{position:static}
+}
+@media (max-width:1060px){.cols{grid-template-columns:1fr}.out{position:static}}
+@media (max-width:560px){
+  .top{padding:14px 14px 8px}.tabs{padding:0 10px}main{padding:14px 12px 50px}
+  .card{padding:15px 14px}.grid2,.grid3{grid-template-columns:1fr}
+  .sysrow{grid-template-columns:1fr 84px 84px;gap:8px}
+  .loadrow{grid-template-columns:1fr 96px}
+  .res li{grid-template-columns:12px 1fr 62px}.res .barwrap{display:none}
+  .mtab{grid-template-columns:auto 1fr 1fr 1fr;gap:6px}
+  .brand h1{font-size:18px}
+}
+</style></head>
+<body><div id="app"></div>
+<!--HOST-->
+<script>// ===== Hisoblash qismi (sof funksiyalar, brauzer va node'da bir xil ishlaydi) =====
+const INF = 1e12;
+
+const DEFAULT_TARIFFS = {
+  date: "01.06.2026",
+  // Aholi, elektr: [yuqori chegara kVt·soat/oy, so'm]
+  elecRes: [[200, 650], [500, 900], [1000, 1100], [5000, 1600], [10000, 1900], [INF, 2200]],
+  elecBiz: 1100,
+  // Aholi, gaz: norma (noyabr–fevral / boshqa oylar) va pog'onalar
+  gasNormWinter: 500,
+  gasNormOther: 100,
+  gasBasePrice: 1100,
+  gasRes: [[2500, 2000], [5000, 2300], [10000, 2700], [INF, 3300]],
+  gasBiz: 2000,
+};
+
+const DEFAULT_MONTHS = [
+  { key: "nov", days: 30, full: 30, t: 9.4, winterNorm: true },
+  { key: "dec", days: 31, full: 31, t: 4.4, winterNorm: true },
+  { key: "jan", days: 31, full: 31, t: 2.8, winterNorm: true },
+  { key: "feb", days: 28, full: 28, t: 4.4, winterNorm: true },
+  { key: "mar", days: 18, full: 31, t: 8.0, winterNorm: false },
+];
+
+// PASRW seriyasi, COP (maksimal quvvatda), tashqi harorat bo'yicha
+const COP_CURVES = {
+  45: [[-15, 2.08], [-10, 2.28], [-7, 2.30], [-5, 2.35], [2, 2.76], [7, 2.92], [10, 3.23], [15, 3.84], [20, 4.25]],
+  55: [[-15, 1.78], [-10, 1.90], [-5, 2.01], [2, 2.60], [7, 2.69]],
+  70: [[-15, 1.05], [-10, 1.15], [-5, 1.47], [2, 1.73], [7, 1.88]],
+};
+
+// Modellar: tashqi harorat nuqtalari +7, +2, -5, -10, -15; [issiqlik quvvati], [elektr quvvati]
+const HP_AMB = [7, 2, -5, -10, -15];
+const HP_MODELS = [
+  { id: "PASRW080", nom: 28, t: {
+    45: { cap: [25.58, 22.56, 18.20, 16.91, 15.21], pow: [8.75, 8.16, 7.74, 7.41, 7.32] },
+    55: { cap: [22.00, 19.69, 17.93, 16.30, 14.99], pow: [8.18, 7.56, 8.92, 8.60, 8.44] },
+    70: { cap: [15.60, 14.21, 13.67, 10.42, 9.21], pow: [8.31, 8.20, 9.29, 9.09, 8.77] } } },
+  { id: "PASRW150", nom: 50, t: {
+    45: { cap: [48.5, 46.8, 36.4, 32.5, 28.3], pow: [16.4, 15.3, 14.7, 15.0, 14.5] },
+    55: { cap: [46.0, 42.3, 32.8, 30.3, 26.6], pow: [18.6, 17.9, 16.8, 15.2, 16.0] },
+    70: { cap: [36.0, 31.7, 25.0, 18.9, null], pow: [18.6, 17.7, 17.0, 17.3, null] } } },
+  { id: "PASRW250", nom: 80, t: {
+    45: { cap: [77.64, 56.62, 51.62, 49.26, 44.33], pow: [25.23, 21.76, 23.26, 22.75, 22.00] },
+    55: { cap: [75.27, 55.21, 50.34, 42.27, 39.85], pow: [27.75, 24.05, 25.58, 25.82, 23.96] },
+    70: { cap: [53.26, 46.04, 42.22, 24.93, null], pow: [24.36, 25.44, 28.64, 18.90, null] } } },
+  { id: "PASRW350", nom: 110, t: {
+    45: { cap: [105.58, 89.31, 74.13, 66.99, 60.29], pow: [34.31, 33.55, 33.36, 30.94, 29.92] },
+    55: { cap: [97.15, 85.14, 68.46, 65.09, 58.57], pow: [42.19, 37.08, 34.79, 34.74, 36.81] },
+    70: { cap: [72.43, 65.91, 57.42, 33.90, null], pow: [36.33, 36.42, 38.95, 25.71, null] } } },
+];
+
+const DEFAULT_INPUT = {
+  client: "", object: "", area: "",
+  customer: "res",            // res = aholi, biz = yur. shaxs
+  loadA: 56, loadB: 36,       // izolyatsiyasiz / izolyatsiya bilan, kVt
+  useA: true, useB: true,
+  supply: 45,
+  sys: { eb: true, hp: true, gb: true },
+  price: { eb: [8000, null], hp: [40000, null], gb: [null, null] }, // $ : [izolyatsiyasiz, izolyatsiya bilan]; null = birinchisi bilan bir xil
+  insulPrice: null,           // izolyatsiya ishlari narxi, $
+  growth: 10,                 // tariflar o'sishi, %/yil
+  usd: 12000,
+  // Qo'lda o'zgartirishlar (null/undefined = avtomatik)
+  ov: {},
+};
+
+// Avtomatik qiymatlar (qo'lda o'zgartirilmagan bo'lsa)
+const AUTO = {
+  tIn: 20, tDes: -14, gain: 0.85,
+  baseElRes: 500, baseElBiz: 0,   // maishiy elektr, kVt·soat/oy
+  baseGas: 0,                     // maishiy gaz, m³/oy
+  effEb: 0.99, effGb: 0.92, gasKwh: 9.3,
+  backupA: 3, backupB: 1,         // zaxira TEN ulushi, %
+  coverMin: 0.75,                 // nasos tanlash: hisobiy haroratda yuklamaning kamida 75 %
+  // Uskuna quvvati (faqat infografikada ko'rsatiladi, to'lovga ta'sir qilmaydi):
+  // 56 kVt uy uchun elektr qozon 56, issiqlik nasosi 86, gaz qozon 60 kVt
+  equipRatio: { eb: 1, hp: 86 / 56, gb: 1.08 },
+};
+function equipAuto(sys, load) { const l = num(load); return l > 0 ? Math.round(l * AUTO.equipRatio[sys]) : null; }
+
+function num(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "number" ? v : parseFloat(String(v).replace(/\s/g, "").replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+function pick(ov, key, auto) {
+  const n = num(ov ? ov[key] : null);
+  return n === null ? auto : n;
+}
+
+function interp(pts, x) {
+  if (x <= pts[0][0]) return pts[0][1];
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+    if (x <= x1) return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+  }
+  return pts[pts.length - 1][1];
+}
+function copAuto(supply, t) { return interp(COP_CURVES[supply] || COP_CURVES[45], t); }
+
+// Pog'onali to'lov: tiers = [[yuqori chegara, narx], ...]
+function tiered(qty, tiers) {
+  let rest = qty, prev = 0, sum = 0;
+  const parts = [];
+  for (const [upTo, price] of tiers) {
+    const take = Math.max(0, Math.min(rest, upTo - prev));
+    if (take > 0) { sum += take * price; parts.push({ from: prev, upTo, price, qty: take, sum: take * price }); }
+    rest -= take; prev = upTo;
+    if (rest <= 1e-9) break;
+  }
+  return { sum, parts };
+}
+function elecBill(kwh, tariffs, customer) {
+  if (kwh <= 0) return 0;
+  return customer === "biz" ? kwh * tariffs.elecBiz : tiered(kwh, tariffs.elecRes).sum;
+}
+function gasTiers(tariffs, winterNorm) {
+  const norm = winterNorm ? tariffs.gasNormWinter : tariffs.gasNormOther;
+  return [[norm, tariffs.gasBasePrice], ...tariffs.gasRes.filter(([u]) => u > norm)];
+}
+function gasBill(m3, tariffs, customer, winterNorm) {
+  if (m3 <= 0) return 0;
+  return customer === "biz" ? m3 * tariffs.gasBiz : tiered(m3, gasTiers(tariffs, winterNorm)).sum;
+}
+
+// Jadvaldagi hisobiy haroratga eng yaqin sovuqroq nuqta (ehtiyotkor yondashuv)
+function designIndex(tDes) {
+  let idx = 0;
+  for (let i = 0; i < HP_AMB.length; i++) if (HP_AMB[i] >= tDes) idx = Math.min(i + 1, HP_AMB.length - 1);
+  if (tDes >= HP_AMB[0]) idx = 0;
+  return idx;
+}
+function modelAt(model, supply, tDes) {
+  const tb = model.t[supply] || model.t[45];
+  let i = designIndex(tDes);
+  let limited = false;
+  while (i > 0 && (tb.cap[i] === null || tb.cap[i] === undefined)) { i--; limited = true; }
+  return { cap: tb.cap[i], pow: tb.pow[i], at: HP_AMB[i], limited };
+}
+// Nasosni avtomatik tanlash
+function selectHp(load, supply, tDes, coverMin) {
+  for (let n = 1; n <= 8; n++) {
+    for (const m of HP_MODELS) {
+      const a = modelAt(m, supply, tDes);
+      if (a.cap * n >= coverMin * load) return { model: m.id, count: n };
+    }
+  }
+  return { model: HP_MODELS[HP_MODELS.length - 1].id, count: 8 };
+}
+
+function compute(input, tariffs) {
+  const ov = input.ov || {};
+  const customer = input.customer === "biz" ? "biz" : "res";
+  const tIn = pick(ov, "tIn", AUTO.tIn), tDes = pick(ov, "tDes", AUTO.tDes), gain = pick(ov, "gain", AUTO.gain);
+  const baseEl = pick(ov, "baseEl", customer === "biz" ? AUTO.baseElBiz : AUTO.baseElRes);
+  const baseGas = pick(ov, "baseGas", AUTO.baseGas);
+  const effEb = pick(ov, "effEb", AUTO.effEb * 100) / 100;
+  const effGb = pick(ov, "effGb", AUTO.effGb * 100) / 100;
+  const gasKwh = pick(ov, "gasKwh", AUTO.gasKwh);
+  const supply = [45, 55, 70].includes(+input.supply) ? +input.supply : 45;
+
+  const months = DEFAULT_MONTHS.map((m) => {
+    const days = pick(ov, "days_" + m.key, m.days);
+    const t = pick(ov, "t_" + m.key, m.t);
+    const copA = copAuto(supply, t);
+    const cop = pick(ov, "cop_" + m.key, copA);
+    return { key: m.key, days, full: m.full, t, cop, copAuto: copA, winterNorm: m.winterNorm,
+      // maishiy iste'mol: to'liq oy uchun 30 kunlik me'yor bo'yicha, to'liq bo'lmagan oy uchun kunlar ulushi bo'yicha
+      baseEl: baseEl * (days >= m.full ? days / 30 : days / m.full), baseGas: baseGas * (days >= m.full ? days / 30 : days / m.full) };
+  });
+  const seasonDays = months.reduce((s, m) => s + m.days, 0);
+
+  const states = [];
+  if (input.useA && num(input.loadA) > 0) states.push({ key: "A", load: num(input.loadA) });
+  if (input.useB && num(input.loadB) > 0) states.push({ key: "B", load: num(input.loadB) });
+  const systems = ["eb", "hp", "gb"].filter((s) => input.sys && input.sys[s]);
+
+  const usd = num(input.usd) || 0;
+  const insulUsd = num(input.insulPrice) || 0;
+  const hpInfo = {};
+  const variants = [];
+
+  for (const st of states) {
+    const dT = Math.max(1, tIn - tDes);
+    const UA = st.load / dT;
+    // Issiqlik nasosi tanlovi va quvvati
+    const autoSel = selectHp(st.load, supply, tDes, AUTO.coverMin);
+    const modelId = ov["hpModel" + st.key] || autoSel.model;
+    const model = HP_MODELS.find((m) => m.id === modelId) || HP_MODELS[0];
+    const countAuto = ov["hpModel" + st.key] ? Math.max(1, Math.ceil(AUTO.coverMin * st.load / modelAt(model, supply, tDes).cap)) : autoSel.count;
+    const count = Math.max(1, Math.round(pick(ov, "hpCount" + st.key, countAuto)));
+    const at = modelAt(model, supply, tDes);
+    const capAuto = at.cap * count, powAuto = at.pow * count;
+    const cap = pick(ov, "hpCap" + st.key, capAuto);
+    const pow = pick(ov, "hpPow" + st.key, powAuto);
+    const backupAuto = cap >= st.load ? 0 : (st.key === "A" ? AUTO.backupA : AUTO.backupB);
+    const backup = pick(ov, "backup" + st.key, backupAuto) / 100;
+    const hpPeak = cap >= st.load ? pow * st.load / cap : pow + (st.load - cap);
+    hpInfo[st.key] = { model: model.id, count, autoModel: autoSel.model, autoCount: autoSel.count, countAuto,
+      cap, pow, capAuto, powAuto, backup: backup * 100, backupAuto, peak: hpPeak, at: at.at, limited: at.limited,
+      cover: cap / st.load };
+
+    for (const sys of systems) {
+      const rows = [];
+      const tot = { heat: 0, elHeat: 0, el: 0, gasHeat: 0, gas: 0, cost: 0, baseCost: 0 };
+      for (const m of months) {
+        const heat = UA * Math.max(0, tIn - m.t) * 24 * m.days * gain;
+        let elHeat = 0, gasHeat = 0;
+        if (sys === "eb") elHeat = heat / effEb;
+        else if (sys === "hp") elHeat = heat * (1 - backup) / m.cop + heat * backup;
+        else gasHeat = heat / (gasKwh * effGb);
+        const el = m.baseEl + elHeat;
+        const gas = sys === "gb" ? m.baseGas + gasHeat : 0;
+        const costEl = elecBill(el, tariffs, customer);
+        const costGas = sys === "gb" ? gasBill(gas, tariffs, customer, m.winterNorm) : 0;
+        const baseCost = elecBill(m.baseEl, tariffs, customer) + (sys === "gb" ? gasBill(m.baseGas, tariffs, customer, m.winterNorm) : 0);
+        const cost = costEl + costGas;
+        rows.push({ key: m.key, heat, elHeat, el, gasHeat, gas, costEl, costGas, cost, baseCost });
+        tot.heat += heat; tot.elHeat += elHeat; tot.el += el; tot.gasHeat += gasHeat; tot.gas += gas;
+        tot.cost += cost; tot.baseCost += baseCost;
+      }
+      const pr = (input.price && input.price[sys]) || [null, null];
+      const p0 = num(pr[0]), p1 = num(pr[1]);
+      const sysUsd = st.key === "A" ? p0 : (p1 === null ? p0 : p1);
+      const priceKnown = sysUsd !== null;
+      const capexUsd = (sysUsd || 0) + (st.key === "B" ? insulUsd : 0);
+      const peak = sys === "eb" ? st.load : sys === "hp" ? hpPeak : null; // elektr qozon: o'rnatilgan quvvat = yuklama
+      const peakGas = sys === "gb" ? st.load / (gasKwh * effGb) : null;
+      variants.push({
+        id: sys + st.key, sys, state: st.key, load: st.load, rows, tot,
+        equip: pick(ov, "cap_" + sys + st.key, equipAuto(sys, st.load)),
+        avgEl: tot.el > 0 ? elCost(rows) / tot.el : null,
+        heatPrice: tot.heat > 0 ? (tot.cost - tot.baseCost) / tot.heat : null,
+        peak, peakGas, jan: (rows.find((r) => r.key === "jan") || rows[0]).cost,
+        capexUsd, capex: capexUsd * usd, priceKnown,
+      });
+    }
+  }
+  function elCost(rows) { return rows.reduce((s, r) => s + r.costEl, 0); }
+  // tartib: tizim bo'yicha (EQ, IN, GQ), ichida izolyatsiyasiz → izolyatsiya bilan
+  const ORDER = ["eb", "hp", "gb"];
+  variants.sort((a, b) => ORDER.indexOf(a.sys) - ORDER.indexOf(b.sys) || a.state.localeCompare(b.state));
+
+  // 10 yillik jami xarajat
+  const g = (num(input.growth) || 0) / 100;
+  const YEARS = 10;
+  for (const v of variants) {
+    v.cum = [v.capex];
+    for (let y = 1; y <= 30; y++) v.cum.push(v.cum[y - 1] + v.tot.cost * Math.pow(1 + g, y - 1));
+    v.total10 = v.cum[YEARS];
+  }
+  // Oqlanish muddati: qimmat uskuna (a) arzoniga (b) nisbatan
+  function payback(a, b) {
+    if (!a || !b) return null;
+    const res = { a: a.id, b: b.id, state: a.state, extra: a.capex - b.capex, saving1: b.tot.cost - a.tot.cost, known: a.priceKnown && b.priceKnown };
+    if (res.extra <= 0 && res.saving1 >= 0) { res.kind = "always"; res.years = 0; return res; }
+    if (res.extra < 0 && res.saving1 < 0) return payback(b, a); // aksincha: arzon uskuna qimmat to'lov bilan
+    if (res.saving1 <= 0) { res.kind = "never"; res.years = null; return res; }
+    for (let y = 1; y <= 30; y++) {
+      const d0 = a.cum[y - 1] - b.cum[y - 1], d1 = a.cum[y] - b.cum[y];
+      if (d1 <= 0) { res.kind = "years"; res.years = y - 1 + d0 / (d0 - d1); return res; }
+    }
+    res.kind = "never"; res.years = null; return res;
+  }
+  const paybacks = [];
+  for (const st of states) {
+    const get = (s) => variants.find((v) => v.id === s + st.key);
+    const hp = get("hp"), eb = get("eb"), gb = get("gb");
+    if (hp && eb) paybacks.push(payback(hp, eb));
+    if (hp && gb) paybacks.push(payback(hp, gb));
+    if (!hp && eb && gb) paybacks.push(payback(gb, eb));
+  }
+
+  return { customer, tIn, tDes, gain, baseEl, baseGas, effEb, effGb, gasKwh, supply, months, seasonDays,
+    states, systems, variants, hpInfo, paybacks, growth: g, usd, years: YEARS, insulUsd };
+}
+
+const CALC = { DEFAULT_TARIFFS, DEFAULT_MONTHS, DEFAULT_INPUT, AUTO, COP_CURVES, HP_MODELS, HP_AMB, INF,
+  num, compute, equipAuto, tiered, elecBill, gasBill, gasTiers, copAuto, selectHp, modelAt };
+if (typeof module !== "undefined" && module.exports) module.exports = CALC;
+</script><script>// ===== Ikki til: o'zbekcha va ruscha =====
+const I18N = {
+  uz: {
+    langName: "O‘zbekcha",
+    appTitle: "Isitish kalkulyatori",
+    appSub: "Elektr qozon, issiqlik nasosi va gaz qozon xarajatlarini taqqoslash",
+    tabCalc: "Hisob", tabTariffs: "Tariflar", tabSaved: "Saqlangan",
+    sys: { eb: "Elektr qozon", hp: "Issiqlik nasosi", gb: "Gaz qozon" },
+    abbr: { eb: "EQ", hp: "IN", gb: "GQ" },
+    state: { A: "Izolyatsiyasiz", B: "Izolyatsiya bilan" },
+    stateL: { A: "izolyatsiyasiz", B: "izolyatsiya bilan" },
+    months: { nov: "Noy", dec: "Dek", jan: "Yan", feb: "Fev", mar: "Mar" },
+    monthsFull: { nov: "Noyabr", dec: "Dekabr", jan: "Yanvar", feb: "Fevral", mar: "Mart" },
+    kw: "kVt", kwh: "kVt·soat", sum: "so‘m", mln: "mln so‘m", m3: "m³",
+    // forma
+    secObject: "Obyekt", client: "Klient", clientPh: "Ism yoki tashkilot", object: "Obyekt nomi", objectPh: "Masalan: Uy",
+    area: "Maydoni, m²", customer: "Mijoz turi", custRes: "Aholi", custBiz: "Yur. shaxs",
+    secLoad: "Isitish yuklamasi", loadA: "Izolyatsiyasiz, kVt", loadB: "Izolyatsiya bilan, kVt",
+    loadHint: "Muhandis hisoblagan issiqlik yo‘qotilishi. Keraksiz variantni belgidan chiqaring.",
+    supply: "Podacha harorati", sup45: "45 °C · issiq pol, fankoyl", sup55: "55 °C · aralash", sup70: "70 °C · radiator",
+    secSystems: "Tizimlar va uskuna narxi", priceA: "Narx, $ (izolyatsiyasiz)", priceB: "Narx, $ (izolyatsiya bilan)",
+    sameAs: "bir xil", priceHint: "Ikkinchi narx bo‘sh bo‘lsa, birinchisi olinadi.", insulPrice: "Izolyatsiya ishlari narxi, $",
+    insulHint: "Izolyatsiyali variantlarning boshlang‘ich xarajatiga qo‘shiladi. Bo‘sh = 0.",
+    secEquip: "Uskuna quvvati, kVt", equipA: "Izolyatsiyasiz", equipB: "Izolyatsiya bilan",
+    equipHint: "Faqat infografikada ko‘rsatiladi, to‘lov hisobiga ta’sir qilmaydi. Bo‘sh bo‘lsa: elektr qozon = yuklama, issiqlik nasosi = yuklama × 86/56, gaz qozon = yuklama + 8 %.",
+    secTen: "10 yillik hisob", growth: "Tariflar o‘sishi, % / yil", usd: "Dollar kursi, so‘m",
+    secProfile: "Kompaniya va menejer", company: "Kompaniya nomi", manager: "Menejer", phone: "Telefon",
+    logo: "Logotip", logoPick: "Rasm tanlash", logoRemove: "O‘chirish", profileHint: "Shu qurilmada saqlanadi va infografikada chiqadi.",
+    secAdvanced: "Batafsil sozlamalar", advHint: "Programma o‘zi qo‘ygan qiymatlar. Katakcha bo‘sh bo‘lsa, avtomatik qiymat ishlatiladi; raqam yozsangiz, o‘shanisi olinadi.",
+    auto: "avto", manual: "qo‘lda", reset: "Avtomatikka qaytarish",
+    grpClimate: "Iqlim (Toshkent)", tIn: "Ichki harorat, °C", tDes: "Hisobiy tashqi harorat, °C", gain: "Issiqlik tushumi koeffitsienti",
+    grpBase: "Maishiy iste’mol", baseEl: "Maishiy elektr, kVt·soat/oy", baseGas: "Maishiy gaz, m³/oy",
+    grpEff: "Samaradorlik", effEb: "Elektr qozon FIK, %", effGb: "Gaz qozon FIK, %", gasKwh: "1 m³ gazdagi issiqlik, kVt·soat",
+    grpHp: "Issiqlik nasosi", hpModel: "Model", hpAuto: "Avtomatik", hpCount: "Soni", hpCap: "Issiqlik quvvati (hisobiy haroratda), kVt",
+    hpPow: "Elektr quvvati, kVt", backup: "Zaxira TEN ulushi, %",
+    grpMonths: "Oylar", colDays: "Kunlar", colTemp: "O‘rtacha harorat, °C", colCop: "COP",
+    // amallar
+    result: "Natija", perSeason: "mavsumga", preview: "Infografika", page: "sahifa",
+    btnPng: "PNG yuklab olish", btnPdf: "PDF yuklab olish", btnSave: "Hisobni saqlash", btnNew: "Yangi hisob",
+    saved: "Saqlandi", downloadFail: "Yuklab olib bo‘lmadi", downloadDeclined: "Yuklab olish bekor qilindi", working: "Tayyorlanmoqda…",
+    noVariants: "Kamida bitta tizim va bitta yuklamani belgilang.",
+    savedEmpty: "Hali saqlangan hisob yo‘q. «Hisob» bo‘limida «Hisobni saqlash» tugmasini bosing.",
+    open: "Ochish", del: "O‘chirish", savedNote: "Hisoblar faqat shu qurilmada saqlanadi.", unnamed: "Nomsiz hisob",
+    // tariflar sahifasi
+    tarTitle: "Tariflar", tarHint: "Tarif o‘zgarsa, raqamni shu yerda almashtiring. O‘zgarish shu qurilmada saqlanadi.",
+    tarDate: "Tariflar qaysi sanadan", tarElecRes: "Elektr · aholi (oylik iste’mol bo‘yicha pog‘onalar)", tarUpTo: "gacha, kVt·soat", tarAbove: "undan yuqori",
+    tarPriceKwh: "so‘m / kVt·soat", tarElecBiz: "Elektr · yur. shaxs, so‘m / kVt·soat",
+    tarGasRes: "Gaz · aholi (oylik iste’mol bo‘yicha pog‘onalar)", tarNormW: "Norma, noyabr–fevral, m³", tarNormO: "Norma, boshqa oylar, m³",
+    tarGasBase: "Norma ichida, so‘m / m³", tarUpToM3: "gacha, m³", tarPriceM3: "so‘m / m³", tarGasBiz: "Gaz · yur. shaxs, so‘m / m³",
+    tarReset: "Standart tariflarga qaytarish", tarSource: "Standart qiymatlar: Vazirlar Mahkamasining 2026-yil 15-maydagi 243-son qarori, 01.06.2026 dan.",
+    tarChanged: "Tariflar o‘zgartirilgan",
+    // infografika, 1-sahifa
+    ebCalc: "Taqqoslama hisob", city: "Toshkent", heatingOnly: "faqat isitish mavsumi", tariffsFrom: (d) => `${d} dan tariflar`,
+    tarRes: "aholi tarifi", tarBiz: "yur. shaxslar tarifi",
+    titleSeason: "isitish mavsumi", defObject: "Obyekt",
+    leadRes: "Faqat isitish. Elektr va gaz uchun pog‘onali tarif, oylik.", leadBiz: "Faqat isitish. Yur. shaxslar tarifi yagona, pog‘onasiz.",
+    clientLbl: "Klient", dateLbl: "Sana",
+    unitSeason: "mln so‘m/mavsum", baseline: "bazaviy variant", vsBase: (p) => `bazaviyga nisbatan −${p} %`,
+    chartTitle: "Oylar bo‘yicha to‘lov, mln so‘m", tableTitle: "Mavsum balansi",
+    cardSub: (st, l) => `${st} · yuklama ${l} kVt`, cardEquip: (c) => `Uskuna quvvati: ${c} kVt`,
+    rEquip: "Uskuna quvvati, kVt",
+    rHeat: "Isitish uchun issiqlik, kVt·soat", rElHeat: "Elektr: isitish, kVt·soat", rGasHeat: "Gaz: isitish, m³",
+    rElTot: "Jami elektr, kVt·soat*", rAvgEl: "O‘rtacha elektr narxi, so‘m/kVt·soat", rHeatPrice: "1 kVt·soat issiqlik narxi, so‘m",
+    rPeak: "Qishki maksimal elektr quvvati, kVt", rJan: "Yanvar to‘lovi, mln so‘m", rTotal: "Mavsum uchun jami, mln so‘m",
+    c1Big: (d) => `−${d} mln so‘m/mavsum`,
+    c1Txt: (best, worst, ratio, a, b) => `Eng arzon variant (${best}) eng qimmatidan (${worst}) ${ratio} baravar arzon. Yanvar: ${a} → ${b} mln so‘m.`,
+    c2Big: (s) => `IN tejaydi: ${s} mln`,
+    c2Txt: (st, p) => `mavsumda elektr qozonga nisbatan, ${st} (${p}).`,
+    c2Tier: "Farq COP dan katta: qishda elektr qozon tarifning eng qimmat pog‘onalariga chiqadi.",
+    c3Big: (s) => `Ulanish: ${s} kVt`,
+    c3Txt: (st) => `Qishki maksimal elektr quvvati, elektr qozon → issiqlik nasosi (${st}). Zaxira TENli IN ancha kam quvvat talab qiladi.`,
+    c2AltBig: "1 kVt·soat issiqlik narxi", c3AltBig: (d) => `Mavsum: ${d} kun`,
+    c3AltTxt: (tin, tdes) => `Ichkarida +${tin} °C, hisobiy tashqi harorat ${tdes} °C. Toshkentning oylik o‘rtacha haroratlari bo‘yicha.`,
+    seasonDates: "1 noyabr – 18 mart", seasonDays: (d) => `${d} kun`,
+    footBase: (b) => `* Barcha variantlarda ${b} kVt·soat/oy maishiy elektr iste’moli kiritilgan (pog‘onali tarif to‘g‘ri hisoblanishi uchun).`,
+    footBaseGas: (b) => ` Gazli variantda ${b} m³/oy maishiy gaz ham kiritilgan.`,
+    footCommon: (tin, tdes, season, gain) => ` Issiq suv va sovutish hisobga kirmaydi. Farazlar: ichkarida +${tin} °C, hisobiy ${tdes} °C; Toshkentning oylik o‘rtacha haroratlari; mavsum ${season}; issiqlik tushumi koeffitsienti ${gain}.`,
+    footHp: (sup, bk) => ` IN: COP ishlab chiqaruvchi (PASRW) jadvali bo‘yicha ${sup} °C podachada, zaxira TEN ${bk}.`,
+    footHpManual: " COP qo‘lda kiritilgan.",
+    footGb: (eff, k) => ` Gaz qozon: FIK ${eff} %, 1 m³ gaz = ${k} kVt·soat issiqlik.`,
+    footEnd: " Taxminiy hisob, ±15 %.",
+    // 2-sahifa
+    title2: "10 yillik xarajat va oqlanish muddati",
+    lead2: (g, usd) => `Uskuna narxi + har yilgi to‘lov. Tariflar yiliga ${g} % oshadi, kurs ${usd} so‘m/$.`,
+    cumTitle: "Jami xarajat, mln so‘m", yearAxis: "yil", yearShort: "y",
+    capTable: "Uskuna narxi va 10 yillik jami",
+    rCapUsd: "Boshlang‘ich xarajat, $", rCapSum: "Boshlang‘ich xarajat, mln so‘m", rYear1: "1-mavsum to‘lovi, mln so‘m",
+    rPay10: "10 yilda to‘lovlar, mln so‘m", rTot10: "10 yilda jami, mln so‘m", insulIncl: "† izolyatsiya ishlari narxi bilan",
+    pbTitle: "Oqlanish muddati",
+    pbYears: (y) => `${y} mavsumda oqlanadi`, pbLong: (y) => `≈ ${y} mavsumda oqlanadi (10 yildan ko‘p)`,
+    pbNever: "Oqlanmaydi", pbAlways: "Boshidanoq arzon",
+    pbExtra: (usd, sav) => `Qo‘shimcha xarajat $${usd} · 1-mavsumda tejash ${sav} mln so‘m`,
+    pbNeverTxt: (usd, loss) => `Qo‘shimcha xarajat $${usd} · to‘lov har mavsumda ${loss} mln so‘m ko‘p`,
+    pbAlwaysTxt: "Uskunasi ham, har yilgi to‘lovi ham arzon",
+    yearsShort: (v) => `${v} yil`,
+    pbNoPrice: "Uskuna narxi kiritilmagan, hisob to‘liq emas.",
+    vs: "va",
+    asTitle: "Tariflar va farazlar", asElec: "Elektr, so‘m/kVt·soat", asGas: "Gaz, so‘m/m³", asAbove: "yuqori",
+    asElecBiz: (p) => `Yur. shaxs: ${p} so‘m/kVt·soat, pog‘onasiz.`, asGasBiz: (p) => `Yur. shaxs: ${p} so‘m/m³, pog‘onasiz.`,
+    asGasNorm: (w, o) => `Norma: noyabr–fevral ${w} m³, boshqa oylarda ${o} m³.`,
+    asMethod: "Har yilgi to‘lov birinchi mavsum to‘lovidan tarif o‘sishi bo‘yicha hisoblanadi. Uskunaga xizmat ko‘rsatish, ta’mirlash va kredit foizi kirmaydi.",
+    noPriceCell: "—",
+  },
+  ru: {
+    langName: "Русский",
+    appTitle: "Калькулятор отопления",
+    appSub: "Сравнение расходов: электрокотёл, тепловой насос и газовый котёл",
+    tabCalc: "Расчёт", tabTariffs: "Тарифы", tabSaved: "Сохранённые",
+    sys: { eb: "Электрокотёл", hp: "Тепловой насос", gb: "Газовый котёл" },
+    abbr: { eb: "ЭК", hp: "ТН", gb: "ГК" },
+    state: { A: "Без утепления", B: "С утеплением" },
+    stateL: { A: "без утепления", B: "с утеплением" },
+    months: { nov: "Ноя", dec: "Дек", jan: "Янв", feb: "Фев", mar: "Мар" },
+    monthsFull: { nov: "Ноябрь", dec: "Декабрь", jan: "Январь", feb: "Февраль", mar: "Март" },
+    kw: "кВт", kwh: "кВт·ч", sum: "сум", mln: "млн сум", m3: "м³",
+    secObject: "Объект", client: "Клиент", clientPh: "Имя или организация", object: "Название объекта", objectPh: "Например: Дом",
+    area: "Площадь, м²", customer: "Тип клиента", custRes: "Население", custBiz: "Юр. лицо",
+    secLoad: "Отопительная нагрузка", loadA: "Без утепления, кВт", loadB: "С утеплением, кВт",
+    loadHint: "Теплопотери по расчёту инженера. Ненужный вариант снимите галочкой.",
+    supply: "Температура подачи", sup45: "45 °C · тёплый пол, фанкойл", sup55: "55 °C · смешанная", sup70: "70 °C · радиаторы",
+    secSystems: "Системы и цена оборудования", priceA: "Цена, $ (без утепления)", priceB: "Цена, $ (с утеплением)",
+    sameAs: "та же", priceHint: "Если вторая цена пустая, берётся первая.", insulPrice: "Стоимость утепления, $",
+    insulHint: "Добавляется к начальным затратам утеплённых вариантов. Пусто = 0.",
+    secEquip: "Мощность оборудования, кВт", equipA: "Без утепления", equipB: "С утеплением",
+    equipHint: "Только выводится на инфографике, на расчёт счёта не влияет. Если пусто: электрокотёл = нагрузка, тепловой насос = нагрузка × 86/56, газовый котёл = нагрузка + 8 %.",
+    secTen: "Расчёт на 10 лет", growth: "Рост тарифов, % в год", usd: "Курс доллара, сум",
+    secProfile: "Компания и менеджер", company: "Название компании", manager: "Менеджер", phone: "Телефон",
+    logo: "Логотип", logoPick: "Выбрать картинку", logoRemove: "Убрать", profileHint: "Сохраняется на этом устройстве и выводится на инфографике.",
+    secAdvanced: "Подробные настройки", advHint: "Значения, которые программа подставляет сама. Пустое поле — берётся автоматическое значение; введёте число — будет использовано оно.",
+    auto: "авто", manual: "вручную", reset: "Вернуть автоматическое",
+    grpClimate: "Климат (Ташкент)", tIn: "Внутренняя температура, °C", tDes: "Расчётная наружная температура, °C", gain: "Коэффициент теплопоступлений",
+    grpBase: "Бытовое потребление", baseEl: "Бытовая электроэнергия, кВт·ч/мес", baseGas: "Бытовой газ, м³/мес",
+    grpEff: "Эффективность", effEb: "КПД электрокотла, %", effGb: "КПД газового котла, %", gasKwh: "Тепло в 1 м³ газа, кВт·ч",
+    grpHp: "Тепловой насос", hpModel: "Модель", hpAuto: "Автоматически", hpCount: "Количество", hpCap: "Тепловая мощность (при расчётной температуре), кВт",
+    hpPow: "Электрическая мощность, кВт", backup: "Доля резервного ТЭНа, %",
+    grpMonths: "Месяцы", colDays: "Дни", colTemp: "Средняя температура, °C", colCop: "COP",
+    result: "Результат", perSeason: "за сезон", preview: "Инфографика", page: "страница",
+    btnPng: "Скачать PNG", btnPdf: "Скачать PDF", btnSave: "Сохранить расчёт", btnNew: "Новый расчёт",
+    saved: "Сохранено", downloadFail: "Не удалось скачать", downloadDeclined: "Скачивание отменено", working: "Готовлю…",
+    noVariants: "Отметьте хотя бы одну систему и одну нагрузку.",
+    savedEmpty: "Сохранённых расчётов пока нет. Нажмите «Сохранить расчёт» в разделе «Расчёт».",
+    open: "Открыть", del: "Удалить", savedNote: "Расчёты хранятся только на этом устройстве.", unnamed: "Расчёт без названия",
+    tarTitle: "Тарифы", tarHint: "Если тариф изменился, поменяйте число здесь. Изменение сохраняется на этом устройстве.",
+    tarDate: "С какой даты тарифы", tarElecRes: "Электроэнергия · население (ступени по месячному расходу)", tarUpTo: "до, кВт·ч", tarAbove: "выше",
+    tarPriceKwh: "сум / кВт·ч", tarElecBiz: "Электроэнергия · юр. лица, сум / кВт·ч",
+    tarGasRes: "Газ · население (ступени по месячному расходу)", tarNormW: "Норма, ноябрь–февраль, м³", tarNormO: "Норма, остальные месяцы, м³",
+    tarGasBase: "В пределах нормы, сум / м³", tarUpToM3: "до, м³", tarPriceM3: "сум / м³", tarGasBiz: "Газ · юр. лица, сум / м³",
+    tarReset: "Вернуть стандартные тарифы", tarSource: "Стандартные значения: постановление Кабинета Министров № 243 от 15 мая 2026 года, с 01.06.2026.",
+    tarChanged: "Тарифы изменены",
+    ebCalc: "Сравнительный расчёт", city: "Ташкент", heatingOnly: "только отопительный сезон", tariffsFrom: (d) => `тарифы с ${d}`,
+    tarRes: "тариф для населения", tarBiz: "тариф для юрлиц",
+    titleSeason: "отопительный сезон", defObject: "Объект",
+    leadRes: "Только отопление. Ступенчатый тариф на электричество и газ, помесячно.", leadBiz: "Только отопление. Тариф для юрлиц единый, без ступеней.",
+    clientLbl: "Клиент", dateLbl: "Дата",
+    unitSeason: "млн сум/сезон", baseline: "базовый вариант", vsBase: (p) => `−${p} % к базовому`,
+    chartTitle: "Счёт по месяцам, млн сум", tableTitle: "Баланс за сезон",
+    cardSub: (st, l) => `${st} · нагрузка ${l} кВт`, cardEquip: (c) => `Мощность оборудования: ${c} кВт`,
+    rEquip: "Мощность оборудования, кВт",
+    rHeat: "Тепло на отопление, кВт·ч", rElHeat: "Электричество: отопление, кВт·ч", rGasHeat: "Газ: отопление, м³",
+    rElTot: "Всего электричества, кВт·ч*", rAvgEl: "Средняя цена электричества, сум/кВт·ч", rHeatPrice: "Цена 1 кВт·ч тепла, сум",
+    rPeak: "Пиковая электрическая мощность зимой, кВт", rJan: "Счёт за январь, млн сум", rTotal: "Итого за сезон, млн сум",
+    c1Big: (d) => `−${d} млн сум/сезон`,
+    c1Txt: (best, worst, ratio, a, b) => `Самый дешёвый вариант (${best}) в ${ratio} раза дешевле самого дорогого (${worst}). Январь: ${a} → ${b} млн сум.`,
+    c2Big: (s) => `ТН экономит: ${s} млн`,
+    c2Txt: (st, p) => `за сезон против электрокотла, ${st} (${p}).`,
+    c2Tier: "Разница больше, чем COP: зимой электрокотёл выходит на самые дорогие ступени тарифа.",
+    c3Big: (s) => `Ввод: ${s} кВт`,
+    c3Txt: (st) => `Пиковая электрическая мощность зимой, электрокотёл → тепловой насос (${st}). ТН с резервным ТЭНом требует намного меньше мощности.`,
+    c2AltBig: "Цена 1 кВт·ч тепла", c3AltBig: (d) => `Сезон: ${d} дней`,
+    c3AltTxt: (tin, tdes) => `Внутри +${tin} °C, расчётная наружная ${tdes} °C. По средним месячным температурам Ташкента.`,
+    seasonDates: "1 ноября – 18 марта", seasonDays: (d) => `${d} дней`,
+    footBase: (b) => `* Во всех вариантах учтено бытовое потребление ${b} кВт·ч/мес (чтобы ступенчатый тариф считался правильно).`,
+    footBaseGas: (b) => ` В газовом варианте учтён и бытовой газ ${b} м³/мес.`,
+    footCommon: (tin, tdes, season, gain) => ` Горячая вода и охлаждение не входят. Допущения: внутри +${tin} °C, расчётная ${tdes} °C; средние месячные температуры Ташкента; сезон ${season}; коэффициент теплопоступлений ${gain}.`,
+    footHp: (sup, bk) => ` ТН: COP по таблице производителя (PASRW) при подаче ${sup} °C, резервный ТЭН ${bk}.`,
+    footHpManual: " COP введён вручную.",
+    footGb: (eff, k) => ` Газовый котёл: КПД ${eff} %, 1 м³ газа = ${k} кВт·ч тепла.`,
+    footEnd: " Оценочный расчёт, ±15 %.",
+    title2: "Расходы за 10 лет и срок окупаемости",
+    lead2: (g, usd) => `Цена оборудования + ежегодный счёт. Тарифы растут на ${g} % в год, курс ${usd} сум/$.`,
+    cumTitle: "Суммарные расходы, млн сум", yearAxis: "год", yearShort: "г",
+    capTable: "Цена оборудования и итог за 10 лет",
+    rCapUsd: "Начальные затраты, $", rCapSum: "Начальные затраты, млн сум", rYear1: "Счёт за 1-й сезон, млн сум",
+    rPay10: "Счета за 10 лет, млн сум", rTot10: "Итого за 10 лет, млн сум", insulIncl: "† включая стоимость утепления",
+    pbTitle: "Срок окупаемости",
+    pbYears: (y) => `Окупается за ${y} сезона`, pbLong: (y) => `Окупается за ≈ ${y} сезонов (больше 10 лет)`,
+    pbNever: "Не окупается", pbAlways: "Дешевле с самого начала",
+    pbExtra: (usd, sav) => `Доплата $${usd} · экономия за 1-й сезон ${sav} млн сум`,
+    pbNeverTxt: (usd, loss) => `Доплата $${usd} · счёт каждый сезон выше на ${loss} млн сум`,
+    pbAlwaysTxt: "Дешевле и оборудование, и ежегодный счёт",
+    yearsShort: (v) => `${v} г.`,
+    pbNoPrice: "Цена оборудования не указана, расчёт неполный.",
+    vs: "и",
+    asTitle: "Тарифы и допущения", asElec: "Электричество, сум/кВт·ч", asGas: "Газ, сум/м³", asAbove: "выше",
+    asElecBiz: (p) => `Юрлица: ${p} сум/кВт·ч, без ступеней.`, asGasBiz: (p) => `Юрлица: ${p} сум/м³, без ступеней.`,
+    asGasNorm: (w, o) => `Норма: ноябрь–февраль ${w} м³, в остальные месяцы ${o} м³.`,
+    asMethod: "Ежегодный счёт считается от счёта первого сезона с учётом роста тарифов. Обслуживание, ремонт и проценты по кредиту не входят.",
+    noPriceCell: "—",
+  },
+};
+if (typeof module !== "undefined" && module.exports) module.exports = I18N;
+</script><script>// ===== Infografika: sof SVG (PNG/PDF ga aylantirish oson bo'lishi uchun) =====
+const RENDER = (() => {
+  const W = 1425, H = 1050, M = 56, CW = W - 2 * M;
+  const FONT = "'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Liberation Sans', sans-serif";
+  const C = { bg: "#F5F3EE", panel: "#FDFCFA", border: "#E2DED6", ink: "#14213D", muted: "#5B6472", grid: "#E4E0D8",
+    accent: "#B5471B", navy: "#14213D" };
+  const SERIES = { ebA: "#8F3A14", ebB: "#E8590C", hpA: "#1F5F9E", hpB: "#5B9BD5", gbA: "#1E6B3A", gbB: "#6FBF73" };
+
+  let ctx = null;
+  function tw(str, size, weight = 400, ls = 0) {
+    if (!ctx) ctx = document.createElement("canvas").getContext("2d");
+    ctx.font = `${weight} ${size}px ${FONT}`;
+    return ctx.measureText(String(str)).width + ls * String(str).length;
+  }
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const r1 = (n) => Math.round(n * 10) / 10;
+
+  function fmt(n, d = 0) {
+    if (n === null || n === undefined || !isFinite(n)) return "—";
+    const s = Math.abs(n).toFixed(d);
+    let [i, f] = s.split(".");
+    i = i.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+    const neg = n < 0 && parseFloat(s) !== 0;
+    return (neg ? "−" : "") + i + (f ? "," + f : "");
+  }
+  const mln = (n, d = 1) => fmt(n / 1e6, d);
+
+  function txt(x, y, s, o = {}) {
+    const { size = 14, weight = 400, fill = C.ink, anchor = "start", ls = 0, op = 1 } = o;
+    return `<text x="${r1(x)}" y="${r1(y)}" font-size="${size}" font-weight="${weight}" fill="${fill}"${anchor !== "start" ? ` text-anchor="${anchor}"` : ""}${ls ? ` letter-spacing="${ls}"` : ""}${op !== 1 ? ` opacity="${op}"` : ""}>${esc(s)}</text>`;
+  }
+  function fitSize(s, maxW, size, weight = 400, min = 9, ls = 0) {
+    while (size > min && tw(s, size, weight, ls) > maxW) size -= 0.5;
+    return size;
+  }
+  function wrap(s, maxW, size, weight = 400) {
+    const words = String(s).split(" ");
+    const lines = []; let cur = "";
+    for (const w of words) {
+      const t = cur ? cur + " " + w : w;
+      if (cur && tw(t, size, weight) > maxW) { lines.push(cur); cur = w; } else cur = t;
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+  // Matnni berilgan qator soniga sig'diradi (kerak bo'lsa shriftni kichraytiradi)
+  function para(x, y, s, maxW, o = {}) {
+    let { size = 13, weight = 400, fill = C.muted, lh = 1.3, maxLines = 99, min = 9.5, anchor = "start" } = o;
+    let lines = wrap(s, maxW, size, weight);
+    while (lines.length > maxLines && size > min) { size -= 0.5; lines = wrap(s, maxW, size, weight); }
+    const step = size * lh;
+    return { svg: lines.map((l, i) => txt(x, y + i * step, l, { size, weight, fill, anchor })).join(""), h: lines.length * step, lines: lines.length, size };
+  }
+  function panel(x, y, w, h, fill = C.panel, stroke = C.border, r = 14) {
+    return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`;
+  }
+  function niceMax(v) {
+    if (!(v > 0)) return { max: 1, step: 0.2 };
+    const raw = v / 4.5, p = Math.pow(10, Math.floor(Math.log10(raw)));
+    const step = [1, 2, 2.5, 5, 10].map((k) => k * p).find((s) => s >= raw);
+    return { max: Math.ceil(v / step - 1e-9) * step, step };
+  }
+  const tickFmt = (v, step) => fmt(v, step < 1 ? (step < 0.1 ? 2 : 1) : 0);
+
+  function header(L, o, title, lead, pageNo) {
+    let s = `<defs><linearGradient id="acc${pageNo}" x1="0" x2="1"><stop offset="0" stop-color="#8F3A14"/><stop offset="0.5" stop-color="#E8590C"/><stop offset="1" stop-color="#1F5F9E"/></linearGradient></defs>`;
+    s += `<rect width="${W}" height="${H}" fill="${C.bg}"/><rect width="${W}" height="10" fill="url(#acc${pageNo})"/>`;
+    // o'ng tomon: kompaniya, klient, izoh
+    const right = W - M;
+    let rightW = 0, nameX = right;
+    const prof = o.profile || {};
+    if (prof.logo && prof.logo.data) {
+      const lh = 46, lw = Math.min(190, lh * (prof.logo.w / prof.logo.h || 1));
+      const hh = lw / (prof.logo.w / prof.logo.h || 1);
+      s += `<image href="${prof.logo.data}" x="${r1(right - lw)}" y="${r1(26 + (lh - hh) / 2)}" width="${r1(lw)}" height="${r1(hh)}" preserveAspectRatio="xMidYMid meet"/>`;
+      nameX = right - lw - 12; rightW = lw + 12;
+    }
+    if (prof.company) {
+      const sz = fitSize(prof.company, 330, 20, 800, 13);
+      s += txt(nameX, 56, prof.company, { size: sz, weight: 800, anchor: "end" });
+      rightW += tw(prof.company, sz, 800);
+    }
+    const line2 = [o.input.client ? `${L.clientLbl}: ${o.input.client}` : "", o.date || ""].filter(Boolean).join(" · ");
+    if (line2) { const sz = fitSize(line2, 520, 14, 600, 10); s += txt(right, 84, line2, { size: sz, weight: 600, fill: C.muted, anchor: "end" }); rightW = Math.max(rightW, tw(line2, sz, 600)); }
+    if (lead) { const sz = fitSize(lead, 560, 14, 400, 10); s += txt(right, 105, lead, { size: sz, fill: C.muted, anchor: "end" }); rightW = Math.max(rightW, tw(lead, sz, 400)); }
+    // chap tomon
+    const leftW = CW - Math.min(rightW, 560) - 36;
+    const eb = [L.ebCalc, L.city, L.heatingOnly, L.tariffsFrom(o.tariffs.date), o.res.customer === "biz" ? L.tarBiz : L.tarRes].join(" · ").toUpperCase();
+    const es = fitSize(eb, leftW, 14, 700, 9, 2.4);
+    s += txt(M, 58, eb, { size: es, weight: 700, fill: C.accent, ls: 2.4 * es / 14 });
+    const ts = fitSize(title, leftW, 40, 800, 20);
+    s += txt(M, 104, title, { size: ts, weight: 800 });
+    return s;
+  }
+  function footer(L, o, pageNo, pages) {
+    const prof = o.profile || {};
+    const left = [prof.manager, prof.phone].filter(Boolean).join(" · ");
+    let s = "";
+    if (left) s += txt(M, 1034, left, { size: 13.5, weight: 700 });
+    s += txt(W - M, 1034, [prof.company, `${pageNo}/${pages}`].filter(Boolean).join(" · "), { size: 12, fill: C.muted, anchor: "end" });
+    return s;
+  }
+  const vName = (L, v) => `${L.sys[v.sys]} · ${L.stateL[v.state]}`;
+  const vShort = (L, v) => `${L.abbr[v.sys]}, ${L.stateL[v.state]}`;
+
+  // Jadval (ikkala sahifada bir xil ko'rinishda)
+  function table(L, x, y, w, h, title, vars, rows, labelW, note) {
+    let s = panel(x, y, w, h) + txt(x + 28, y + 38, title.toUpperCase(), { size: 16, weight: 800, ls: 0.5 });
+    const n = vars.length, left = x + 28, right = x + w - 26;
+    const colW = (right - left - labelW) / n;
+    const colR = (i) => left + labelW + colW * (i + 1);
+    const hs = n > 4 ? 12.5 : 13.5, ss = n > 4 ? 11.5 : 12.5;
+    const headBottom = y + 126;
+    const heads = vars.map((v) => {
+      // eng uzun so'z ustunga sig'masa, shrift kichrayadi (ustunlar bir-biriga yopishmasligi uchun)
+      const longest = (str) => str.split(" ").reduce((m, w) => (w.length > m.length ? w : m), "");
+      const hsz = fitSize(longest(L.sys[v.sys]), colW - 12, hs, 700, 9.5), ssz = fitSize(longest(L.stateL[v.state]), colW - 12, ss, 400, 9);
+      const nameLines = wrap(L.sys[v.sys], colW - 8, hsz, 700), stLines = wrap(L.stateL[v.state], colW - 8, ssz, 400);
+      return { nameLines, stLines, hsz, ssz, total: nameLines.length * (hsz + 2) + stLines.length * (ssz + 2) };
+    });
+    const maxTotal = Math.max(...heads.map((h) => h.total));
+    vars.forEach((v, i) => {
+      const { nameLines, stLines, total, hsz: hs, ssz: ss } = heads[i];
+      let yy = headBottom - 10 - total + hs;
+      s += `<rect x="${r1(colR(i) - 18)}" y="${r1(headBottom - 10 - maxTotal - 12)}" width="18" height="6" rx="3" fill="${SERIES[v.id]}"/>`;
+      for (const l of nameLines) { s += txt(colR(i), yy, l, { size: hs, weight: 700, anchor: "end" }); yy += hs + 2; }
+      yy += ss - hs;
+      for (const l of stLines) { s += txt(colR(i), yy, l, { size: ss, fill: C.muted, anchor: "end" }); yy += ss + 2; }
+    });
+    let yy = headBottom;
+    const avail = y + h - 18 - (note ? 20 : 0) - headBottom;
+    const fs = n > 4 ? 13.5 : 15, ls = 13.5;
+    const laid = rows.map((r) => ({ r, lines: wrap(r.label, labelW - 12, r.bold ? ls + 0.5 : ls, r.bold ? 700 : 400) }));
+    const need = laid.reduce((a, q) => a + Math.max(1, q.lines.length) * 17 + 12, 0);
+    const pad = Math.max(8, Math.min(26, 12 + (avail - need) / rows.length));
+    for (const { r, lines } of laid) {
+      const rh = lines.length * 17 + pad;
+      s += `<line x1="${left}" x2="${right}" y1="${r1(yy)}" y2="${r1(yy)}" stroke="${C.border}" stroke-width="1.5"/>`;
+      const base = yy + rh / 2 - (lines.length - 1) * 8.5 + 5;
+      lines.forEach((l, i) => { s += txt(left + 2, base + i * 17, l, { size: r.bold ? ls + 0.5 : ls, weight: r.bold ? 700 : 400, fill: r.bold ? C.ink : C.muted }); });
+      r.cells.forEach((c, i) => {
+        const size = r.big ? fs + 3 : fs;
+        s += txt(colR(i), yy + rh / 2 + size * 0.36, c, { size: fitSize(c, colW - 6, size, r.bold ? 700 : 400), weight: r.bold ? 700 : 400, anchor: "end" });
+      });
+      yy += rh;
+    }
+    if (note) s += txt(left, y + h - 16, note, { size: 11.5, fill: C.muted });
+    return s;
+  }
+
+  // ---------- 1-sahifa ----------
+  function page1(L, o) {
+    const { res, input } = o;
+    const vars = res.variants, n = vars.length;
+    const obj = (input.object || "").trim() || L.defObject;
+    const title = `${obj}${input.area ? " " + fmt(CALC.num(input.area)) + " m²" : ""}: ${L.titleSeason}`.toUpperCase();
+    let s = header(L, o, title, res.customer === "biz" ? L.leadBiz : L.leadRes, 1);
+
+    // kartochkalar
+    const worst = vars.reduce((a, v) => (v.tot.cost > a.tot.cost ? v : a), vars[0]);
+    const best = vars.reduce((a, v) => (v.tot.cost < a.tot.cost ? v : a), vars[0]);
+    const cy = 124, ch = 158, gap = n > 4 ? 14 : 20, cw = (CW - gap * (n - 1)) / n;
+    vars.forEach((v, i) => {
+      const x = M + i * (cw + gap), pad = n > 4 ? 18 : 26;
+      s += `<clipPath id="cc${i}"><rect x="${r1(x)}" y="${cy}" width="${r1(cw)}" height="${ch}" rx="14"/></clipPath>`;
+      s += panel(r1(x), cy, r1(cw), ch) + `<rect x="${r1(x)}" y="${cy}" width="${r1(cw)}" height="10" fill="${SERIES[v.id]}" clip-path="url(#cc${i})"/>`;
+      const inner = cw - 2 * pad;
+      s += txt(x + pad, cy + 40, L.sys[v.sys], { size: fitSize(L.sys[v.sys], inner, 19, 800, 12), weight: 800 });
+      const sub = L.cardSub(L.state[v.state], fmt(v.load, v.load % 1 ? 1 : 0));
+      s += txt(x + pad, cy + 60, sub, { size: fitSize(sub, inner, 14, 400, 9.5), fill: C.muted });
+      if (v.equip !== null && v.equip !== undefined) {
+        const eq = L.cardEquip(fmt(v.equip, v.equip % 1 ? 1 : 0));
+        s += txt(x + pad, cy + 80, eq, { size: fitSize(eq, inner, 14, 700, 9.5), weight: 700 });
+      }
+      const big = mln(v.tot.cost), unit = n > 4 ? L.mln : L.unitSeason;
+      let bs = n > 4 ? 34 : 38;
+      const us = n > 4 ? 12.5 : 14;
+      while (bs > 22 && tw(big, bs, 800) + 8 + tw(unit, us) > inner) bs -= 1;
+      s += txt(x + pad, cy + 120, big, { size: bs, weight: 800 });
+      s += txt(x + pad + tw(big, bs, 800) + 8, cy + 120, unit, { size: us, fill: C.muted });
+      const d = v === worst ? L.baseline : L.vsBase(fmt((1 - v.tot.cost / worst.tot.cost) * 100));
+      s += txt(x + pad, cy + 144, d, { size: fitSize(d, inner, 14.5, 700, 10), weight: 700 });
+    });
+
+    // diagramma
+    const py = 298, ph = 538, chartW = n > 4 ? 540 : 664, tx = M + chartW + 16, tW = CW - chartW - 16;
+    s += panel(M, py, chartW, ph);
+    s += txt(M + 28, py + 38, L.chartTitle.toUpperCase(), { size: fitSize(L.chartTitle.toUpperCase(), chartW - 56, 16, 800, 11, 0.5), weight: 800, ls: 0.5 });
+    let lx = M + 28, ly = py + 64;
+    for (const v of vars) {
+      const lab = vShort(L, v), wI = 20 + tw(lab, 13.5) + 22;
+      if (lx + wI - 22 > M + chartW - 20) { lx = M + 28; ly += 22; }
+      s += `<rect x="${r1(lx)}" y="${ly - 11}" width="13" height="13" rx="3" fill="${SERIES[v.id]}"/>` + txt(lx + 20, ly, lab, { size: 13.5, fill: C.muted });
+      lx += wI;
+    }
+    const plotT = ly + 26, plotB = py + ph - 46, plotL = M + 62, plotR = M + chartW - 22;
+    const maxV = Math.max(...vars.flatMap((v) => v.rows.map((r) => r.cost))) / 1e6;
+    const nm = niceMax(maxV);
+    const ys = (val) => plotB - (val / nm.max) * (plotB - plotT);
+    for (let t = 0; t <= nm.max + 1e-9; t += nm.step) {
+      s += `<line x1="${plotL}" x2="${plotR}" y1="${r1(ys(t))}" y2="${r1(ys(t))}" stroke="${t === 0 ? "#C9C4BA" : C.grid}" stroke-width="${t === 0 ? 1.5 : 1.2}"/>`;
+      s += txt(plotL - 10, ys(t) + 4, tickFmt(t, nm.step), { size: 12, fill: C.muted, anchor: "end" });
+    }
+    const months = res.months, gw = (plotR - plotL) / months.length;
+    const bw = Math.min(30, (gw * 0.8 - (n - 1) * 2) / n), groupW = n * bw + (n - 1) * 2;
+    months.forEach((m, mi) => {
+      const gx = plotL + mi * gw + (gw - groupW) / 2;
+      vars.forEach((v, vi) => {
+        const val = v.rows[mi].cost / 1e6, x0 = gx + vi * (bw + 2), y0 = ys(val), rr = Math.min(4, bw / 2, Math.max(0, plotB - y0));
+        s += `<path d="M${r1(x0)},${r1(plotB)} V${r1(y0 + rr)} Q${r1(x0)},${r1(y0)} ${r1(x0 + rr)},${r1(y0)} H${r1(x0 + bw - rr)} Q${r1(x0 + bw)},${r1(y0)} ${r1(x0 + bw)},${r1(y0 + rr)} V${r1(plotB)} Z" fill="${SERIES[v.id]}"><title>${esc(`${L.monthsFull[m.key]} · ${vName(L, v)}: ${fmt(val, 1)} ${L.mln}`)}</title></path>`;
+      });
+      s += txt(plotL + mi * gw + gw / 2, plotB + 26, L.months[m.key], { size: 14.5, weight: 700, fill: C.muted, anchor: "middle" });
+    });
+
+    // jadval
+    const hasGas = vars.some((v) => v.sys === "gb"), hasEl = vars.some((v) => v.sys !== "gb");
+    const rows = [];
+    const eqCell = (v) => (v.equip === null || v.equip === undefined ? "—" : fmt(v.equip, v.equip % 1 ? 1 : 0));
+    rows.push({ label: L.rEquip, cells: vars.map(eqCell) });
+    rows.push({ label: L.rHeat, cells: vars.map((v) => fmt(v.tot.heat)) });
+    if (hasEl) rows.push({ label: L.rElHeat, cells: vars.map((v) => (v.sys === "gb" ? "—" : fmt(v.tot.elHeat))) });
+    if (hasGas) rows.push({ label: L.rGasHeat, cells: vars.map((v) => (v.sys === "gb" ? fmt(v.tot.gasHeat) : "—")) });
+    if (res.baseEl > 0) rows.push({ label: L.rElTot, cells: vars.map((v) => fmt(v.tot.el)), bold: true });
+    if (hasEl) rows.push({ label: L.rAvgEl, cells: vars.map((v) => (v.sys === "gb" && !(res.baseEl > 0) ? "—" : fmt(v.avgEl))) });
+    rows.push({ label: L.rHeatPrice, cells: vars.map((v) => fmt(v.heatPrice)) });
+    if (hasEl) rows.push({ label: L.rPeak, cells: vars.map((v) => (v.peak === null ? "—" : "~" + fmt(v.peak))) });
+    rows.push({ label: L.rJan, cells: vars.map((v) => mln(v.jan)) });
+    rows.push({ label: L.rTotal, cells: vars.map((v) => mln(v.tot.cost)), bold: true, big: true });
+    s += table(L, tx, py, tW, ph, L.tableTitle, vars, rows, n > 4 ? 178 : n > 2 ? 232 : 300);
+
+    // xulosalar
+    const by = 852, bh = 112, bgap = 20, bw3 = (CW - 2 * bgap) / 3;
+    const box = (i, fill, stroke, bigFill, txtFill, big, body) => {
+      const x = M + i * (bw3 + bgap);
+      let q = panel(r1(x), by, r1(bw3), bh, fill, stroke);
+      q += txt(x + 28, by + 40, big, { size: fitSize(big, bw3 - 56, 26, 800, 14), weight: 800, fill: bigFill });
+      q += para(x + 28, by + 62, body, bw3 - 56, { size: 14, fill: txtFill, maxLines: 3, lh: 1.25 }).svg;
+      return q;
+    };
+    const get = (id) => vars.find((v) => v.id === id);
+    const stList = res.states.map((st) => st.key);
+    s += box(0, C.navy, C.navy, "#F6A04D", "#D8DEE9", L.c1Big(mln(Math.round(worst.tot.cost / 1e5) * 1e5 - Math.round(best.tot.cost / 1e5) * 1e5)),
+      n > 1 ? L.c1Txt(vName(L, best), vName(L, worst), fmt(worst.tot.cost / best.tot.cost, 1), mln(worst.jan), mln(best.jan)) : vName(L, best));
+    const pairs = stList.map((k) => ({ k, eb: get("eb" + k), hp: get("hp" + k) })).filter((p) => p.eb && p.hp);
+    if (pairs.length) {
+      const rd = (x) => Math.round(x / 1e5) * 1e5;
+      const sav = pairs.map((p) => mln(rd(p.eb.tot.cost) - rd(p.hp.tot.cost))).join(" / ");
+      const pct = pairs.map((p) => "−" + fmt((1 - p.hp.tot.cost / p.eb.tot.cost) * 100) + " %").join(" / ");
+      const stTxt = pairs.map((p) => L.stateL[p.k]).join(" / ");
+      const tier = res.customer === "res" && pairs.some((p) => Math.max(...p.eb.rows.map((r) => r.el)) > 5000);
+      s += box(1, "#FDEFE4", "#F2C9A8", C.accent, C.ink, L.c2Big(sav), L.c2Txt(stTxt, pct) + (tier ? " " + L.c2Tier : ""));
+      const conn = pairs.map((p) => `${fmt(p.eb.peak)} → ${fmt(p.hp.peak)}`).join(" / ");
+      s += box(2, "#EAF1FB", "#BCD3EE", "#1F5F9E", C.ink, L.c3Big(conn), L.c3Txt(stTxt));
+    } else {
+      const hp = vars.map((v) => `${vShort(L, v)}: ${fmt(v.heatPrice)} ${L.sum}`).join("; ");
+      s += box(1, "#FDEFE4", "#F2C9A8", C.accent, C.ink, L.c2AltBig, hp + ".");
+      s += box(2, "#EAF1FB", "#BCD3EE", "#1F5F9E", C.ink, L.c3AltBig(fmt(res.seasonDays)), L.c3AltTxt(fmt(res.tIn), fmt(res.tDes)));
+    }
+
+    // izoh
+    const ov = input.ov || {};
+    const defDays = res.months.every((m) => m.days === CALC.DEFAULT_MONTHS.find((d) => d.key === m.key).days);
+    let foot = res.baseEl > 0 ? L.footBase(fmt(res.baseEl)) : "";
+    if (hasGas && res.baseGas > 0) foot += L.footBaseGas(fmt(res.baseGas));
+    foot += L.footCommon(fmt(res.tIn), fmt(res.tDes), defDays ? L.seasonDates : L.seasonDays(fmt(res.seasonDays)), fmt(res.gain, 2));
+    if (vars.some((v) => v.sys === "hp")) {
+      const bk = stList.map((k) => fmt(res.hpInfo[k].backup, res.hpInfo[k].backup % 1 ? 1 : 0) + " %").join(" / ");
+      foot += L.footHp(res.supply, bk);
+      if (res.months.some((m) => CALC.num(ov["cop_" + m.key]) !== null)) foot += L.footHpManual;
+    }
+    if (hasGas) foot += L.footGb(fmt(res.effGb * 100), fmt(res.gasKwh, 1));
+    foot += L.footEnd;
+    s += para(M, 986, foot.trim(), CW, { size: 12, maxLines: 3, lh: 1.3, min: 9 }).svg;
+    s += footer(L, o, 1, 2);
+    return svgWrap(s);
+  }
+
+  // ---------- 2-sahifa ----------
+  function page2(L, o) {
+    const { res, input, tariffs } = o;
+    const vars = res.variants, n = vars.length;
+    let s = header(L, o, L.title2.toUpperCase(), L.lead2(fmt(res.growth * 100, (res.growth * 100) % 1 ? 1 : 0), fmt(res.usd)), 2);
+    const known = vars.filter((v) => v.priceKnown);
+    const Y = res.years;
+
+    // chiziqli grafiklar: har bir holat uchun alohida, umumiy shkala
+    const gy = 124, gh = 340, states = res.states, gGap = 20, gW = (CW - gGap * (states.length - 1)) / states.length;
+    const maxV = Math.max(1, ...known.map((v) => v.cum[Y])) / 1e6;
+    const nm = niceMax(maxV);
+    states.forEach((st, si) => {
+      const x = M + si * (gW + gGap);
+      s += panel(r1(x), gy, r1(gW), gh);
+      const ttl = `${L.cumTitle} · ${L.state[st.key]} · ${fmt(st.load, st.load % 1 ? 1 : 0)} ${L.kw}`;
+      s += txt(x + 28, gy + 38, ttl.toUpperCase(), { size: fitSize(ttl.toUpperCase(), gW - 56, 15, 800, 10, 0.4), weight: 800, ls: 0.4 });
+      const pL = x + 78, pR = x + gW - 196, pT = gy + 66, pB = gy + gh - 50;
+      const xs = (yr) => pL + (yr / Y) * (pR - pL), ys = (val) => pB - (val / nm.max) * (pB - pT);
+      for (let t = 0; t <= nm.max + 1e-9; t += nm.step) {
+        s += `<line x1="${r1(pL)}" x2="${r1(pR)}" y1="${r1(ys(t))}" y2="${r1(ys(t))}" stroke="${t === 0 ? "#C9C4BA" : C.grid}" stroke-width="${t === 0 ? 1.5 : 1.2}"/>`;
+        s += txt(pL - 10, ys(t) + 4, tickFmt(t, nm.step), { size: 12, fill: C.muted, anchor: "end" });
+      }
+      for (let yr = 0; yr <= Y; yr++) s += txt(xs(yr), pB + 22, String(yr), { size: 12, fill: C.muted, anchor: "middle" });
+      s += txt(pR + 12, pB + 22, L.yearAxis, { size: 12, fill: C.muted });
+      const mine = known.filter((v) => v.state === st.key);
+      // oxirgi nuqta yozuvlari (ustma-ust tushmasligi uchun suriladi)
+      const labs = mine.map((v) => ({ v, y: ys(v.cum[Y] / 1e6) })).sort((a, b) => a.y - b.y);
+      for (let i = 1; i < labs.length; i++) if (labs[i].y - labs[i - 1].y < 34) labs[i].y = labs[i - 1].y + 34;
+      const over = labs.length ? labs[labs.length - 1].y - (pB - 4) : 0;
+      if (over > 0) labs.forEach((l) => (l.y -= over));
+      for (const v of mine) {
+        const pts = v.cum.slice(0, Y + 1).map((c, yr) => `${r1(xs(yr))},${r1(ys(c / 1e6))}`).join(" ");
+        s += `<polyline points="${pts}" fill="none" stroke="${SERIES[v.id]}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"><title>${esc(vName(L, v))}</title></polyline>`;
+        s += `<circle cx="${r1(xs(Y))}" cy="${r1(ys(v.cum[Y] / 1e6))}" r="5" fill="${SERIES[v.id]}" stroke="${C.panel}" stroke-width="2"/>`;
+        s += `<circle cx="${r1(xs(0))}" cy="${r1(ys(v.cum[0] / 1e6))}" r="4" fill="${SERIES[v.id]}" stroke="${C.panel}" stroke-width="2"/>`;
+      }
+      for (const l of labs) {
+        const yEnd = ys(l.v.cum[Y] / 1e6);
+        s += `<line x1="${r1(xs(Y) + 7)}" y1="${r1(yEnd)}" x2="${r1(pR + 20)}" y2="${r1(l.y - 4)}" stroke="${SERIES[l.v.id]}" stroke-width="1.2"/>`;
+        s += txt(pR + 26, l.y - 2, L.sys[l.v.sys], { size: fitSize(L.sys[l.v.sys], 160, 13.5, 700, 10), weight: 700 });
+        s += txt(pR + 26, l.y + 14, `${mln(l.v.cum[Y], 0)} ${L.mln}`, { size: 12.5, fill: C.muted });
+      }
+      // kesishish nuqtalari (oqlanish)
+      for (const p of res.paybacks.filter((p) => p && p.state === st.key && p.kind === "years" && p.known && p.years <= Y && p.years > 0)) {
+        const a = vars.find((v) => v.id === p.a), fl = Math.floor(p.years), fr = p.years - fl;
+        const cy0 = a.cum[fl] + (a.cum[Math.min(fl + 1, 30)] - a.cum[fl]) * fr;
+        const cx = xs(p.years), cyy = ys(cy0 / 1e6), lab = L.yearsShort(fmt(p.years, 1));
+        s += `<circle cx="${r1(cx)}" cy="${r1(cyy)}" r="6" fill="${C.panel}" stroke="${C.ink}" stroke-width="2"/>`;
+        const lw = tw(lab, 12.5, 700) + 14;
+        s += `<rect x="${r1(cx - lw / 2)}" y="${r1(cyy - 34)}" width="${r1(lw)}" height="21" rx="6" fill="${C.ink}"/>` + txt(cx, cyy - 19, lab, { size: 12.5, weight: 700, fill: "#fff", anchor: "middle" });
+      }
+      if (!mine.length) s += txt(x + gW / 2, gy + gh / 2, L.pbNoPrice, { size: 14, fill: C.muted, anchor: "middle" });
+    });
+
+    // jadval: uskuna narxi va 10 yillik jami
+    const ty = 480, th = 356, tW = 806, hasInsul = res.insulUsd > 0 && vars.some((v) => v.state === "B");
+    const dash = L.noPriceCell;
+    const rows = [
+      { label: L.rEquip, cells: vars.map((v) => (v.equip === null || v.equip === undefined ? dash : fmt(v.equip, v.equip % 1 ? 1 : 0))) },
+      { label: L.rCapUsd, cells: vars.map((v) => (v.priceKnown ? "$" + fmt(v.capexUsd) + (hasInsul && v.state === "B" ? "†" : "") : dash)) },
+      { label: L.rCapSum, cells: vars.map((v) => (v.priceKnown ? mln(v.capex) : dash)) },
+      { label: L.rYear1, cells: vars.map((v) => mln(v.tot.cost)) },
+      { label: L.rPay10, cells: vars.map((v) => mln(v.cum[Y] - v.capex, 0)) },
+      { label: L.rTot10, cells: vars.map((v) => (v.priceKnown ? mln(v.cum[Y], 0) : dash)), bold: true, big: true },
+    ];
+    s += table(L, M, ty, tW, th, L.capTable, vars, rows, n > 4 ? 200 : 260, hasInsul ? L.insulIncl : "");
+
+    // oqlanish muddati
+    const px = M + tW + 16, pw = CW - tW - 16;
+    s += panel(px, ty, pw, th) + txt(px + 28, ty + 38, L.pbTitle.toUpperCase(), { size: 16, weight: 800, ls: 0.5 });
+    const pbs = res.paybacks.filter(Boolean);
+    const itemH = Math.min(90, (th - 64) / Math.max(1, pbs.length));
+    pbs.forEach((p, i) => {
+      const a = vars.find((v) => v.id === p.a), b = vars.find((v) => v.id === p.b);
+      const y0 = ty + 60 + i * itemH + Math.max(0, (itemH - 64) / 2), iw = pw - 56;
+      if (i) s += `<line x1="${px + 28}" x2="${px + pw - 26}" y1="${r1(ty + 60 + i * itemH - 4)}" y2="${r1(ty + 60 + i * itemH - 4)}" stroke="${C.border}" stroke-width="1.5"/>`;
+      s += `<rect x="${px + 28}" y="${r1(y0 + 3)}" width="12" height="12" rx="3" fill="${SERIES[a.id]}"/><rect x="${px + 44}" y="${r1(y0 + 3)}" width="12" height="12" rx="3" fill="${SERIES[b.id]}"/>`;
+      const head = `${L.sys[a.sys]} ${L.vs} ${L.sys[b.sys].toLowerCase()} · ${L.stateL[p.state]}`;
+      s += txt(px + 64, y0 + 14, head, { size: fitSize(head, iw - 36, 13, 600, 9.5), weight: 600, fill: C.muted });
+      let big, det;
+      if (!p.known) { big = null; det = L.pbNoPrice; }
+      else if (p.kind === "years") { big = p.years <= Y ? L.pbYears(fmt(p.years, 1)) : L.pbLong(fmt(p.years, 0)); det = L.pbExtra(fmt(p.extra / res.usd), mln(p.saving1)); }
+      else if (p.kind === "always") { big = L.pbAlways; det = L.pbAlwaysTxt; }
+      else { big = L.pbNever; det = L.pbNeverTxt(fmt(p.extra / res.usd), mln(-p.saving1)); }
+      if (big === null) { s += txt(px + 28, y0 + 40, det, { size: fitSize(det, iw, 14, 600, 9.5), weight: 600, fill: C.muted }); return; }
+      const bigTxt = `${L.sys[a.sys]}: ${big.charAt(0).toLowerCase() + big.slice(1)}`;
+      s += txt(px + 28, y0 + 38, bigTxt, { size: fitSize(bigTxt, iw, 17, 800, 11), weight: 800 });
+      s += txt(px + 28, y0 + 56, det, { size: fitSize(det, iw, 12.5, 400, 9.5), fill: C.muted });
+    });
+    if (!pbs.length) s += para(px + 28, ty + 70, L.pbNoPrice, pw - 56, { size: 13.5 }).svg;
+
+    // tariflar va farazlar
+    const ay = 852, ah = 150;
+    s += panel(M, ay, CW, ah) + txt(M + 28, ay + 36, L.asTitle.toUpperCase(), { size: 16, weight: 800, ls: 0.5 });
+    const rng = (tiers, above) => { let prev = 0; return tiers.map(([u, p]) => { const t = u >= CALC.INF / 2 ? `${fmt(prev)}+` : `${fmt(prev ? prev + 1 : 0)}–${fmt(u)}`; prev = u; return `${t}: ${fmt(p)}`; }).join("; "); };
+    const colW = [400, 420, CW - 56 - 400 - 420 - 48];
+    let cx = M + 28;
+    const hasGasV = vars.some((v) => v.sys === "gb");
+    const elTxt = res.customer === "biz" ? L.asElecBiz(fmt(tariffs.elecBiz)) : rng(tariffs.elecRes) + ".";
+    s += txt(cx, ay + 60, L.asElec, { size: 13, weight: 700 }) + para(cx, ay + 80, elTxt, colW[0], { size: 12.5, maxLines: 4, lh: 1.32 }).svg;
+    cx += colW[0] + 24;
+    if (hasGasV) {
+      const gTxt = res.customer === "biz" ? L.asGasBiz(fmt(tariffs.gasBiz)) : rng(CALC.gasTiers(tariffs, true)) + ". " + L.asGasNorm(fmt(tariffs.gasNormWinter), fmt(tariffs.gasNormOther));
+      s += txt(cx, ay + 60, L.asGas, { size: 13, weight: 700 }) + para(cx, ay + 80, gTxt, colW[1], { size: 12.5, maxLines: 4, lh: 1.32 }).svg;
+      cx += colW[1] + 24;
+    }
+    s += para(cx, ay + 60, L.asMethod + L.footEnd, M + CW - 28 - cx, { size: 12.5, maxLines: 5, lh: 1.32 }).svg;
+    s += footer(L, o, 2, 2);
+    return svgWrap(s);
+  }
+
+  function svgWrap(inner) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="${FONT.replace(/"/g, "'")}">${inner}</svg>`;
+  }
+  function pages(L, o) { return o.res.variants.length ? [page1(L, o), page2(L, o)] : []; }
+
+  return { pages, fmt, mln, SERIES, W, H, vName };
+})();
+</script><script>// ===== Sayt: forma, tariflar, saqlash, yuklab olish =====
+(() => {
+  const LS = { state: "isitish.v1.state", tariffs: "isitish.v1.tariffs", profile: "isitish.v1.profile", saved: "isitish.v1.saved" };
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  const load = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
+  const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* saqlash bo'lmasa ham ishlayveradi */ } };
+  const esc = (s) => String(s === null || s === undefined ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const { num, AUTO, DEFAULT_INPUT, DEFAULT_TARIFFS, DEFAULT_MONTHS, HP_MODELS, INF } = CALC;
+  const fmt = RENDER.fmt, mln = RENDER.mln;
+
+  const saved0 = load(LS.state, null) || {};
+  const st = {
+    lang: saved0.lang === "ru" ? "ru" : "uz",
+    tab: "calc",
+    input: Object.assign(clone(DEFAULT_INPUT), saved0.input || {}),
+    tariffs: Object.assign(clone(DEFAULT_TARIFFS), load(LS.tariffs, null) || {}),
+    profile: Object.assign({ company: "", manager: "", phone: "", logo: null }, load(LS.profile, null) || {}),
+    saved: load(LS.saved, []) || [],
+  };
+  // Thermo AI OS ichida ochilganda: til programma tilidan, menejer va kompaniya — kirgan foydalanuvchidan
+  const host = window.__ISITISH_HOST || null;
+  if (host) {
+    if (host.lang === "ru" || host.lang === "uz") st.lang = host.lang;
+    if (!st.profile.manager && host.user) st.profile.manager = host.user;
+    if (!st.profile.company && host.company) st.profile.company = host.company;
+  }
+  st.input.sys = Object.assign({ eb: true, hp: true, gb: true }, st.input.sys || {});
+  st.input.price = Object.assign(clone(DEFAULT_INPUT.price), st.input.price || {});
+  st.input.ov = st.input.ov || {};
+  let L = I18N[st.lang], res = null, svgs = [];
+  const root = document.getElementById("app");
+
+  const getPath = (path) => path.split(".").reduce((o, k) => (o === null || o === undefined ? undefined : o[k]), st);
+  function setPath(path, val) {
+    const ks = path.split("."); let o = st;
+    for (let i = 0; i < ks.length - 1; i++) { if (o[ks[i]] === null || o[ks[i]] === undefined) o[ks[i]] = {}; o = o[ks[i]]; }
+    o[ks[ks.length - 1]] = val;
+  }
+  function persist() {
+    store(LS.state, { lang: st.lang, input: st.input });
+    store(LS.tariffs, st.tariffs); store(LS.profile, st.profile); store(LS.saved, st.saved);
+  }
+  const today = () => { const d = new Date(), p = (n) => String(n).padStart(2, "0"); return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}`; };
+
+  // ---------- forma qismlari ----------
+  const val = (path) => { const v = getPath(path); return v === null || v === undefined ? "" : v; };
+  const text = (label, path, ph = "", extra = "") => `<label class="fld"><span class="lbl">${esc(label)}</span><input type="text" data-path="${path}" value="${esc(val(path))}" placeholder="${esc(ph)}" ${extra}></label>`;
+  const number = (label, path, ph = "") => text(label, path, ph, 'inputmode="decimal" autocomplete="off"');
+  const seg = (path, opts) => `<div class="seg" role="group">${opts.map(([v, l]) => `<button type="button" data-set="${path}" data-val="${esc(v)}" class="${String(getPath(path)) === String(v) ? "on" : ""}" aria-pressed="${String(getPath(path)) === String(v)}">${esc(l)}</button>`).join("")}</div>`;
+  const autoFld = (label, key, compact = false) => `<label class="fld auto${compact ? " compact" : ""}" data-auto="${key}">${label ? `<span class="lbl">${esc(label)}</span>` : ""}<span class="inp"><input type="text" inputmode="decimal" autocomplete="off" data-path="input.ov.${key}" value="${esc(val("input.ov." + key))}" aria-label="${esc(label || key)}"><button type="button" class="rst" data-reset="${key}" title="${esc(L.reset)}" aria-label="${esc(L.reset)}" hidden>↺</button></span>${compact ? "" : '<span class="hint"></span>'}</label>`;
+  const capFld = (s, k) => `<span class="fld auto compact" data-auto="cap_${s}${k}"><span class="inp"><input type="text" inputmode="decimal" autocomplete="off" data-path="input.ov.cap_${s}${k}" value="${esc(val(`input.ov.cap_${s}${k}`))}" aria-label="${esc(`${L.sys[s]} — ${k === "A" ? L.equipA : L.equipB}, ${L.kw}`)}"><button type="button" class="rst" data-reset="cap_${s}${k}" title="${esc(L.reset)}" aria-label="${esc(L.reset)}" hidden>↺</button></span></span>`;
+  const card = (title, body, cls = "") => `<section class="card ${cls}"><h2>${esc(title)}</h2>${body}</section>`;
+
+  function formHtml() {
+    const sysRow = (s) => `<div class="sysrow"><label class="chk"><input type="checkbox" data-path="input.sys.${s}" ${st.input.sys[s] ? "checked" : ""}><span class="dot" style="background:${RENDER.SERIES[s + "A"]}"></span>${esc(L.sys[s])}</label>
+      <input type="text" inputmode="decimal" autocomplete="off" data-path="input.price.${s}.0" value="${esc(val(`input.price.${s}.0`))}" placeholder="$" aria-label="${esc(L.sys[s] + " — " + L.priceA)}">
+      <input type="text" inputmode="decimal" autocomplete="off" data-path="input.price.${s}.1" data-priceb="${s}" value="${esc(val(`input.price.${s}.1`))}" aria-label="${esc(L.sys[s] + " — " + L.priceB)}"></div>`;
+    const hpBlock = (k) => `<div class="sub"><h4>${esc(L.state[k])}</h4><div class="grid2">
+      <label class="fld"><span class="lbl">${esc(L.hpModel)}</span><select data-path="input.ov.hpModel${k}" data-hpsel="${k}"><option value="">${esc(L.hpAuto)}</option>${HP_MODELS.map((m) => `<option value="${m.id}" ${st.input.ov["hpModel" + k] === m.id ? "selected" : ""}>${m.id} · ${m.nom} ${esc(L.kw)}</option>`).join("")}</select></label>
+      ${autoFld(L.hpCount, "hpCount" + k)}${autoFld(L.hpCap, "hpCap" + k)}${autoFld(L.hpPow, "hpPow" + k)}${autoFld(L.backup, "backup" + k)}</div></div>`;
+    return `
+    ${card(L.secObject, `<div class="grid2">${text(L.client, "input.client", L.clientPh)}${text(L.object, "input.object", L.objectPh)}${number(L.area, "input.area", "450")}
+      <div class="fld"><span class="lbl">${esc(L.customer)}</span>${seg("input.customer", [["res", L.custRes], ["biz", L.custBiz]])}</div></div>`)}
+    ${card(L.secLoad, `<div class="loadrow"><label class="chk"><input type="checkbox" data-path="input.useA" ${st.input.useA ? "checked" : ""}>${esc(L.loadA)}</label><input type="text" inputmode="decimal" autocomplete="off" data-path="input.loadA" value="${esc(val("input.loadA"))}" aria-label="${esc(L.loadA)}"></div>
+      <div class="loadrow"><label class="chk"><input type="checkbox" data-path="input.useB" ${st.input.useB ? "checked" : ""}>${esc(L.loadB)}</label><input type="text" inputmode="decimal" autocomplete="off" data-path="input.loadB" value="${esc(val("input.loadB"))}" aria-label="${esc(L.loadB)}"></div>
+      <p class="hint">${esc(L.loadHint)}</p>
+      <div class="fld"><span class="lbl">${esc(L.supply)}</span>${seg("input.supply", [[45, L.sup45], [55, L.sup55], [70, L.sup70]])}</div>`)}
+    ${card(L.secSystems, `<div class="sysrow head"><span></span><span>${esc(L.priceA)}</span><span>${esc(L.priceB)}</span></div>${["eb", "hp", "gb"].map(sysRow).join("")}
+      <p class="hint">${esc(L.priceHint)}</p>${number(L.insulPrice, "input.insulPrice", "0")}<p class="hint">${esc(L.insulHint)}</p>`)}
+    ${card(L.secEquip, `<div class="sysrow head"><span></span><span>${esc(L.equipA)}</span><span>${esc(L.equipB)}</span></div>${["eb", "hp", "gb"].map((s) => `<div class="sysrow"><span class="chk"><span class="dot" style="background:${RENDER.SERIES[s + "A"]}"></span>${esc(L.sys[s])}</span>${capFld(s, "A")}${capFld(s, "B")}</div>`).join("")}<p class="hint">${esc(L.equipHint)}</p>`)}
+    ${card(L.secTen, `<div class="grid2">${number(L.growth, "input.growth")}${number(L.usd, "input.usd")}</div>`)}
+    ${card(L.secProfile, `<div class="grid2">${text(L.company, "profile.company")}${text(L.manager, "profile.manager")}${text(L.phone, "profile.phone", "+998")}
+      <div class="fld"><span class="lbl">${esc(L.logo)}</span><div class="logo-row"><label class="btn small"><input type="file" accept="image/*" data-logo hidden>${esc(L.logoPick)}</label>${st.profile.logo ? `<img class="logo-prev" src="${st.profile.logo.data}" alt=""><button type="button" class="btn small ghost" data-logo-remove>${esc(L.logoRemove)}</button>` : ""}</div></div></div><p class="hint">${esc(L.profileHint)}</p>`)}
+    <details class="card adv"><summary><h2>${esc(L.secAdvanced)}</h2></summary><p class="hint">${esc(L.advHint)}</p>
+      <h3>${esc(L.grpClimate)}</h3><div class="grid3">${autoFld(L.tIn, "tIn")}${autoFld(L.tDes, "tDes")}${autoFld(L.gain, "gain")}</div>
+      <h3>${esc(L.grpBase)}</h3><div class="grid2">${autoFld(L.baseEl, "baseEl")}${autoFld(L.baseGas, "baseGas")}</div>
+      <h3>${esc(L.grpEff)}</h3><div class="grid3">${autoFld(L.effEb, "effEb")}${autoFld(L.effGb, "effGb")}${autoFld(L.gasKwh, "gasKwh")}</div>
+      <h3>${esc(L.grpHp)}</h3>${hpBlock("A")}${hpBlock("B")}
+      <h3>${esc(L.grpMonths)}</h3><div class="mtab"><span></span><span>${esc(L.colDays)}</span><span>${esc(L.colTemp)}</span><span>${esc(L.colCop)}</span>
+        ${DEFAULT_MONTHS.map((m) => `<span class="mname">${esc(L.monthsFull[m.key])}</span>${autoFld("", "days_" + m.key, true)}${autoFld("", "t_" + m.key, true)}${autoFld("", "cop_" + m.key, true)}`).join("")}</div>
+    </details>`;
+  }
+
+  function tariffsHtml() {
+    const t = st.tariffs;
+    const tn = (path, label) => `<input type="text" inputmode="decimal" autocomplete="off" data-tpath="${path}" value="${esc(getPath(path))}" aria-label="${esc(label)}">`;
+    const changed = JSON.stringify(t) !== JSON.stringify(DEFAULT_TARIFFS);
+    return `<div class="single">${card(L.tarTitle, `<p class="hint">${esc(L.tarHint)}</p>
+      ${text(L.tarDate, "tariffs.date")}
+      <h3>${esc(L.tarElecRes)}</h3><div class="ttab"><span class="th">${esc(L.tarUpTo)}</span><span class="th">${esc(L.tarPriceKwh)}</span>
+        ${t.elecRes.map((r, i) => `${r[0] >= INF / 2 ? `<span class="tcell">${esc(L.tarAbove)}</span>` : tn(`tariffs.elecRes.${i}.0`, L.tarUpTo)}${tn(`tariffs.elecRes.${i}.1`, L.tarPriceKwh)}`).join("")}</div>
+      <label class="fld narrow"><span class="lbl">${esc(L.tarElecBiz)}</span>${tn("tariffs.elecBiz", L.tarElecBiz)}</label>
+      <h3>${esc(L.tarGasRes)}</h3><div class="grid3"><label class="fld"><span class="lbl">${esc(L.tarNormW)}</span>${tn("tariffs.gasNormWinter", L.tarNormW)}</label><label class="fld"><span class="lbl">${esc(L.tarNormO)}</span>${tn("tariffs.gasNormOther", L.tarNormO)}</label><label class="fld"><span class="lbl">${esc(L.tarGasBase)}</span>${tn("tariffs.gasBasePrice", L.tarGasBase)}</label></div>
+      <div class="ttab"><span class="th">${esc(L.tarUpToM3)}</span><span class="th">${esc(L.tarPriceM3)}</span>
+        ${t.gasRes.map((r, i) => `${r[0] >= INF / 2 ? `<span class="tcell">${esc(L.tarAbove)}</span>` : tn(`tariffs.gasRes.${i}.0`, L.tarUpToM3)}${tn(`tariffs.gasRes.${i}.1`, L.tarPriceM3)}`).join("")}</div>
+      <label class="fld narrow"><span class="lbl">${esc(L.tarGasBiz)}</span>${tn("tariffs.gasBiz", L.tarGasBiz)}</label>
+      <p class="hint">${esc(L.tarSource)}</p>
+      <div class="actions">${changed ? `<span class="badge">${esc(L.tarChanged)}</span>` : ""}<button type="button" class="btn ghost" data-act="tar-reset">${esc(L.tarReset)}</button></div>`)}</div>`;
+  }
+
+  function savedHtml() {
+    const items = st.saved.map((s) => `<li><div><b>${esc(s.name || L.unnamed)}</b><span class="hint">${esc(s.date)}</span></div><div class="actions"><button type="button" class="btn small" data-act="open" data-id="${esc(s.id)}">${esc(L.open)}</button><button type="button" class="btn small ghost" data-act="del" data-id="${esc(s.id)}">${esc(L.del)}</button></div></li>`).join("");
+    return `<div class="single">${card(L.tabSaved, (st.saved.length ? `<ul class="saved">${items}</ul>` : `<p class="empty">${esc(L.savedEmpty)}</p>`) + `<p class="hint">${esc(L.savedNote)}</p>`)}</div>`;
+  }
+
+  function shell() {
+    document.documentElement.lang = st.lang;
+    document.title = L.appTitle;
+    const tab = (id, label) => `<button type="button" class="tab ${st.tab === id ? "on" : ""}" data-tab="${id}" aria-current="${st.tab === id ? "page" : "false"}">${esc(label)}</button>`;
+    let main;
+    if (st.tab === "tariffs") main = tariffsHtml();
+    else if (st.tab === "saved") main = savedHtml();
+    else main = `<div class="cols"><form class="form" autocomplete="off" onsubmit="return false">${formHtml()}</form>
+      <div class="out"><section class="card" id="result"></section>
+        <section class="card"><div class="bar"><h2>${esc(L.preview)}</h2><div class="actions"><button type="button" class="btn" data-act="pdf">${esc(L.btnPdf)}</button><button type="button" class="btn ghost" data-act="save">${esc(L.btnSave)}</button><button type="button" class="btn ghost" data-act="new">${esc(L.btnNew)}</button></div></div>
+        <div id="pages"></div></section></div></div>`;
+    root.className = st.tab === "calc" ? "split" : "";
+    root.innerHTML = `<header class="top"><div class="brand"><span class="mark" aria-hidden="true"></span><div><h1>${esc(L.appTitle)}</h1><p>${esc(L.appSub)}</p></div></div>
+      <div class="lang seg" role="group"><button type="button" data-lang="uz" class="${st.lang === "uz" ? "on" : ""}">O‘zbekcha</button><button type="button" data-lang="ru" class="${st.lang === "ru" ? "on" : ""}">Русский</button></div></header>
+      <nav class="tabs">${tab("calc", L.tabCalc)}${tab("tariffs", L.tabTariffs)}${tab("saved", L.tabSaved)}</nav><main>${main}</main><div id="toast" role="status" aria-live="polite"></div>`;
+    if (st.tab === "calc") update();
+  }
+
+  // ---------- qayta hisoblash ----------
+  function autoValues() {
+    const a = { tIn: AUTO.tIn, tDes: AUTO.tDes, gain: AUTO.gain, baseEl: st.input.customer === "biz" ? AUTO.baseElBiz : AUTO.baseElRes,
+      baseGas: AUTO.baseGas, effEb: AUTO.effEb * 100, effGb: AUTO.effGb * 100, gasKwh: AUTO.gasKwh };
+    for (const k of ["A", "B"]) {
+      const h = res.hpInfo[k];
+      a["hpCount" + k] = h ? h.countAuto : null; a["hpCap" + k] = h ? h.capAuto : null; a["hpPow" + k] = h ? h.powAuto : null;
+      a["backup" + k] = h ? h.backupAuto : (k === "A" ? AUTO.backupA : AUTO.backupB);
+    }
+    for (const s of ["eb", "hp", "gb"]) for (const k of ["A", "B"]) a[`cap_${s}${k}`] = CALC.equipAuto(s, st.input["load" + k]);
+    for (const m of res.months) { const d = DEFAULT_MONTHS.find((x) => x.key === m.key); a["days_" + m.key] = d.days; a["t_" + m.key] = d.t; a["cop_" + m.key] = m.copAuto; }
+    return a;
+  }
+  const autoFmt = (v) => (v === null || v === undefined ? "—" : fmt(v, Math.abs(v % 1) < 1e-9 ? 0 : Math.abs((v * 10) % 1) < 1e-9 ? 1 : 2));
+
+  function update() {
+    res = CALC.compute(st.input, st.tariffs);
+    persist();
+    if (st.tab !== "calc") return;
+    const a = autoValues();
+    root.querySelectorAll("[data-auto]").forEach((el) => {
+      const key = el.dataset.auto, inp = el.querySelector("input"), ov = num(st.input.ov[key]) !== null;
+      inp.placeholder = autoFmt(a[key]);
+      el.classList.toggle("is-ov", ov);
+      el.querySelector(".rst").hidden = !ov;
+      const hint = el.querySelector(".hint");
+      if (hint) hint.textContent = ov ? `${L.manual} · ${L.auto}: ${autoFmt(a[key])}` : `${L.auto}: ${autoFmt(a[key])}`;
+    });
+    root.querySelectorAll("[data-priceb]").forEach((el) => { const p0 = num(st.input.price[el.dataset.priceb][0]); el.placeholder = p0 === null ? "$" : fmt(p0); el.title = p0 === null ? "" : L.sameAs; });
+    root.querySelectorAll("[data-hpsel]").forEach((el) => { const h = res.hpInfo[el.dataset.hpsel]; el.options[0].textContent = h ? `${L.hpAuto} (${h.autoCount > 1 ? h.autoCount + " × " : ""}${h.autoModel})` : L.hpAuto; });
+
+    const resultEl = document.getElementById("result"), pagesEl = document.getElementById("pages");
+    if (!res.variants.length) {
+      svgs = [];
+      resultEl.innerHTML = `<h2>${esc(L.result)}</h2><p class="empty">${esc(L.noVariants)}</p>`;
+      pagesEl.innerHTML = "";
+      return;
+    }
+    const worst = Math.max(...res.variants.map((v) => v.tot.cost));
+    resultEl.innerHTML = `<h2>${esc(L.result)} <span class="hint">· ${esc(L.mln)} ${esc(L.perSeason)}</span></h2><ul class="res">${res.variants.map((v) => `<li><span class="dot" style="background:${RENDER.SERIES[v.id]}"></span><span class="nm">${esc(RENDER.vName(L, v))}</span><span class="barwrap"><span class="barfill" style="width:${Math.max(2, v.tot.cost / worst * 100).toFixed(1)}%;background:${RENDER.SERIES[v.id]}"></span></span><b>${mln(v.tot.cost)}</b></li>`).join("")}</ul>`;
+    svgs = RENDER.pages(L, { res, input: st.input, tariffs: st.tariffs, profile: st.profile, date: today() });
+    pagesEl.innerHTML = svgs.map((s, i) => `<figure class="page"><div class="sheet">${s}</div><figcaption><span>${i + 1}-${esc(L.page)}</span><button type="button" class="btn small" data-act="png" data-page="${i}">${esc(L.btnPng)}</button></figcaption></figure>`).join("");
+  }
+
+  // ---------- yuklab olish ----------
+  let dlCap;
+  async function getDl() {
+    if (dlCap !== undefined) return dlCap;
+    try { dlCap = window.claude && window.claude.use ? await window.claude.use("downloads") : null; } catch (e) { dlCap = null; }
+    return dlCap;
+  }
+  getDl();
+  async function saveFile(name, blob) {
+    const dl = await getDl();
+    if (dl) {
+      try { await dl.save({ filename: name, data: blob }); return "ok"; }
+      catch (e) { if (e && e.code === "declined") return "declined"; if (e && e.code === "rate_limited") return "fail"; }
+    }
+    const url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    return "ok";
+  }
+  function svgToCanvas(svg, scale) {
+    return new Promise((ok, err) => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement("canvas"); c.width = RENDER.W * scale; c.height = RENDER.H * scale;
+        const g = c.getContext("2d"); g.fillStyle = "#F5F3EE"; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height); ok(c);
+      };
+      img.onerror = () => err(new Error("svg"));
+      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+    });
+  }
+  const canvasBlob = (c, type, q) => new Promise((ok, err) => c.toBlob((b) => (b ? ok(b) : err(new Error("blob"))), type, q));
+  function makePdf(images, wPt, hPt) {
+    const enc = new TextEncoder(), chunks = [], offsets = []; let off = 0;
+    const push = (d) => { const b = typeof d === "string" ? enc.encode(d) : d; chunks.push(b); off += b.length; };
+    const obj = (n, head, stream) => { offsets[n] = off; push(`${n} 0 obj\n${head}\n`); if (stream) { push("stream\n"); push(stream); push("\nendstream\n"); } push("endobj\n"); };
+    push("%PDF-1.4\n");
+    const n = images.length, kids = images.map((_, i) => `${3 + i * 3} 0 R`).join(" ");
+    obj(1, "<< /Type /Catalog /Pages 2 0 R >>");
+    obj(2, `<< /Type /Pages /Kids [${kids}] /Count ${n} >>`);
+    images.forEach((im, i) => {
+      const p = 3 + i * 3, content = enc.encode(`q ${wPt.toFixed(2)} 0 0 ${hPt.toFixed(2)} 0 0 cm /Im0 Do Q`);
+      obj(p, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${wPt.toFixed(2)} ${hPt.toFixed(2)}] /Resources << /XObject << /Im0 ${p + 2} 0 R >> >> /Contents ${p + 1} 0 R >>`);
+      obj(p + 1, `<< /Length ${content.length} >>`, content);
+      obj(p + 2, `<< /Type /XObject /Subtype /Image /Width ${im.w} /Height ${im.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${im.bytes.length} >>`, im.bytes);
+    });
+    const xref = off, total = 3 + n * 3;
+    push(`xref\n0 ${total}\n0000000000 65535 f \n`);
+    for (let i = 1; i < total; i++) push(String(offsets[i]).padStart(10, "0") + " 00000 n \n");
+    push(`trailer\n<< /Size ${total} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+    return new Blob(chunks, { type: "application/pdf" });
+  }
+  const translit = { "‘": "", "’": "", "ʻ": "", "ʼ": "" };
+  function fileBase() {
+    const raw = (st.input.client || st.input.object || "hisob").trim();
+    const cyr = "абвгдеёжзийклмнопрстуфхцчшщъыьэюяқғҳў", lat = ["a", "b", "v", "g", "d", "e", "yo", "j", "z", "i", "y", "k", "l", "m", "n", "o", "p", "r", "s", "t", "u", "f", "x", "ts", "ch", "sh", "sh", "", "i", "", "e", "yu", "ya", "q", "g", "h", "o"];
+    const s = raw.toLowerCase().split("").map((ch) => (ch in translit ? translit[ch] : cyr.indexOf(ch) >= 0 ? lat[cyr.indexOf(ch)] : ch)).join("").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+    return `Isitish_${s || "hisob"}_${today().split(".").reverse().join("-")}`;
+  }
+  let busy = false;
+  async function exportPng(i) {
+    if (busy || !svgs[i]) return; busy = true; toast(L.working);
+    try { const c = await svgToCanvas(svgs[i], 2); const r = await saveFile(`${fileBase()}_${i + 1}.png`, await canvasBlob(c, "image/png")); toast(r === "ok" ? "" : r === "declined" ? L.downloadDeclined : L.downloadFail); }
+    catch (e) { toast(L.downloadFail); } finally { busy = false; }
+  }
+  async function exportPdf() {
+    if (busy || !svgs.length) return; busy = true; toast(L.working);
+    try {
+      const imgs = [];
+      for (const s of svgs) { const c = await svgToCanvas(s, 2); const b = await canvasBlob(c, "image/jpeg", 0.93); imgs.push({ bytes: new Uint8Array(await b.arrayBuffer()), w: c.width, h: c.height }); }
+      const r = await saveFile(`${fileBase()}.pdf`, makePdf(imgs, 285 / 25.4 * 72, 210 / 25.4 * 72));
+      toast(r === "ok" ? "" : r === "declined" ? L.downloadDeclined : L.downloadFail);
+    } catch (e) { toast(L.downloadFail); } finally { busy = false; }
+  }
+  let toastT;
+  function toast(msg) {
+    const el = document.getElementById("toast"); if (!el) return;
+    clearTimeout(toastT); el.textContent = msg; el.classList.toggle("show", !!msg);
+    if (msg && msg !== L.working) toastT = setTimeout(() => el.classList.remove("show"), 2600);
+  }
+
+  // ---------- hodisalar ----------
+  root.addEventListener("input", (e) => {
+    const t = e.target;
+    if (t.dataset.tpath) { const n = num(t.value); if (n !== null && n >= 0) { setPath(t.dataset.tpath, n); res = CALC.compute(st.input, st.tariffs); persist(); } return; }
+    if (!t.dataset.path || t.type === "checkbox" || t.type === "file") return;
+    setPath(t.dataset.path, t.value);
+    if (t.dataset.path.startsWith("tariffs.")) { persist(); return; }
+    update();
+  });
+  root.addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.matches("[data-logo]")) { const f = t.files && t.files[0]; if (f) readLogo(f); return; }
+    if (t.dataset.tpath) { shell(); return; }
+    if (t.type === "checkbox" && t.dataset.path) { setPath(t.dataset.path, t.checked); update(); }
+    else if (t.tagName === "SELECT" && t.dataset.path) { setPath(t.dataset.path, t.value); update(); }
+  });
+  root.addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.lang) { st.lang = b.dataset.lang; L = I18N[st.lang]; persist(); shell(); return; }
+    if (b.dataset.tab) { st.tab = b.dataset.tab; shell(); return; }
+    if (b.dataset.set) { const raw = b.dataset.val; setPath(b.dataset.set, /^\d+$/.test(raw) ? +raw : raw); b.parentElement.querySelectorAll("button").forEach((x) => { x.classList.toggle("on", x === b); x.setAttribute("aria-pressed", x === b); }); update(); return; }
+    if (b.dataset.reset) { delete st.input.ov[b.dataset.reset]; const inp = b.parentElement.querySelector("input"); inp.value = ""; update(); inp.focus(); return; }
+    if (b.hasAttribute("data-logo-remove")) { st.profile.logo = null; persist(); shell(); return; }
+    const act = b.dataset.act;
+    if (act === "png") exportPng(+b.dataset.page);
+    else if (act === "pdf") exportPdf();
+    else if (act === "save") {
+      const name = [st.input.client, st.input.object].map((x) => (x || "").trim()).filter(Boolean).join(" · ");
+      st.saved.unshift({ id: String(Date.now()), name, date: today(), input: clone(st.input) });
+      st.saved = st.saved.slice(0, 60); persist(); toast(L.saved);
+    } else if (act === "new") { st.input = clone(DEFAULT_INPUT); persist(); shell(); window.scrollTo(0, 0); }
+    else if (act === "open") { const s = st.saved.find((x) => x.id === b.dataset.id); if (s) { st.input = Object.assign(clone(DEFAULT_INPUT), clone(s.input)); st.tab = "calc"; shell(); } }
+    else if (act === "del") { st.saved = st.saved.filter((x) => x.id !== b.dataset.id); persist(); shell(); }
+    else if (act === "tar-reset") { st.tariffs = clone(DEFAULT_TARIFFS); persist(); shell(); }
+  });
+  function readLogo(file) {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, 480 / img.width, 240 / img.height), c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        st.profile.logo = { data: c.toDataURL("image/png"), w: c.width, h: c.height }; persist(); shell();
+      };
+      img.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  }
+
+  shell();
+  window.__isitish = { st, get res() { return res; }, get svgs() { return svgs; } };
+})();
+</script>
+</body></html>

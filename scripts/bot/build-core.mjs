@@ -9,7 +9,7 @@ await build({
   entryPoints: [resolve(root, "scripts/bot/core-entry.js")],
   outfile: resolve(root, "api/_lib/core.mjs"),
   bundle: true, platform: "node", format: "esm", target: "node18", jsx: "automatic", logLevel: "warning",
-  external: ["xlsx"], // Excel боту не нужен (загружается только при выгрузке)
+  external: ["xlsx", "*?raw"], // Excel боту не нужен (загружается только при выгрузке); «?raw» — страница расчёта отопления, боту не нужна
   nodePaths: process.env.NODE_PATH ? process.env.NODE_PATH.split(":") : [],
   // клиент Supabase боту не нужен (базу читает pg) — заглушка, как в ночном бэкапе
   alias: { "@supabase/supabase-js": resolve(root, "scripts/nightly/supabase-stub.js") },

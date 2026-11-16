@@ -148,10 +148,12 @@ const OP_TYPES = [
 const OBJECT_OP_TYPES = ["client_payment", "return", "discount", "expense"];
 const MASTER_ONLY_OPS = ["bonus", "bonus_payment"];
 const ROLES = [
-  { id: "manager", label: "Менеджер", tabs: ["request", "objects", "products", "wh", "suppliers", "masters", "finance"] },
-  { id: "boss", label: "Руководитель", tabs: ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "admin"] },
+  { id: "manager", label: "Менеджер", tabs: ["request", "objects", "products", "wh", "suppliers", "masters", "finance", "heat"] },
+  { id: "boss", label: "Руководитель", tabs: ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "heat", "admin"] },
   // доставщик: только объекты для доставки (без цен) и Склад Thermo (без цен)
   { id: "driver", label: "Доставщик", tabs: ["delivery", "wh"] },
+  // проектировщик: только «Расчёт отопления»; облачный пароль не спрашивается
+  { id: "designer", label: "Проектировщик", tabs: ["heat"] },
 ];
 /* Роли и права (Аккаунты → «Роли и права»). Настройка хранится одной служебной записью в таблице requests
    (mode = "te_roles", lines = [{ id, label, base, tabs, perms }]) — новая колонка в базе не нужна.
@@ -202,8 +204,8 @@ async function cloudSet(uid, hash) {
   const r = row ? await db.from("requests").update({ lines }).eq("id", row.id) : await db.from("requests").insert({ mode: CLOUD_MODE, source: "config", lines });
   return !r.error;
 }
-const TAB_NAMES = { notes: "Заметки", dash: "Дашборд", request: "Новая заявка", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", delivery: "Доставка", admin: "Аккаунты" };
-const GRANT_TABS = ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "delivery"];
+const TAB_NAMES = { notes: "Заметки", heat: "Расчёт отопления", dash: "Дашборд", request: "Новая заявка", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", delivery: "Доставка", admin: "Аккаунты" };
+const GRANT_TABS = ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "delivery", "heat"];
 const PERMS = [
   { id: "fin", label: "Себестоимость, прибыль, все финансовые операции" },
   { id: "del", label: "Удаление: объекты с оплатами, операции, мастера" },
@@ -218,11 +220,11 @@ function allRoles(data) {
   const saved = row && Array.isArray(row.lines) ? row.lines : [];
   const get = (id) => saved.find((x) => x && x.id === id);
   const out = [{ ...ROLES[1], base: "boss", perms: ALL_PERMS, fixed: true }];
-  ["manager", "driver"].forEach((id) => {
+  ["manager", "driver", "designer"].forEach((id) => {
     const b = ROLES.find((x) => x.id === id), o = get(id) || {};
     out.push({ id, base: id, builtin: true, label: o.label || b.label, tabs: Array.isArray(o.tabs) ? o.tabs.filter((t) => GRANT_TABS.includes(t)) : b.tabs, perms: { ...(o.perms || {}) } });
   });
-  saved.forEach((r) => { if (r && r.id && !["boss", "manager", "driver"].includes(r.id)) out.push({ id: r.id, label: r.label || "Роль", base: r.base === "driver" ? "driver" : "manager", tabs: (r.tabs || []).filter((t) => GRANT_TABS.includes(t)), perms: { ...(r.perms || {}) }, custom: true }); });
+  saved.forEach((r) => { if (r && r.id && !["boss", "manager", "driver", "designer"].includes(r.id)) out.push({ id: r.id, label: r.label || "Роль", base: r.base === "driver" ? "driver" : "manager", tabs: (r.tabs || []).filter((t) => GRANT_TABS.includes(t)), perms: { ...(r.perms || {}) }, custom: true }); });
   return out;
 }
 // что может этот аккаунт: роль из настроек (неизвестная — как менеджер)
@@ -234,7 +236,7 @@ function accessOf(u, roles, uperms) {
   const r = (u && roles.find((x) => x.id === u.role)) || roles.find((x) => x.id === "manager");
   const own = r.base !== "boss" && u && uperms && uperms[u.id];
   const t0 = own && Array.isArray(own.tabs) ? own.tabs.filter((t) => GRANT_TABS.includes(t)) : r.tabs;
-  const tabs0 = r.base === "boss" ? r.tabs : (t0.length ? t0 : r.base === "driver" ? ["delivery"] : ["objects"]);
+  const tabs0 = r.base === "boss" ? r.tabs : (t0.length ? t0 : r.base === "driver" ? ["delivery"] : r.base === "designer" ? ["heat"] : ["objects"]);
   const perms = r.base === "boss" ? ALL_PERMS : (own ? own.perms || {} : r.perms || {});
   // «Аккаунты»: руководителю — всегда; другим — если дано право управлять аккаунтами
   const tabs1 = r.base !== "boss" && perms.accounts && !tabs0.includes("admin") ? [...tabs0, "admin"] : tabs0;
@@ -8489,6 +8491,33 @@ function WhInForm({ products, suppliers, warehouse, onClose, onSave }) {
 }
 /* ============ ДОСТАВКА (роль «Доставщик») ============
    Объекты для доставки: адрес, клиент, мастер, список товаров без цен, «Отгрузить / Доставлено», «Лист доставки». */
+/* «Расчёт отопления»: сравнение электрокотла, теплового насоса и газового котла для клиента + инфографика (PNG / PDF).
+   Сам калькулятор — отдельная страница (isitish/, собирается в src/isitish.html), показывается в окне внутри раздела:
+   грузится только при открытии раздела, свои стили не смешиваются с программой. Данные — только на устройстве. */
+let HEAT_HTML = null;
+function HeatCalcTab({ lang, userName }) {
+  const [html, setHtml] = useState(HEAT_HTML);
+  const [err, setErr] = useState("");
+  const [h, setH] = useState(600);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (HEAT_HTML) return;
+    import("./isitish.html?raw").then((m) => { HEAT_HTML = m.default; setHtml(m.default); }).catch((e) => setErr(String((e && e.message) || e)));
+  }, []);
+  useEffect(() => {
+    const fit = () => { const el = ref.current; if (el) setH(Math.max(420, Math.round(window.innerHeight - el.getBoundingClientRect().top - 12))); };
+    fit(); const t = setTimeout(fit, 300);
+    window.addEventListener("resize", fit);
+    return () => { clearTimeout(t); window.removeEventListener("resize", fit); };
+  }, [html]);
+  // язык программы и имя менеджера передаются в калькулятор
+  const doc = useMemo(() => (html ? html.replace("<!--HOST-->", () => "<script>window.__ISITISH_HOST=" + JSON.stringify({ lang: lang === "uz" ? "uz" : "ru", user: userName || "", company: "Thermo Engineering" }).replace(/</g, "\\u003c") + "</script>") : ""), [html, lang, userName]);
+  if (err) return <div className="card sect" style={{ color: "var(--warn)" }}>Не удалось загрузить расчёт отопления: {err}</div>;
+  if (!html) return <div className="card sect mut">Загрузка…</div>;
+  return <iframe ref={ref} key={lang} title={lang === "uz" ? "Isitish hisobi" : "Расчёт отопления"} srcDoc={doc}
+    style={{ display: "block", width: "100%", height: h, border: 0, borderRadius: 12, background: "#F5F3EE" }} />;
+}
+
 function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
   const { objects, suppliers, masters } = data;
   const [q, setQ] = useState("");
@@ -10964,7 +10993,7 @@ function LogTab({ data, reload, toast, onBackup }) {
               <tr key={l.id}>
                 <td className="xs mono mut">{fmtTs(l.ts)}</td>
                 <td className="sm" style={{ fontWeight: 600 }}>{l.user_name}</td>
-                <td><Badge c={l.role === "boss" ? "#ff707b" : "#fff"}>{l.role === "boss" ? "Рук." : l.role === "manager" ? "Менедж." : l.role === "driver" ? "Доставщ." : "—"}</Badge></td>
+                <td><Badge c={l.role === "boss" ? "#ff707b" : "#fff"}>{l.role === "boss" ? "Рук." : l.role === "manager" ? "Менедж." : l.role === "driver" ? "Доставщ." : l.role === "designer" ? "Проект." : "—"}</Badge></td>
                 <td className="sm">{l.action}{(() => {
                   const sn = trashOf(l);
                   if (!sn) return null;
@@ -11530,7 +11559,7 @@ function UserForm({ u, users, self, onClose, onSave, data = null, uperms = {}, h
           <div className="perm-grid">
             {GRANT_TABS.map((t) => <label key={t} className="clk sm"><input type="checkbox" disabled={permsLocked} checked={own.tabs.includes(t)} onChange={() => updOwn((r) => { r.tabs = r.tabs.includes(t) ? r.tabs.filter((x) => x !== t) : GRANT_TABS.filter((x) => x === t || r.tabs.includes(x)); return r; })} /> {TAB_NAMES[t]}</label>)}
           </div>
-          {cur.base !== "driver" && <div className="perm-grid" style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
+          {cur.base !== "driver" && cur.base !== "designer" && <div className="perm-grid" style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
             {PERMS.map((p) => <label key={p.id} className="clk sm" style={{ gridColumn: "1/-1" }}><input type="checkbox" disabled={permsLocked} checked={!!own.perms[p.id]} onChange={() => updOwn((r) => { r.perms[p.id] = !r.perms[p.id]; return r; })} /> {p.label}</label>)}
           </div>}
         </>}
@@ -12044,6 +12073,8 @@ function AppInner() {
   const userPerms = useMemo(() => userPermsOf(data), [data.requests]);
   const acc = currentUser ? accessOf(currentUser, rolesList, userPerms) : { base: "boss", label: "", tabs: ROLES[1].tabs, perms: ALL_PERMS };
   const role = acc.base;
+  // проектировщик, у которого только «Расчёт отопления», входит без облачного пароля (дадут другие разделы — пароль спросится)
+  const noCloud = role === "designer" && acc.tabs.every((t) => t === "heat");
   const [openId, setOpenId] = useState(null);
   const [msg, setMsg] = useState("");
 
@@ -12635,14 +12666,14 @@ function AppInner() {
   };
 
   const roleTabs = acc.tabs;
-  const TAB_LABELS_RU = { delivery: "Доставка", request: "Новая заявка", dash: "Дашборд", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", admin: "Аккаунты" , notes: "Заметки" };
-  const TAB_LABELS_UZ = { delivery: "Yetkazish", request: "Yangi ariza", dash: "Boshqaruv", objects: "Ob'ektlar", products: "Tovarlar", wh: "Ombor Thermo", suppliers: "Ta'minotchilar", masters: "Ustalar", finance: "Moliya", log: "Jurnal", admin: "Hisoblar" , notes: "Eslatmalar" };
+  const TAB_LABELS_RU = { heat: "Расчёт отопления", delivery: "Доставка", request: "Новая заявка", dash: "Дашборд", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", admin: "Аккаунты" , notes: "Заметки" };
+  const TAB_LABELS_UZ = { heat: "Isitish hisobi", delivery: "Yetkazish", request: "Yangi ariza", dash: "Boshqaruv", objects: "Ob'ektlar", products: "Tovarlar", wh: "Ombor Thermo", suppliers: "Ta'minotchilar", masters: "Ustalar", finance: "Moliya", log: "Jurnal", admin: "Hisoblar" , notes: "Eslatmalar" };
   const TAB_LABELS = lang === "uz" ? TAB_LABELS_UZ : TAB_LABELS_RU;
   const allTabs = roleTabs.map((id) => ({ id, label: TAB_LABELS[id] }));
   useEffect(() => { if (currentUser) { setTab(roleTabs[0]); setOpenId(null); } }, [currentUser ? currentUser.id + ":" + currentUser.role : ""]);
   // права роли изменили — открытый раздел стал недоступен: переходим в первый доступный
   useEffect(() => { if (currentUser && roleTabs.length && !roleTabs.includes(tab)) setTab(roleTabs[0]); }, [roleTabs.join(","), tab]);
-  useHotActions(() => (currentUser ? [{ label: "Сменить облачный пароль", run: () => setCloudChange(true) }] : []));
+  useHotActions(() => (currentUser && !noCloud ? [{ label: "Сменить облачный пароль", run: () => setCloudChange(true) }] : []));
   // ---- работа с клавиатуры ----
   const [palette, setPalette] = useState(false);
   const [keysHelp, setKeysHelp] = useState(false);
@@ -12696,7 +12727,7 @@ function AppInner() {
   const intro = !ready ? <Intro /> : introGone ? null : <Intro out={introOut} onDone={() => setIntroGone(true)} />;
   if (!ready) return <>{null}{intro}</>;
   if (!currentUser) return <>{<LoginScreen users={data.users || []} onLogin={doLogin} bootErr={bootErr} onRetry={() => { setReady(false); boot(); }} secure={secureMode} seed={secureSeed} note={loginNote} />}{intro}<IosInstallHint /></>;
-  if (!cloudOk) return <>{<CloudGate user={currentUser} onOk={() => { cloudOkSet(currentUser.id); setCloudOk(true); }}
+  if (!cloudOk && !noCloud) return <>{<CloudGate user={currentUser} onOk={() => { cloudOkSet(currentUser.id); setCloudOk(true); }}
     onLogout={(note) => { (async () => { if (SECURE && sb) { try { await sb.rpc("te_logout"); } catch (e) {} } endSession(note); })(); }} />}{intro}</>;
   return (<>
     <PeopleCtx.Provider value={peopleCtx}>
@@ -12709,7 +12740,7 @@ function AppInner() {
         <div className="row hdr-user" style={{ gap: 8 }}>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontWeight: 700, fontSize: 13 }}>{currentUser.name || currentUser.username}</div>
-            <div className="xs mut">{lang === "uz" && ({ boss: "Rahbar", manager: "Menejer", driver: "Yetkazuvchi" })[acc.id] || acc.label}</div>
+            <div className="xs mut">{lang === "uz" && ({ boss: "Rahbar", manager: "Menejer", driver: "Yetkazuvchi", designer: "Loyihachi" })[acc.id] || acc.label}</div>
           </div>
           <button className="btn xs" onClick={toggleLang} title={lang === "ru" ? "Весь экран — латиницей (узбекская латиница)" : "Kirill yozuviga qaytish"} style={{ fontWeight: 800 }}>{lang === "ru" ? "UZ" : "RU"}</button>
           <button className="btn xs" onClick={toggleDark} title={darkMode ? "Светлая тема" : "Тёмная тема"}>{darkMode ? <Ic n="sun" s={15} /> : <Ic n="moon" s={15} />}</button>
@@ -12722,7 +12753,7 @@ function AppInner() {
             setTab(t.id); if (t.id !== "objects") setOpenId(null); setMobileMenuOpen(false); if (!finePtr) setHdrPeek(false);
           }} title={"Alt+" + (allTabs.indexOf(t) === 9 ? 0 : allTabs.indexOf(t) + 1)}>{t.label}</button>)}
           <div className="menu-extra">
-            <div style={{ marginRight: "auto" }}><b className="sm">{currentUser.name || currentUser.username}</b> <span className="xs mut">{lang === "uz" && ({ boss: "Rahbar", manager: "Menejer", driver: "Yetkazuvchi" })[acc.id] || acc.label}</span></div>
+            <div style={{ marginRight: "auto" }}><b className="sm">{currentUser.name || currentUser.username}</b> <span className="xs mut">{lang === "uz" && ({ boss: "Rahbar", manager: "Menejer", driver: "Yetkazuvchi", designer: "Loyihachi" })[acc.id] || acc.label}</span></div>
             <button className="btn xs" onClick={toggleLang} style={{ fontWeight: 800 }}>{lang === "ru" ? "UZ" : "RU"}</button>
             <button className="btn xs" onClick={toggleDark}>{darkMode ? <Ic n="sun" s={15} /> : <Ic n="moon" s={15} />}</button>
             <button className="btn xs" onClick={doLogout}>{lang === "uz" ? "Chiqish" : "Выйти"}</button>
@@ -12756,7 +12787,7 @@ function AppInner() {
           </span>
         </div>}
         {tab === "dash" && <Dashboard data={data} />}
-        {palette && <CommandPalette tabs={allTabs} objects={data.objects || []} onTab={goTab} onObject={(id) => { setTab("objects"); setOpenId(id); }} onClose={() => setPalette(false)} />}
+        {palette && <CommandPalette tabs={allTabs} objects={role === "designer" ? [] : data.objects || []} onTab={goTab} onObject={(id) => { setTab("objects"); setOpenId(id); }} onClose={() => setPalette(false)} />}
         {keysHelp && <KeysHelp tabs={allTabs} onClose={() => setKeysHelp(false)} />}
         {cloudChange && <CloudChange user={currentUser} toast={toast} onClose={() => setCloudChange(false)} />}
         {tab === "objects" && <ObjectsTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} goRequest={() => setTab("request")} fin={!!acc.perms.fin} pmode={pmode} setPmode={setPmode} />}
@@ -12768,6 +12799,7 @@ function AppInner() {
         {tab === "delivery" && <DeliveryTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} />}
         {tab === "log" && <LogTab data={data} reload={reload} toast={toast} onBackup={acc.perms.backup ? () => setBackupOpen(true) : null} />}
         {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} isBoss={role === "boss"} seen={team.seen} onChat={openChat} />}
+        {tab === "heat" && <HeatCalcTab lang={lang} userName={currentUser.name || currentUser.username} />}
         {tab === "finance" && <FinanceTab data={data} reload={reload} toast={toast} boss={!!acc.perms.salary} />}
       </div>
       {backupOpen && acc.perms.backup && <BackupModal who={currentUser.name || currentUser.username} data={data} reload={reload} onClose={() => { setBackupOpen(false); setAbTick((n) => n + 1); }} toast={toast} onFilePick={() => restoreRef.current.click()} onRestoreText={async (text) => {
