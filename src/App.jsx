@@ -5684,7 +5684,16 @@ const perechBatch = (obj, no) => {
 const perechFixItem = (i, b) => ({ ...i, uzs0: perechU0Calc(i.price, b), uzs_src: Number(i.price) || 0, uzs_rate: b.rate, uzs_markup: b.markup });
 const perechU0Calc = (price, b) => Math.round((Number(price) || 0) * (Number(b.rate) || 0) * (1 + (Number(b.markup) || 0) / 100) / (1 + PERECH_VAT / 100));
 // цена позиции без НДС за единицу: зафиксированная или (поставка зафиксирована, позицию добавили позже) — по курсу поставки
-const perechU0 = (obj, i) => (i.uzs0 != null && i.uzs0 !== "" ? Number(i.uzs0) || 0 : (() => { const b = perechBatch(obj, i.batch_no || 1); return b ? perechU0Calc(i.price, b) : null; })());
+// Пока объект не «В процессе» (Черновик / Согласовано) — цена в сумах всегда считается от текущей цены в $ по курсу поставки:
+// список и цены меняются свободно. При переводе в «В процессе» цены закрепляются (perechFreeze) и дальше не меняются
+const perechU0 = (obj, i) => {
+  const b = perechBatch(obj, i.batch_no || 1);
+  if (b && !isLive(obj)) return perechU0Calc(i.price, b);
+  if (i.uzs0 != null && i.uzs0 !== "") return Number(i.uzs0) || 0;
+  return b ? perechU0Calc(i.price, b) : null;
+};
+// закрепить цены в сумах у всех позиций поставок с курсом (переход в «В процессе»)
+const perechFreeze = (items) => items.map((i) => { const b = perechBatch({ items }, i.batch_no || 1); return b ? perechFixItem(i, b) : i; });
 const uzsLine = (qty, u0) => { const noVat = round2((Number(qty) || 0) * (Number(u0) || 0)); const vat = round2(noVat * PERECH_VAT / 100); return { noVat, vat, sum: round2(noVat + vat), price: round2((Number(u0) || 0) * (1 + PERECH_VAT / 100)) }; };
 const sumFmt = (n) => fmt2(n).replace(/,00$/, "");
 const uzsText = (n) => sumFmt(n) + " сум";
@@ -5731,7 +5740,8 @@ function perechCalc(obj, allOps) {
       usd += (Number(i.qty) || 0) * (Number(i.price) || 0);
       const u0 = perechU0(obj, i);
       if (u0 == null) return;
-      if (i.uzs0 == null || i.uzs0 === "") unfixed++;
+      if (!isLive(obj)) { /* черновик: цены в сумах считаются сами — предупреждать не о чем */ }
+      else if (i.uzs0 == null || i.uzs0 === "") unfixed++;
       else if (i.uzs_src != null && Math.abs(Number(i.uzs_src) - (Number(i.price) || 0)) > 0.00001) drift++;
       const l = uzsLine(i.qty, u0); uzs += l.sum; noVat += l.noVat; vat += l.vat;
     });
@@ -6147,7 +6157,7 @@ function PerechFixModal({ obj, batch, ops, reload, toast, onClose }) {
   const noPrice = batch.items.filter((i) => !(Number(i.price) > 0)).length;
   const ok = rateOk(b.rate) && b.markup >= 0 && b.markup < 100;
   const save = async () => {
-    if (cur && !(await askConfirm({ title: "Изменить курс поставки №" + batch.no + "?", text: "Цены этой поставки в сумах пересчитаются. Если клиенту уже отдали счёт или накладную по ней — их нужно выдать заново. Оплаты в $ пересчитаются по новому курсу.", cancel: "Нет", ok: "Да, изменить" }))) return;
+    if (cur && isLive(obj) && !(await askConfirm({ title: "Изменить курс поставки №" + batch.no + "?", text: "Цены этой поставки в сумах пересчитаются. Если клиенту уже отдали счёт или накладную по ней — их нужно выдать заново. Оплаты в $ пересчитаются по новому курсу.", cancel: "Нет", ok: "Да, изменить" }))) return;
     setBusy(true);
     const at = new Date().toISOString();
     const r = await perechUpdate(obj.id, (o) => {
@@ -6175,7 +6185,9 @@ function PerechFixModal({ obj, batch, ops, reload, toast, onClose }) {
         {ok && <div className="xs mut">без НДС {uzsText(round2(tot.noVat))} · НДС {PERECH_VAT}% {uzsText(round2(tot.vat))} · цена = $ × {fmt(b.rate)} × {fmt(1 + b.markup / 100)}</div>}
         {noPrice > 0 && <div className="xs" style={{ color: "var(--warn)", marginTop: 4 }}>⚠ Без цены продажи: {noPrice} поз. — в сумах будет 0</div>}
       </div>
-      <p className="xs mut" style={{ marginTop: 8 }}>После фиксации цены этой поставки в сумах не меняются, даже если курс завтра другой. Новая поставка фиксируется своим курсом.</p>
+      {isLive(obj)
+        ? <p className="xs mut" style={{ marginTop: 8 }}>Объект «В процессе»: цены этой поставки в сумах закреплены. Изменить курс можно — цены в сумах пересчитаются, счёт и накладную по поставке тогда нужно выдать клиенту заново.</p>
+        : <p className="xs mut" style={{ marginTop: 8 }}>Пока объект не «В процессе», курс можно менять сколько угодно, а список и цены в $ — свободно: цены в сумах пересчитываются сами. При переводе в «В процессе» они закрепятся.</p>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 14, gap: 8 }}>
         <button className="btn" disabled={busy} onClick={onClose}>Отмена</button>
         <button className="btn pri" disabled={busy || !ok} onClick={save}>{busy ? "Сохраняю…" : cur ? "Изменить курс" : "Зафиксировать"}</button>
@@ -6511,7 +6523,7 @@ function PerechPanel({ obj, data, reload, toast, onPay }) {
                     <button className="btn xs" title="Счёт на оплату (Excel)" onClick={() => doBill("bill", b)}>Счёт</button>
                     <button className="btn xs" title="Накладная (Excel)" onClick={() => doBill("waybill", b)}>Накладная</button>
                     <button className="btn xs" title="Товары для счёт-фактуры в Didox (Excel)" onClick={() => doDidox(b)}>Didox{noIkpu(b.items).length ? " ⚠" : ""}</button>
-                    <button className="btn xs" title="Изменить курс / наценку" aria-label="Изменить курс" onClick={() => setM({ k: "fix", b })}><Ic n="pencil" /></button>
+                    <button className="btn xs" title="Изменить курс / наценку этой поставки" onClick={() => setM({ k: "fix", b })}><Ic n="pencil" /> Курс</button>
                   </> : <button className="btn xs pri" onClick={() => setM({ k: "fix", b })}>Зафиксировать курс</button>}
                 </div></td>
               </tr>
@@ -6520,6 +6532,7 @@ function PerechPanel({ obj, data, reload, toast, onPay }) {
           </tbody>
         </table>
       </div>
+      {!isLive(obj) && pc.batches.some((b) => b.fixed) && <div className="xs" style={{ marginTop: 8, color: "var(--t-info)" }}>Статус «{stById(obj.status).label}»: список, цены и курс можно менять свободно — суммы в сумах пересчитываются сами. При переводе в «В процессе» цены в сумах закрепятся.</div>}
       {(pc.unfixedItems > 0 || ikpuMissing.length > 0 || pc.recalc.length > 0) && <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
         {pc.unfixedItems > 0 && <button className="btn xs" disabled={busy} style={{ borderColor: "var(--warn)", color: "var(--warn)" }} onClick={fixMissing} title="Позиции, добавленные в уже зафиксированную поставку, получат цену в сумах по её курсу">Зафиксировать цены добавленных позиций ({pc.unfixedItems})</button>}
         {ikpuMissing.length > 0 && <button className="btn xs" style={{ borderColor: "var(--warn)", color: "var(--warn)" }} onClick={() => setM({ k: "ikpu", items: fixedItems })}>Нет ИКПУ: {ikpuMissing.length} поз.</button>}
@@ -6816,8 +6829,9 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
     if (!was && will) {
       const t = await whTakePending(obj);
       const set = new Set(t.ids);
-      const r = await updateObjectItems(obj.id, (cur) => orderItems(s, cur.map((i) => { if (!set.has(i.id)) return i; const n = { ...i }; delete n.wh_pending; return n; })), { status: s });
+      const r = await updateObjectItems(obj.id, (cur) => { const its = orderItems(s, cur.map((i) => { if (!set.has(i.id)) return i; const n = { ...i }; delete n.wh_pending; return n; })); return isPerech(obj) ? perechFreeze(its) : its; }, { status: s });
       ok = !r.error;
+      if (ok && isPerech(obj)) { note = (note ? note + "; " : "") + "перечисление: цены в сумах закреплены по курсам поставок"; await perechRecalc(r.obj, finance_ops, "статус «В процессе»"); }
       if (t.ids.length) note = "со Склада Thermo списано: " + t.ids.length + " поз." + (t.short.length ? " ⚠ не хватило на складе: " + t.short.join(", ") : "");
     } else if (was && !will) {
       const t = await whReturnLive(obj, finance_ops);
