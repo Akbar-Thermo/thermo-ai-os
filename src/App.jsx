@@ -667,6 +667,9 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .npanel{position:relative}
 .it-repl{cursor:pointer;border-bottom:1px dashed transparent}.it-repl:hover{color:var(--acc);border-bottom-color:currentColor}
 .modal-bg,.npanel,.nwin,.calc,.sup-pop,.brand-fly{overscroll-behavior:contain}
+/* любой список / окно со своей прокруткой: докрутили до края — страница за ним не двигается (телефон, планшет, тачпад).
+   Где своей прокрутки нет, правило ни на что не влияет */
+.te *{overscroll-behavior:contain}
 .tg-h{font-size:var(--fs-xs);font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 2px}
 .fw-grip{position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:nwse-resize;z-index:2;border-radius:0 0 var(--r-xl) 0;background:linear-gradient(135deg,transparent 50%,var(--line2) 50%,var(--line2) 58%,transparent 58%,transparent 70%,var(--line2) 70%,var(--line2) 78%,transparent 78%);opacity:.8}
 .fw-grip:hover{opacity:1}
@@ -1153,6 +1156,51 @@ function wheelRoot(el) {
   const cs = getComputedStyle(el);
   return el.matches(WHEEL_ROOTS) || cs.position === "fixed" || (cs.position === "absolute" && cs.zIndex !== "auto" && Number(cs.zIndex) >= 10);
 }
+// список/окно, у которого по этой оси есть своя прокрутка (больше 4 px — мелкий «перелив» не считается)
+function ownScrollAxis(el, dx, dy) {
+  const cs = getComputedStyle(el);
+  if (dy && /(auto|scroll|overlay)/.test(cs.overflowY) && el.scrollHeight - el.clientHeight > 4) return true;
+  if (dx && /(auto|scroll|overlay)/.test(cs.overflowX) && el.scrollWidth - el.clientWidth > 4) return true;
+  return false;
+}
+// ПРАВИЛО: любое окно / список / панель крутится само по себе и НИКОГДА не двигает то, что за ним
+// (компьютер — колёсико и тачпад, телефон и планшет — палец). true — прокрутку дальше не пускать.
+function scrollStopsHere(target, dx, dy) {
+  const top = document.scrollingElement || document.documentElement;
+  for (let el = target instanceof Element ? target : null; el && el !== top && el !== document.body; el = el.parentElement) {
+    if (wheelCanScroll(el, dx, dy)) return false;                 // есть куда крутить — крутится этот список
+    if (wheelRoot(el) || ownScrollAxis(el, dx, dy)) return true;  // край окна / своего списка — дальше не пускаем
+  }
+  return false; // обычная страница — крутится как всегда
+}
+// телефон, планшет: то же самое для пальца
+function installTouchTrap() {
+  let lx = 0, ly = 0, on = false;
+  const ts = (e) => { if (e.touches.length !== 1) { on = false; return; } on = true; lx = e.touches[0].clientX; ly = e.touches[0].clientY; };
+  const tm = (e) => {
+    if (!on || e.touches.length !== 1) return;  // два пальца — масштаб, не трогаем
+    const t = e.touches[0];
+    let dx = lx - t.clientX, dy = ly - t.clientY;
+    lx = t.clientX; ly = t.clientY;
+    if (!e.cancelable) return;                  // прокрутка уже идёт — браузер ведёт её сам (внутри окна её держит overscroll-behavior)
+    if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0;
+    if (!dx && !dy) return;
+    const tg = e.target instanceof Element ? e.target : null;
+    if (tg && tg.closest('input[type="range"], canvas, [data-touch-free]')) return;
+    if (scrollStopsHere(tg, dx, dy)) e.preventDefault();
+  };
+  const tend = () => { on = false; };
+  document.addEventListener("touchstart", ts, { passive: true, capture: true });
+  document.addEventListener("touchmove", tm, { passive: false, capture: true });
+  document.addEventListener("touchend", tend, { passive: true, capture: true });
+  document.addEventListener("touchcancel", tend, { passive: true, capture: true });
+  return () => {
+    document.removeEventListener("touchstart", ts, { capture: true });
+    document.removeEventListener("touchmove", tm, { capture: true });
+    document.removeEventListener("touchend", tend, { capture: true });
+    document.removeEventListener("touchcancel", tend, { capture: true });
+  };
+}
 function installWheelTrap() {
   const h = (e) => {
     if (e.ctrlKey) return; // Ctrl + колёсико — масштаб
@@ -1162,11 +1210,7 @@ function installWheelTrap() {
     let dx = e.deltaX, dy = e.deltaY;
     if (e.shiftKey && !dx) { dx = dy; dy = 0; }
     if (!dx && !dy) return;
-    const top = document.scrollingElement || document.documentElement;
-    for (let el = e.target instanceof Element ? e.target : null; el && el !== top && el !== document.body; el = el.parentElement) {
-      if (wheelCanScroll(el, dx, dy)) return;          // есть куда крутить — крутится этот список
-      if (wheelRoot(el)) { e.preventDefault(); return; } // край окна — дальше (в страницу) не пускаем
-    }
+    if (scrollStopsHere(e.target, dx, dy)) e.preventDefault(); // край окна / списка — дальше (в страницу) не пускаем
   };
   window.addEventListener("wheel", h, { passive: false, capture: true });
   return () => window.removeEventListener("wheel", h, { capture: true });
@@ -12612,6 +12656,7 @@ function AppInner() {
   // колёсико мыши в открытом окне (окна, заметки, калькулятор, выпадающие списки) крутит только это окно:
   // дошли до края списка или курсор на неподвижной части окна — страница за окном не прокручивается
   useEffect(() => installWheelTrap(), []);
+  useEffect(() => installTouchTrap(), []); // то же для пальца — телефон, планшет
   // телефон: кнопка «Назад» не выходит сразу. Открыто меню / окно / заметки / калькулятор — закрывает их;
   // иначе спрашивает «Выйти из программы?». Лишняя запись истории ставится после касания экрана
   // (браузер пропускает записи, добавленные без действия пользователя).
