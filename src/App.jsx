@@ -682,6 +682,11 @@ body.fw-busy,body.fw-busy *{user-select:none!important}
 /* всегда на весь экран */
 .nwin.heatwin{z-index:65;inset:0;width:auto;height:auto;border-radius:0;border:0;box-shadow:none;gap:10px;padding:calc(10px + env(safe-area-inset-top,0px)) 12px calc(12px + env(safe-area-inset-bottom,0px))}
 .nwin.heatwin.off{display:none}
+/* шапка закреплена сверху — окно под ней: меню разделов видно и работает */
+.te.fine:not(.hdr-off) .nwin.heatwin{top:var(--hdr-h,0px);z-index:45}
+/* телефон, планшет: кнопка меню ☰ остаётся поверх окна, ✕ окна — левее неё */
+.te.touch .nwin.heatwin{z-index:64}
+.te.touch .heatwin .nwin-head{padding-right:58px}
 .heatwin .nwin-head{padding:2px 4px 0 6px;cursor:default}
 .heatwin .nwin-head b{display:flex;align-items:center;gap:8px}
 .heatwin-body{flex:1;min-height:0;border-radius:var(--r-lg);overflow:hidden;background:#F5F3EE}
@@ -12790,7 +12795,15 @@ function AppInner() {
   const [calcOpen, setCalcOpen] = useState(false);
   const [heatOpen, setHeatOpen] = useState(false);
   const [heatMounted, setHeatMounted] = useState(false); // окно открывали — дальше держим его (скрытым), чтобы расчёт не пропадал
-  const toggleHeat = (v) => setHeatOpen((o) => { const n = typeof v === "boolean" ? v : !o; if (n) setHeatMounted(true); return n; });
+  const toggleHeat = (v) => setHeatOpen((o) => { const n = typeof v === "boolean" ? v : !o; if (n) { setHeatMounted(true); setHdrHidden(false); } return n; });
+  // окно расчёта стоит под шапкой: её высота — в переменной --hdr-h (меню всегда видно и работает)
+  useEffect(() => {
+    if (!heatOpen) return;
+    const el = document.querySelector(".te > .hdr"); if (!el) return;
+    const set = () => document.documentElement.style.setProperty("--hdr-h", Math.round(el.getBoundingClientRect().height) + "px");
+    set(); const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(set) : null; if (ro) ro.observe(el);
+    return () => { if (ro) ro.disconnect(); };
+  }, [heatOpen]);
   const [notesOpen, setNotesOpen] = useState(false);
   // чат сотрудников и «в сети» (Аккаунты — колонка «В сети»; кнопка «Чат» в верхней панели)
   const [chatOpen, setChatOpen] = useState(false);
@@ -13056,6 +13069,8 @@ function AppInner() {
   // ---- работа с клавиатуры ----
   const [palette, setPalette] = useState(false);
   const [keysHelp, setKeysHelp] = useState(false);
+  // открыли любой раздел (меню, Alt+цифра, ссылка на объект…) — окно расчёта закрывается, раздел виден
+  useEffect(() => { setHeatOpen(false); }, [tab, tabNonce, openId]);
   const goTab = (id) => {
     if (id === "heat" && heatWin) { toggleHeat(true); setMobileMenuOpen(false); return; } // окно, а не раздел
     if (tab === id) { setOpenId(null); setTabNonce((n) => n + 1); } setTab(id); if (id !== "objects") setOpenId(null); setMobileMenuOpen(false); };
