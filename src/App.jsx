@@ -1013,6 +1013,12 @@ html.phone-boot .body,html.phone-boot .card,html.phone-boot .kpi{animation:none!
 .te.touch .hdr .hdr-sec,.te.hdr-off.fine.side .hdr .hdr-sec{display:block;width:auto;height:auto;align-self:stretch;background:none;margin:14px 12px 4px;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--hdr-mut);opacity:.8;overflow:visible}
 .te.touch .hdr .hdr-sec,.te.hdr-off.fine.side .hdr .hdr-sec{grid-column:1/-1;margin:8px 4px -2px}
 .te.touch .hdr .hdr-sec-p{display:none}
+/* боковая панель и меню телефона: без полосы прокрутки (крутится колёсиком / пальцем), пункты плотнее — меню помещается целиком */
+.te.hdr-off.fine.side .hdr,.te.touch .hdr,.te.fine .tabs{scrollbar-width:none;-ms-overflow-style:none}
+.te.hdr-off.fine.side .hdr::-webkit-scrollbar,.te.touch .hdr::-webkit-scrollbar,.te.fine .tabs::-webkit-scrollbar{display:none}
+.te.hdr-off.fine.side .hdr{gap:6px;padding-bottom:16px}
+.te.hdr-off.fine.side .hdr .tab{padding:7px 12px}
+.te.hdr-off.fine.side .hdr .tab-grp{margin:10px 12px 2px}
 @media(max-width:820px){
   .te.fine .tabs .tab{display:flex;gap:10px}
   .te.fine .tab-grp{width:auto;height:auto;align-self:stretch;background:none;margin:12px 14px 4px;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--hdr-mut);opacity:.8}
@@ -13037,8 +13043,10 @@ function AppInner() {
   ];
   const TAB_IC = { dash: "dash", request: "plusSq", usta: "inbox", objects: "folder", delivery: "truck", heat: "flame", products: "package", wh: "warehouse", suppliers: "factory", masters: "wrench", finance: "cash", log: "history", admin: "users" };
   const known = new Set(TAB_GROUPS.flatMap((g) => g.tabs));
+  // «Расчёт отопления» — пункт меню в «Продажах», но открывается окном на весь экран (раздел остаётся на месте)
+  const inMenu = (id) => roleTabs.includes(id) || (id === "heat" && heatWin);
   const menuGroups = [...TAB_GROUPS, { ru: "", uz: "", tabs: roleTabs.filter((id) => !known.has(id)) }]
-    .map((g) => ({ title: lang === "uz" ? g.uz : g.ru, tabs: g.tabs.filter((id) => roleTabs.includes(id)).map((id) => ({ id, label: TAB_LABELS[id] || TAB_NAMES[id] || id })) }))
+    .map((g) => ({ title: lang === "uz" ? g.uz : g.ru, tabs: g.tabs.filter(inMenu).map((id) => ({ id, label: TAB_LABELS[id] || TAB_NAMES[id] || id })) }))
     .filter((g) => g.tabs.length);
   const allTabs = menuGroups.flatMap((g) => g.tabs);
   useEffect(() => { if (currentUser) { setTab(roleTabs[0]); setOpenId(null); } setHeatOpen(false); setHeatMounted(false); }, [currentUser ? currentUser.id + ":" + currentUser.role : ""]);
@@ -13048,7 +13056,9 @@ function AppInner() {
   // ---- работа с клавиатуры ----
   const [palette, setPalette] = useState(false);
   const [keysHelp, setKeysHelp] = useState(false);
-  const goTab = (id) => { if (tab === id) { setOpenId(null); setTabNonce((n) => n + 1); } setTab(id); if (id !== "objects") setOpenId(null); setMobileMenuOpen(false); };
+  const goTab = (id) => {
+    if (id === "heat" && heatWin) { toggleHeat(true); setMobileMenuOpen(false); return; } // окно, а не раздел
+    if (tab === id) { setOpenId(null); setTabNonce((n) => n + 1); } setTab(id); if (id !== "objects") setOpenId(null); setMobileMenuOpen(false); };
   const kbRef = useRef({});
   kbRef.current = { allTabs, goTab, on: !!currentUser };
   useEffect(() => {
@@ -13120,7 +13130,8 @@ function AppInner() {
         <div className={"tabs" + (mobileMenuOpen ? " open" : "")}>
           {menuGroups.map((g, gi) => <React.Fragment key={gi}>
           {gi > 0 && menuGroups.length > 1 && <div className="tab-grp" role="presentation">{g.title}</div>}
-          {g.tabs.map((t) => <button key={t.id} className={"tab " + (tab === t.id ? "on" : "")} onClick={() => {
+          {g.tabs.map((t) => <button key={t.id} className={"tab " + ((t.id === "heat" && heatWin ? heatOpen : tab === t.id) ? "on" : "")} onClick={() => {
+            if (t.id === "heat" && heatWin) { toggleHeat(true); setMobileMenuOpen(false); if (!finePtr) setHdrPeek(false); return; }
             // повторное нажатие на открытую вкладку — назад к списку (из карточки объекта, мастера и т.п.)
             if (tab === t.id) { setOpenId(null); setTabNonce((n) => n + 1); }
             setTab(t.id); if (t.id !== "objects") setOpenId(null); setMobileMenuOpen(false); if (!finePtr) setHdrPeek(false);
@@ -13138,7 +13149,6 @@ function AppInner() {
         <div className="hdr-sec" role="presentation">{lang === "uz" ? "Asboblar" : "Инструменты"}</div>
         <button className={"btn xs npanel-btn" + (notesOpen ? " pri" : "")} title="Заметки: Alt два раза подряд (или левый + правый Alt)" onClick={() => { setNotesOpen((v) => !v); if (!finePtr) setHdrPeek(false); }}><Ic n="note" /><span className="hdr-lbl"> Заметки</span></button>
         <button className={"btn xs hdr-chat" + (chatOpen ? " pri" : "")} title="Чат сотрудников" onClick={() => (chatOpen ? setChatOpen(false) : openChat(null))}><Ic n="chat" /><span className="hdr-lbl"> Чат</span>{team.unread.total > 0 && <span className="chat-badge">{team.unread.total}</span>}</button>
-        {heatWin && <button className={"btn xs hdr-heat" + (heatOpen ? " pri" : "")} title={lang === "uz" ? "Isitish hisobi — alohida oynada" : "Расчёт отопления — отдельное окно поверх любого раздела"} onClick={() => { toggleHeat(); if (!finePtr) setHdrPeek(false); }}><Ic n="flame" /><span className="hdr-lbl"> {lang === "uz" ? "Isitish hisobi" : "Расчёт отопления"}</span></button>}
         {role !== "driver" && <button className={"btn xs hdr-calc" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => { setCalcOpen((v) => !v); if (!finePtr) setHdrPeek(false); }}><Ic n="calc" /><span className="hdr-lbl"> Калькулятор</span></button>}
         <button className="btn xs hdr-hide" title="Скрыть панель — будет выезжать, когда мышь у края экрана" onClick={() => { setHdrOffSave(true); setMobileMenuOpen(false); }}>⌃</button>
         <div className="hdr-sec hdr-sec-p" role="presentation">{lang === "uz" ? "Panel" : "Панель"}</div>
