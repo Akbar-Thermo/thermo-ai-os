@@ -1994,13 +1994,17 @@ function xlFromTable(name, table) {
 }
 /* Excel для клиента (объект → «Excel клиенту»; Telegram-бот → «📄 Excel»): строки генератора таблиц */
 const CLIENT_XL_COLS = [6, 60, 10, 7, 13, 15], CLIENT_XL_TYPES = ["c", "t", "n", "c", "m", "m"];
-function clientSheetRows(obj, ops, products, f) {
+// cur: "usd" — в долларах (как в учёте), "uzs" — все цены и суммы пересчитаны из $ по курсу rate
+function clientSheetRows(obj, ops, products, f, cur = "usd", rate = 0) {
   if (isPerech(obj)) return clientSheetRowsUzs(obj, ops, products); // перечисление: клиенту — в сумах
   const batches = objBatches(obj);
+  const uz = cur === "uzs" && Number(rate) > 0, K = uz ? Number(rate) : 1;
+  const mS = (x) => (uz ? Math.round((Number(x) || 0) * K) : round2(x)); // суммы и цены в выбранной валюте
   const rows = [
     { k: "title", v: ["ОБЪЕКТ: " + (obj.name || "")] },
     { k: "section", v: ["Клиент: " + (obj.client || "—") + (obj.phone ? " · тел. " + obj.phone : "")] },
     { k: "section", v: ["Дата: " + new Date().toLocaleDateString("ru-RU")] },
+    ...(uz ? [{ k: "section", v: ["Валюта: сум · курс " + fmt(K) + " сум за $1"] }] : []),
     { k: "blank" },
   ];
   const tot = (label, v, red) => rows.push({ k: "total", v: [label, v], red });
@@ -2033,10 +2037,10 @@ function clientSheetRows(obj, ops, products, f) {
       let sub = 0;
       n = 1; // нумерация в каждой поставке — заново с 1
       inProdOrder(b.items).forEach((i) => {
-        const s = Math.round(i.qty * i.price * 100) / 100; sub += s;
-        rows.push({ k: "row", v: [n++, i.name, i.qty, i.unit, i.price, s] });
+        const s = uz ? Math.round(i.qty * i.price * K) : Math.round(i.qty * i.price * 100) / 100; sub += s;
+        rows.push({ k: "row", v: [n++, i.name, i.qty, i.unit, uz ? mS(i.price) : i.price, s] });
       });
-      tot("Итого по поставке №" + b.no, Math.round(sub * 100) / 100);
+      tot("Итого по поставке №" + b.no, uz ? Math.round(sub) : Math.round(sub * 100) / 100);
       rows.push({ k: "blank" });
     } else if (e.kind === 1) {
       rows.push({ k: "section", v: ["Дата: " + dt(e.day)], red: true });
@@ -2045,10 +2049,10 @@ function clientSheetRows(obj, ops, products, f) {
       rows.push({ k: "head", v: HEAD });
       let sub = 0;
       e.ops.forEach((o, k) => {
-        const amt = round2(o.amount || 0), q = Number(o.qty) || 0; sub += amt;
-        rows.push({ k: "row", v: [k + 1, o.product_name || "", q || "", o.unit || "", q ? round2(amt / q) : "", amt], red: true });
+        const amt = mS(o.amount || 0), q = Number(o.qty) || 0; sub += amt;
+        rows.push({ k: "row", v: [k + 1, o.product_name || "", q || "", o.unit || "", q ? (uz ? Math.round(amt / q) : round2(amt / q)) : "", amt], red: true });
       });
-      tot("Итого возвратов :", -round2(sub), true);
+      tot("Итого возвратов :", -mS(sub / K), true);
       rows.push({ k: "blank" });
     } else if (e.kind === 1.5) {
       // доп. расходы, которые оплачивает клиент (при записи ответили «Да — в Excel клиенту»)
@@ -2057,8 +2061,8 @@ function clientSheetRows(obj, ops, products, f) {
       rows.push({ k: "section", v: ["ДОП. РАСХОДЫ"] });
       rows.push({ k: "head", v: ["№", "Наименование", "", "", "", "Сумма"] });
       let sub = 0;
-      e.ops.forEach((o, k) => { const amt = round2(o.amount || 0); sub += amt; rows.push({ k: "row", v: [k + 1, o.note || "Доп. расход", "", "", "", amt] }); });
-      tot("Итого доп. расходов :", round2(sub));
+      e.ops.forEach((o, k) => { const amt = mS(o.amount || 0); sub += amt; rows.push({ k: "row", v: [k + 1, o.note || "Доп. расход", "", "", "", amt] }); });
+      tot("Итого доп. расходов :", mS(sub / K));
       rows.push({ k: "blank" });
     } else {
       // оплаты клиента: способ, сумма в валюте оплаты, курс, сумма в $
@@ -2068,29 +2072,30 @@ function clientSheetRows(obj, ops, products, f) {
       rows.push({ k: "head", v: ["№", "Способ оплаты", "Кол-во", "Курс", "", "Сумма"], merge: [[3, 4]] });
       let sub = 0;
       e.ops.forEach((o, k) => {
-        const i = payInfo(o), usd = round2(o.amount || 0); sub += usd;
+        const i = payInfo(o), usd = mS(o.amount || 0); sub += usd; // при «в сумах» — сумма в $ × курс
         const uzs = i.cur === "uzs";
         const label0 = i.id ? (payMethod(i.id).cur === null ? i.label + (uzs ? " сум" : " $") : i.label) : "Оплата";
         const label = isRefund(o) ? "Возврат денег клиенту (" + label0 + ")" : label0;
-        rows.push({ k: "row", v: [k + 1, label, uzs ? (i.uzs ? fmt(i.uzs) : "") : usd, uzs ? (i.rate ? fmt(i.rate) : "") : 1, "", usd], merge: [[3, 4]] });
+        rows.push({ k: "row", v: [k + 1, label, uzs ? (i.uzs ? fmt(i.uzs) : "") : round2(o.amount || 0), uzs ? (i.rate ? fmt(i.rate) : "") : 1, "", usd], merge: [[3, 4]] });
       });
-      tot("Итого оплачено :", round2(sub));
+      tot("Итого оплачено :", mS(sub / K));
       rows.push({ k: "blank" });
     }
   });
   // итоговый блок — как в утверждённом шаблоне: без рамок, подпись по центру, сумма справа
   const ftot = (label, v, red) => rows.push({ k: "ftotal", v: [label, v], red });
-  ftot("Сумма выданного товара:", round2(f.sale));
-  if (f.discount) ftot("Скидка:", -round2(f.discount));
-  if (f.retSale) ftot("Возвраты:", -round2(f.retSale), true);
-  if (f.clientExp) ftot("Доп. расходы:", round2(f.clientExp));
-  if (f.discount) ftot("Сумма со скидкой:", round2(f.saleNet)); // при скидке — итог к оплате перед «Оплачено»
-  ftot("Оплачено:", round2(f.paidClient));
+  ftot("Сумма выданного товара:", mS(f.sale));
+  if (f.discount) ftot("Скидка:", -mS(f.discount));
+  if (f.retSale) ftot("Возвраты:", -mS(f.retSale), true);
+  if (f.clientExp) ftot("Доп. расходы:", mS(f.clientExp));
+  if (f.discount) ftot("Сумма со скидкой:", mS(f.saleNet)); // при скидке — итог к оплате перед «Оплачено»
+  ftot("Оплачено:", mS(f.paidClient));
   // по просьбе руководителя: клиент должен — «Долг клиента :» (красным) и сколько осталось оплатить;
   // «Баланс :» — только когда клиент переплатил (сумма переплаты) или всё ровно (0)
   const debt = round2(f.saleNet - f.paidClient);
-  if (debt > 0.004) ftot("Долг клиента :", debt, true);
-  else ftot("Баланс :", Math.abs(debt));
+  if (debt > 0.004) ftot("Долг клиента :", mS(debt), true);
+  else ftot("Баланс :", mS(Math.abs(debt)));
+  if (uz) { rows.push({ k: "blank" }); rows.push({ k: "info", v: ["Суммы в сумах — пересчёт из $ по курсу " + fmt(K) + " сум за $1."] }); }
   return rows;
 }
 // .xlsx клиенту — байты файла (для бота: отправить в Telegram)
@@ -6146,20 +6151,22 @@ function PerechClientModal({ obj, data, reload, toast, onClose }) {
 }
 // Excel себестоимость: в $ или в сумах (курс — последний введённый, у перечисления — курс последней поставки)
 const COST_CUR_KEY = "te:costcur";
-function CostCurPick({ obj, onPick, onClose }) {
+// тот же выбор — для «Excel клиенту» (title / storeKey / note свои)
+const CLIENT_CUR_KEY = "te:clientcur";
+function CostCurPick({ obj, onPick, onClose, title = "Excel себестоимость — валюта", storeKey = COST_CUR_KEY, uzsNote = "Прибыль, % не меняется." }) {
   const pb = isPerech(obj) ? objBatches(obj).map((b) => perechBatch(obj, b.no)).filter(Boolean).pop() : null;
-  const [cur, setCur] = useState(() => { try { return localStorage.getItem(COST_CUR_KEY) === "uzs" ? "uzs" : "usd"; } catch (e) { return "usd"; } });
+  const [cur, setCur] = useState(() => { try { return localStorage.getItem(storeKey) === "uzs" ? "uzs" : "usd"; } catch (e) { return "usd"; } });
   const [rate, setRate] = useState(String((pb && pb.rate) || lastRate() || ""));
   const r = parseNum(rate), ok = cur === "usd" || rateOk(r);
-  const go = () => { if (!ok) return; try { localStorage.setItem(COST_CUR_KEY, cur); if (cur === "uzs") localStorage.setItem(RATE_KEY, String(r)); } catch (e) {} onPick(cur, cur === "uzs" ? r : 0); };
+  const go = () => { if (!ok) return; try { localStorage.setItem(storeKey, cur); if (cur === "uzs") localStorage.setItem(RATE_KEY, String(r)); } catch (e) {} onPick(cur, cur === "uzs" ? r : 0); };
   return (
-    <Modal title="Excel себестоимость — валюта" onClose={onClose} w={420}>
+    <Modal title={title} onClose={onClose} w={420}>
       <div className="seg" style={{ marginBottom: 12 }}>
         {[["usd", "В долларах ($)"], ["uzs", "В сумах"]].map(([k, l]) => <button key={k} type="button" className={cur === k ? "on" : ""} onClick={() => setCur(k)}>{l}</button>)}
       </div>
       {cur === "uzs" && <Fld label="Курс, сум за $1"><input type="number" className="inp" value={rate} autoFocus onChange={(e) => setRate(e.target.value)}
         onBlur={() => { const f = rateFix(rate); if (f !== rate) setRate(String(f)); }} onKeyDown={(e) => { if (e.key === "Enter") go(); }} style={{ borderColor: ok ? undefined : "var(--bad)" }} /></Fld>}
-      <p className="xs mut" style={{ marginTop: 8 }}>{cur === "uzs" ? "Все цены и суммы пересчитаются из $ по этому курсу" + (pb ? " (подставлен курс последней поставки перечисления)" : "") + ". Прибыль, % не меняется." : "Как в учёте программы — всё в долларах."}</p>
+      <p className="xs mut" style={{ marginTop: 8 }}>{cur === "uzs" ? "Все цены и суммы пересчитаются из $ по этому курсу" + (pb ? " (подставлен курс последней поставки перечисления)" : "") + "." + (uzsNote ? " " + uzsNote : "") : "Как в учёте программы — всё в долларах."}</p>
       <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
         <button className="btn pri" disabled={!ok} onClick={go}><Ic n="sheet" /> Скачать Excel</button>
@@ -7145,11 +7152,15 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
      итог (без рамок, подпись по центру, сумма справа): Сумма выданного товара: / Скидка: / Возвраты: (красным) / Доп. расходы: / Оплачено: / Долг клиента : или Баланс : (переплата) (или «Переплата клиента :»);
      клиент должен — «Долг клиента :» (красным, остаток к оплате); переплатил — «Баланс :» (сумма переплаты); ровно — «Баланс : 0»
      шрифты: текст — Baskerville Old Face, числа — Times New Roman */
-  const exportClient = () => {
-    const rows = clientSheetRows(obj, ops, products, f);
-    const r = downloadStyledXLSX("Объект_" + safe(obj.name) + ".xlsx", "Клиенту", rows, [6, 60, 10, 7, 13, 15], ["c", "t", "n", "c", "m", "m"]);
-    toast(r === "xlsx" ? "Excel для клиента скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
+  // cur: "usd" — в $ (утверждённый шаблон), "uzs" — тот же шаблон, всё пересчитано в сумы по курсу rate
+  const exportClient = (cur = "usd", rate = 0) => {
+    const uz = cur === "uzs" && Number(rate) > 0 && !isPerech(obj);
+    const rows = clientSheetRows(obj, ops, products, f, cur, rate);
+    const r = downloadStyledXLSX("Объект_" + safe(obj.name) + (uz ? "_сум" : "") + ".xlsx", "Клиенту", rows, uz ? [6, 60, 10, 7, 15, 17] : [6, 60, 10, 7, 13, 15], ["c", "t", "n", "c", "m", "m"]);
+    toast(r === "xlsx" ? "Excel для клиента скачан" + (uz ? " (в сумах)" : "") : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
+  // перечисление — клиенту всегда в сумах (без выбора); иначе спрашиваем: в $ или в сумах
+  const openClient = () => (isPerech(obj) ? exportClient() : setClientPick(true));
   // акт сверки с поставщиками — как в «Поставщиках», но только по этому объекту
   // (поставки объекта, возвраты с объекта поставщику, оплаты поставщику, записанные в объекте)
   const objSups = useMemo(() => {
@@ -7220,6 +7231,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
   };
   const [delPick, setDelPick] = useState(false);
   const [costPick, setCostPick] = useState(false);
+  const [clientPick, setClientPick] = useState(false);
   const exportDelivery = () => deliverySheetStart(obj, suppliers, toast, () => setDelPick(true));
   const batches = useMemo(() => objBatches(obj), [obj]);
   const batchHead = batches.length > 1 || (obj.items || []).some((i) => i.batch_no);
@@ -7350,7 +7362,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
     pObj ? (perech ? { label: "+ Банковский платёж", keys: "Alt+P", code: "KeyP", run: () => setPerechPay(true) } : null)
       : (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes("client_payment") && payLive(obj) ? { label: "+ Оплата клиента", keys: "Alt+P", code: "KeyP", run: () => setOpForm({ type: "client_payment" }) } : null,
     isLive(obj) && (obj.items || []).some((i) => !i.from_warehouse) ? { label: "Отгрузить товар", keys: "Alt+O", code: "KeyO", run: () => setShipForm(true) } : null,
-    { label: "Excel клиенту", run: exportClient },
+    { label: "Excel клиенту", run: openClient },
     { label: "Лист доставки", run: exportDelivery },
     { label: "Excel себестоимость", run: () => setCostPick(true) },
     { label: "Изменить объект", run: () => setEditObj(true) },
@@ -7380,7 +7392,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
         {perech && !pObj && <button className="btn" onClick={() => setPerechSetup(true)} title="Клиент платит через банк: договор, счета, накладные и долг — в сумах с НДС"><Ic n="file" /> Перечисление</button>}
         {/* выгрузки Excel — вместе, в одном ряду и всегда в этом порядке */}
         <div className="xl-group">
-          <button className="btn" onClick={exportClient}><Ic n="download" /> Excel клиенту</button>
+          <button className="btn" onClick={openClient} title={isPerech(obj) ? "Перечисление: клиенту — в сумах" : "В $ или в сумах — выбор при скачивании"}><Ic n="download" /> Excel клиенту</button>
           <button className="btn" onClick={exportDelivery}><Ic n="truck" /> Лист доставки</button>
           <button className="btn" onClick={() => setCostPick(true)} title="Внутренний: себестоимость, цена и прибыль по каждой позиции — в $ или в сумах"><Ic n="sheet" /> Excel себестоимость</button>
           {fin && objSups.length > 0 && <button className="btn obj-akt" onClick={exportObjAkt} title={"Акт сверки с поставщиком только по этому объекту: " + objSups.map((x) => x.name).join(", ")}><Ic n="sheet" /> Акт сверки</button>}
@@ -7555,6 +7567,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
       )}
       {delPick && <DeliverySheetPick obj={obj} suppliers={suppliers} toast={toast} onClose={() => setDelPick(false)} />}
       {costPick && <CostCurPick obj={obj} onPick={(cur, rate) => { setCostPick(false); exportCost(cur, rate); }} onClose={() => setCostPick(false)} />}
+      {clientPick && <CostCurPick obj={obj} title="Excel клиенту — валюта" storeKey={CLIENT_CUR_KEY} uzsNote="Оплаты в сумах (колонка «Кол-во») остаются как были внесены." onPick={(cur, rate) => { setClientPick(false); exportClient(cur, rate); }} onClose={() => setClientPick(false)} />}
       {replItem && <ItemReplaceModal item={replItem} products={products} suppliers={suppliers} fin={fin} onClose={() => setReplItem(null)} onSave={async (it) => { if (await replaceItem(it)) setReplItem(null); }} />}
       {editItem && <ItemEditModal item={editItem} suppliers={suppliers} fin={fin} onClose={() => setEditItem(null)} onSave={async (it) => { if (await saveItem(it)) setEditItem(null); }} />}
       {pctForm && <PercentModal obj={obj} batches={batches} onClose={() => setPctForm(false)} onApply={async (pct, no) => { if (await applyPercent(pct, no)) setPctForm(false); }} />}
