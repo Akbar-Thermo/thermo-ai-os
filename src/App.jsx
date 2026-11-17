@@ -679,15 +679,13 @@ body.fw-busy,body.fw-busy *{user-select:none!important}
 .nwin{position:fixed;z-index:5;display:flex;flex-direction:column;gap:10px;padding:16px 18px 14px;border-radius:var(--r-xl);background:var(--panel);border:1px solid var(--line2);box-shadow:0 30px 80px rgba(0,0,0,.45);pointer-events:auto;overflow:hidden}
 .nwin-head{display:flex;align-items:center;gap:8px;cursor:move;user-select:none}
 /* окно «Расчёт отопления»: под шапкой-шторкой (70), но выше страницы; окна-вопросы (100) и калькулятор — поверх */
-.nwin.heatwin{z-index:65;padding:12px 12px 12px;gap:10px;width:min(1240px,calc(100vw - 40px));height:calc(100dvh - 40px);left:50%;top:20px;transform:translateX(-50%)}
-.nwin.heatwin[style*="left"]{transform:none}
+/* всегда на весь экран */
+.nwin.heatwin{z-index:65;inset:0;width:auto;height:auto;border-radius:0;border:0;box-shadow:none;gap:10px;padding:calc(10px + env(safe-area-inset-top,0px)) 12px calc(12px + env(safe-area-inset-bottom,0px))}
 .nwin.heatwin.off{display:none}
-.heatwin .nwin-head{padding:2px 4px 0 6px}
+.heatwin .nwin-head{padding:2px 4px 0 6px;cursor:default}
 .heatwin .nwin-head b{display:flex;align-items:center;gap:8px}
 .heatwin-body{flex:1;min-height:0;border-radius:var(--r-lg);overflow:hidden;background:#F5F3EE}
 body.fw-busy iframe{pointer-events:none}
-@media(max-width:820px){.nwin.heatwin{left:0;top:0;width:100vw;height:100dvh;transform:none;border-radius:0;border:0;padding:calc(10px + env(safe-area-inset-top,0px)) 10px calc(10px + env(safe-area-inset-bottom,0px))}}
-.te.touch .nwin.heatwin{left:0;top:0;width:100vw;height:100dvh;transform:none;border-radius:0;border:0;padding:calc(10px + env(safe-area-inset-top,0px)) 10px calc(10px + env(safe-area-inset-bottom,0px))}
 .te.touch .heatwin .npanel-x{min-width:44px;height:44px;font-size:var(--fs-lg)}
 .nwin-head b{font-size:var(--fs-lg);margin-right:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .note-form.in-win{display:flex;flex-direction:column;flex:1;min-height:0}
@@ -8791,24 +8789,17 @@ function HeatCalcTab({ lang, userName, fill = false }) {
     style={{ display: "block", width: "100%", height: fill ? "100%" : h, border: 0, borderRadius: fill ? 0 : 12, background: "#F5F3EE" }} />;
 }
 // «Расчёт отопления» — отдельное окно поверх любого раздела (кнопка в шапке, как «Заметки» и «Калькулятор»).
-// Закрытое окно не сбрасывается: открыли снова — расчёт на месте. Компьютер: окно двигается и растягивается;
-// телефон и планшет: на весь экран
-function HeatWin({ lang, userName, uid, open, onClose }) {
-  const fw = useFloatWin("te:heatwin:" + uid, { minW: 520, minH: 420, def: () => {
-    const W = window.innerWidth, H = window.innerHeight, w = Math.min(1240, W - 40), h = H - 40;
-    return { x: Math.round((W - w) / 2), y: 20, w, h };
-  } });
+// Закрытое окно не сбрасывается: открыли снова — расчёт на месте. Всегда на весь экран (компьютер, телефон, планшет)
+function HeatWin({ lang, userName, open, onClose }) {
   const title = lang === "uz" ? "Isitish hisobi" : "Расчёт отопления";
   return (
-    <div className={"nwin heatwin" + (open ? "" : " off")} role="dialog" aria-label={title} aria-hidden={!open} ref={fw.ref} style={fw.style}
+    <div className={"nwin heatwin" + (open ? "" : " off")} role="dialog" aria-label={title} aria-hidden={!open}
       onKeyDown={(e) => { if (e.key === "Escape" && !topModal()) { e.preventDefault(); e.stopPropagation(); onClose(); } }}>
-      <div className="nwin-head" onPointerDown={fw.headDown} onDoubleClick={(e) => { if (!e.target.closest("button")) fw.reset(); }}
-        title={fw.on ? "Перетащите окно за эту полосу · размер — за уголок справа внизу · двойной щелчок — снова по центру" : undefined}>
+      <div className="nwin-head">
         <b><Ic n="flame" /> {title}</b>
         <button type="button" className="npanel-x" title={lang === "uz" ? "Yopish (hisob saqlanib qoladi)" : "Закрыть (расчёт сохранится — откроете снова, всё на месте)"} onClick={onClose}>✕</button>
       </div>
       <div className="heatwin-body"><HeatCalcTab lang={lang} userName={userName} fill /></div>
-      <FwGrip fw={fw} />
     </div>
   );
 }
@@ -13139,7 +13130,7 @@ function AppInner() {
       {wipeOpen && role === "boss" && <WipeModal data={data} reload={reload} onClose={() => setWipeOpen(false)} onDone={async () => {
         await reload("all"); setWipeOpen(false); setOpenId(null); toast("База очищена. Товары, поставщики и мастера сохранены.");
       }} />}
-      {heatWin && heatMounted && currentUser && <HeatWin lang={lang} userName={currentUser.name || currentUser.username} uid={currentUser.id} open={heatOpen} onClose={() => setHeatOpen(false)} />}
+      {heatWin && heatMounted && currentUser && <HeatWin lang={lang} userName={currentUser.name || currentUser.username} open={heatOpen} onClose={() => setHeatOpen(false)} />}
       {calcOpen && <Calculator onClose={() => setCalcOpen(false)} />}
       {chatOpen && currentUser && <ChatWin team={team} data={data} me={currentUser} start={chatStart} toast={toast} onClose={() => setChatOpen(false)} />}
       {notesOpen && currentUser && <NotesPanel data={data} reload={reload} toast={toast} user={currentUser} boss={role === "boss"} onClose={() => setNotesOpen(false)} />}
