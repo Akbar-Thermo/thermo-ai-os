@@ -37,6 +37,8 @@ const I18N = {
     // amallar
     result: "Natija", perSeason: "mavsumga", preview: "Infografika", page: "sahifa",
     btnPng: "PNG yuklab olish", btnPdf: "PDF yuklab olish", btnSave: "Hisobni saqlash", btnNew: "Yangi hisob",
+    readyFile: (ext) => `${ext} fayl tayyor. Saqlash uchun tugmani bosing.`, saveNow: "Saqlash",
+    dlUnavailable: "Bu oynada fayl saqlab bo‘lmayapti. Kalkulyatorni claude.ai da alohida sahifada oching.",
     saved: "Saqlandi", downloadFail: "Yuklab olib bo‘lmadi", downloadDeclined: "Yuklab olish bekor qilindi", working: "Tayyorlanmoqda…",
     noVariants: "Kamida bitta tizim va bitta yuklamani belgilang.",
     savedEmpty: "Hali saqlangan hisob yo‘q. «Hisob» bo‘limida «Hisobni saqlash» tugmasini bosing.",
@@ -136,6 +138,8 @@ const I18N = {
     grpMonths: "Месяцы", colDays: "Дни", colTemp: "Средняя температура, °C", colCop: "COP",
     result: "Результат", perSeason: "за сезон", preview: "Инфографика", page: "страница",
     btnPng: "Скачать PNG", btnPdf: "Скачать PDF", btnSave: "Сохранить расчёт", btnNew: "Новый расчёт",
+    readyFile: (ext) => `Файл ${ext} готов. Нажмите кнопку, чтобы сохранить.`, saveNow: "Сохранить",
+    dlUnavailable: "В этом окне файл не сохраняется. Откройте калькулятор на claude.ai отдельной страницей.",
     saved: "Сохранено", downloadFail: "Не удалось скачать", downloadDeclined: "Скачивание отменено", working: "Готовлю…",
     noVariants: "Отметьте хотя бы одну систему и одну нагрузку.",
     savedEmpty: "Сохранённых расчётов пока нет. Нажмите «Сохранить расчёт» в разделе «Расчёт».",

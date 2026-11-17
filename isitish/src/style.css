@@ -76,6 +76,8 @@ details.adv[open] summary{margin-bottom:6px}
 .res b{text-align:right;font-variant-numeric:tabular-nums;font-size:15px}
 .barwrap{height:10px;background:#EFECE6;border-radius:5px;overflow:hidden}
 .barfill{display:block;height:100%;border-radius:5px}
+.dlbar{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#EAF1FB;border:1.5px solid #BCD3EE;border-radius:10px;padding:10px 12px;margin:0 0 14px;font-weight:600;font-size:14px}
+.dlbar[hidden]{display:none}
 #pages{display:flex;flex-direction:column;gap:18px}
 .page{margin:0}
 .sheet{border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(20,33,61,.12),0 6px 24px rgba(20,33,61,.07);background:var(--bg);line-height:0}

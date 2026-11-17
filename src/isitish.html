@@ -78,6 +78,8 @@ details.adv[open] summary{margin-bottom:6px}
 .res b{text-align:right;font-variant-numeric:tabular-nums;font-size:15px}
 .barwrap{height:10px;background:#EFECE6;border-radius:5px;overflow:hidden}
 .barfill{display:block;height:100%;border-radius:5px}
+.dlbar{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#EAF1FB;border:1.5px solid #BCD3EE;border-radius:10px;padding:10px 12px;margin:0 0 14px;font-weight:600;font-size:14px}
+.dlbar[hidden]{display:none}
 #pages{display:flex;flex-direction:column;gap:18px}
 .page{margin:0}
 .sheet{border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(20,33,61,.12),0 6px 24px rgba(20,33,61,.07);background:var(--bg);line-height:0}
@@ -433,6 +435,8 @@ const I18N = {
     // amallar
     result: "Natija", perSeason: "mavsumga", preview: "Infografika", page: "sahifa",
     btnPng: "PNG yuklab olish", btnPdf: "PDF yuklab olish", btnSave: "Hisobni saqlash", btnNew: "Yangi hisob",
+    readyFile: (ext) => `${ext} fayl tayyor. Saqlash uchun tugmani bosing.`, saveNow: "Saqlash",
+    dlUnavailable: "Bu oynada fayl saqlab bo‘lmayapti. Kalkulyatorni claude.ai da alohida sahifada oching.",
     saved: "Saqlandi", downloadFail: "Yuklab olib bo‘lmadi", downloadDeclined: "Yuklab olish bekor qilindi", working: "Tayyorlanmoqda…",
     noVariants: "Kamida bitta tizim va bitta yuklamani belgilang.",
     savedEmpty: "Hali saqlangan hisob yo‘q. «Hisob» bo‘limida «Hisobni saqlash» tugmasini bosing.",
@@ -532,6 +536,8 @@ const I18N = {
     grpMonths: "Месяцы", colDays: "Дни", colTemp: "Средняя температура, °C", colCop: "COP",
     result: "Результат", perSeason: "за сезон", preview: "Инфографика", page: "страница",
     btnPng: "Скачать PNG", btnPdf: "Скачать PDF", btnSave: "Сохранить расчёт", btnNew: "Новый расчёт",
+    readyFile: (ext) => `Файл ${ext} готов. Нажмите кнопку, чтобы сохранить.`, saveNow: "Сохранить",
+    dlUnavailable: "В этом окне файл не сохраняется. Откройте калькулятор на claude.ai отдельной страницей.",
     saved: "Сохранено", downloadFail: "Не удалось скачать", downloadDeclined: "Скачивание отменено", working: "Готовлю…",
     noVariants: "Отметьте хотя бы одну систему и одну нагрузку.",
     savedEmpty: "Сохранённых расчётов пока нет. Нажмите «Сохранить расчёт» в разделе «Расчёт».",
@@ -1106,7 +1112,7 @@ const RENDER = (() => {
     else main = `<div class="cols"><form class="form" autocomplete="off" onsubmit="return false">${formHtml()}</form>
       <div class="out"><section class="card" id="result"></section>
         <section class="card"><div class="bar"><h2>${esc(L.preview)}</h2><div class="actions"><button type="button" class="btn" data-act="pdf">${esc(L.btnPdf)}</button><button type="button" class="btn ghost" data-act="save">${esc(L.btnSave)}</button><button type="button" class="btn ghost" data-act="new">${esc(L.btnNew)}</button></div></div>
-        <div id="pages"></div></section></div></div>`;
+        <div id="dlbar" class="dlbar" hidden><span></span><button type="button" class="btn" data-act="pending">${esc(L.saveNow)}</button></div><div id="pages"></div></section></div></div>`;
     root.className = st.tab === "calc" ? "split" : "";
     root.innerHTML = `<header class="top"><div class="brand"><span class="mark" aria-hidden="true"></span><div><h1>${esc(L.appTitle)}</h1><p>${esc(L.appSub)}</p></div></div>
       <div class="lang seg" role="group"><button type="button" data-lang="uz" class="${st.lang === "uz" ? "on" : ""}">O‘zbekcha</button><button type="button" data-lang="ru" class="${st.lang === "ru" ? "on" : ""}">Русский</button></div></header>
@@ -1155,27 +1161,56 @@ const RENDER = (() => {
     const worst = Math.max(...res.variants.map((v) => v.tot.cost));
     resultEl.innerHTML = `<h2>${esc(L.result)} <span class="hint">· ${esc(L.mln)} ${esc(L.perSeason)}</span></h2><ul class="res">${res.variants.map((v) => `<li><span class="dot" style="background:${RENDER.SERIES[v.id]}"></span><span class="nm">${esc(RENDER.vName(L, v))}</span><span class="barwrap"><span class="barfill" style="width:${Math.max(2, v.tot.cost / worst * 100).toFixed(1)}%;background:${RENDER.SERIES[v.id]}"></span></span><b>${mln(v.tot.cost)}</b></li>`).join("")}</ul>`;
     svgs = RENDER.pages(L, { res, input: st.input, tariffs: st.tariffs, profile: st.profile, date: today() });
+    schedulePrep();
     pagesEl.innerHTML = svgs.map((s, i) => `<figure class="page"><div class="sheet">${s}</div><figcaption><span>${i + 1}-${esc(L.page)}</span><button type="button" class="btn small" data-act="png" data-page="${i}">${esc(L.btnPng)}</button></figcaption></figure>`).join("");
   }
 
   // ---------- yuklab olish ----------
-  let dlCap;
-  async function getDl() {
-    if (dlCap !== undefined) return dlCap;
-    try { dlCap = window.claude && window.claude.use ? await window.claude.use("downloads") : null; } catch (e) { dlCap = null; }
-    return dlCap;
+  // claude.ai artifakti: fayl faqat "downloads" xizmati orqali saqlanadi (oddiy <a download> u yerda bloklanadi).
+  // Xizmat sahifa ochilganidan keyinroq paydo bo'ladi, shuning uchun "yo'q" javobi eslab qolinmaydi — har safar qayta so'raladi.
+  // Thermo AI OS ichida (window.__ISITISH_HOST) va oddiy faylda — oddiy yuklab olish.
+  const IN_THERMO = !!window.__ISITISH_HOST;
+  let dlCap = null, dlWait = null;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  function getDl() {
+    if (dlCap) return Promise.resolve(dlCap);
+    if (IN_THERMO) return Promise.resolve(null);
+    if (!dlWait) dlWait = (async () => {
+      for (let i = 0; i < 40 && !(window.claude && window.claude.use); i++) await sleep(100);
+      if (!(window.claude && window.claude.use)) return null;
+      try { const d = await window.claude.use("downloads"); if (d) dlCap = d; return d || null; } catch (e) { return null; }
+    })().finally(() => { dlWait = null; });
+    return dlWait;
   }
   getDl();
-  async function saveFile(name, blob) {
-    const dl = await getDl();
-    if (dl) {
-      try { await dl.save({ filename: name, data: blob }); return "ok"; }
-      catch (e) { if (e && e.code === "declined") return "declined"; if (e && e.code === "rate_limited") return "fail"; }
-    }
+  function anchorSave(name, blob) {
     const url = URL.createObjectURL(blob), a = document.createElement("a");
     a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
     return "ok";
+  }
+  let pending = null; // saqlanmay qolgan tayyor fayl: tugma bosilganda qayta urinish uchun
+  async function saveFile(name, blob) {
+    if (IN_THERMO) return anchorSave(name, blob);
+    const dl = await getDl();
+    if (!dl) return window.claude ? "unavailable" : anchorSave(name, blob);
+    try { await dl.save({ filename: name, data: blob }); hidePending(); return "ok"; }
+    catch (e) {
+      const code = (e && e.code) || "unknown";
+      if (code === "declined") return "declined";
+      if (code === "unavailable" || code === "not_granted" || code === "capability_disabled" || code === "capability_removed") return "unavailable";
+      pending = { name, blob }; showPending(name);
+      return "pending";
+    }
+  }
+  function showPending(name) {
+    const bar = document.getElementById("dlbar"); if (!bar) return;
+    bar.querySelector("span").textContent = L.readyFile(name.split(".").pop().toUpperCase());
+    bar.hidden = false;
+  }
+  function hidePending() { pending = null; const bar = document.getElementById("dlbar"); if (bar) bar.hidden = true; }
+  function report(r) {
+    toast(r === "ok" || r === "pending" ? "" : r === "declined" ? L.downloadDeclined : r === "unavailable" ? L.dlUnavailable : L.downloadFail);
   }
   function svgToCanvas(svg, scale) {
     return new Promise((ok, err) => {
@@ -1217,19 +1252,47 @@ const RENDER = (() => {
     return `Isitish_${s || "hisob"}_${today().split(".").reverse().join("-")}`;
   }
   let busy = false;
+  // Fonda tayyorlab qo'yish: infografika o'zgarib 1 soniya tinch tursa, PDF va PNG lar oldindan yasaladi.
+  // Shunda tugma bosilganda fayl darhol saqlashga beriladi (kutib qolgan bosish brauzerda bekor bo'lib qolmaydi).
+  let prep = { key: "", pdf: null, png: [] }, prepT = null, prepRun = 0;
+  async function build(svgList) {
+    const png = [], imgs = [];
+    for (const sv of svgList) {
+      const c = await svgToCanvas(sv, 2);
+      png.push(await canvasBlob(c, "image/png"));
+      const j = await canvasBlob(c, "image/jpeg", 0.93);
+      imgs.push({ bytes: new Uint8Array(await j.arrayBuffer()), w: c.width, h: c.height });
+    }
+    return { pdf: makePdf(imgs, 285 / 25.4 * 72, 210 / 25.4 * 72), png };
+  }
+  function schedulePrep() {
+    clearTimeout(prepT);
+    const key = svgs.join("");
+    if (!svgs.length || prep.key === key) return;
+    prepT = setTimeout(async () => {
+      const run = ++prepRun;
+      try { const r = await build(svgs); if (run === prepRun && svgs.join("") === key) prep = { key, ...r }; } catch (e) { /* bosilganda qayta yasaladi */ }
+    }, 1000);
+  }
+  async function ready() {
+    const key = svgs.join("");
+    if (prep.key === key && prep.pdf) return prep;
+    const r = await build(svgs); prep = { key, ...r }; return prep;
+  }
   async function exportPng(i) {
-    if (busy || !svgs[i]) return; busy = true; toast(L.working);
-    try { const c = await svgToCanvas(svgs[i], 2); const r = await saveFile(`${fileBase()}_${i + 1}.png`, await canvasBlob(c, "image/png")); toast(r === "ok" ? "" : r === "declined" ? L.downloadDeclined : L.downloadFail); }
+    if (busy || !svgs[i]) return; busy = true;
+    try { const fresh = prep.key === svgs.join(""); if (!fresh) toast(L.working); const p = await ready(); report(await saveFile(`${fileBase()}_${i + 1}.png`, p.png[i])); }
     catch (e) { toast(L.downloadFail); } finally { busy = false; }
   }
   async function exportPdf() {
-    if (busy || !svgs.length) return; busy = true; toast(L.working);
-    try {
-      const imgs = [];
-      for (const s of svgs) { const c = await svgToCanvas(s, 2); const b = await canvasBlob(c, "image/jpeg", 0.93); imgs.push({ bytes: new Uint8Array(await b.arrayBuffer()), w: c.width, h: c.height }); }
-      const r = await saveFile(`${fileBase()}.pdf`, makePdf(imgs, 285 / 25.4 * 72, 210 / 25.4 * 72));
-      toast(r === "ok" ? "" : r === "declined" ? L.downloadDeclined : L.downloadFail);
-    } catch (e) { toast(L.downloadFail); } finally { busy = false; }
+    if (busy || !svgs.length) return; busy = true;
+    try { const fresh = prep.key === svgs.join(""); if (!fresh) toast(L.working); const p = await ready(); report(await saveFile(`${fileBase()}.pdf`, p.pdf)); }
+    catch (e) { toast(L.downloadFail); } finally { busy = false; }
+  }
+  async function savePending() {
+    if (!pending) return;
+    const { name, blob } = pending;
+    report(await saveFile(name, blob));
   }
   let toastT;
   function toast(msg) {
@@ -1262,7 +1325,8 @@ const RENDER = (() => {
     if (b.dataset.reset) { delete st.input.ov[b.dataset.reset]; const inp = b.parentElement.querySelector("input"); inp.value = ""; update(); inp.focus(); return; }
     if (b.hasAttribute("data-logo-remove")) { st.profile.logo = null; persist(); shell(); return; }
     const act = b.dataset.act;
-    if (act === "png") exportPng(+b.dataset.page);
+    if (act === "pending") savePending();
+    else if (act === "png") exportPng(+b.dataset.page);
     else if (act === "pdf") exportPdf();
     else if (act === "save") {
       const name = [st.input.client, st.input.object].map((x) => (x || "").trim()).filter(Boolean).join(" · ");
