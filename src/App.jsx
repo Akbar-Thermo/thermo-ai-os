@@ -12408,6 +12408,7 @@ function AppInner() {
     setCloudOk(false);
     if (token) { setDbSession(token); try { localStorage.setItem("te:token", token); } catch (e) {} }
     setLoginNote("");
+    setLang("ru"); try { localStorage.setItem("te:lang", "ru"); } catch (e) {} // вход — всегда на русском
     setCurrentUser(u); CURRENT_USER = u;
     if (!token) { try { localStorage.setItem("te:session", u.id); } catch (e) {} }
     await logAction("Вход в систему", "user:" + u.username, "");
@@ -12444,7 +12445,14 @@ function AppInner() {
     return () => window.removeEventListener("te-session-lost", h);
   }, []);
   const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("te:dark") === "1"; } catch { return false; } });
-  const [lang, setLang] = useState(() => { try { return localStorage.getItem("te:lang") || "ru"; } catch { return "ru"; } });
+  // основной язык — русский. Кнопка «UZ» работает до следующего входа: каждый вход начинается на русском.
+  // Один раз (te:lang-v) — всем, кто уже сидит на «UZ», тоже вернуть русский
+  const [lang, setLang] = useState(() => {
+    try {
+      if (localStorage.getItem("te:lang-v") !== "2") { localStorage.setItem("te:lang", "ru"); localStorage.setItem("te:lang-v", "2"); }
+      return localStorage.getItem("te:lang") || "ru";
+    } catch { return "ru"; }
+  });
   const toggleDark = () => { setDarkMode((v) => { const n = !v; try { localStorage.setItem("te:dark", n ? "1" : "0"); } catch {} return n; }); };
   // «UZ»: весь экран латиницей — текст, подсказки и плейсхолдеры переписываются на лету (данные в базе не меняются);
   // «RU» — возвращаем исходный текст
