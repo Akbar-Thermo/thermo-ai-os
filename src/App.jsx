@@ -6144,6 +6144,29 @@ function PerechClientModal({ obj, data, reload, toast, onClose }) {
     </Modal>
   );
 }
+// Excel себестоимость: в $ или в сумах (курс — последний введённый, у перечисления — курс последней поставки)
+const COST_CUR_KEY = "te:costcur";
+function CostCurPick({ obj, onPick, onClose }) {
+  const pb = isPerech(obj) ? objBatches(obj).map((b) => perechBatch(obj, b.no)).filter(Boolean).pop() : null;
+  const [cur, setCur] = useState(() => { try { return localStorage.getItem(COST_CUR_KEY) === "uzs" ? "uzs" : "usd"; } catch (e) { return "usd"; } });
+  const [rate, setRate] = useState(String((pb && pb.rate) || lastRate() || ""));
+  const r = parseNum(rate), ok = cur === "usd" || rateOk(r);
+  const go = () => { if (!ok) return; try { localStorage.setItem(COST_CUR_KEY, cur); if (cur === "uzs") localStorage.setItem(RATE_KEY, String(r)); } catch (e) {} onPick(cur, cur === "uzs" ? r : 0); };
+  return (
+    <Modal title="Excel себестоимость — валюта" onClose={onClose} w={420}>
+      <div className="seg" style={{ marginBottom: 12 }}>
+        {[["usd", "В долларах ($)"], ["uzs", "В сумах"]].map(([k, l]) => <button key={k} type="button" className={cur === k ? "on" : ""} onClick={() => setCur(k)}>{l}</button>)}
+      </div>
+      {cur === "uzs" && <Fld label="Курс, сум за $1"><input type="number" className="inp" value={rate} autoFocus onChange={(e) => setRate(e.target.value)}
+        onBlur={() => { const f = rateFix(rate); if (f !== rate) setRate(String(f)); }} onKeyDown={(e) => { if (e.key === "Enter") go(); }} style={{ borderColor: ok ? undefined : "var(--bad)" }} /></Fld>}
+      <p className="xs mut" style={{ marginTop: 8 }}>{cur === "uzs" ? "Все цены и суммы пересчитаются из $ по этому курсу" + (pb ? " (подставлен курс последней поставки перечисления)" : "") + ". Прибыль, % не меняется." : "Как в учёте программы — всё в долларах."}</p>
+      <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+        <button className="btn" onClick={onClose}>Отмена</button>
+        <button className="btn pri" disabled={!ok} onClick={go}><Ic n="sheet" /> Скачать Excel</button>
+      </div>
+    </Modal>
+  );
+}
 // зафиксировать курс поставки: цены позиций в сумах записываются и больше не меняются
 function PerechFixModal({ obj, batch, ops, reload, toast, onClose }) {
   const cur = perechBatch(obj, batch.no);
@@ -7144,15 +7167,21 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
     toast(r === "xlsx" ? "Акт сверки по объекту скачан" + (objSups.length > 1 ? " (поставщиков: " + objSups.length + ")" : "") : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
   // внутренний Excel: себестоимость, цена и наценка по каждой позиции (клиенту не отправлять)
-  const exportCost = () => {
+  // cur: "usd" — в долларах (как в учёте), "uzs" — в сумах по курсу rate
+  const exportCost = (cur = "usd", rate = 0) => {
+    const uz = cur === "uzs" && Number(rate) > 0, K = uz ? Number(rate) : 1;
+    const mU = (x) => (uz ? Math.round((Number(x) || 0) * K) : Math.round((Number(x) || 0) * 10000) / 10000); // за единицу
+    const mS = (x) => (uz ? Math.round((Number(x) || 0) * K) : round2(x));                                    // суммы
+    const CU = uz ? ", сум" : ", $";
     const rows = [
       { k: "title", v: ["СЕБЕСТОИМОСТЬ И ПРИБЫЛЬ: " + (obj.name || "")] },
       { k: "section", v: ["Клиент: " + (obj.client || "—") + (obj.phone ? " · тел. " + obj.phone : "")] },
       { k: "section", v: ["Дата: " + new Date().toLocaleDateString("ru-RU") + " · статус: " + stById(obj.status).label] },
+      { k: "section", v: [uz ? "Валюта: сум · курс " + fmt(K) + " сум за $1" : "Валюта: доллар США ($)"] },
       { k: "section", v: ["Внутренний документ — клиенту не отправлять"], red: true },
       { k: "blank" },
     ];
-    const HEAD = ["№", "Наименование", "Кол-во", "Ед.", "Себест. за ед.", "Цена за ед.", "Прибыль за ед.", "Прибыль, %", "Сумма себест.", "Сумма продажи", "Прибыль"];
+    const HEAD = ["№", "Наименование", "Кол-во", "Ед.", "Себест. за ед." + CU, "Цена за ед." + CU, "Прибыль за ед." + CU, "Прибыль, %", "Сумма себест." + CU, "Сумма продажи" + CU, "Прибыль" + CU];
     // прибыль, % — от цены продажи (так же, как считается цена: себестоимость ÷ (1 − %))
     const pct = (c, p) => (c > 0 && p > 0 ? round2(((p - c) / p) * 100) : "");
     let n = 1, tc = 0, ts = 0, noCost = 0;
@@ -7165,30 +7194,32 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
         const sc = round2(q * c), ss = round2(q * p);
         bc += sc; bs += ss;
         if (!(c > 0)) noCost++;
-        rows.push({ k: "row", v: [n++, i.name + (i.from_warehouse ? " (со склада)" : "") + (i.supplier_id ? " · " + supName(i.supplier_id) : ""), q, i.unit || "", Math.round(c * 10000) / 10000, p, Math.round((p - c) * 10000) / 10000, c > 0 ? pct(c, p) : "нет себест.", sc, ss, round2(ss - sc)], red: p < c || !(c > 0) });
+        rows.push({ k: "row", v: [n++, i.name + (i.from_warehouse ? " (со склада)" : "") + (i.supplier_id ? " · " + supName(i.supplier_id) : ""), q, i.unit || "", mU(c), uz ? mU(p) : p, mU(p - c), c > 0 ? pct(c, p) : "нет себест.", mS(sc), mS(ss), mS(ss - sc)], red: p < c || !(c > 0) });
       });
       tc += bc; ts += bs;
-      rows.push({ k: "sum", v: ["", "Итого по поставке №" + b.no, "", "", "", "", "", pct(bc, bs), round2(bc), round2(bs), round2(bs - bc)], merge: [[1, 6]] });
+      rows.push({ k: "sum", v: ["", "Итого по поставке №" + b.no, "", "", "", "", "", pct(bc, bs), mS(bc), mS(bs), mS(bs - bc)], merge: [[1, 6]] });
       rows.push({ k: "blank" });
     });
-    rows.push({ k: "head", v: ["", "ИТОГО ПО ОБЪЕКТУ", "", "", "", "", "", "Прибыль, %", "Себест.", "Продажа", "Прибыль"], merge: [[1, 6]] });
-    rows.push({ k: "sum", v: ["", "Товар выдан", "", "", "", "", "", pct(tc, ts), round2(tc), round2(ts), round2(ts - tc)], merge: [[1, 6]] });
-    if (f.retSale) rows.push({ k: "sum", v: ["", "Возвраты", "", "", "", "", "", "", -round2(f.retCost), -round2(f.retSale), -round2(f.retSale - f.retCost)], merge: [[1, 6]], red: true });
-    if (f.discount) rows.push({ k: "sum", v: ["", "Скидка клиенту", "", "", "", "", "", "", "", -round2(f.discount), -round2(f.discount)], merge: [[1, 6]] });
-    if (f.clientExp) rows.push({ k: "sum", v: ["", "Доп. расходы, которые оплачивает клиент", "", "", "", "", "", "", "", round2(f.clientExp), round2(f.clientExp)], merge: [[1, 6]] });
-    rows.push({ k: "sum", v: ["", "Валовая прибыль", "", "", "", "", "", pct(f.costNet, f.saleNet), round2(f.costNet), round2(f.saleNet), round2(f.gross)], merge: [[1, 6]] });
+    rows.push({ k: "head", v: ["", "ИТОГО ПО ОБЪЕКТУ" + (uz ? " (сум)" : " ($)"), "", "", "", "", "", "Прибыль, %", "Себест.", "Продажа", "Прибыль"], merge: [[1, 6]] });
+    rows.push({ k: "sum", v: ["", "Товар выдан", "", "", "", "", "", pct(tc, ts), mS(tc), mS(ts), mS(ts - tc)], merge: [[1, 6]] });
+    if (f.retSale) rows.push({ k: "sum", v: ["", "Возвраты", "", "", "", "", "", "", -mS(f.retCost), -mS(f.retSale), -mS(f.retSale - f.retCost)], merge: [[1, 6]], red: true });
+    if (f.discount) rows.push({ k: "sum", v: ["", "Скидка клиенту", "", "", "", "", "", "", "", -mS(f.discount), -mS(f.discount)], merge: [[1, 6]] });
+    if (f.clientExp) rows.push({ k: "sum", v: ["", "Доп. расходы, которые оплачивает клиент", "", "", "", "", "", "", "", mS(f.clientExp), mS(f.clientExp)], merge: [[1, 6]] });
+    rows.push({ k: "sum", v: ["", "Валовая прибыль", "", "", "", "", "", pct(f.costNet, f.saleNet), mS(f.costNet), mS(f.saleNet), mS(f.gross)], merge: [[1, 6]] });
     if (fin) {
-      if (f.expense) rows.push({ k: "sum", v: ["", "Доп. расходы", "", "", "", "", "", "", "", "", -round2(f.expense)], merge: [[1, 6]] });
-      if (f.bonus) rows.push({ k: "sum", v: ["", "Бонус мастеру", "", "", "", "", "", "", "", "", -round2(f.bonus)], merge: [[1, 6]] });
-      rows.push({ k: "sum", v: ["", "Чистая прибыль (маржа " + fmt(round2(f.margin)) + "% от продажи)", "", "", "", "", "", "", "", "", round2(f.net)], merge: [[1, 6]] });
+      if (f.expense) rows.push({ k: "sum", v: ["", "Доп. расходы", "", "", "", "", "", "", "", "", -mS(f.expense)], merge: [[1, 6]] });
+      if (f.bonus) rows.push({ k: "sum", v: ["", "Бонус мастеру", "", "", "", "", "", "", "", "", -mS(f.bonus)], merge: [[1, 6]] });
+      rows.push({ k: "sum", v: ["", "Чистая прибыль (маржа " + fmt(round2(f.margin)) + "% от продажи)", "", "", "", "", "", "", "", "", mS(f.net)], merge: [[1, 6]] });
     }
     rows.push({ k: "blank" });
     rows.push({ k: "info", v: ["Прибыль, % — доля прибыли в цене продажи: цена = себестоимость ÷ (1 − %). Например, 20% → себестоимость ÷ 0,8. Цена продажи округляется до центов, поэтому у дешёвых позиций процент может немного отличаться."] });
     if (noCost) rows.push({ k: "section", v: ["⚠ У " + noCost + " поз. не указана себестоимость — прибыль по ним завышена. Укажите себестоимость в объекте (кнопка «ред.»)."], red: true });
-    const r = downloadStyledXLSX("Себестоимость_" + safe(obj.name) + ".xlsx", "Себестоимость", rows, [5, 46, 8, 6, 12, 12, 12, 11, 13, 13, 12], ["c", "t", "n", "c", "p", "m", "p", "m", "m", "m", "m"], { green: [10] });
-    toast(r === "xlsx" ? "Excel с себестоимостью скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
+    if (uz) rows.push({ k: "info", v: ["Суммы в сумах — пересчёт из $ по курсу " + fmt(K) + " (в учёте программы всё в $)."] });
+    const r = downloadStyledXLSX("Себестоимость_" + safe(obj.name) + (uz ? "_сум" : "_USD") + ".xlsx", "Себестоимость", rows, uz ? [5, 46, 8, 6, 15, 15, 15, 11, 17, 17, 16] : [5, 46, 8, 6, 12, 12, 12, 11, 13, 13, 12], ["c", "t", "n", "c", "p", "m", "p", "m", "m", "m", "m"], { green: [10] });
+    toast(r === "xlsx" ? "Excel с себестоимостью скачан" + (uz ? " (в сумах)" : " (в $)") : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
   const [delPick, setDelPick] = useState(false);
+  const [costPick, setCostPick] = useState(false);
   const exportDelivery = () => deliverySheetStart(obj, suppliers, toast, () => setDelPick(true));
   const batches = useMemo(() => objBatches(obj), [obj]);
   const batchHead = batches.length > 1 || (obj.items || []).some((i) => i.batch_no);
@@ -7321,7 +7352,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
     isLive(obj) && (obj.items || []).some((i) => !i.from_warehouse) ? { label: "Отгрузить товар", keys: "Alt+O", code: "KeyO", run: () => setShipForm(true) } : null,
     { label: "Excel клиенту", run: exportClient },
     { label: "Лист доставки", run: exportDelivery },
-    { label: "Excel себестоимость", run: exportCost },
+    { label: "Excel себестоимость", run: () => setCostPick(true) },
     { label: "Изменить объект", run: () => setEditObj(true) },
     { label: "Импорт Excel в объект", run: () => setImpItems(true) },
     { label: "Назад к объектам", keys: "Esc", run: back },
@@ -7351,7 +7382,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
         <div className="xl-group">
           <button className="btn" onClick={exportClient}><Ic n="download" /> Excel клиенту</button>
           <button className="btn" onClick={exportDelivery}><Ic n="truck" /> Лист доставки</button>
-          <button className="btn" onClick={exportCost} title="Внутренний: себестоимость, цена и прибыль по каждой позиции"><Ic n="sheet" /> Excel себестоимость</button>
+          <button className="btn" onClick={() => setCostPick(true)} title="Внутренний: себестоимость, цена и прибыль по каждой позиции — в $ или в сумах"><Ic n="sheet" /> Excel себестоимость</button>
           {fin && objSups.length > 0 && <button className="btn obj-akt" onClick={exportObjAkt} title={"Акт сверки с поставщиком только по этому объекту: " + objSups.map((x) => x.name).join(", ")}><Ic n="sheet" /> Акт сверки</button>}
         </div>
       </div>
@@ -7523,6 +7554,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
         </Modal>
       )}
       {delPick && <DeliverySheetPick obj={obj} suppliers={suppliers} toast={toast} onClose={() => setDelPick(false)} />}
+      {costPick && <CostCurPick obj={obj} onPick={(cur, rate) => { setCostPick(false); exportCost(cur, rate); }} onClose={() => setCostPick(false)} />}
       {replItem && <ItemReplaceModal item={replItem} products={products} suppliers={suppliers} fin={fin} onClose={() => setReplItem(null)} onSave={async (it) => { if (await replaceItem(it)) setReplItem(null); }} />}
       {editItem && <ItemEditModal item={editItem} suppliers={suppliers} fin={fin} onClose={() => setEditItem(null)} onSave={async (it) => { if (await saveItem(it)) setEditItem(null); }} />}
       {pctForm && <PercentModal obj={obj} batches={batches} onClose={() => setPctForm(false)} onApply={async (pct, no) => { if (await applyPercent(pct, no)) setPctForm(false); }} />}
