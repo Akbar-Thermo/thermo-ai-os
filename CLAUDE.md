@@ -9,5 +9,7 @@
 - `installWheelTrap()` (колёсико) и `installTouchTrap()` (палец) в `src/App.jsx`, общая проверка `scrollStopsHere()`.
 - Всплывающее окно = класс из `WHEEL_ROOTS` или `position: fixed` (или `absolute` с z-index ≥ 10).
   Новое окно с другой разметкой — добавить его класс в `WHEEL_ROOTS` или атрибут `data-wheel-trap`.
-- CSS `.te *{overscroll-behavior:contain}`.
+- CSS `overscroll-behavior` — только на окнах (`.modal-bg`, `.npanel`, `.nwin`, `.calc`…) и списках с max-height (`.vt-box` и т.п.).
+  **Никогда не ставить его на все элементы (`.te *`)**: Chrome перестаёт прокручивать страницу через любую таблицу
+  с `overflow:auto` (Товары и Объекты не крутились, пока мышь над таблицей).
 - Элемент, где палец должен работать свободно (рисование, ползунок), — атрибут `data-touch-free`.

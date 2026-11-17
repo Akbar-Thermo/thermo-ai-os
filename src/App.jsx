@@ -669,9 +669,11 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .npanel{position:relative}
 .it-repl{cursor:pointer;border-bottom:1px dashed transparent}.it-repl:hover{color:var(--acc);border-bottom-color:currentColor}
 .modal-bg,.npanel,.nwin,.calc,.sup-pop,.brand-fly{overscroll-behavior:contain}
-/* любой список / окно со своей прокруткой: докрутили до края — страница за ним не двигается (телефон, планшет, тачпад).
-   Где своей прокрутки нет, правило ни на что не влияет */
-.te *{overscroll-behavior:contain}
+/* списки со своей прокруткой: докрутили до края — страница за ним не двигается.
+   ВАЖНО: не ставить overscroll-behavior на все элементы (.te *) — Chrome тогда не пускает прокрутку страницы через
+   любую таблицу с overflow:auto (даже если у неё прокрутки по высоте нет): страница не крутится, пока мышь над таблицей.
+   Остальное держит JS (installWheelTrap / installTouchTrap) */
+.vt-box,.cmdk-list,.ret-box,.kassa-ops{overscroll-behavior-y:contain}
 .tg-h{font-size:var(--fs-xs);font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 2px}
 .fw-grip{position:absolute;right:2px;bottom:2px;width:16px;height:16px;cursor:nwse-resize;z-index:2;border-radius:0 0 var(--r-xl) 0;background:linear-gradient(135deg,transparent 50%,var(--line2) 50%,var(--line2) 58%,transparent 58%,transparent 70%,var(--line2) 70%,var(--line2) 78%,transparent 78%);opacity:.8}
 .fw-grip:hover{opacity:1}
