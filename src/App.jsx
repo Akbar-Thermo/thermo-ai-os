@@ -1015,6 +1015,23 @@ tr.batch-head:hover>td{background:color-mix(in srgb,var(--txt) 4%,var(--panel2))
 .chat-it{transition:background var(--dur)}
 /* окно-вопрос: выбранная кнопка хорошо видна — отвечают с клавиатуры (←/→, Enter) */
 .cfm-box .btn:focus{outline:2px solid var(--acc);outline-offset:2px;box-shadow:0 0 0 5px var(--acc-ring)}
+/* сенсорный экран (телефон, планшет): крупные кнопки в окне-вопросе и в окне возврата — легко попасть пальцем */
+@media(pointer:coarse){
+  .cfm-box>.row:last-child .btn{min-height:48px;padding:0 18px;font-size:var(--fs-lg)}
+  .m-ret>.row:first-child .btn{min-width:44px;height:44px;font-size:var(--fs-lg)}
+  .m-ret .ret-step .btn{min-width:40px;height:40px;font-size:var(--fs-xl)}
+  .m-ret .ret-step .inp{height:40px;font-size:var(--fs-lg)}
+  .m-ret .ret-foot .btn{min-height:44px}
+}
+/* телефон: вопрос выезжает снизу, кнопки на всю ширину — под большим пальцем;
+   у окна возврата заголовок с ✕ прилипает сверху — закрыть можно, не прокручивая длинный список назад */
+@media(max-width:700px){
+  .modal-bg:has(.cfm-box){align-items:flex-end;padding:0}
+  .modal.cfm-box{margin-top:0!important;max-width:none!important;border-radius:22px 22px 0 0;border-bottom:0;padding:18px 16px calc(16px + env(safe-area-inset-bottom,0px))}
+  .cfm-box>.row:last-child{flex-direction:column-reverse;align-items:stretch}
+  .cfm-box>.row:last-child .btn{width:100%}
+  .m-ret>.row:first-child{position:sticky;top:0;z-index:3;background:var(--panel);margin:-14px -12px 10px!important;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px;border-bottom:1px solid var(--line)}
+}
 `;
 
 /* ============ DATA LAYER = Supabase (db из ./db.js) ============ */
@@ -7975,8 +7992,23 @@ function ReturnForm({ obj, ops, onClose, onSave }) {
     await onSave(list);
     setBusy(false);
   };
+  // ✕, щелчок по фону или Esc: если что-то уже введено — сначала спросить, чтобы не потерять набранный возврат
+  const asking = useRef(false);
+  const tryClose = async () => {
+    if (busy || asking.current) return;
+    const dirty = totalCnt > 0 || reason.trim() !== "" || opDate !== today() || dest !== "wh";
+    if (dirty) {
+      asking.current = true;
+      // телефон/планшет: сначала убрать экранную клавиатуру — иначе она закрывает вопрос и снова выскакивает после «Нет»
+      try { if (window.matchMedia("(pointer: coarse)").matches && document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (e) {}
+      const ok = await askConfirm({ title: "Закрыть без сохранения?", text: "Введённый возврат" + (totalCnt ? " (" + totalCnt + " поз.)" : "") + " не сохранится.", cancel: "Нет, вернуться", ok: "Да, закрыть" });
+      asking.current = false;
+      if (!ok) return;
+    }
+    onClose();
+  };
   return (
-    <Modal title="Возврат товара" onClose={onClose} w={780} cls="m-ret">
+    <Modal title="Возврат товара" onClose={tryClose} w={780} cls="m-ret">
       <div className="ret-find"><input className="inp" type="search" data-esc="1" data-phone-nofocus="1" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape" && q) { e.preventDefault(); setQ(""); } }} placeholder="🔎 Найти товар по названию" />
         {q && <button className="btn xs" onClick={() => setQ("")}>✕</button>}</div>
       {!anyAvail && rows.length > 0 && <div className="sm" style={{ color: "var(--warn)", margin: "0 0 10px" }}>Товар ещё не отгружен клиенту — вернуть нечего. Сначала «Отгрузить товар».</div>}
