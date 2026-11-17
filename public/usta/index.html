@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="uz"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ff1f30"><meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<title>Material ro'yxati — Thermo</title><style>:root{--acc:#ff1f30;--acc-d:#d9101f;--acc-t:#fff0f1;--bg:#eef1ef;--panel:#ffffff;--txt:#1f2629;--mut:#69736f;--line:#dde2df;--warn:#b26a00;--warn-t:#fff6e5;--ok:#1d8a4a;--ok-t:#e9f7ef;--r:14px;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+@media (prefers-color-scheme:dark){:root{--bg:#121618;--panel:#1b2124;--txt:#e3e8e6;--mut:#8f9a97;--line:#2b3438;--acc-t:#3a1518;--warn:#f0b14a;--warn-t:#33270f;--ok:#4cc17c;--ok-t:#12301f}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:16px;line-height:1.35}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+.wrap{max-width:640px;margin:0 auto;padding:12px 12px 170px}
+.top{display:flex;align-items:center;gap:10px;padding:6px 2px 12px}
+.logo{width:36px;height:36px;border-radius:10px;background:var(--acc);color:#fff;font-weight:800;display:grid;place-items:center;font-size:18px;flex:none}
+.top h1{font-size:19px;margin:0;line-height:1.15}
+.top .s{font-size:12.5px;color:var(--mut)}
+.lang{margin-left:auto;display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;flex:none}
+.lang button{border:0;background:transparent;padding:7px 10px;font-size:13px;font-weight:700;color:var(--mut)}
+.lang button.on{background:var(--txt);color:var(--panel)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:12px;margin-bottom:10px}
+.lbl{font-size:12.5px;color:var(--mut);margin:0 0 5px;font-weight:600}
+.inp{width:100%;border:1.5px solid var(--line);background:var(--panel);border-radius:11px;padding:11px 12px;font-size:16px;outline:none}
+.inp:focus{border-color:var(--acc)}
+.inp.bad{border-color:var(--acc)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media (max-width:380px){.grid2{grid-template-columns:1fr}}
+.who{display:flex;align-items:center;gap:10px}
+.who b{font-size:15px}
+.who .ph{color:var(--mut);font-size:14px}
+.link{border:0;background:none;color:var(--acc);font-weight:600;padding:4px 0;margin-left:auto;font-size:14px}
+.row{display:flex;align-items:center;gap:8px}
+.btn{border:1.5px solid var(--line);background:var(--panel);border-radius:11px;padding:10px 14px;font-weight:600;font-size:15px;display:inline-flex;align-items:center;gap:6px;justify-content:center}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.pri:active{background:var(--acc-d)}
+.btn.big{width:100%;padding:15px;font-size:17px;border-radius:13px}
+.btn.sm{padding:7px 11px;font-size:14px;border-radius:9px}
+.btn:disabled{opacity:.5}
+.tools{display:flex;gap:8px;margin:4px 0 10px;flex-wrap:wrap}
+.tools .btn{flex:1;min-width:130px}
+.empty{text-align:center;color:var(--mut);padding:22px 10px}
+.empty b{display:block;color:var(--txt);margin-bottom:6px;font-size:16px}
+.ln{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:10px 10px 10px 12px;margin-bottom:8px}
+.ln.unk{border-color:var(--warn);background:var(--warn-t)}
+.ln.fresh{animation:fr 1.2s ease}
+@keyframes fr{0%{box-shadow:0 0 0 3px var(--acc)}100%{box-shadow:0 0 0 0 transparent}}
+.ln .n{color:var(--mut);font-size:13px;width:20px;text-align:right;flex:none}
+.ln .t{flex:1;min-width:0}
+.ln .nm{font-weight:650;font-size:15.5px;word-break:break-word}
+.ln .ch{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.tag{font-size:12.5px;padding:2px 7px;border-radius:7px;background:var(--bg);color:var(--txt);font-weight:600}
+.tag.sz{background:var(--acc-t);color:var(--acc)}
+.tag.w{background:transparent;color:var(--warn);padding-left:0}
+.qty{display:flex;align-items:center;border:1.5px solid var(--line);border-radius:11px;overflow:hidden;flex:none;background:var(--panel)}
+.qty button{border:0;background:transparent;width:34px;height:38px;font-size:20px;font-weight:600;color:var(--mut)}
+.qty .v{min-width:46px;text-align:center;font-weight:700;font-size:15px;padding:0 2px}
+.qty .v small{display:block;font-size:10.5px;color:var(--mut);font-weight:600;margin-top:-2px}
+.qty.none{border-color:var(--acc)}
+.dock{position:fixed;left:0;right:0;bottom:0;background:linear-gradient(transparent,var(--bg) 18px);padding:14px 0 calc(10px + env(safe-area-inset-bottom))}
+.dock .in{max-width:640px;margin:0 auto;padding:0 12px}
+.sug{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);margin-bottom:8px;overflow:hidden;box-shadow:0 8px 26px rgba(0,0,0,.12);max-height:46vh;overflow-y:auto;overscroll-behavior:contain}
+.sug:empty{display:none}
+.sg{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:transparent;padding:11px 12px}
+.sg:last-child{border-bottom:0}
+.sg.top{background:var(--acc-t)}
+.sg .nm{font-weight:650;flex:1}
+.sg .nm em{font-style:normal;color:var(--acc)}
+.sg .q{font-size:13px;color:var(--mut);font-weight:600;flex:none}
+.words{display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line);overflow-x:auto}
+.words button{border:1px solid var(--line);background:var(--bg);border-radius:20px;padding:6px 12px;font-size:14px;white-space:nowrap}
+.compose{display:flex;gap:8px}
+.compose .inp{flex:1;font-size:16px;padding:13px 14px;border-radius:13px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+.compose .btn{border-radius:13px;width:52px;padding:0;font-size:26px}
+.sendbar{margin-top:8px}
+.sheet-bg{position:fixed;inset:0;overscroll-behavior:contain;touch-action:none;background:rgba(0,0,0,.42);z-index:30;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--panel);width:100%;max-width:640px;border-radius:20px 20px 0 0;padding:16px 14px calc(14px + env(safe-area-inset-bottom));max-height:88vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;animation:up .18s ease}
+@keyframes up{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
+.sheet h3{margin:0 0 4px;font-size:18px}
+.sheet .d{color:var(--mut);font-size:14px;margin-bottom:12px}
+.grp{margin:12px 0 4px}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{border:1.5px solid var(--line);background:var(--panel);border-radius:10px;padding:8px 12px;font-size:15px;font-weight:600;min-width:46px}
+.chip.on{border-color:var(--acc);background:var(--acc-t);color:var(--acc)}
+.qbig{display:flex;align-items:center;gap:10px;margin-top:4px}
+.qbig button{width:52px;height:52px;border-radius:13px;border:1.5px solid var(--line);background:var(--panel);font-size:26px;font-weight:600}
+.qbig input{width:110px;text-align:center;font-size:22px;font-weight:700;padding:10px}
+.qbig .u{color:var(--mut);font-weight:600}
+.acts{display:flex;gap:8px;margin-top:16px}
+.acts .btn{flex:1}
+.cat{display:flex;align-items:center;width:100%;border:0;border-bottom:1px solid var(--line);background:transparent;padding:13px 4px;text-align:left;font-size:16px;font-weight:600}
+.cat span{margin-left:auto;color:var(--mut)}
+.ok-ic{width:64px;height:64px;border-radius:50%;background:var(--ok-t);color:var(--ok);display:grid;place-items:center;font-size:34px;margin:6px auto 10px}
+.center{text-align:center}
+.num{font-size:30px;font-weight:800;margin:2px 0 10px}
+.toast{position:fixed;left:50%;top:16px;transform:translateX(-50%);background:var(--txt);color:var(--panel);padding:10px 16px;border-radius:12px;font-weight:600;z-index:50;font-size:14px;max-width:90vw;text-align:center}
+.err{color:var(--acc);font-size:14px;font-weight:600;margin-top:6px}
+.hist{border-top:1px solid var(--line);padding:10px 0;display:flex;align-items:center;gap:10px}
+.hist .t{flex:1;font-size:14px}
+.hist .t b{display:block;font-size:15px}
+textarea.inp{min-height:180px;resize:vertical}
+.muted{color:var(--mut);font-size:13px}
+.vis{display:none}
+body.lock{overflow:hidden}
+</style></head>
+<body><div id="app"></div>
+<script>window.USTA_CFG = {"url": "https://ettbatawccumoqrrtyql.supabase.co", "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0dGJhdGF3Y2N1bW9xcnJ0eXFsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzNDM0NjYsImV4cCI6MjA5NjkxOTQ2Nn0.mi5bv7nWHcJS6sL_dunlv97PLbddwy5NFId03utv_XE"};</script>
+<script>/* Usta ro'yxati — lug'at: brendsiz umumiy nomlar, sinonimlar (lotin / kirill / o'zbekcha), o'lchamlar.
+   Brend va narx bu yerda YO'Q va bo'lmasligi kerak. Yangi tovar turi: ITEMS ga bitta qator qo'shing.
+   Qator: [bo'lim, nom (ruscha, menejer tushunadigan), sinonimlar "a|b|c", o'lchamlar (massiv yoki S.kalit), variantlar [[...guruh]], birlik] */
+var VOCAB = (function () {
+  var ppr = ["20", "25", "32", "40", "50", "63", "75", "90", "110"];
+  var pprRed = ["25×20", "32×20", "32×25", "40×20", "40×25", "40×32", "50×25", "50×32", "50×40", "63×32", "63×40", "63×50", "75×50", "75×63", "90×63", "90×75", "110×90"];
+  var pprTh = ['20×1/2"', '20×3/4"', '25×1/2"', '25×3/4"', '25×1"', '32×3/4"', '32×1"', '32×1 1/4"', '40×1 1/4"', '40×1 1/2"', '50×1 1/2"', '63×2"', '75×2 1/2"', '90×3"'];
+  var inch = ['1/2"', '3/4"', '1"', '1 1/4"', '1 1/2"', '2"', '2 1/2"', '3"', '4"'];
+  var inchS = ['1/2"', '3/4"', '1"', '1 1/4"', '1 1/2"', '2"'];
+  var inchR = ['3/4"×1/2"', '1"×1/2"', '1"×3/4"', '1 1/4"×1/2"', '1 1/4"×3/4"', '1 1/4"×1"', '1 1/2"×1"', '1 1/2"×1 1/4"', '2"×1"', '2"×1 1/4"', '2"×1 1/2"', '1/2"×3/8"', '1/2"×1/4"'];
+  var press = ["16×2", "20×2", "26×3", "32×3", "40×3,5"];
+  var pressRed = ["20×16", "26×16", "26×20", "32×20", "32×26", "40×32"];
+  var pressTh = ['16×1/2"', '16×3/4"', '20×1/2"', '20×3/4"', '26×3/4"', '26×1"', '32×1"', '32×1 1/4"', '40×1 1/4"'];
+  var kan = ["32", "40", "50", "75", "110", "160"];
+  var kanRed = ["50×32", "50×40", "75×50", "110×50", "110×75", "160×110"];
+  var dn = ["DN50", "DN65", "DN80", "DN100", "DN125", "DN150", "DN200"];
+  var lit = function (a) { return a.map(function (x) { return x + " л"; }); };
+  var kw = function (a) { return a.map(function (x) { return x + " кВт"; }); };
+  var rad = [];
+  [300, 500, 600].forEach(function (h) { [400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1400, 1600, 1800, 2000].forEach(function (l) { rad.push(h + "×" + l); }); });
+  var outs = ["2 вых.", "3 вых.", "4 вых.", "5 вых.", "6 вых.", "7 вых.", "8 вых.", "9 вых.", "10 вых.", "11 вых.", "12 вых."];
+  var R = ["ВР", "НР"], RR = ["ВР/ВР", "ВР/НР", "НР/НР"], RRR = ["ВР/ВР/ВР", "НР/НР/НР"];
+  var ang = ["90°", "45°"], kanAng = ["87°", "45°", "30°", "15°"];
+
+  var CATS = [
+    ["ppr", "PPR (polipropilen)", "ППР (полипропилен)"],
+    ["press", "Metalloplast, press", "Металлопласт, пресс"],
+    ["metal", "Metall, latun (rezba)", "Металл, латунь (резьба)"],
+    ["kran", "Kranlar va klapanlar", "Краны и клапаны"],
+    ["rad", "Radiatorlar", "Радиаторы"],
+    ["kotel", "Qozonxona: kotyol, bak, boyler", "Котельная: котёл, бак, бойлер"],
+    ["nasos", "Nasoslar", "Насосы"],
+    ["pol", "Kollektor, issiq pol", "Коллектор, тёплый пол"],
+    ["kan", "Kanalizatsiya", "Канализация"],
+    ["gaz", "Gaz", "Газ"],
+    ["suv", "Suv: filtr, hisoblagich", "Вода: фильтры, счётчики"],
+    ["mayda", "Mahkamlash, izolyatsiya, mayda", "Крепёж, изоляция, расходники"],
+    ["elek", "Avtomatika, elektr", "Автоматика, электрика"],
+    ["asbob", "Asboblar", "Инструмент"],
+  ];
+
+  var ITEMS = [
+    // ---------- ППР ----------
+    ["ppr", "Труба ППР PN20 (горячая вода)", "ppr truba|truba ppr|труба ппр|пп труба|гвс труба|issiq suv truba|pn20|пн20|polipropilen truba", ppr, [], "м"],
+    ["ppr", "Труба ППР PN25 армированная", "armirovanniy truba|армированная труба|alyumin truba|алюминиевая труба|фольга труба|stekla truba|стекловолокно|pn25|пн25|otopleniya truba|отопление труба", ppr, [["алюминий", "стекловолокно"]], "м"],
+    ["ppr", "Труба ППР PN16 (холодная вода)", "xvs truba|хвс труба|холодная труба|sovuq suv truba|pn16|пн16|pn10", ppr, [], "м"],
+    ["ppr", "Муфта ППР", "mufta|муфта|ppr mufta|soedinitel|соединитель", ppr, [], "шт"],
+    ["ppr", "Муфта ППР переходная", "perexodnik|переходник|perexod|переход|reduksiya|редукция|редукционная муфта|переходная муфта|perexodnoy", pprRed, [], "шт"],
+    ["ppr", "Отвод ППР (угол)", "otvod|отвод|ugolok|уголок|ugol|угол|burchak|колено|koleno|polotvod|полуотвод|угольник", ppr, [ang], "шт"],
+    ["ppr", "Тройник ППР", "troynik|тройник|troinik|uchlik|tройник|трайник", ppr, [], "шт"],
+    ["ppr", "Тройник ППР переходной", "troynik perexodnoy|тройник переходной|тройник редукционный|переходной тройник|troynik perexod", pprRed, [], "шт"],
+    ["ppr", "Крестовина ППР", "krestovina|крестовина|krest|крест", ppr, [], "шт"],
+    ["ppr", "Заглушка ППР", "zaglushka|заглушка|probka|пробка|tiqin", ppr, [], "шт"],
+    ["ppr", "Обвод ППР", "obvod|обвод|obxod|обход|skoba|скоба|petlya obxod", ppr.slice(0, 4), [], "шт"],
+    ["ppr", "Американка ППР", "amerikanka|американка|amerkanka|razyomnaya mufta|разъёмная муфта|razborniy", pprTh, [R], "шт"],
+    ["ppr", "Адаптер ППР с резьбой (муфта комбинированная)", "adapter|адаптер|adaptor|адаптор|mufta s rezboy|муфта с резьбой|rezba mufta|комбинированная муфта|kombinirovannaya", pprTh, [R], "шт"],
+    ["ppr", "Отвод ППР с резьбой", "otvod s rezboy|отвод с резьбой|ugolok s rezboy|уголок с резьбой|угольник с резьбой|rezbali burchak", pprTh, [R], "шт"],
+    ["ppr", "Тройник ППР с резьбой", "troynik s rezboy|тройник с резьбой|rezbali troynik", pprTh, [R], "шт"],
+    ["ppr", "Водорозетка ППР (настенный угольник)", "vodorozetka|водорозетка|ushastik|ушастик|ushki|ушки|nastenniy ugolok|настенный угольник|devor burchak", ['20×1/2"', '25×1/2"', '25×3/4"'], [], "шт"],
+    ["ppr", "Кран шаровой ППР", "ppr kran|кран ппр|ппр кран|kran ppr|sharovoy kran ppr", ppr.slice(0, 7), [], "шт"],
+    ["ppr", "Фильтр ППР", "ppr filtr|фильтр ппр|filtr ppr", ppr.slice(0, 5), [], "шт"],
+    ["ppr", "Клипса ППР (крепление трубы)", "klipsa|клипса|krepleniye truby|крепление трубы|derjatel|держатель|opora|опора", ppr, [], "шт"],
+    ["ppr", "Компенсатор ППР (петля)", "kompensator|компенсатор|petlya|петля", ["20", "25", "32", "40"], [], "шт"],
+    ["ppr", "Насадки для паяльника ППР", "nasadka|насадка|nasadki|насадки|payalnik nasadka|матрица", ppr, [], "шт"],
+
+    // ---------- Металлопласт / пресс ----------
+    ["press", "Труба металлопластиковая", "metalloplast|металлопласт|metaplast|metalloplastik|metaloplast|металлопластик|pex al pex|пекс ал пекс|metaloplas", press, [], "м"],
+    ["press", "Труба для тёплого пола (PE-RT / PEX)", "pert|perte|pe-rt|пе рт|pex|пекс|teplyy pol truba|тёплый пол труба|issiq pol truba|pol truba|кислородный барьер", ["16×2", "16×2,2", "17×2", "20×2"], [], "м"],
+    ["press", "Пресс муфта", "press mufta|пресс муфта|pres mufta", press, [], "шт"],
+    ["press", "Пресс муфта переходная", "press perexodnik|пресс переходник|пресс переход|press perexod|press reduksiya", pressRed, [], "шт"],
+    ["press", "Пресс отвод (угол)", "press otvod|пресс отвод|press ugol|пресс угол|press ugolok|пресс уголок|press burchak", press, [], "шт"],
+    ["press", "Пресс тройник", "press troynik|пресс тройник|pres troynik", press, [], "шт"],
+    ["press", "Пресс тройник переходной", "press troynik perexodnoy|пресс тройник переходной|пресс тройник редукционный", ["20×16×16", "20×16×20", "26×16×26", "26×20×26", "32×20×32", "32×26×32"], [], "шт"],
+    ["press", "Пресс адаптер с резьбой", "press adapter|пресс адаптер|press adaptor|пресс адаптор|press rezba", pressTh, [R], "шт"],
+    ["press", "Пресс отвод с резьбой", "press otvod s rezboy|пресс отвод с резьбой|пресс угол с резьбой", pressTh, [R], "шт"],
+    ["press", "Пресс тройник с резьбой", "press troynik s rezboy|пресс тройник с резьбой", pressTh, [R], "шт"],
+    ["press", "Пресс водорозетка", "press vodorozetka|пресс водорозетка|press ushastik", ['16×1/2"', '20×1/2"'], [], "шт"],
+    ["press", "Пресс заглушка", "press zaglushka|пресс заглушка", press, [], "шт"],
+    ["press", "Пресс крестовина", "press krestovina|пресс крестовина", press.slice(0, 4), [], "шт"],
+    ["press", "Евроконус (концовка для коллектора)", "evrokonus|евроконус|konus|конус|koncovka|концовка|rezbozajimnoy|резьбозажимной|fiting kollektor|фитинг для коллектора", ['16×2×3/4"', '17×2×3/4"', '20×2×3/4"', '16×2×1/2"'], [], "шт"],
+    ["press", "Фитинг обжимной (цанговый)", "obzhim|обжим|obzhimnoy|обжимной|sangoviy|цанговый|rezbovoy fiting|винтовой", pressTh, [R], "шт"],
+
+    // ---------- Металл / латунь ----------
+    ["metal", "Муфта латунная", "mufta metall|муфта металл|metall mufta|латунная муфта|latun mufta|mufta latun", inch, [["ВР/ВР"]], "шт"],
+    ["metal", "Муфта латунная переходная", "mufta perexodnaya metall|муфта переходная латунь|переходная муфта металл|metall perexod mufta", inchR, [], "шт"],
+    ["metal", "Ниппель", "nippel|ниппель|nipel|нипель|nipil", inch, [["НР/НР"]], "шт"],
+    ["metal", "Ниппель переходной", "nippel perexodnoy|ниппель переходной|nippel redukcionniy|ниппель редукционный", inchR, [], "шт"],
+    ["metal", "Бочонок", "bochonok|бочонок|bochka|бочка", inch, [], "шт"],
+    ["metal", "Удлинитель", "udlinitel|удлинитель|udlenitel|удленитель|uzaytirgich|prodlitel", inchS, [["10 мм", "15 мм", "20 мм", "30 мм", "40 мм", "50 мм"]], "шт"],
+    ["metal", "Угольник латунный", "ugolok metall|уголок металл|metall otvod|металл отвод|латунный отвод|латунный угольник|угольник|ugolnik|metall burchak|otvod latun", inch, [RR], "шт"],
+    ["metal", "Тройник латунный", "troynik metall|тройник металл|латунный тройник|metall troynik|troynik latun", inch, [RRR], "шт"],
+    ["metal", "Крестовина латунная", "krestovina metall|крестовина металл|латунная крестовина", inchS, [], "шт"],
+    ["metal", "Заглушка латунная", "zaglushka metall|заглушка металл|probka metall|пробка металл|латунная заглушка", inch, [R], "шт"],
+    ["metal", "Американка (латунь)", "amerikanka metall|американка металл|amerikanka latun|латунная американка", inch, [RR, ["прямая", "угловая"]], "шт"],
+    ["metal", "Сгон", "sgon|сгон|sgon amerikanka|сгон американка", inchS, [], "шт"],
+    ["metal", "Переходник (футорка)", "futorka|футорка|perexodnik metall|переходник металл|metall perexodnik|perexod metall|переход металл|переходник латунный", inchR, [["ВР/НР", "НР/ВР", "ВР/ВР", "НР/НР"]], "шт"],
+    ["metal", "Контргайка", "kontrgayka|контргайка|gayka|гайка", inchS, [], "шт"],
+    ["metal", "Гайка накидная", "nakidnaya gayka|накидная гайка|nakidnoy", inchS, [], "шт"],
+    ["metal", "Муфта диэлектрическая", "dielektrik|диэлектрик|dielektricheskaya mufta|диэлектрическая муфта", inchS, [], "шт"],
+    ["metal", "Ниппель для коллектора (переходной)", "nippel kollektor|ниппель коллектор", ['1"×3/4"', '1 1/4"×1"'], [], "шт"],
+
+    // ---------- Краны и клапаны ----------
+    ["kran", "Кран шаровой", "kran|кран|sharovoy kran|шаровой кран|kran sharovoy|кран шаровой|sharavoy|шаравой|sharoviy|vodyanoy kran|suv kran", inch, [RR, ["рычаг", "бабочка"]], "шт"],
+    ["kran", "Кран шаровой с американкой", "kran s amerikankoy|кран с американкой|кран американка|amerikanka kran|кран для насоса", inchS, [["прямой", "угловой"]], "шт"],
+    ["kran", "Кран радиаторный", "radiatorniy kran|радиаторный кран|radiator kran|кран радиатор|кран для радиатора|batareya kran", ['1/2"', '3/4"'], [["угловой", "прямой"], ["подача (термостатический)", "обратка (настроечный)"]], "шт"],
+    ["kran", "Узел нижнего подключения радиатора", "nijnee podklyuchenie|нижнее подключение|uzel nijniy|узел нижнего|нижний узел|uzel radiator", ['3/4"×1/2"'], [["прямой", "угловой"]], "шт"],
+    ["kran", "Термоголовка", "termogolovka|термоголовка|termostaticheskaya golovka|термостатическая головка|golovka", [], [], "шт"],
+    ["kran", "Кран Маевского", "maevskiy|маевский|mayevskiy|маевского|havo kran", ['1/2"', '3/4"', '1"'], [], "шт"],
+    ["kran", "Воздухоотводчик автоматический", "vozduxootvodchik|воздухоотводчик|avtomat vozdux|автомат воздух|havo chiqargich|воздушник|vozdushnik|vozduxovod", ['3/8"', '1/2"'], [], "шт"],
+    ["kran", "Клапан обратный", "obratniy klapan|обратный клапан|obratka klapan|klapan obratniy|qaytarmas klapan|обратник", inch, [["пружинный", "лепестковый"]], "шт"],
+    ["kran", "Клапан предохранительный", "predoxranitelniy|предохранительный|sbros klapan|сбросной|klapan bezopasnosti|клапан безопасности|predoxranitel", ['1/2"', '3/4"', '1"'], [["1,5 бар", "2,5 бар", "3 бар", "6 бар", "8 бар"]], "шт"],
+    ["kran", "Группа безопасности котла", "gruppa bezopasnosti|группа безопасности|bezopasnost gruppa", [], [["до 50 кВт", "до 100 кВт", "до 200 кВт"]], "шт"],
+    ["kran", "Редуктор давления воды", "reduktor davleniya|редуктор давления|reduktor|редуктор|regulyator davleniya|регулятор давления|bosim reduktor", inchS, [], "шт"],
+    ["kran", "Клапан трёхходовой смесительный", "trexxodovoy|трёхходовой|трехходовой|3 xodovoy|3 ходовой|smesitelniy klapan|смесительный клапан|uch yo'lli", ['3/4"', '1"', '1 1/4"', '1 1/2"', '2"'], [["термостатический", "под привод"]], "шт"],
+    ["kran", "Сервопривод (привод клапана)", "servoprivod|сервопривод|privod|привод|servo|термопривод|termoprivod", [], [["230 В", "24 В"]], "шт"],
+    ["kran", "Клапан балансировочный", "balansirovochniy|балансировочный|balans klapan|балансир", inchS, [], "шт"],
+    ["kran", "Кран подпиточный", "podpitka|подпитка|podpitochniy|подпиточный", ['1/2"'], [], "шт"],
+    ["kran", "Кран для манометра (трёхходовой)", "kran manometr|кран для манометра|manometr kran", ['1/2"', '1/4"'], [], "шт"],
+    ["kran", "Вентиль (кран-букса)", "ventil|вентиль|buksa|букса|kran buksa|кран букса|barashek|барашек|барашковый", ['1/2"', '3/4"'], [], "шт"],
+    ["kran", "Кран угловой (под смеситель / бачок)", "uglovoy kran|угловой кран|kran uglovoy|кран угловой|otsekayushiy|отсекающий|отсекатель|otsekatel", ['1/2"×1/2"', '1/2"×3/4"'], [], "шт"],
+    ["kran", "Кран дренажный (сливной)", "drenaj|дренаж|drenajniy|дренажный|sliv|слив|slivnoy kran|сливной кран|tokish kran", ['1/2"', '3/4"'], [], "шт"],
+    ["kran", "Затвор дисковый", "zatvor|затвор|baterflay|баттерфляй|butterfly|diskoviy|дисковый", dn, [], "шт"],
+    ["kran", "Клапан электромагнитный", "elektromagnit|электромагнитный|solenoid|соленоид", inchS, [["230 В", "24 В"]], "шт"],
+    ["kran", "Клапан зонный двухходовой", "zonniy|зонный|2 xodovoy|двухходовой|2-ходовой", ['3/4"', '1"'], [], "шт"],
+
+    // ---------- Радиаторы ----------
+    ["rad", "Радиатор панельный", "panelniy radiator|панельный радиатор|radiator panel|панель|panel|radiator|радиатор|batareya|батарея|stalnoy radiator|стальной радиатор", rad, [["тип 11", "тип 22", "тип 33"], ["боковое подключение", "нижнее подключение"]], "шт"],
+    ["rad", "Радиатор секционный", "sekcionniy|секционный|sektsiya|секция|sekciya|aluminiy radiator|алюминиевый радиатор|bimetall|биметалл|seksiya|alyumin batareya", ["350", "500"], [["алюминий", "биметалл"]], "секц"],
+    ["rad", "Радиатор вертикальный", "vertikalniy|вертикальный|vertikal|вертикаль|trubchatiy|трубчатый", [], [], "шт"],
+    ["rad", "Полотенцесушитель", "polotencesushitel|полотенцесушитель|sushilka|сушилка|polotence|полотенце", [], [["водяной", "электрический"]], "шт"],
+    ["rad", "Кронштейн для радиатора", "kronshteyn|кронштейн|krepleniye radiator|крепление радиатора|ilmoq", [], [["для панельного", "для секционного"]], "шт"],
+    ["rad", "Комплект подключения радиатора (пробки)", "probki radiator|пробки радиатор|komplekt radiator|комплект радиатора|futorki radiator|футорки радиатора", ['1/2"', '3/4"'], [], "комп"],
+    ["rad", "Конвектор внутрипольный", "konvektor|конвектор|vnutripolniy|внутрипольный|pol konvektor", [], [], "шт"],
+
+    // ---------- Котельная ----------
+    ["kotel", "Котёл газовый настенный", "kotyol|котёл|kotel|котел|gazoviy kotel|газовый котёл|gaz kotyol|nastenniy kotel|настенный котёл|qozon|kotyel", kw(["18", "20", "24", "28", "30", "32", "35", "40"]), [["двухконтурный", "одноконтурный", "конденсационный"]], "шт"],
+    ["kotel", "Котёл газовый напольный", "napolniy kotel|напольный котёл|napol kotyol|чугунный котёл|chugun kotel", kw(["40", "50", "60", "70", "80", "100", "150", "200"]), [], "шт"],
+    ["kotel", "Котёл электрический", "elektro kotel|электрокотёл|elektrokotel|электрический котёл|elektr kotyol|electric kotel", kw(["6", "9", "12", "15", "18", "24", "30", "36"]), [], "шт"],
+    ["kotel", "Тепловой насос", "teplovoy nasos|тепловой насос|issiqlik nasosi|heat pump|teplonasos", kw(["6", "8", "10", "12", "14", "16", "20", "25", "30"]), [["воздух-вода", "грунт-вода"]], "шт"],
+    ["kotel", "Бойлер косвенного нагрева", "boyler|бойлер|kosvenniy|косвенный|boyler kosvennogo|бойлер косвенного", lit(["100", "150", "200", "300", "500"]), [], "шт"],
+    ["kotel", "Водонагреватель электрический", "vodonagrevatel|водонагреватель|elektr boyler|электробойлер|nagrevatel|нагреватель|suv isitgich", lit(["30", "50", "80", "100", "150"]), [], "шт"],
+    ["kotel", "Бак расширительный (отопление)", "rasshiritelniy bak|расширительный бак|bak|бак|rasshiritel|расширитель|kengaytirish baki|расшир|расширбак|gidrobak otopleniya", lit(["8", "12", "18", "24", "35", "50", "80", "100", "150", "200"]), [["красный (отопление)"]], "шт"],
+    ["kotel", "Гидроаккумулятор (бак для воды)", "gidroakkumulyator|гидроаккумулятор|gidrobak|гидробак|bak dlya vody|бак для воды|синий бак|siniy bak", lit(["8", "24", "50", "80", "100", "150"]), [["вертикальный", "горизонтальный"]], "шт"],
+    ["kotel", "Гидрострелка", "gidrostrelka|гидрострелка|gidravlicheskiy razdelitel|гидравлический разделитель|gidrorazdelitel|strelka", ['1"', '1 1/4"', '1 1/2"', '2"'], [], "шт"],
+    ["kotel", "Гидроколлектор котельный", "gidrokollektor|гидроколлектор|kotelniy kollektor|котельный коллектор|raspredelitelniy kollektor kotel", [], [["2 контура", "3 контура", "4 контура", "5 контуров"]], "шт"],
+    ["kotel", "Насосная группа", "nasosnaya gruppa|насосная группа|gruppa nasos|pump group", ['1"', '1 1/4"'], [["прямая", "со смесителем"]], "шт"],
+    ["kotel", "Дымоход коаксиальный", "dymoxod|дымоход|dimoxod|truba kotla|труба котла|koaksial|коаксиальный|tutun quvur", ["60/100", "80/125"], [["комплект", "удлинитель 0,5 м", "удлинитель 1 м", "колено 90°", "колено 45°"]], "шт"],
+    ["kotel", "Сепаратор / дешламатор (магнитный)", "separator|сепаратор|deshlamator|дешламатор|shlamootdelitel|шламоотделитель|magnit filtr kotel|магнитный фильтр", ['3/4"', '1"', '1 1/4"', '1 1/2"', '2"'], [["магнитный", "воздуха", "шлама"]], "шт"],
+    ["kotel", "Манометр", "manometr|манометр|bosim o'lchagich|davleniye pribor", ['1/4"', '1/2"'], [["0–4 бар", "0–6 бар", "0–10 бар", "0–16 бар"]], "шт"],
+    ["kotel", "Термометр", "termometr|термометр|gradusnik|градусник", ['1/2"'], [["0–120 °C"]], "шт"],
+    ["kotel", "Термоманометр", "termomanometr|термоманометр", ['1/2"'], [], "шт"],
+    ["kotel", "Стабилизатор напряжения", "stabilizator|стабилизатор|stabilizer|kuchlanish", ["500 ВА", "1000 ВА", "1500 ВА", "2000 ВА", "3000 ВА", "5000 ВА", "10000 ВА"], [], "шт"],
+    ["kotel", "Фильтр полифосфатный (для котла)", "polifosfat|полифосфат|polifosfatniy|полифосфатный|tuz filtr", [], [], "шт"],
+
+    // ---------- Насосы ----------
+    ["nasos", "Насос циркуляционный", "nasos|насос|cirkulyacionniy|циркуляционный|sirkulyatsion|tsirkulyatsionniy|циркуляр|sirkulyar|aylantiruvchi nasos|nasos otopleniya", ["25-40 130", "25-40 180", "25-60 130", "25-60 180", "32-60 180", "25-80 180", "32-80 180"], [], "шт"],
+    ["nasos", "Насос повысительный (давление)", "povysitelniy|повысительный|davleniye nasos|давление насос|podkachka|подкачка|bosim nasos", [], [], "шт"],
+    ["nasos", "Насосная станция", "nasosnaya stanciya|насосная станция|stanciya|станция|avtomat nasos", [], [], "шт"],
+    ["nasos", "Насос дренажный / фекальный", "drenajniy nasos|дренажный насос|fekalniy|фекальный|kanal nasos", [], [], "шт"],
+    ["nasos", "Насос погружной (скважинный)", "pogrujnoy|погружной|skvajinniy|скважинный|quduq nasos|glubinniy|глубинный", [], [], "шт"],
+    ["nasos", "Гайки для насоса (комплект)", "gayki nasos|гайки для насоса|nasos gayka|komplekt gaek", ['1"', '1 1/4"', '1 1/2"'], [], "комп"],
+
+    // ---------- Коллектор / тёплый пол ----------
+    ["pol", "Коллектор распределительный", "kollektor|коллектор|grebenka|гребёнка|гребенка|raspredelitel|распределитель|kalektor|колектор|taqsimlagich", ['3/4"', '1"'], [outs], "шт"],
+    ["pol", "Коллектор с расходомерами (тёплый пол)", "rasxodomer|расходомер|kollektor rasxodomer|коллектор с расходомерами|kollektor teplyy pol|коллектор тёплый пол|kollektor pol", ['1"'], [outs], "шт"],
+    ["pol", "Шкаф коллекторный", "shkaf|шкаф|kollektorniy shkaf|коллекторный шкаф|yashik|ящик|quti", ["ШРВ-1", "ШРВ-2", "ШРВ-3", "ШРВ-4", "ШРВ-5", "ШРН-1", "ШРН-2", "ШРН-3", "ШРН-4", "ШРН-5"], [["встраиваемый", "наружный"]], "шт"],
+    ["pol", "Смесительный узел для тёплого пола", "smesitelniy uzel|смесительный узел|uzel teplyy pol|узел тёплого пола|mixer gruppa|микшерная группа", [], [], "шт"],
+    ["pol", "Утеплитель для тёплого пола", "uteplitel|утеплитель|penoplast|пенопласт|penopolistirol|пенополистирол|xps|экструдированный|penofol|пенофол", ["20 мм", "30 мм", "40 мм", "50 мм"], [], "м²"],
+    ["pol", "Демпферная лента", "dempfer|демпфер|dempfernaya lenta|демпферная лента|kromochnaya|кромочная", [], [], "м"],
+    ["pol", "Скобы для трубы тёплого пола (гарпун)", "skobi|скобы|garpun|гарпун|skoba pol|скоба для пола", [], [], "шт"],
+    ["pol", "Сетка кладочная", "setka|сетка|kladochnaya setka|кладочная сетка|tor", [], [], "м²"],
+    ["pol", "Плёнка / фольга для тёплого пола", "plenka|плёнка|пленка|folga|фольга|plyonka", [], [], "м²"],
+    ["pol", "Мат нагревательный (электрический тёплый пол)", "mat nagrevatelniy|нагревательный мат|elektr pol|электрический тёплый пол|issiq pol elektr|kabel pol", [], [], "м²"],
+
+    // ---------- Канализация ----------
+    ["kan", "Труба канализационная", "kanalizaciya truba|канализационная труба|kanal truba|канал труба|труба канализация|kanalizatsiya|kanal", kan, [["0,25 м", "0,5 м", "1 м", "1,5 м", "2 м", "3 м"]], "шт"],
+    ["kan", "Отвод канализационный", "kanal otvod|канал отвод|otvod kanalizaciya|отвод канализационный|kanal ugol|канал угол|колено канализация", kan, [kanAng], "шт"],
+    ["kan", "Тройник канализационный", "kanal troynik|канал тройник|troynik kanalizaciya|тройник канализационный|kosoy troynik|косой тройник", kan.concat(kanRed), [["87°", "45°"]], "шт"],
+    ["kan", "Крестовина канализационная", "kanal krestovina|канал крестовина|крестовина канализация", ["50", "110", "110×50"], [], "шт"],
+    ["kan", "Переход канализационный", "kanal perexod|канал переход|perexodnik kanalizaciya|переходник канализация|kanal perexodnik|ekscentrik|эксцентрик", kanRed, [], "шт"],
+    ["kan", "Муфта канализационная", "kanal mufta|канал муфта|муфта канализация|remontnaya mufta|ремонтная муфта", kan, [], "шт"],
+    ["kan", "Ревизия канализационная", "reviziya|ревизия|reviz", ["50", "110"], [], "шт"],
+    ["kan", "Заглушка канализационная", "kanal zaglushka|канал заглушка|заглушка канализация", kan, [], "шт"],
+    ["kan", "Сифон", "sifon|сифон|sfon", [], [["для раковины", "для ванны", "для стиральной машины", "для душевого поддона"]], "шт"],
+    ["kan", "Гофра для унитаза", "gofra|гофра|unitaz gofra|гофра унитаз|unitaz shlang", ["110"], [], "шт"],
+    ["kan", "Трап душевой", "trap|трап|dush trap|душевой трап|lotok|лоток|trapik", [], [["горизонтальный", "вертикальный", "линейный"]], "шт"],
+    ["kan", "Хомут для канализационной трубы", "kanal xomut|хомут канализация|xomut kanal", ["50", "110"], [], "шт"],
+    ["kan", "Труба ПВХ напорная", "pvx truba|пвх труба|pvc truba|pvc|пвх|напорная пвх|plastik truba", ["50", "63", "75", "90", "110", "160"], [], "м"],
+
+    // ---------- Газ ----------
+    ["gaz", "Шланг газовый", "gaz shlang|газ шланг|gazoviy shlang|газовый шланг|gaz podvodka|подводка газ|silfon gaz|сильфон", ["0,5 м", "0,8 м", "1 м", "1,5 м", "2 м", "3 м"], [['1/2"×1/2"', '1/2"×3/4"']], "шт"],
+    ["gaz", "Кран газовый", "gaz kran|газ кран|gazoviy kran|газовый кран|kran gaz", ['1/2"', '3/4"', '1"'], [RR], "шт"],
+    ["gaz", "Фильтр газовый", "gaz filtr|газ фильтр|gazoviy filtr|газовый фильтр", ['1/2"', '3/4"', '1"'], [], "шт"],
+    ["gaz", "Счётчик газа", "gaz schetchik|счётчик газа|gaz hisoblagich|газовый счётчик", [], [], "шт"],
+    ["gaz", "Редуктор газовый", "gaz reduktor|газ редуктор|gazoviy reduktor|газовый редуктор", [], [], "шт"],
+
+    // ---------- Вода ----------
+    ["suv", "Фильтр сетчатый (грубой очистки)", "filtr|фильтр|setchatiy|сетчатый|filtr gruboy|грубой очистки|kosoy filtr|косой фильтр|grязевик|грязевик", inch, [["прямой", "косой"]], "шт"],
+    ["suv", "Фильтр магистральный (колба)", "kolba|колба|magistralniy|магистральный|filtr kolba|фильтр колба", ['10"', '20"'], [["1/2\" подключение", "3/4\" подключение", "1\" подключение"]], "шт"],
+    ["suv", "Картридж для фильтра", "kartridj|картридж|kartrij|smenniy kartridj|сменный картридж", ['10"', '20"'], [], "шт"],
+    ["suv", "Фильтр магнитный (вода)", "magnit filtr|магнит фильтр|magnitniy filtr|магнитный фильтр|magnitli suv", inchS, [], "шт"],
+    ["suv", "Счётчик воды", "schetchik|счётчик|счетчик|suv hisoblagich|hisoblagich|vodomer|водомер", ['1/2"', '3/4"', '1"'], [["холодная", "горячая"]], "шт"],
+    ["suv", "Фильтр обратного осмоса", "osmos|осмос|obratniy osmos|обратный осмос|ichimlik filtr", [], [], "шт"],
+    ["suv", "Шланг гибкий (подводка воды)", "podvodka|подводка|gibkiy shlang|гибкий шланг|shlang|шланг|gibkaya podvodka|гибкая подводка|smesitel shlang", ["30 см", "40 см", "50 см", "60 см", "80 см", "100 см", "120 см", "150 см"], [['1/2"×1/2"', '1/2"×3/4"', 'М10×1/2"']], "шт"],
+
+    // ---------- Крепёж / изоляция / расходники ----------
+    ["mayda", "Хомут с резиной (металл)", "xomut|хомут|homut|metall xomut|металлический хомут|xomut rezina|хомут с резиной|qisqich", ['1/2"', '3/4"', '1"', '1 1/4"', '1 1/2"', '2"', "20", "25", "32", "40", "50", "63", "110"], [], "шт"],
+    ["mayda", "Шпилька резьбовая", "shpilka|шпилька|rezbovaya shpilka|резьбовая шпилька", ["М8", "М10", "М12"], [], "шт"],
+    ["mayda", "Дюбель", "dyubel|дюбель|dubel|дубель", ["6", "8", "10", "12"], [["пластиковый", "пороховой (монтажный)"]], "шт"],
+    ["mayda", "Анкер", "anker|анкер", ["М8", "М10", "М12"], [], "шт"],
+    ["mayda", "Саморез", "samorez|саморез|shurup|шуруп", [], [], "шт"],
+    ["mayda", "Изоляция для труб (трубка)", "izolyaciya|изоляция|teploizolyaciya|теплоизоляция|trubka|трубка|izolyatsion trubka|утеплитель трубы", ["15", "18", "20", "22", "25", "28", "32", "35", "40", "42", "50", "63"], [["6 мм", "9 мм", "13 мм", "20 мм"]], "м"],
+    ["mayda", "Лента армированная (скотч)", "lenta|лента|skotch|скотч|armirovannaya lenta|армированная лента|izolenta|изолента", [], [], "шт"],
+    ["mayda", "Лён сантехнический", "lyon|лён|len|лен|pakla|пакля|zigir", [], [], "шт"],
+    ["mayda", "Паста уплотнительная", "pasta|паста|uplotnitelnaya pasta|уплотнительная паста", [], [], "шт"],
+    ["mayda", "Фум-лента", "fum|фум|fum lenta|фум лента", [], [], "шт"],
+    ["mayda", "Нить уплотнительная", "nit|нить|uplotnitelnaya nit|уплотнительная нить|ip|ипка", [], [], "шт"],
+    ["mayda", "Герметик", "germetik|герметик|silikon|силикон", [], [], "шт"],
+    ["mayda", "Пена монтажная", "pena|пена|montajnaya pena|монтажная пена|kopik", [], [], "шт"],
+    ["mayda", "Прокладка", "prokladka|прокладка|rezinka|резинка|paronit|паронит|qistirma", inchS, [["резина", "паронит"]], "шт"],
+    ["mayda", "Клей ПВХ", "kley|клей|pvx kley|клей пвх", [], [], "шт"],
+
+    // ---------- Автоматика / электрика ----------
+    ["elek", "Термостат комнатный", "termostat|термостат|komnatniy termostat|комнатный термостат|termoregulyator|терморегулятор|xona termostat|programmator|программатор", [], [["проводной", "беспроводной", "Wi-Fi"]], "шт"],
+    ["elek", "Датчик температуры", "datchik|датчик|termodatchik|термодатчик|ulichniy datchik|уличный датчик", [], [["уличный", "погружной", "накладной"]], "шт"],
+    ["elek", "Кабель", "kabel|кабель|provod|провод|sim", ["2×1,5", "3×1,5", "3×2,5", "3×4", "3×6"], [], "м"],
+    ["elek", "Автомат (выключатель)", "avtomat|автомат|vyklyuchatel|выключатель|uzo|узо", ["10 А", "16 А", "20 А", "25 А", "32 А", "40 А", "63 А"], [["1P", "2P", "3P"]], "шт"],
+    ["elek", "Щит электрический", "shchit|щит|elektr shchit|электрощит|boks|бокс", [], [], "шт"],
+    ["elek", "Гофра для кабеля", "gofra kabel|гофра для кабеля|kabel gofra|gofrotruba|гофротруба", ["16", "20", "25"], [], "м"],
+    ["elek", "Розетка", "rozetka|розетка", [], [], "шт"],
+
+    // ---------- Инструмент ----------
+    ["asbob", "Паяльник для ППР (сварочный аппарат)", "payalnik|паяльник|svarochniy apparat|сварочный аппарат|utyug|утюг|kavsharlash", [], [], "шт"],
+    ["asbob", "Ножницы для труб", "nojnicy|ножницы|truborez|труборез|qaychi", [], [], "шт"],
+    ["asbob", "Пресс-клещи", "press kleshi|пресс клещи|kleshi|клещи|press instrument", [], [], "шт"],
+    ["asbob", "Диск отрезной / алмазный", "disk|диск|otreznoy|отрезной|almazniy|алмазный|kesish disk", ["125", "180", "230"], [], "шт"],
+    ["asbob", "Сверло / коронка", "sverlo|сверло|koronka|коронка|parma|бур|bur", ["6", "8", "10", "12", "14", "16", "20", "25", "32", "40", "50", "68"], [], "шт"],
+  ];
+  // variantlarning sinonimlari (usta shunday yozsa ham tanib olinadi)
+  var VAR_ALIAS = {
+    "ВР": "вр вн внут внутр внутренняя внутренний ички ichki мама mama",
+    "НР": "нр нар наруж наружная наружный ташки tashqi папа papa",
+    "ВР/ВР": "в/в вн/вн вр/вр вв",
+    "ВР/НР": "в/н вн/нар вр/нр вн/нр вн",
+    "НР/НР": "н/н нар/нар нр/нр нн",
+    "НР/ВР": "н/в нар/вн нр/вр",
+    "ВР/ВР/ВР": "в/в/в вн/вн/вн",
+    "НР/НР/НР": "н/н/н нар/нар/нар",
+    "бабочка": "бабочка babochka капалак kapalak",
+    "рычаг": "рычаг richag ручка ruchka",
+    "угловой": "угловой uglovoy угол burchak",
+    "прямой": "прямой pryamoy прямая togri",
+    "угловая": "угловая uglovaya", "прямая": "прямая pryamaya",
+    "алюминий": "алюминий alyumin aluminiy фольга folga",
+    "стекловолокно": "стекловолокно stekla стекло fiber",
+    "биметалл": "биметалл bimetall bimetal",
+    "двухконтурный": "двухконтурный ikki konturli 2х контурный двухконтур",
+    "одноконтурный": "одноконтурный bir konturli одноконтур",
+    "конденсационный": "конденсационный kondensatsion кондензат",
+    "горячая": "горячая issiq гвс", "холодная": "холодная sovuq хвс",
+    "тип 11": "11 тип11", "тип 22": "22 тип22", "тип 33": "33 тип33",
+    "боковое подключение": "боковое bokovoe", "нижнее подключение": "нижнее nijnee",
+    "90°": "90 90гр", "45°": "45 45гр", "87°": "87 87гр 90",
+    "Wi-Fi": "wifi вайфай wi-fi", "беспроводной": "беспроводной simsiz радио",
+  };
+  return { CATS: CATS, ITEMS: ITEMS, VAR_ALIAS: VAR_ALIAS };
+})();
+if (typeof module !== "undefined") module.exports = VOCAB;
+</script><script>/* Usta ro'yxati — tanib olish: usta yozgan qatordan tovar turi, variant, o'lcham va miqdorni topadi.
+   Xato yozilgan so'z (1–2 harf), lotin/kirill, o'zbekcha so'zlar — hammasi lug'atdagi umumiy nomga keltiriladi. */
+var ENGINE = (function (V) {
+  // ---------- matnni tekislash ----------
+  var LAT1 = { a: "а", b: "б", c: "ц", d: "д", e: "е", f: "ф", g: "г", h: "х", i: "и", j: "ж", k: "к", l: "л", m: "м", n: "н", o: "о", p: "п", q: "к", r: "р", s: "с", t: "т", u: "у", v: "в", w: "в", x: "х", z: "з" };
+  var VOW = /[aeiouаеёиоуыэюя]/;
+  function translit(w) {
+    w = w.replace(/o['ʻ`’]/g, "о").replace(/g['ʻ`’]/g, "г").replace(/['ʻ`’]/g, "");
+    var out = "", i = 0;
+    while (i < w.length) {
+      var two = w.substr(i, 2), ch = w[i];
+      var map2 = { sh: "ш", ch: "ч", zh: "ж", kh: "х", ts: "ц", yo: "е", yu: "ю", ya: "я", ye: "е" };
+      if (map2[two] && !(two === "ts" && i > 0 && !VOW.test(w[i - 1]) && false)) { out += map2[two]; i += 2; continue; }
+      if (ch === "y") { out += i > 0 && VOW.test(w[i - 1]) ? "й" : "ы"; i++; continue; }
+      out += LAT1[ch] || ch; i++;
+    }
+    return out;
+  }
+  var LOOK = { a: "а", b: "в", c: "с", e: "е", h: "н", k: "к", m: "м", o: "о", p: "р", t: "т", x: "х", y: "у" };
+  function word(w) {
+    w = w.replace(/ё/g, "е");
+    if (/[a-z]/.test(w) && /[а-я]/.test(w)) w = w.replace(/[a-z]/g, function (c) { return LOOK[c] || c; });
+    else if (/[a-z]/.test(w)) w = translit(w);
+    return w.replace(/[ьъ]/g, "");
+  }
+  function base(s) {
+    return String(s == null ? "" : s).toLowerCase().replace(/ё/g, "е")
+      .replace(/[″”“„«»]|''/g, '"').replace(/(\d)\s*(?:x|х|\*|×)\s*(?=\d)/g, "$1×")
+      .replace(/(\d)\s+на\s+(?=\d)/g, "$1×");
+  }
+  var STOP = { "для": 1, "с": 1, "со": 1, "и": 1, "на": 1, "из": 1, "под": 1, "kerak": 1, "керак": 1, "нужно": 1, "надо": 1, "ham": 1, "хам": 1, "va": 1, "ва": 1, "bilan": 1, "билан": 1, "uchun": 1, "учун": 1, "кк": 1, "нужен": 1, "нужна": 1, "нужны": 1, "kerakli": 1, "керакли": 1, "пожалуйста": 1, "iltimos": 1, "илтимос": 1, "yana": 1, "яна": 1, "еще": 1, "тоже": 1, "шт": 1, "штук": 1, "ta": 1, "та": 1, "dona": 1, "дона": 1, "kotelga": 1 };
+  // ko'p ishlatiladigan tovarlar teng holatda oldinda chiqadi
+  var POP = { "Тройник ППР": 4, "Труба ППР PN20 (горячая вода)": 4, "Труба ППР PN25 армированная": 3, "Отвод ППР (угол)": 4, "Муфта ППР": 4, "Кран шаровой": 4, "Радиатор панельный": 3, "Коллектор распределительный": 3, "Американка ППР": 3, "Адаптер ППР с резьбой (муфта комбинированная)": 3, "Котёл газовый настенный": 3, "Насос циркуляционный": 3, "Бак расширительный (отопление)": 3, "Труба металлопластиковая": 2, "Заглушка ППР": 2, "Клипса ППР (крепление трубы)": 2, "Муфта ППР переходная": 2 };
+
+  // ---------- o'lcham va miqdor ----------
+  var UNIT_W = [
+    [/^(шт|штук|штуки|штука|ta|та|dona|дона|дан|sht|pcs)\.?$/, ""],
+    [/^(м|м\.|метр|метра|метров|metr|m|pm|п\.?м|пог)$/, "м"],
+    [/^(комп|компл|комплект|komplekt|kompl|komp|набор)\.?$/, "комп"],
+    [/^(секц|секция|секции|секций|seksiya|sekciya|sektsiya|sek)\.?$/, "секц"],
+    [/^(м2|м²|кв\.?м|kv\.?m)$/, "м²"],
+    [/^(рулон|rulon|пачка|pachka|уп|упак|кг|kg)\.?$/, "*"],
+  ];
+  // raqamdan keyingi o'lcham birligi: 24 kvt, 50 l, 15 mm, 6 bar, 5 vixod
+  function SUF(t) {
+    t = t.replace(/\.$/, "");
+    if (/^(квт|kvt|kw|кв|kvt)$/.test(t)) return "кВт";
+    if (/^(л|l|литр|litr|lit)$/.test(t)) return "л";
+    if (/^(мм|mm)$/.test(t)) return "мм";
+    if (/^(см|sm|cm)$/.test(t)) return "см";
+    if (/^(бар|bar)$/.test(t)) return "бар";
+    if (/^(ва|va)$/.test(t)) return "ВА";
+    if (/^(а|a|amper|ампер)$/.test(t)) return "А";
+    if (/^(вых|выход|выхода|выходов|vixod|vыход|vihod|chiqish|chiqishli|чикиш)$/.test(t)) return "вых.";
+    if (/^(гр|градус|gradus|°)$/.test(t)) return "°";
+    return "";
+  }
+  function unitOf(t) { for (var i = 0; i < UNIT_W.length; i++) if (UNIT_W[i][0].test(t)) return UNIT_W[i][1] === "*" ? t.replace(/\.$/, "") : UNIT_W[i][1]; return null; }
+  function sizeKey(s) {
+    return String(s).toLowerCase().replace(/ё/g, "е").replace(/[″”"]/g, "").replace(/^тип\s*/, "").replace(/\s*(квт|л|мм|см|м|вых\.?|ва|а|бар|°)$/g, "")
+      .replace(/\s+/g, " ").replace(/,/g, ".").replace(/х|x|\*/g, "×").trim();
+  }
+  // "1.1/4", "1-1/4", "1 1/4" → "1 1/4"
+  function fixFrac(s) { return s.replace(/(^|[^\d\/])(\d)\s*[\.\-,]?\s*(1\/4|1\/2|3\/4)(?!\d)/g, "$1$2 $3"); }
+  // qatordan: { words: [...], sizes: [...], qty, unit }
+  function parse(line) {
+    var s = fixFrac(base(line));
+    s = s.replace(/(\d)\s*(ta|та|dona|дона|шт|штук|sht|m|м|метр|metr|комп|компл|kompl|секц)(?![a-zа-я])/g, "$1 $2");
+    s = s.replace(/(\d)\s*(?:дюйм|duym|dyuym|дм)/g, '$1"');
+    // qisman so'z oxirida raqam: "dn50", "ду50", "d20", "ø20"
+    s = s.replace(/(^|\s)(?:dn|ду|ду\.|d|ф|ø)\s?(\d{2,3})(?=\s|$)/g, function (m, a, n) { return a + (Number(n) >= 50 && /dn|ду/.test(m) ? "dn" + n : n); });
+    var raw = s.split(/[\s,;:=]+|(?<=[^\d])-(?=\d)|(?<=\d)-(?=\D)|—|–/).filter(Boolean);
+    var toks = [];
+    for (var i = 0; i < raw.length; i++) {
+      var t = raw[i];
+      if (/^\d$/.test(t) && /^(1\/4|1\/2|3\/4)"?$/.test(raw[i + 1] || "")) { toks.push(t + " " + raw[i + 1]); i++; continue; }
+      toks.push(t);
+    }
+    var words = [], sizes = [], qty = null, unit = null, nums = [];
+    for (var j = 0; j < toks.length; j++) {
+      var t2 = toks[j].replace(/^[(\[]+|[)\].]+$/g, "");
+      if (!t2) continue;
+      var u = unitOf(t2);
+      if (u !== null) {
+        var prev = nums.length ? nums[nums.length - 1] : null;
+        if (prev && prev.j === j - 1 && /^\d+([.,]\d+)?$/.test(prev.v)) { qty = Number(prev.v.replace(",", ".")); unit = u || unit; nums.pop(); sizes.pop(); }
+        else if (u) unit = u;
+        continue;
+      }
+      if (/^x\d+$|^×\d+$/.test(t2) && j === toks.length - 1) { qty = Number(t2.slice(1)); continue; }
+      var su = SUF(t2);
+      if (su && nums.length && nums[nums.length - 1].j === j - 1 && /^\d+([.,]\d+)?$/.test(nums[nums.length - 1].v)) {
+        var nv = nums[nums.length - 1].v.replace(".", ",") + " " + su; nums[nums.length - 1].v = nv; sizes[sizes.length - 1] = nv; continue;
+      }
+      if (/\d/.test(t2) && /^[\d\/×".,\s-]+$|^dn\d+$|^м\d+$|^\d+-\d+$/.test(t2)) {
+        var v = t2.replace(/^м(\d+)$/, "М$1").replace(/^dn/, "DN");
+        sizes.push(v); nums.push({ v: v, j: j });
+        continue;
+      }
+      if (/^\d+([.,]\d+)?(мм|mm|см|sm|cm|л|l|квт|kvt|kw|кв|ва|va|бар|bar|а|a|вых|vixod|chiqish|гр)\.?$/.test(t2)) {
+        var n = t2.match(/^\d+([.,]\d+)?/)[0], rest = t2.slice(n.length).replace(/\.$/, "");
+        var sv = n + " " + (SUF(rest) || rest); sizes.push(sv); nums.push({ v: sv, j: j });
+        continue;
+      }
+      var w = word(t2.replace(/[^a-zа-я0-9\/'ʻ`’-]/g, ""));
+      if (w && !STOP[w]) words.push(w);
+    }
+    return { words: words, sizes: sizes, qty: qty, unit: unit };
+  }
+
+  // ---------- so'zlarni solishtirish ----------
+  function dl(a, b, max) {
+    if (Math.abs(a.length - b.length) > max) return max + 1;
+    var d = [], i, j;
+    for (i = 0; i <= a.length; i++) { d[i] = [i]; }
+    for (j = 0; j <= b.length; j++) d[0][j] = j;
+    for (i = 1; i <= a.length; i++) {
+      var rowMin = 1e9;
+      for (j = 1; j <= b.length; j++) {
+        var c = a[i - 1] === b[j - 1] ? 0 : 1;
+        d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + c);
+        if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+        if (d[i][j] < rowMin) rowMin = d[i][j];
+      }
+      if (rowMin > max) return max + 1;
+    }
+    return d[a.length][b.length];
+  }
+  function sim(w, a, last) {
+    if (w === a) return 1;
+    if (w.length >= 2 && a.indexOf(w) === 0) return (last ? 0.9 : 0.8) + 0.1 * (w.length / a.length);
+    if (a.length >= 4 && w.indexOf(a) === 0 && w.length - a.length <= 3) return 0.85;
+    if (w.length >= 4) {
+      var d = dl(w, a, 2);
+      if (d === 1) return 0.78;
+      if (d === 2 && w.length >= 7) return 0.62;
+      if (last && a.length > w.length && dl(w, a.slice(0, w.length), 1) <= 1) return 0.66;
+    }
+    return 0;
+  }
+  // ---------- indeks ----------
+  var ITEMS = V.ITEMS.map(function (r, idx) {
+    var al = [r[1].replace(/[()\/,]/g, " ")].concat(r[2].split("|"));
+    var aliases = al.map(function (a) { return base(a).split(/[\s\-]+/).map(word).filter(function (x) { return x && !STOP[x] && !/^\d/.test(x); }); }).filter(function (x) { return x.length; });
+    var vars = (r[4] || []).map(function (g) {
+      return g.map(function (opt) {
+        var keys = [opt].concat(((V.VAR_ALIAS[opt] || "") + "").split(" ")).filter(Boolean).map(function (k) { return word(base(k).replace(/[\s\-]+/g, "/")); });
+        if (/\//.test(opt)) keys.push(word(base(opt).replace(/\//g, "")));
+        base(opt).split(/[\s()]+/).forEach(function (w0) { var w1 = word(w0); if (w1.length >= 4 && !STOP[w1]) keys.push(w1); });
+        var num = /\d/.test(opt) ? sizeKey(opt) : "", un = /\d/.test(opt) ? opt.replace(/[\d\s,.\/×-]/g, "") : "";
+        return { opt: opt, keys: keys, num: num, unit: un, bare: /^(|°|тип|"+)$/.test(un) };
+      });
+    });
+    var sizes = (r[3] || []).map(function (s) { return { s: s, k: sizeKey(s) }; });
+    return { i: idx, cat: r[0], name: r[1], sizes: sizes, vars: vars, unit: r[5] || "шт", aliases: aliases };
+  });
+  var DICT = {}; // hamma so'zlar (avtomatik davom ettirish uchun)
+  // faqat tovar nomlaridagi so'zlar (ko'rsatishga yaroqli ruscha so'zlar)
+  var SHOW = {}; // tekislangan so'z → ko'rsatiladigan shakli (ниппел → ниппель)
+  ITEMS.forEach(function (it) { base(it.name).replace(/[()\/,]/g, " ").split(/[\s\-]+/).forEach(function (w0) { var w = word(w0); if (w.length >= 4 && /^[а-я]+$/.test(w)) { DICT[w] = (DICT[w] || 0) + 1 + (POP[it.name] || 0); SHOW[w] = w0; } }); });
+
+  function textScore(it, words) {
+    if (!words.length) return 0;
+    var best = 0, bestCov = 0;
+    for (var k = 0; k < it.aliases.length; k++) {
+      var A = it.aliases[k], used = {}, sum = 0, miss = 0;
+      for (var q = 0; q < words.length; q++) {
+        var bw = 0, bj = -1;
+        for (var j = 0; j < A.length; j++) { var v = sim(words[q], A[j], q === words.length - 1); if (v > bw) { bw = v; bj = j; } }
+        if (bj >= 0) used[bj] = 1; else miss++;
+        sum += bw;
+      }
+      var cov = Object.keys(used).length / A.length;
+      var hitN = words.length - miss; if (!hitN) continue;
+      var sc = (sum / hitN) * (0.82 + 0.18 * cov) - 0.14 * miss;
+      if (sc > best || (sc === best && cov > bestCov)) { best = sc; bestCov = cov; }
+    }
+    return best;
+  }
+  // variantlar: so'zlar ichidan topish (1–3 so'zli bo'lak)
+  function takeVars(it, words) {
+    var chosen = [], left = words.slice();
+    it.vars.forEach(function (g, gi) {
+      for (var len = 3; len >= 1; len--) {
+        for (var s = 0; s + len <= left.length; s++) {
+          var a = left.slice(s, s + len), k1 = a.join("/"), k2 = a.join("");
+          for (var o = 0; o < g.length; o++) {
+            if (g[o].keys.indexOf(k1) >= 0 || g[o].keys.indexOf(k2) >= 0) { chosen[gi] = g[o].opt; left.splice(s, len); return; }
+            if (len === 1 && k1.length >= 5 && g[o].keys.some(function (k) { return k.length >= 5 && dl(k1, k, k1.length >= 9 ? 2 : 1) <= (k1.length >= 9 ? 2 : 1); })) { chosen[gi] = g[o].opt; left.splice(s, len); return; }
+          }
+        }
+      }
+    });
+    return { chosen: chosen, left: left };
+  }
+  // o'lcham: qatordagi raqamlardan tovarning o'lchamlariga mosini topish
+  function takeSize(it, sizes, qtyKnown) {
+    var res = { size: "", used: 0, matched: false, extraVars: [] };
+    if (!sizes.length) return res;
+    var keys = sizes.map(sizeKey);
+    var tries = [];
+    for (var len = Math.min(3, keys.length); len >= 1; len--) for (var s = 0; s + len <= keys.length; s++) { tries.push({ s: s, len: len, k: keys.slice(s, s + len).join("×") }); if (len > 1) tries.push({ s: s, len: len, k: keys.slice(s, s + len).join(" ") }); }
+    for (var t = 0; t < tries.length; t++) {
+      for (var z = 0; z < it.sizes.length; z++) if (it.sizes[z].k === tries[t].k) { res.size = it.sizes[z].s; res.used = tries[t]; res.matched = true; return res; }
+    }
+    // bitta raqam o'lchamning boshi bo'lsa va bunday o'lcham bitta bo'lsa: 16 → 16×2, 20 → 20×1/2"
+    for (var u = 0; u < keys.length; u++) {
+      var hit = it.sizes.filter(function (z) { return z.k.indexOf(keys[u] + "×") === 0 || z.k.indexOf(keys[u] + " ") === 0; });
+      if (hit.length === 1) { res.size = hit[0].s; res.used = { s: u, len: 1 }; res.matched = true; return res; }
+    }
+    // o'lchamlari bor tovar, mos kelmadi: yozilganini o'zgartirmasdan qoldiramiz
+    return res;
+  }
+  function prettySize(v) {
+    return v.replace(/(^|×)(\d+ )?(1\/4|1\/2|3\/4|3\/8)(?!")/g, '$1$2$3"').replace(/(^|×)(\d)(?=×|$)/g, function (m, a, d) { return a + d; });
+  }
+  // asosiy: qatorni tushunish → eng yaxshi variantlar
+  function suggest(line, limit) {
+    var P = parse(line);
+    var out = [];
+    ITEMS.forEach(function (it) {
+      var tv = takeVars(it, P.words);
+      var ts = textScore(it, tv.left.length ? tv.left : P.words);
+      if (ts < 0.45) return;
+      var sz = takeSize(it, P.sizes);
+      var score = ts;
+      if (P.sizes.length && it.sizes.length) score += sz.matched ? 0.12 : -0.12;
+      score += tv.chosen.filter(Boolean).length * 0.03;
+      score += (POP[it.name] || 0) * 0.008 - it.i * 0.00005; // teng bo'lsa — ko'p ishlatiladigani, keyin lug'atdagi tartib
+      // qolgan raqamlar: miqdor yoki o'lcham
+      var restSizes = P.sizes.slice();
+      if (sz.matched) restSizes.splice(sz.used.s, sz.used.len);
+      var qty = P.qty, size = sz.size, unit = P.unit || it.unit, vars = tv.chosen.slice();
+      // raqamli variant: 45 → 45°, 15 мм, 5 вых., тип 22
+      it.vars.forEach(function (g, gi) {
+        if (vars[gi]) return;
+        for (var r = 0; r < restSizes.length; r++) {
+          var tk = sizeKey(restSizes[r]), tu = String(restSizes[r]).replace(/[\d\s,.\/×"-]/g, "");
+          var o = g.find(function (x) { return x.num && x.num === tk && (tu ? tu === x.unit : x.bare); });
+          if (o) { vars[gi] = o.opt; restSizes.splice(r, 1); score += 0.03; return; }
+        }
+      });
+      // "1.5 m" shlang: miqdor emas, uzunlik (tovar donada sotiladi)
+      if (qty != null && P.unit && P.unit !== it.unit) {
+        var qk = sizeKey(String(qty)), zz = it.sizes.find(function (z) { return z.k === qk; });
+        if (!size && zz) { size = zz.s; qty = null; unit = it.unit; }
+        else it.vars.forEach(function (g, gi) { if (qty == null || vars[gi]) return; var o = g.find(function (x) { return x.num === qk && x.unit === P.unit; }); if (o) { vars[gi] = o.opt; qty = null; unit = it.unit; } });
+      }
+      if (qty == null && restSizes.length && /^\d+([.,]\d+)?$/.test(restSizes[restSizes.length - 1]) && (sz.matched || !it.sizes.length || restSizes.length > 1)) qty = Number(restSizes.pop().replace(",", "."));
+      if (!size && restSizes.length) { size = prettySize(restSizes.join("×")); }
+      out.push({ it: it, score: score, vars: vars, size: size, sizeOk: !!sz.matched, qty: qty, unit: unit });
+    });
+    out.sort(function (a, b) { return b.score - a.score; });
+    // bir xil turdagi takrorlarni olib tashlash
+    return out.slice(0, limit || 6);
+  }
+  // qatorni ko'rsatish matni
+  function lineText(r) {
+    var parts = [r.name || r.it.name];
+    (r.vars || []).forEach(function (v) { if (v) parts.push(v); });
+    if (r.size) parts.push(r.size);
+    return parts.join(" ");
+  }
+  // oxirgi so'zni davom ettirish (telefon klaviaturasidagi kabi)
+  function complete(line) {
+    var m = String(line).match(/([^\s\d]+)$/);
+    if (!m || m[1].length < 2 || unitOf(m[1].toLowerCase()) !== null || SUF(m[1].toLowerCase())) return [];
+    var w = word(base(m[1])), res = [];
+    if (STOP[w]) return [];
+    Object.keys(DICT).forEach(function (d) { if (d !== w && d.indexOf(w) === 0 && d.length > w.length + 1) res.push([d, DICT[d]]); });
+    res.sort(function (a, b) { return b[1] - a[1] || a[0].length - b[0].length; });
+    return res.slice(0, 3).map(function (x) { return SHOW[x[0]] || x[0]; });
+  }
+  function parseQty(v) { var n = Number(String(v).replace(",", ".").replace(/[^\d.]/g, "")); return n > 0 ? n : 0; }
+  return { suggest: suggest, parse: parse, lineText: lineText, complete: complete, items: ITEMS, cats: V.CATS, sizeKey: sizeKey, parseQty: parseQty, word: word };
+})(VOCAB);
+if (typeof module !== "undefined") module.exports = ENGINE;
+</script><script>var I18N = {
+  uz: {
+    title: "Material ro'yxati", sub: "Thermo Engineering ustalari uchun",
+    who: "Kim yuboryapti", name: "Ismingiz", phone: "Telefon raqamingiz", edit: "o'zgartirish",
+    object: "Obyekt yoki mijoz (ixtiyoriy)", objectPh: "Masalan: Yunusobod, Karimov uyi",
+    note: "Izoh (ixtiyoriy)", notePh: "Masalan: ertaga ertalab kerak",
+    emptyT: "Ro'yxat hozircha bo'sh", emptyD: "Pastda tovarni yozing — dastur o'zi davom ettiradi va xatoni to'g'irlaydi. Masalan: troynik 25 10 ta",
+    inputPh: "Tovar yozing: kran 1/2 5 ta", add: "Qo'shish", catalog: "Katalog", paste: "Matnni joylash",
+    size: "O'lcham", otherSize: "boshqa o'lcham", qty: "Miqdori", save: "Saqlash", del: "O'chirish", cancel: "Bekor qilish",
+    unknown: "Tushunarsiz — tanlang yoki shunday qoldiring", pick: "Tanlash", keep: "Shunday qoldirish",
+    send: "Yuborish", sending: "Yuborilmoqda…", items: "ta tovar",
+    needWho: "Ism va telefon raqamini yozing", needLines: "Ro'yxatga kamida bitta tovar qo'shing", needQty: "Miqdori yozilmagan qatorlar bor",
+    sentT: "Ro'yxat yuborildi", sentD: "Raqami", share: "Telegramga ham yuborish", copy: "Nusxa olish", copied: "Nusxa olindi",
+    newList: "Yangi ro'yxat", history: "Oldingi ro'yxatlarim", open: "Ochish", noHistory: "Hozircha yo'q",
+    err: "Yuborib bo'lmadi. Internetni tekshirib, qayta bosing.", errRate: "Juda ko'p ro'yxat yuborildi. Birozdan keyin qayta urinib ko'ring.",
+    errPhone: "Telefon raqami noto'g'ri", pasteT: "Ro'yxatni joylang", pasteD: "Telegramdagi ro'yxatingizni nusxalab shu yerga joylang — har bir qator alohida tovar bo'ladi.",
+    pasteBtn: "Ro'yxatga qo'shish", back: "Orqaga", search: "Qidirish", clear: "Ro'yxatni tozalash", clearQ: "Ro'yxat butunlay o'chirilsinmi?",
+    yes: "Ha, o'chirish", txtList: "Ro'yxat", txtUsta: "Usta", txtObj: "Obyekt", txtNote: "Izoh", recognized: "tanildi", pasted: "{n} ta qator qo'shildi, {k} tasi tanildi",
+  },
+  ru: {
+    title: "Список материалов", sub: "Для мастеров Thermo Engineering",
+    who: "Кто отправляет", name: "Ваше имя", phone: "Ваш телефон", edit: "изменить",
+    object: "Объект или клиент (необязательно)", objectPh: "Например: Юнусабад, дом Каримова",
+    note: "Комментарий (необязательно)", notePh: "Например: нужно завтра утром",
+    emptyT: "Список пока пуст", emptyD: "Пишите товар внизу — программа сама подскажет и исправит ошибку. Например: тройник 25 10 шт",
+    inputPh: "Напишите товар: кран 1/2 5 шт", add: "Добавить", catalog: "Каталог", paste: "Вставить текст",
+    size: "Размер", otherSize: "другой размер", qty: "Количество", save: "Сохранить", del: "Удалить", cancel: "Отмена",
+    unknown: "Не распознано — выберите или оставьте так", pick: "Выбрать", keep: "Оставить так",
+    send: "Отправить", sending: "Отправка…", items: "поз.",
+    needWho: "Напишите имя и телефон", needLines: "Добавьте в список хотя бы один товар", needQty: "Есть строки без количества",
+    sentT: "Список отправлен", sentD: "Номер", share: "Отправить и в Telegram", copy: "Скопировать", copied: "Скопировано",
+    newList: "Новый список", history: "Мои прошлые списки", open: "Открыть", noHistory: "Пока нет",
+    err: "Не удалось отправить. Проверьте интернет и нажмите ещё раз.", errRate: "Слишком много списков. Попробуйте чуть позже.",
+    errPhone: "Неверный номер телефона", pasteT: "Вставьте список", pasteD: "Скопируйте свой список из Telegram и вставьте сюда — каждая строка станет отдельным товаром.",
+    pasteBtn: "Добавить в список", back: "Назад", search: "Поиск", clear: "Очистить список", clearQ: "Удалить весь список?",
+    yes: "Да, удалить", txtList: "Список", txtUsta: "Мастер", txtObj: "Объект", txtNote: "Комментарий", recognized: "распознано", pasted: "Добавлено строк: {n}, распознано: {k}",
+  },
+};
+</script><script>/* Usta ro'yxati — sahifa. Ma'lumot: localStorage (qoralama, ism/telefon, oldingi ro'yxatlar), yuborish — usta_submit (Supabase). */
+(function () {
+  var CFG = window.USTA_CFG || {};
+  var E = ENGINE;
+  var K = { draft: "usta.v1.draft", who: "usta.v1.who", lang: "usta.v1.lang", hist: "usta.v1.hist" };
+  var load = function (k, d) { try { var v = JSON.parse(localStorage.getItem(k) || "null"); return v == null ? d : v; } catch (e) { return d; } };
+  var store = function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+  var draft = load(K.draft, {});
+  var S = {
+    lang: load(K.lang, (navigator.language || "").indexOf("ru") === 0 ? "ru" : "uz"),
+    who: load(K.who, { name: "", phone: "" }), editWho: false,
+    object: draft.object || "", note: draft.note || "", lines: Array.isArray(draft.lines) ? draft.lines : [],
+    hist: load(K.hist, []), fresh: null, sending: false,
+  };
+  if (!S.who.name || !S.who.phone) S.editWho = true;
+  var T = function (k) { return (I18N[S.lang] || I18N.uz)[k] || k; };
+  var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
+  var $ = function (id) { return document.getElementById(id); };
+  var uid = function () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); };
+  var fmtQ = function (n) { return n == null || n === "" ? "?" : String(Math.round(Number(n) * 1000) / 1000).replace(".", ","); };
+  var save = function () { store(K.draft, { object: S.object, note: S.note, lines: S.lines }); };
+  var digits = function (p) { return String(p || "").replace(/\D/g, ""); };
+  function toast(msg) {
+    var t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t);
+    setTimeout(function () { t.remove(); }, 2200);
+  }
+  function lineLabel(l) { return [l.name].concat(l.vars || []).filter(Boolean).join(" ") + (l.size ? " " + l.size : ""); }
+
+  // ---------- skelet ----------
+  function shell() {
+    document.documentElement.lang = S.lang;
+    document.title = T("title") + " — Thermo";
+    $("app").innerHTML =
+      '<div class="wrap">' +
+      '<div class="top"><div class="logo">T</div><div><h1>' + esc(T("title")) + '</h1><div class="s">' + esc(T("sub")) + '</div></div>' +
+      '<div class="lang"><button data-l="uz" class="' + (S.lang === "uz" ? "on" : "") + '">UZ</button><button data-l="ru" class="' + (S.lang === "ru" ? "on" : "") + '">RU</button></div></div>' +
+      '<div class="card" id="who"></div>' +
+      '<div class="card"><div class="lbl">' + esc(T("object")) + '</div><input class="inp" id="obj" placeholder="' + esc(T("objectPh")) + '" value="' + esc(S.object) + '" maxlength="200"></div>' +
+      '<div class="tools"><button class="btn" id="bCat">☰ ' + esc(T("catalog")) + '</button><button class="btn" id="bPaste">⧉ ' + esc(T("paste")) + '</button></div>' +
+      '<div id="list"></div>' +
+      '<div class="card" id="noteBox"><div class="lbl">' + esc(T("note")) + '</div><input class="inp" id="note" placeholder="' + esc(T("notePh")) + '" value="' + esc(S.note) + '" maxlength="1000"></div>' +
+      '<div class="row" style="justify-content:space-between;margin-top:6px"><button class="link" id="bHist" style="margin-left:0">↺ ' + esc(T("history")) + '</button><button class="link" id="bClear">' + esc(T("clear")) + '</button></div>' +
+      '</div>' +
+      '<div class="dock"><div class="in"><div class="sug" id="sug"></div>' +
+      '<div class="compose"><input class="inp" id="q" placeholder="' + esc(T("inputPh")) + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"><button class="btn pri" id="bAdd" aria-label="' + esc(T("add")) + '">+</button></div>' +
+      '<div class="sendbar"><button class="btn pri big" id="bSend"></button></div></div></div>';
+    document.querySelectorAll(".lang button").forEach(function (b) { b.onclick = function () { S.lang = b.dataset.l; store(K.lang, S.lang); shell(); }; });
+    $("obj").oninput = function (e) { S.object = e.target.value; save(); };
+    $("note").oninput = function (e) { S.note = e.target.value; save(); };
+    $("bCat").onclick = function () { openCatalog(); };
+    $("bPaste").onclick = openPaste;
+    $("bHist").onclick = openHistory;
+    $("bClear").onclick = function () { if (!S.lines.length) return; confirmSheet(T("clearQ"), function () { S.lines = []; save(); renderList(); }); };
+    var q = $("q");
+    q.oninput = renderSug;
+    q.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); acceptTop(); } };
+    q.onpaste = function (e) {
+      var txt = (e.clipboardData || window.clipboardData).getData("text") || "";
+      if (/\n/.test(txt.trim())) { e.preventDefault(); addMany(txt); }
+    };
+    $("bAdd").onclick = acceptTop;
+    $("bSend").onclick = send;
+    renderWho(); renderList(); renderSug();
+  }
+
+  function renderWho() {
+    var w = $("who");
+    if (!S.editWho) {
+      w.innerHTML = '<div class="who"><div><div class="lbl" style="margin:0">' + esc(T("who")) + '</div><b>' + esc(S.who.name) + '</b> <span class="ph">' + esc(S.who.phone) + '</span></div><button class="link" id="bWho">' + esc(T("edit")) + '</button></div>';
+      $("bWho").onclick = function () { S.editWho = true; renderWho(); };
+      return;
+    }
+    w.innerHTML = '<div class="lbl">' + esc(T("who")) + '</div><div class="grid2">' +
+      '<input class="inp" id="wName" placeholder="' + esc(T("name")) + '" value="' + esc(S.who.name) + '" maxlength="80" autocomplete="name">' +
+      '<input class="inp" id="wPhone" type="tel" inputmode="tel" placeholder="+998 90 123 45 67" value="' + esc(S.who.phone) + '" maxlength="30" autocomplete="tel"></div>';
+    $("wName").oninput = function (e) { S.who.name = e.target.value; store(K.who, S.who); };
+    $("wPhone").oninput = function (e) { S.who.phone = e.target.value; store(K.who, S.who); };
+  }
+
+  // ---------- ro'yxat ----------
+  function renderList() {
+    var L = $("list");
+    if (!S.lines.length) {
+      L.innerHTML = '<div class="card empty"><b>' + esc(T("emptyT")) + '</b>' + esc(T("emptyD")) + '</div>';
+    } else {
+      L.innerHTML = S.lines.map(function (l, i) {
+        var chips = (l.vars || []).filter(Boolean).map(function (v) { return '<span class="tag">' + esc(v) + '</span>'; }).join("") + (l.size ? '<span class="tag sz">' + esc(l.size) + '</span>' : "");
+        if (!l.known) chips = '<span class="tag w">? ' + esc(T("unknown")) + '</span>';
+        return '<div class="ln' + (l.known ? "" : " unk") + (S.fresh === l.id ? " fresh" : "") + '" data-id="' + l.id + '"><div class="n">' + (i + 1) + '</div>' +
+          '<div class="t" data-act="edit"><div class="nm">' + esc(l.name) + '</div><div class="ch">' + chips + '</div></div>' +
+          '<div class="qty' + (l.qty ? "" : " none") + '"><button data-act="minus">−</button><div class="v" data-act="edit">' + fmtQ(l.qty) + '<small>' + esc(l.unit || "") + '</small></div><button data-act="plus">+</button></div></div>';
+      }).join("");
+      L.querySelectorAll(".ln").forEach(function (el) {
+        el.onclick = function (e) {
+          var act = e.target.closest("[data-act]"); if (!act) return;
+          var l = S.lines.find(function (x) { return x.id === el.dataset.id; }); if (!l) return;
+          var a = act.dataset.act;
+          if (a === "edit") return openPicker(l, false);
+          var st = 1, cur = Number(l.qty) || 0;
+          l.qty = a === "plus" ? cur + st : Math.max(0, cur - st);
+          if (!l.qty) l.qty = a === "plus" ? 1 : null;
+          save(); renderList();
+        };
+      });
+      if (S.fresh) { var f = L.querySelector(".fresh"); if (f && f.scrollIntoView) f.scrollIntoView({ block: "nearest", behavior: "smooth" }); S.fresh = null; }
+    }
+    renderSend();
+  }
+  function renderSend() {
+    var b = $("bSend"); if (!b) return;
+    var n = S.lines.length;
+    b.textContent = S.sending ? T("sending") : T("send") + (n ? " · " + n + " " + T("items") : "");
+    b.disabled = S.sending;
+  }
+  function addLine(l) {
+    l.id = l.id || uid();
+    var same = l.known && S.lines.find(function (x) { return x.known && lineLabel(x) === lineLabel(l) && x.unit === l.unit; });
+    if (same) { same.qty = (Number(same.qty) || 0) + (Number(l.qty) || 0) || null; S.fresh = same.id; }
+    else { S.lines.push(l); S.fresh = l.id; }
+    save(); renderList();
+  }
+
+  // ---------- tavsiyalar ----------
+  var lastRes = [];
+  function fromResult(r, raw) {
+    return { name: r.it.name, vars: r.it.vars.map(function (_, gi) { return r.vars[gi] || ""; }), size: r.size || "", qty: r.qty, unit: r.unit || r.it.unit, raw: raw, known: true, cat: r.it.cat, ii: r.it.i };
+  }
+  function freeLine(text) {
+    var P = E.parse(text), name = text.trim().replace(/\s+/g, " ");
+    // miqdorni nomdan olib tashlash: "maxsus kalit 2 ta" → "maxsus kalit"
+    if (P.qty != null) { var n2 = name.replace(/[\s,;:-]*\d+([.,]\d+)?\s*(ta|та|dona|дона|шт|штук|sht|m|м|метр|metr|комп|компл|kompl)\.?\s*$/i, "").trim(); if (n2.length >= 2) name = n2; }
+    return { name: name, vars: [], size: "", qty: P.qty, unit: P.unit || "шт", raw: text, known: false, cat: "", ii: -1 };
+  }
+  function renderSug() {
+    var q = $("q").value, box = $("sug");
+    if (q.trim().length < 2) { box.innerHTML = ""; lastRes = []; return; }
+    var res = E.suggest(q, 8), top = res[0] ? res[0].score : 0;
+    lastRes = res.filter(function (r) { return r.score >= 0.55 && r.score >= top - 0.35; }).slice(0, 5);
+    var words = E.complete(q);
+    var html = "";
+    if (words.length) html += '<div class="words">' + words.map(function (w) { return '<button data-w="' + esc(w) + '">' + esc(w) + '…</button>'; }).join("") + "</div>";
+    html += lastRes.map(function (r, i) {
+      var l = fromResult(r, q);
+      var extra = (l.vars.filter(Boolean).join(" ") + (l.size ? " " + l.size : "")).trim();
+      return '<button class="sg' + (i === 0 && r.score >= 0.8 ? " top" : "") + '" data-i="' + i + '"><span class="nm">' + esc(l.name) + (extra ? ' <em>' + esc(extra) + "</em>" : "") + '</span><span class="q">' + (l.qty != null ? fmtQ(l.qty) + " " + esc(l.unit) : "") + "</span></button>";
+    }).join("");
+    html += '<button class="sg" data-free="1"><span class="nm" style="font-weight:500;color:var(--mut)">«' + esc(q.trim()) + '» — ' + esc(T("keep").toLowerCase()) + '</span></button>';
+    box.innerHTML = html;
+    box.querySelectorAll("[data-w]").forEach(function (b) {
+      b.onmousedown = function (e) { e.preventDefault(); };
+      b.onclick = function () { var inp = $("q"); inp.value = inp.value.replace(/([^\s\d]+)$/, b.dataset.w) + " "; inp.focus(); renderSug(); };
+    });
+    box.querySelectorAll("[data-i]").forEach(function (b) { b.onmousedown = function (e) { e.preventDefault(); }; b.onclick = function () { take(fromResult(lastRes[Number(b.dataset.i)], q)); }; });
+    var fb = box.querySelector("[data-free]");
+    fb.onmousedown = function (e) { e.preventDefault(); };
+    fb.onclick = function () { take(freeLine(q)); };
+  }
+  function clearInput() { var q = $("q"); q.value = ""; renderSug(); }
+  function take(l) {
+    var it = l.ii >= 0 ? E.items[l.ii] : null;
+    var needPick = (it && it.sizes.length && !l.size) || !l.qty;
+    clearInput();
+    if (needPick) openPicker(l, true); else { addLine(l); $("q").focus(); }
+  }
+  function acceptTop() {
+    var q = $("q").value;
+    if (q.trim().length < 2) return;
+    if (lastRes[0] && lastRes[0].score >= 0.8) take(fromResult(lastRes[0], q));
+    else take(freeLine(q));
+  }
+  function addMany(text) {
+    var rows = String(text).split(/\r?\n/).map(function (s) { return s.replace(/^\s*(\d{1,3}[.)]|[-•*·–—])\s*/, "").trim(); }).filter(function (s) { return s.length >= 2; });
+    var known = 0;
+    rows.forEach(function (row) {
+      var r = E.suggest(row, 1)[0];
+      if (r && r.score >= 0.8) { var l = fromResult(r, row); if (l.qty == null) l.qty = null; S.lines.push(Object.assign(l, { id: uid() })); known++; }
+      else S.lines.push(Object.assign(freeLine(row), { id: uid() }));
+    });
+    save(); renderList(); clearInput();
+    toast(T("pasted").replace("{n}", rows.length).replace("{k}", known));
+  }
+
+  // ---------- oynalar (pastdan chiqadi) ----------
+  function sheet(html, onMount) {
+    closeSheet();
+    var bg = document.createElement("div"); bg.className = "sheet-bg"; bg.id = "sheetBg";
+    bg.innerHTML = '<div class="sheet">' + html + "</div>";
+    bg.onclick = function (e) { if (e.target === bg) closeSheet(); };
+    document.body.appendChild(bg); document.body.classList.add("lock"); // oyna ochiq — orqadagi sahifa qimirlamaydi
+    if (onMount) onMount(bg.firstChild);
+  }
+  function closeSheet() { var b = $("sheetBg"); if (b) b.remove(); document.body.classList.remove("lock"); }
+  function confirmSheet(text, yes) {
+    sheet('<h3>' + esc(text) + '</h3><div class="acts"><button class="btn" id="cNo">' + esc(T("cancel")) + '</button><button class="btn pri" id="cYes">' + esc(T("yes")) + "</button></div>", function () {
+      $("cNo").onclick = closeSheet; $("cYes").onclick = function () { closeSheet(); yes(); };
+    });
+  }
+  // tovar: variant, o'lcham, miqdor
+  function openPicker(l0, isNew) {
+    var l = JSON.parse(JSON.stringify(l0));
+    var it = l.ii >= 0 ? E.items[l.ii] : null;
+    var sizes = it ? it.sizes.map(function (z) { return z.s; }) : [];
+    var sizeFilter = "";
+    function body() {
+      var h = "";
+      if (it) {
+        h += '<h3>' + esc(it.name) + "</h3>";
+        it.vars.forEach(function (g, gi) {
+          h += '<div class="grp chips">' + g.map(function (o) { return '<button class="chip' + (l.vars[gi] === o.opt ? " on" : "") + '" data-g="' + gi + '" data-o="' + esc(o.opt) + '">' + esc(o.opt) + "</button>"; }).join("") + "</div>";
+        });
+        if (sizes.length) {
+          var shown = sizes.filter(function (s) { return !sizeFilter || E.sizeKey(s).indexOf(E.sizeKey(sizeFilter)) >= 0; });
+          h += '<div class="lbl grp">' + esc(T("size")) + "</div>";
+          if (sizes.length > 20) h += '<input class="inp" id="pSf" inputmode="decimal" placeholder="' + esc(T("search")) + ' 500×1000" value="' + esc(sizeFilter) + '" style="margin-bottom:8px">';
+          h += '<div class="chips" id="pSizes">' + shown.slice(0, 60).map(function (s) { return '<button class="chip' + (l.size === s ? " on" : "") + '" data-s="' + esc(s) + '">' + esc(s) + "</button>"; }).join("") + "</div>";
+          var custom = l.size && sizes.indexOf(l.size) < 0 ? l.size : "";
+          h += '<input class="inp" id="pSize" placeholder="' + esc(T("otherSize")) + '" value="' + esc(custom) + '" style="margin-top:8px">';
+        } else {
+          h += '<input class="inp" id="pSize" placeholder="' + esc(T("size")) + " (" + esc(T("otherSize")) + ')" value="' + esc(l.size) + '" style="margin-top:10px">';
+        }
+      } else {
+        h += '<h3>' + esc(T("unknown")) + "</h3>";
+        h += '<input class="inp" id="pText" value="' + esc(l.name) + '" maxlength="200">';
+        h += '<div class="sug" id="pSug" style="box-shadow:none;margin-top:8px"></div>';
+      }
+      var quick = l.unit === "м" ? [10, 20, 50, 100, 200] : [1, 2, 5, 10, 20, 50];
+      h += '<div class="lbl grp">' + esc(T("qty")) + '</div><div class="qbig"><button id="pMinus">−</button><input class="inp" id="pQty" inputmode="decimal" value="' + (l.qty ? fmtQ(l.qty) : "") + '" placeholder="0"><button id="pPlus">+</button><span class="u">' + esc(l.unit) + "</span></div>";
+      h += '<div class="chips" style="margin-top:8px">' + quick.map(function (n) { return '<button class="chip" data-q="' + n + '">' + n + "</button>"; }).join("") + "</div>";
+      h += '<div class="err" id="pErr"></div><div class="acts">' + (isNew ? '<button class="btn" id="pCancel">' + esc(T("cancel")) + "</button>" : '<button class="btn" id="pDel">' + esc(T("del")) + "</button>") + '<button class="btn pri" id="pOk">' + esc(isNew ? T("add") : T("save")) + "</button></div>";
+      return h;
+    }
+    function mount(root) {
+      root.innerHTML = body();
+      root.querySelectorAll("[data-g]").forEach(function (b) { b.onclick = function () { var g = Number(b.dataset.g); l.vars[g] = l.vars[g] === b.dataset.o ? "" : b.dataset.o; mount(root); }; });
+      root.querySelectorAll("[data-s]").forEach(function (b) { b.onclick = function () { l.size = l.size === b.dataset.s ? "" : b.dataset.s; l.qty = qtyVal(); mount(root); if (!l.qty) $("pQty").focus(); }; });
+      var sf = $("pSf"); if (sf) sf.oninput = function () { sizeFilter = sf.value; l.qty = qtyVal(); var pos = sf.selectionStart; mount(root); var n = $("pSf"); n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) {} };
+      var ps = $("pSize"); if (ps) ps.oninput = function () { l.size = ps.value.trim(); root.querySelectorAll("[data-s].on").forEach(function (x) { x.classList.remove("on"); }); };
+      var pt = $("pText");
+      if (pt) {
+        var paint = function () {
+          var box = $("pSug"), res = E.suggest(pt.value, 4).filter(function (r) { return r.score >= 0.55; });
+          box.innerHTML = res.map(function (r, i) { var x = fromResult(r, pt.value); return '<button class="sg" data-r="' + i + '"><span class="nm">' + esc(lineLabel(x)) + "</span></button>"; }).join("");
+          box.querySelectorAll("[data-r]").forEach(function (b) { b.onclick = function () { var x = fromResult(res[Number(b.dataset.r)], pt.value); x.id = l.id; if (x.qty == null) x.qty = qtyVal(); openPicker(x, isNew); }; });
+        };
+        pt.oninput = function () { l.name = pt.value; paint(); }; paint();
+      }
+      var qi = $("pQty");
+      $("pMinus").onclick = function () { var v = qtyVal() || 0; qi.value = v > 1 ? fmtQ(v - 1) : ""; };
+      $("pPlus").onclick = function () { var v = qtyVal() || 0; qi.value = fmtQ(v + 1); };
+      root.querySelectorAll("[data-q]").forEach(function (b) { b.onclick = function () { qi.value = b.dataset.q; }; });
+      qi.onkeydown = function (e) { if (e.key === "Enter") ok(); };
+      $("pOk").onclick = ok;
+      if ($("pCancel")) $("pCancel").onclick = function () { closeSheet(); $("q").focus(); };
+      if ($("pDel")) $("pDel").onclick = function () { S.lines = S.lines.filter(function (x) { return x.id !== l.id; }); save(); closeSheet(); renderList(); };
+      if (!it || !sizes.length || l.size) { if (!l.qty) setTimeout(function () { qi.focus(); }, 60); }
+    }
+    function qtyVal() { var q = $("pQty"); return q ? E.parseQty(q.value) : l.qty; }
+    function ok() {
+      l.qty = qtyVal();
+      if (!l.known) { l.name = ($("pText").value || "").trim(); if (l.name.length < 2) return; }
+      if (!l.qty) { $("pErr").textContent = T("needQty"); $("pQty").focus(); return; }
+      closeSheet();
+      if (isNew) { addLine(l); $("q").focus(); }
+      else { var i = S.lines.findIndex(function (x) { return x.id === l.id; }); if (i >= 0) S.lines[i] = l; S.fresh = l.id; save(); renderList(); }
+    }
+    sheet("", mount);
+  }
+  function openCatalog(cat) {
+    var html = "", items = E.items;
+    if (!cat) {
+      html = '<h3>' + esc(T("catalog")) + '</h3><input class="inp" id="cS" placeholder="' + esc(T("search")) + '" style="margin:8px 0">';
+      html += '<div id="cList">' + E.cats.map(function (c) { var n = items.filter(function (i) { return i.cat === c[0]; }).length; return '<button class="cat" data-c="' + c[0] + '">' + esc(S.lang === "ru" ? c[2] : c[1]) + "<span>" + n + " ›</span></button>"; }).join("") + "</div>";
+    } else {
+      var c = E.cats.find(function (x) { return x[0] === cat; });
+      html = '<div class="row"><button class="link" id="cBack" style="margin-left:0">‹ ' + esc(T("back")) + '</button></div><h3>' + esc(S.lang === "ru" ? c[2] : c[1]) + "</h3>";
+      html += items.filter(function (i) { return i.cat === cat; }).map(function (i) { return '<button class="cat" data-i="' + i.i + '">' + esc(i.name) + "<span>›</span></button>"; }).join("");
+    }
+    sheet(html, function (root) {
+      root.querySelectorAll("[data-c]").forEach(function (b) { b.onclick = function () { openCatalog(b.dataset.c); }; });
+      bindItems(root);
+      var back = $("cBack"); if (back) back.onclick = function () { openCatalog(); };
+      var cs = $("cS");
+      if (cs) cs.oninput = function () {
+        var v = cs.value.trim();
+        if (v.length < 2) { openCatalog(); setTimeout(function () { var n = $("cS"); n.value = v; n.focus(); }, 0); return; }
+        $("cList").innerHTML = E.suggest(v, 12).filter(function (r) { return r.score >= 0.55; }).map(function (r) { return '<button class="cat" data-i="' + r.it.i + '">' + esc(r.it.name) + "<span>›</span></button>"; }).join("");
+        bindItems(root);
+      };
+    });
+    function bindItems(root) {
+      root.querySelectorAll("[data-i]").forEach(function (b) {
+        b.onclick = function () { var it = E.items[Number(b.dataset.i)]; openPicker({ name: it.name, vars: it.vars.map(function () { return ""; }), size: "", qty: null, unit: it.unit, raw: "", known: true, cat: it.cat, ii: it.i }, true); };
+      });
+    }
+  }
+  function openPaste() {
+    sheet('<h3>' + esc(T("pasteT")) + '</h3><div class="d">' + esc(T("pasteD")) + '</div><textarea class="inp" id="pT" placeholder="troynik 25 10 ta\nkran 1/2 5 ta\n..."></textarea><div class="acts"><button class="btn" id="pC">' + esc(T("cancel")) + '</button><button class="btn pri" id="pA">' + esc(T("pasteBtn")) + "</button></div>", function () {
+      $("pC").onclick = closeSheet;
+      $("pA").onclick = function () { var v = $("pT").value; closeSheet(); if (v.trim()) addMany(v); };
+      setTimeout(function () { $("pT").focus(); }, 60);
+    });
+  }
+  function openHistory() {
+    var h = '<h3>' + esc(T("history")) + "</h3>";
+    if (!S.hist.length) h += '<div class="d">' + esc(T("noHistory")) + "</div>";
+    h += S.hist.map(function (x, i) {
+      return '<div class="hist"><div class="t"><b>№' + esc(x.num) + " · " + esc(new Date(x.at).toLocaleDateString(S.lang === "ru" ? "ru-RU" : "uz-UZ")) + '</b>' + esc(x.object || "") + " · " + x.lines.length + " " + esc(T("items")) + '</div><button class="btn sm" data-h="' + i + '">' + esc(T("open")) + "</button></div>";
+    }).join("");
+    h += '<div class="acts"><button class="btn" id="hC">' + esc(T("back")) + "</button></div>";
+    sheet(h, function (root) {
+      $("hC").onclick = closeSheet;
+      root.querySelectorAll("[data-h]").forEach(function (b) {
+        b.onclick = function () {
+          var x = S.hist[Number(b.dataset.h)];
+          x.lines.forEach(function (l) { S.lines.push(Object.assign({}, l, { id: uid() })); });
+          if (!S.object && x.object) S.object = x.object;
+          save(); closeSheet(); shell();
+        };
+      });
+    });
+  }
+
+  // ---------- yuborish ----------
+  function listText(num) {
+    var out = [T("txtList") + (num ? " №" + num : "")];
+    out.push(T("txtUsta") + ": " + S.who.name.trim() + ", " + S.who.phone.trim());
+    if (S.object.trim()) out.push(T("txtObj") + ": " + S.object.trim());
+    out.push("");
+    S.lines.forEach(function (l, i) { out.push((i + 1) + ". " + lineLabel(l) + " — " + fmtQ(l.qty) + " " + (l.unit || "")); });
+    if (S.note.trim()) { out.push(""); out.push(T("txtNote") + ": " + S.note.trim()); }
+    return out.join("\n");
+  }
+  function send() {
+    if (S.sending) return;
+    var d = digits(S.who.phone);
+    if (S.who.name.trim().length < 2 || d.length < 9) { S.editWho = true; renderWho(); toast(d.length && d.length < 9 ? T("errPhone") : T("needWho")); (S.who.name.trim().length < 2 ? $("wName") : $("wPhone")).focus(); return; }
+    if (!S.lines.length) { toast(T("needLines")); $("q").focus(); return; }
+    var noQ = S.lines.find(function (l) { return !l.qty; });
+    if (noQ) { toast(T("needQty")); openPicker(noQ, false); return; }
+    S.sending = true; renderSend();
+    var payload = { name: S.who.name.trim(), phone: S.who.phone.trim(), object: S.object.trim(), note: S.note.trim(), lines: S.lines.map(function (l) {
+      return { name: l.name, vars: (l.vars || []).filter(Boolean).join(" "), size: l.size || "", qty: String(l.qty), unit: l.unit || "", raw: l.raw || "", known: !!l.known, cat: l.cat || "" };
+    }) };
+    fetch(CFG.url + "/rest/v1/rpc/usta_submit", {
+      method: "POST", headers: { "Content-Type": "application/json", apikey: CFG.key, Authorization: "Bearer " + CFG.key },
+      body: JSON.stringify({ p: payload }),
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (x) {
+      S.sending = false;
+      if (!x.ok) { var m = String((x.j && x.j.message) || ""); renderSend(); toast(/usta_rate/.test(m) ? T("errRate") : /usta_phone/.test(m) ? T("errPhone") : T("err")); return; }
+      var num = x.j && x.j.num;
+      var text = listText(num);
+      S.hist.unshift({ num: num, at: Date.now(), object: S.object.trim(), lines: S.lines.map(function (l) { return Object.assign({}, l); }) });
+      S.hist = S.hist.slice(0, 10); store(K.hist, S.hist);
+      S.editWho = false;
+      S.lines = []; S.note = ""; S.object = ""; save();
+      shell();
+      sent(num, text);
+    }).catch(function () { S.sending = false; renderSend(); toast(T("err")); });
+  }
+  function sent(num, text) {
+    sheet('<div class="center"><div class="ok-ic">✓</div><h3>' + esc(T("sentT")) + '</h3><div class="d" style="margin:0">' + esc(T("sentD")) + '</div><div class="num">№' + esc(num) + "</div></div>" +
+      '<button class="btn pri big" id="sTg">' + esc(T("share")) + '</button><div class="acts"><button class="btn" id="sCopy">' + esc(T("copy")) + '</button><button class="btn" id="sNew">' + esc(T("newList")) + "</button></div>", function () {
+      $("sTg").onclick = function () {
+        if (navigator.share) { navigator.share({ text: text }).catch(function () {}); return; }
+        window.open("https://t.me/share/url?url=" + encodeURIComponent(text), "_blank");
+      };
+      $("sCopy").onclick = function () {
+        var done = function () { toast(T("copied")); };
+        if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text); done(); }); else { fallbackCopy(text); done(); }
+      };
+      $("sNew").onclick = function () { closeSheet(); $("q").focus(); };
+    });
+  }
+  function fallbackCopy(t) { var a = document.createElement("textarea"); a.value = t; document.body.appendChild(a); a.select(); try { document.execCommand("copy"); } catch (e) {} a.remove(); }
+
+  shell();
+})();
+</script>
+</body></html>

@@ -206,7 +206,7 @@ async function cloudSet(uid, hash) {
   const r = row ? await db.from("requests").update({ lines }).eq("id", row.id) : await db.from("requests").insert({ mode: CLOUD_MODE, source: "config", lines });
   return !r.error;
 }
-const TAB_NAMES = { notes: "Заметки", heat: "Расчёт отопления", dash: "Дашборд", request: "Новая заявка", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", delivery: "Доставка", admin: "Аккаунты" };
+const TAB_NAMES = { notes: "Заметки", usta: "От мастеров", heat: "Расчёт отопления", dash: "Дашборд", request: "Новая заявка", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", delivery: "Доставка", admin: "Аккаунты" };
 const GRANT_TABS = ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "delivery", "heat"];
 const PERMS = [
   { id: "fin", label: "Себестоимость, прибыль, все финансовые операции" },
@@ -242,7 +242,9 @@ function accessOf(u, roles, uperms) {
   const perms = r.base === "boss" ? ALL_PERMS : (own ? own.perms || {} : r.perms || {});
   // «Аккаунты»: руководителю — всегда; другим — если дано право управлять аккаунтами
   const tabs1 = r.base !== "boss" && perms.accounts && !tabs0.includes("admin") ? [...tabs0, "admin"] : tabs0;
-  const tabs = tabs1.filter((t) => t !== "notes"); // «Заметки» — не раздел, а окно как калькулятор (кнопка в шапке, Alt+Z)
+  // «От мастеров» — у всех, кто делает заявки (сразу после «Новая заявка»)
+  const tabs2 = tabs1.includes("request") && !tabs1.includes("usta") ? tabs1.flatMap((t) => (t === "request" ? ["request", "usta"] : [t])) : tabs1;
+  const tabs = tabs2.filter((t) => t !== "notes"); // «Заметки» — не раздел, а окно как калькулятор (кнопка в шапке, Alt+Z)
   return { id: r.id, label: r.label, base: r.base, tabs, perms };
 }
 let ROLE_LIST = ROLES; // для подписей ролей вне компонентов (журнал)
@@ -4553,6 +4555,158 @@ const WZ_TABS_KEY = "te:wz_tabs";
 const wzDraftKey = (id) => WZ_KEY + ":" + id;
 
 /* Несколько заявок одновременно — вкладки */
+/* ============ ОТ МАСТЕРОВ (страница /usta) ============
+   Мастер без входа пишет список на телефоне: программа подсказывает и исправляет, бренды и цены там не показываются
+   (исходники и словарь — usta/). Список приходит сюда (таблица usta_lists, функция usta_submit — supabase/usta/01_usta.sql).
+   «В новую заявку» открывает новую вкладку «Новая заявка» с этим списком: строки подбираются из базы как при загрузке Excel. */
+const USTA_PENDING = ":usta"; // + ключ черновика вкладки: список мастера ждёт подбора в этой заявке
+const ustaLineName = (l) => [l.name, l.vars].filter(Boolean).join(" ");
+const ustaLineText = (l) => [ustaLineName(l), l.size].filter(Boolean).join(" ");
+const ustaWhen = (d) => { try { return new Date(d).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch (e) { return ""; } };
+function ustaListText(x) {
+  const out = ["Список мастера №" + x.num + " · " + ustaWhen(x.created_at), "Мастер: " + x.usta_name + ", " + x.usta_phone];
+  if (x.object_text) out.push("Объект: " + x.object_text);
+  out.push("");
+  (x.lines || []).forEach((l, i) => out.push((i + 1) + ". " + ustaLineText(l) + " — " + fmt(l.qty) + " " + (l.unit || "")));
+  if (x.note) { out.push(""); out.push("Комментарий: " + x.note); }
+  return out.join("\n");
+}
+// открыть список мастера новой вкладкой в «Новая заявка»
+function ustaToRequest(x, masters) {
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  let st = null;
+  try { st = JSON.parse(localStorage.getItem(WZ_TABS_KEY) || "null"); } catch (e) {}
+  if (!st || !Array.isArray(st.tabs)) st = { tabs: [], active: "", seq: 0 };
+  // пустую вкладку (ничего не введено) занимаем, а не плодим новые
+  const empty = st.tabs.find((t) => { try { const d = JSON.parse(localStorage.getItem(wzDraftKey(t.id)) || "{}"); return !(d.lines || []).length && !d.objId && !(d.newObj && d.newObj.name); } catch (e) { return false; } });
+  const tabId = empty ? empty.id : id;
+  if (!empty) { const n = Math.max(0, ...st.tabs.map((t) => t.n || 0)) + 1; st.tabs.push({ id, n }); st.seq = n; }
+  st.active = tabId;
+  const m = x.master_id ? (masters || []).find((mm) => mm.id === x.master_id) : null;
+  const newObj = { name: x.object_text || "", client: "", phone: "", master: m ? m.name : "", master_id: m ? m.id : "", manager: "", address: "" };
+  try {
+    localStorage.setItem(wzDraftKey(tabId), JSON.stringify({ step: 0, objId: "", newObj, lines: [] }));
+    localStorage.setItem(wzDraftKey(tabId) + USTA_PENDING, JSON.stringify({ id: x.id, num: x.num, who: x.usta_name, lines: x.lines || [] }));
+    localStorage.setItem(WZ_TABS_KEY, JSON.stringify(st));
+  } catch (e) { return false; }
+  return true;
+}
+function UstaListsTab({ data, toast, userName, canDel, onCount, goRequest }) {
+  const [rows, setRows] = useState(null);
+  const [err, setErr] = useState("");
+  const [flt, setFlt] = useState("new");
+  const [open, setOpen] = useState(null);
+  const [askDel, setAskDel] = useState(null);
+  const masters = data.masters || [];
+  const link = (typeof window !== "undefined" ? window.location.origin : "") + "/usta/";
+  const load = async () => {
+    const r = await db.from("usta_lists").select().order("created_at", { ascending: false });
+    if (r.error) { setErr(String(r.error.message || r.error)); setRows([]); return; }
+    setErr(""); setRows(r.data || []);
+    if (onCount) onCount((r.data || []).filter((x) => x.status !== "done").length);
+  };
+  useEffect(() => { load(); const t = setInterval(load, 60000); return () => clearInterval(t); }, []);
+  const setStatus = async (x, done) => {
+    const patch = done ? { status: "done", handled_by: userName, handled_at: new Date().toISOString() } : { status: "new", handled_by: null, handled_at: null };
+    const r = await db.from("usta_lists").update(patch).eq("id", x.id);
+    if (r.error) { toast("Не сохранилось: " + (r.error.message || r.error)); return; }
+    await load();
+  };
+  const toRequest = async (x) => {
+    if (!ustaToRequest(x, masters)) { toast("Не удалось открыть заявку"); return; }
+    if (x.status !== "done") await setStatus(x, true);
+    goRequest();
+  };
+  const copy = async (x) => { try { await navigator.clipboard.writeText(ustaListText(x)); toast("Список скопирован"); } catch (e) { toast("Не удалось скопировать"); } };
+  const del = async (x) => {
+    const r = await db.from("usta_lists").delete().eq("id", x.id);
+    setAskDel(null);
+    if (r.error) { toast("Не удалось удалить: " + (r.error.message || r.error)); return; }
+    setOpen(null); toast("Список №" + x.num + " удалён"); await load();
+  };
+  const list = (rows || []).filter((x) => (flt === "all" ? true : flt === "done" ? x.status === "done" : x.status !== "done"));
+  const nNew = (rows || []).filter((x) => x.status !== "done").length;
+  const masterOf = (x) => (x.master_id ? masters.find((m) => m.id === x.master_id) : null);
+  return (
+    <div>
+      <div className="row" style={{ marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+        <h2 style={{ marginRight: "auto" }}>Списки от мастеров</h2>
+        {[["new", "Новые", nNew], ["done", "Обработанные", (rows || []).length - nNew], ["all", "Все", (rows || []).length]].map(([id, l, n]) => (
+          <button key={id} className={"btn xs" + (flt === id ? " pri" : "")} onClick={() => setFlt(id)}>{l}: <b style={{ marginLeft: 3 }}>{n}</b></button>
+        ))}
+        <button className="btn xs" onClick={load} title="Обновить">↻</button>
+      </div>
+      <div className="card sect" style={{ padding: 12 }}>
+        <div className="sm" style={{ fontWeight: 700, marginBottom: 6 }}>Ссылка для мастеров (без входа, брендов и цен там нет)</div>
+        <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
+          <input className="inp mono" readOnly value={link} onFocus={(e) => e.target.select()} />
+          <button className="btn pri" onClick={async () => { try { await navigator.clipboard.writeText(link); toast("Ссылка скопирована — отправьте её мастеру"); } catch (e) {} }}><Ic n="copy" /> Копировать</button>
+          <a className="btn" href={link} target="_blank" rel="noreferrer">Открыть</a>
+        </div>
+        <div className="xs mut" style={{ marginTop: 6 }}>Мастер вводит имя и телефон один раз. Если телефон есть в разделе «Мастера», список сразу привязывается к нему.</div>
+      </div>
+      {err && <div className="card sect" style={{ borderColor: "var(--bad)", color: "var(--bad)", padding: 10 }}>Не удалось загрузить списки: {err}</div>}
+      {rows === null && <div className="mut sm" style={{ padding: 20 }}>Загрузка…</div>}
+      {rows && !list.length && !err && <div className="card mut" style={{ textAlign: "center", padding: 26 }}>{flt === "new" ? "Новых списков нет" : "Списков нет"}</div>}
+      {list.map((x) => {
+        const m = masterOf(x), unk = (x.lines || []).filter((l) => !l.known).length, isOpen = open === x.id;
+        return (
+          <div key={x.id} className="card sect" style={{ padding: 0, overflow: "hidden", borderColor: x.status !== "done" ? "var(--acc)" : undefined }}>
+            <div className="row clk" style={{ padding: "11px 14px", gap: 10, flexWrap: "wrap" }} onClick={() => setOpen(isOpen ? null : x.id)}>
+              <b className="mono">№{x.num}</b>
+              <span className="xs mut">{ustaWhen(x.created_at)}</span>
+              <span style={{ fontWeight: 600 }}>{x.usta_name}</span>
+              <span className="xs mut mono">{x.usta_phone}</span>
+              {m ? <Badge c="var(--t-ok)">мастер: {m.name}</Badge> : <Badge c="var(--t-neutral)">нет в «Мастера»</Badge>}
+              {x.object_text && <span className="sm">· {x.object_text}</span>}
+              <span style={{ marginLeft: "auto" }} className="row">
+                <Badge c="var(--t-strong)">{(x.lines || []).length} поз.</Badge>
+                {unk > 0 && <Badge c="var(--t-warn)">не распознано: {unk}</Badge>}
+                {x.status === "done" ? <Badge c="var(--t-ok)">обработан{x.handled_by ? " · " + x.handled_by : ""}</Badge> : <Badge c="var(--t-bad)">новый</Badge>}
+                <span className="mut">{isOpen ? "▴" : "▾"}</span>
+              </span>
+            </div>
+            {isOpen && (
+              <div style={{ borderTop: "1px solid var(--line)", padding: 12 }}>
+                <table className="t">
+                  <thead><tr><th style={{ width: 34 }}>№</th><th>Наименование</th><th>Размер</th><th style={{ textAlign: "right", width: 90 }}>Кол-во</th><th>Мастер написал</th></tr></thead>
+                  <tbody>
+                    {(x.lines || []).map((l, i) => (
+                      <tr key={i} style={l.known ? undefined : { background: "color-mix(in srgb, var(--t-warn) 9%, transparent)" }}>
+                        <td className="xs mut">{i + 1}</td>
+                        <td><b style={{ fontWeight: 600 }}>{ustaLineName(l)}</b>{!l.known && <span className="xs" style={{ color: "var(--t-warn)", marginLeft: 6 }}>не распознано</span>}</td>
+                        <td className="mono sm">{l.size}</td>
+                        <td className="num">{fmt(l.qty)} <span className="xs mut">{l.unit}</span></td>
+                        <td className="xs mut">{l.raw && l.raw !== l.name ? l.raw : ""}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {x.note && <div className="sm" style={{ marginTop: 10 }}><b>Комментарий:</b> {x.note}</div>}
+                <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
+                  <button className="btn pri" onClick={() => toRequest(x)}>→ В новую заявку</button>
+                  <button className="btn" onClick={() => copy(x)}><Ic n="copy" /> Скопировать текстом</button>
+                  {x.status === "done" ? <button className="btn" onClick={() => setStatus(x, false)}>Вернуть в новые</button> : <button className="btn" onClick={() => setStatus(x, true)}>✓ Обработан</button>}
+                  {canDel && <button className="btn dng" style={{ marginLeft: "auto" }} onClick={() => setAskDel(x)}><Ic n="trash" /> Удалить</button>}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {askDel && (
+        <Modal title={"Удалить список №" + askDel.num + "?"} onClose={() => setAskDel(null)} w={420}>
+          <p className="sm mut">Список мастера {askDel.usta_name} будет удалён без возможности восстановления.</p>
+          <div className="row" style={{ justifyContent: "flex-end", marginTop: 16, gap: 8 }}>
+            <button className="btn" onClick={() => setAskDel(null)}>Отмена</button>
+            <button className="btn dng" onClick={() => del(askDel)}>Удалить</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 function RequestTabs(props) {
   const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const [state, setState] = useState(() => {
@@ -4597,7 +4751,7 @@ function RequestTabs(props) {
   };
   const switchTab = (id) => commit({ ...stateRef.current, active: id });
   const removeTab = (id) => {
-    try { localStorage.removeItem(wzDraftKey(id)); localStorage.removeItem(wzDraftKey(id) + ":pick"); } catch {}
+    try { localStorage.removeItem(wzDraftKey(id)); localStorage.removeItem(wzDraftKey(id) + ":pick"); localStorage.removeItem(wzDraftKey(id) + USTA_PENDING); } catch {}
     setMeta((m) => { const c = { ...m }; delete c[id]; return c; });
     const s = stateRef.current;
     const idx = s.tabs.findIndex((t) => t.id === id);
@@ -4713,7 +4867,7 @@ function MarkDot({ value, onClick }) {
   return <button type="button" className="mark-dot" title="Выделить строку цветом" onClick={onClick}
     style={{ width: 16, height: 16, minWidth: 16, borderRadius: 8, border: "1.5px solid " + (mark && mark.dot ? (mark.id === "w" ? "#9a9a9a" : mark.dot) : "var(--line)"), background: mark && mark.dot ? mark.dot : "transparent", cursor: "pointer", verticalAlign: "middle", padding: 0, flexShrink: 0 }} />;
 }
-function RequestExcelImport({ products, onClose, onAdd }) {
+function RequestExcelImport({ products, onClose, onAdd, preset = null }) {
   const FIELDS = [
     { id: "name", label: "Наименование*", kw: ["наименован", "назван", "товар", "name", "номенклат", "материал"] },
     { id: "qty", label: "Количество", kw: ["кол-во", "количеств", "кол.", "кол", "qty", "сони", "soni"] },
@@ -4721,10 +4875,11 @@ function RequestExcelImport({ products, onClose, onAdd }) {
     { id: "size", label: "Размер", kw: ["размер", "диаметр", "size"] },
     { id: "code", label: "Код / артикул", kw: ["код", "артикул", "code", "sku"] },
   ];
-  const [rows, setRows] = useState(null);
-  const [map, setMap] = useState({});
+  // preset — список мастера («От мастеров»): строки уже разобраны, файл не нужен
+  const [rows, setRows] = useState(() => (preset ? [["Наименование", "Количество", "Ед. изм.", "Размер"], ...(preset.lines || []).map((l) => [ustaLineText(l).replace(/\s*\([^)]*\)/g, ""), l.qty, l.unit, ""])] : null));
+  const [map, setMap] = useState(() => (preset ? { name: 0, qty: 1, unit: 2, size: 3 } : {}));
   const [hasHeader, setHasHeader] = useState(true);
-  const [fname, setFname] = useState("");
+  const [fname, setFname] = useState(() => (preset ? "Список мастера №" + preset.num + (preset.who ? " · " + preset.who : "") : ""));
   const [err, setErr] = useState("");
   const [pick, setPick] = useState({}); // номер строки → id товара | "" (ручная позиция)
   const [removed, setRemoved] = useState({}); // номер строки → true: строка убрана из импорта
@@ -4804,7 +4959,7 @@ function RequestExcelImport({ products, onClose, onAdd }) {
   const pct = (s) => Math.round(s * 100) + "%";
   return (
     <>
-    <Modal title="Заявка из Excel" onClose={() => (rows ? setAskCancel(true) : onClose())} w={1000}>
+    <Modal title={preset ? "Список мастера → товары из базы" : "Заявка из Excel"} onClose={() => (rows ? setAskCancel(true) : onClose())} w={1000}>
       {err && <div className="card sect" style={{ borderColor: "var(--bad)", color: "var(--bad)", padding: 10 }}>{err}</div>}
       {!rows && (
         <div>
@@ -4830,10 +4985,10 @@ function RequestExcelImport({ products, onClose, onAdd }) {
             </div>
             {flt && shownItems.length > 0 && <button className="btn xs dng" title="Убрать из импорта все строки этого фильтра" onClick={() => { const r = { ...removed }; shownItems.forEach(({ it }) => { r[it.i] = true; }); setRemoved(r); }}>✕ убрать показанные ({shownItems.length})</button>}
             {nRemoved > 0 && <button className="btn xs" title="Вернуть убранные строки" onClick={() => setRemoved({})}>↺ вернуть убранные ({nRemoved})</button>}
-            <label className="sm clk" style={{ marginLeft: "auto" }}><input type="checkbox" checked={hasHeader} onChange={(e) => setHasHeader(e.target.checked)} /> первая строка — заголовки</label>
-            <button className="btn xs" onClick={() => { setRows(null); setMap({}); setPick({}); setRemoved({}); }}>↺ другой файл</button>
+            {!preset && <label className="sm clk" style={{ marginLeft: "auto" }}><input type="checkbox" checked={hasHeader} onChange={(e) => setHasHeader(e.target.checked)} /> первая строка — заголовки</label>}
+            {!preset && <button className="btn xs" onClick={() => { setRows(null); setMap({}); setPick({}); setRemoved({}); }}>↺ другой файл</button>}
           </div>
-          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(170px,1fr))", marginBottom: 12 }}>
+          {!preset && <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(170px,1fr))", marginBottom: 12 }}>
             {FIELDS.filter((f) => f.id !== "size").map((f) => (
               <Fld key={f.id} label={f.label}>
                 <select className="inp" value={map[f.id] == null ? "" : map[f.id]} onChange={(e) => { setPick({}); setMap({ ...map, [f.id]: e.target.value === "" ? null : Number(e.target.value) }); }}>
@@ -4842,7 +4997,7 @@ function RequestExcelImport({ products, onClose, onAdd }) {
                 </select>
               </Fld>
             ))}
-          </div>
+          </div>}
           <div style={{ overflow: "auto", maxHeight: 440, border: "1px solid var(--line)", borderRadius: 10 }}>
             <table className="t">
               <thead><tr><th style={{ width: 34 }}>№</th><th>Из файла</th><th style={{ width: 70, textAlign: "right" }}>Кол-во</th><th style={{ minWidth: 330 }}>Товар в базе</th><th style={{ width: 116 }}>Совпадение</th><th style={{ width: 40 }}></th></tr></thead>
@@ -4892,7 +5047,11 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   const [err, setErr] = useState("");
   const [lines, setLines] = useState(() => { try { return JSON.parse(localStorage.getItem(draftKey) || "{}").lines || []; } catch { return []; } });
   const [delLine, setDelLine] = useState(null);
-  const [xlImport, setXlImport] = useState(false);
+  const [xlImport, setXlImport] = useState(false); // true — файл Excel, "usta" — список мастера
+  const [usta, setUsta] = useState(() => { try { return JSON.parse(localStorage.getItem(draftKey + USTA_PENDING) || "null"); } catch { return null; } });
+  // список мастера: после выбора объекта (шаг «Подбор товаров») сразу открываем подбор позиций из базы
+  useEffect(() => { if (usta && step === 1) setXlImport("usta"); }, [usta ? usta.id : "", step]);
+  const ustaDone = () => { try { localStorage.removeItem(draftKey + USTA_PENDING); } catch {} setUsta(null); };
   const [markupModal, setMarkupModal] = useState(false);
   const [markup, setMarkup] = useState(15);
   const [markupCustom, setMarkupCustom] = useState("");
@@ -4906,7 +5065,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
   useEffect(() => {
     try { localStorage.setItem(draftKey, JSON.stringify({ step, objId, newObj, lines })); } catch {}
   }, [step, objId, newObj, lines, draftKey]);
-  const clearDraft = () => { try { localStorage.removeItem(draftKey); localStorage.removeItem(draftKey + ":pick"); } catch {} };
+  const clearDraft = () => { try { localStorage.removeItem(draftKey); localStorage.removeItem(draftKey + ":pick"); localStorage.removeItem(draftKey + USTA_PENDING); } catch {} };
 
   const activeObjects = objects.filter((o) => !["closed", "cancelled"].includes(o.status));
   const selObj = objects.find((o) => o.id === objId);
@@ -4935,7 +5094,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
     });
   };
   // строки из Excel: найденные товары складываются с уже выбранными, остальные — ручные позиции
-  const addImported = (rows) => {
+  const addImported = (rows, src = "Из Excel") => {
     setLines((prev) => {
       const next = prev.map((l) => ({ ...l })); // копии: исходный список не меняем
       rows.forEach((r) => {
@@ -4946,7 +5105,7 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
       return next;
     });
     setXlImport(false);
-    toast("Из Excel добавлено строк: " + rows.length + " (найдено в базе: " + rows.filter((r) => r.product_id).length + ")");
+    toast(src + " добавлено строк: " + rows.length + " (найдено в базе: " + rows.filter((r) => r.product_id).length + ")");
   };
   const addManualLine = () => {
     setLines((prev) => [{ id: uuid(), product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: "", supplier_id: null, manual: true }, ...prev]);
@@ -5115,6 +5274,12 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
       </div>
       {err && <div className="card sect" style={{ borderColor: "var(--bad)", color: "var(--bad)" }}>{err}</div>}
 
+      {step === 0 && usta && (
+        <div className="card sect" style={{ borderColor: "var(--acc)", padding: 12 }}>
+          <b>Список мастера №{usta.num}{usta.who ? " · " + usta.who : ""}</b> — {(usta.lines || []).length} поз.
+          <div className="sm mut" style={{ marginTop: 4 }}>Выберите объект или создайте новый и нажмите «Далее» — позиции списка сразу подберутся из базы товаров.</div>
+        </div>
+      )}
       {step === 0 && (
         // Enter переходит к следующему полю; на последнем поле (или в выбранном существующем объекте) — «Далее»
         <div className="card" onKeyDown={(e) => {
@@ -5181,9 +5346,11 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
         <div className="card">
           <div className="row" style={{ marginBottom: 12 }}>
             <h3 style={{ marginRight: "auto" }}>Подбор товаров</h3>
+            {usta && <button className="btn pri" onClick={() => setXlImport("usta")}>Список мастера №{usta.num}</button>}
             <button className="btn" onClick={() => setXlImport(true)}><Ic n="sheet" /> Загрузить из Excel</button>
           </div>
-          {xlImport && <RequestExcelImport products={filteredProducts} onClose={() => setXlImport(false)} onAdd={addImported} />}
+          {xlImport && <RequestExcelImport key={xlImport === "usta" ? "usta" : "xl"} products={filteredProducts} preset={xlImport === "usta" ? usta : null}
+            onClose={() => setXlImport(false)} onAdd={(rows) => { const fromUsta = xlImport === "usta"; addImported(rows, fromUsta ? "Из списка мастера" : undefined); if (fromUsta) ustaDone(); }} />}
 
           <div className="row" style={{ marginBottom: 12, gap: 10 }}>
             <ProductPicker askQty persistKey={draftKey + ":pick"} products={filteredProducts} suppliers={suppliers} whQty={whQty} whSim={wh.sim} whStock={wh.stock} whRes={wh.res} whAge={wh.age} whExact={wh.exact} placeholder="Поиск товара по названию / коду — начните вводить…" onPick={addFromBase} />
@@ -12157,6 +12324,7 @@ function AppInner() {
   const pWorld = useMemo(() => perechWorld(data, pmode), [data, pmode]);
   const cashWorld = useMemo(() => perechWorld(data, false), [data]);
   const [tab, setTab] = useState("dash");
+  const [ustaNew, setUstaNew] = useState(0);
   const [tabNonce, setTabNonce] = useState(0);
   const [currentUser, setCurrentUser] = useState(null);
   const [cloudOk, setCloudOk] = useState(false);
@@ -12773,8 +12941,17 @@ function AppInner() {
   };
 
   const roleTabs = acc.tabs;
-  const TAB_LABELS_RU = { heat: "Расчёт отопления", delivery: "Доставка", request: "Новая заявка", dash: "Дашборд", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", admin: "Аккаунты" , notes: "Заметки" };
-  const TAB_LABELS_UZ = { heat: "Isitish hisobi", delivery: "Yetkazish", request: "Yangi ariza", dash: "Boshqaruv", objects: "Ob'ektlar", products: "Tovarlar", wh: "Ombor Thermo", suppliers: "Ta'minotchilar", masters: "Ustalar", finance: "Moliya", log: "Jurnal", admin: "Hisoblar" , notes: "Eslatmalar" };
+  // «От мастеров»: сколько новых списков (число на вкладке), проверка раз в минуту
+  const hasUsta = !!currentUser && roleTabs.includes("usta");
+  useEffect(() => {
+    if (!hasUsta) { setUstaNew(0); return; }
+    let alive = true;
+    const tick = async () => { const r = await db.from("usta_lists").select().eq("status", "new"); if (alive && !r.error) setUstaNew((r.data || []).length); };
+    tick(); const t = setInterval(tick, 60000);
+    return () => { alive = false; clearInterval(t); };
+  }, [hasUsta]);
+  const TAB_LABELS_RU = { usta: "От мастеров", heat: "Расчёт отопления", delivery: "Доставка", request: "Новая заявка", dash: "Дашборд", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", admin: "Аккаунты" , notes: "Заметки" };
+  const TAB_LABELS_UZ = { usta: "Ustalardan", heat: "Isitish hisobi", delivery: "Yetkazish", request: "Yangi ariza", dash: "Boshqaruv", objects: "Ob'ektlar", products: "Tovarlar", wh: "Ombor Thermo", suppliers: "Ta'minotchilar", masters: "Ustalar", finance: "Moliya", log: "Jurnal", admin: "Hisoblar" , notes: "Eslatmalar" };
   const TAB_LABELS = lang === "uz" ? TAB_LABELS_UZ : TAB_LABELS_RU;
   const allTabs = roleTabs.map((id) => ({ id, label: TAB_LABELS[id] }));
   useEffect(() => { if (currentUser) { setTab(roleTabs[0]); setOpenId(null); } }, [currentUser ? currentUser.id + ":" + currentUser.role : ""]);
@@ -12858,7 +13035,7 @@ function AppInner() {
             // повторное нажатие на открытую вкладку — назад к списку (из карточки объекта, мастера и т.п.)
             if (tab === t.id) { setOpenId(null); setTabNonce((n) => n + 1); }
             setTab(t.id); if (t.id !== "objects") setOpenId(null); setMobileMenuOpen(false); if (!finePtr) setHdrPeek(false);
-          }} title={"Alt+" + (allTabs.indexOf(t) === 9 ? 0 : allTabs.indexOf(t) + 1)}>{t.label}</button>)}
+          }} title={"Alt+" + (allTabs.indexOf(t) === 9 ? 0 : allTabs.indexOf(t) + 1)}>{t.label}{t.id === "usta" && ustaNew > 0 && <span style={{ marginLeft: 6, background: "var(--acc)", color: "#fff", borderRadius: 9, padding: "0 6px", fontSize: 11, fontWeight: 800 }}>{ustaNew}</span>}</button>)}
           <div className="menu-extra">
             <div style={{ marginRight: "auto" }}><b className="sm">{currentUser.name || currentUser.username}</b> <span className="xs mut">{lang === "uz" && ({ boss: "Rahbar", manager: "Menejer", driver: "Yetkazuvchi", designer: "Loyihachi" })[acc.id] || acc.label}</span></div>
             <button className="btn xs" onClick={toggleLang} style={{ fontWeight: 800 }}>{lang === "ru" ? "UZ" : "RU"}</button>
@@ -12907,6 +13084,7 @@ function AppInner() {
         {tab === "delivery" && <DeliveryTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} />}
         {tab === "log" && <LogTab data={data} reload={reload} toast={toast} onBackup={acc.perms.backup ? () => setBackupOpen(true) : null} />}
         {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} isBoss={role === "boss"} seen={team.seen} onChat={openChat} />}
+        {tab === "usta" && <UstaListsTab data={data} toast={toast} userName={currentUser.name || currentUser.username} canDel={!!acc.perms.del} onCount={setUstaNew} goRequest={() => { setOpenId(null); setTab("request"); }} />}
         {tab === "heat" && <HeatCalcTab lang={lang} userName={currentUser.name || currentUser.username} />}
         {tab === "finance" && <FinanceTab data={data} reload={reload} toast={toast} boss={!!acc.perms.salary} />}
       </div>
