@@ -982,6 +982,19 @@ html.phone-boot .body,html.phone-boot .card,html.phone-boot .kpi{animation:none!
   .te.fine:not(.hdr-off) .hdr .npanel-btn,.te.fine:not(.hdr-off) .hdr .hdr-chat,.te.fine:not(.hdr-off) .hdr .hdr-calc,.te.fine:not(.hdr-off) .hdr .hdr-heat{min-height:32px;padding:5px 12px;border-radius:var(--r-pill)}
 }
 @media(min-width:821px) and (max-width:1120px){.te.fine:not(.hdr-off) .hdr .hdr-lbl{display:none}}
+/* программа, установленная как приложение (Edge / Chrome): полосы заголовка окна нет — её место занимает шапка программы.
+   Справа сверху остаются только кнопки окна (— ☐ ✕), шапка их не закрывает; окно двигается за шапку */
+@media (display-mode: window-controls-overlay){
+  .hdr{-webkit-app-region:drag;app-region:drag}
+  .hdr button,.hdr a,.hdr input,.hdr select,.hdr label,.hdr .tabs,.hdr .tab,.hdr .hdr-user,.hdr .hdr-side,.hdr .burger{-webkit-app-region:no-drag;app-region:no-drag}
+  .te .hdr{padding-right:max(22px,calc(100vw - env(titlebar-area-x,0px) - env(titlebar-area-width,100vw) + 12px))}
+  .te.fine:not(.hdr-off) .hdr{padding-right:max(24px,calc((100% - 1300px)/2 + 24px),calc(100vw - env(titlebar-area-x,0px) - env(titlebar-area-width,100vw) + 12px))}
+  .te.hdr-off.fine.side .hdr{padding-top:calc(env(titlebar-area-height,0px) + 8px)}
+  .te.hdr-off .body{padding-top:calc(env(titlebar-area-height,0px) + 14px)}
+  .heatwin .nwin-head{min-height:env(titlebar-area-height,0px);padding-right:calc(100vw - env(titlebar-area-x,0px) - env(titlebar-area-width,100vw) + 8px);-webkit-app-region:drag;app-region:drag}
+  .heatwin .nwin-head button{-webkit-app-region:no-drag;app-region:no-drag}
+  .nwin.heatwin{padding-top:4px}
+}
 .hdr .btn{transition:background var(--dur),border-color var(--dur),color var(--dur)}
 .hdr .btn:hover{border-color:var(--hdr-mut);background:var(--hdr-line);color:#fff}
 .hdr .btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
@@ -12806,7 +12819,10 @@ function AppInner() {
   useEffect(() => {
     if (!hdrOff || !finePtr) return;
     const mv = (e) => {
-      const edge = hdrSide === "r" ? e.clientX >= window.innerWidth - 6 : hdrSide === "l" ? e.clientX <= 6 : e.clientY <= 6;
+      // программа-приложение без полосы заголовка: верхний край — вся высота этой бывшей полосы
+      let topEdge = 6;
+      try { const o = navigator.windowControlsOverlay; if (o && o.visible) topEdge = Math.max(6, o.getTitlebarAreaRect().height); } catch (x) {}
+      const edge = hdrSide === "r" ? e.clientX >= window.innerWidth - 6 : hdrSide === "l" ? e.clientX <= 6 : e.clientY <= topEdge;
       const inside = e.target && e.target.closest && e.target.closest(".hdr");
       if (edge || inside) { clearTimeout(peekT.current); peekT.current = null; if (edge) setHdrPeek(true); }
       else setHdrPeek(false); // мышь ушла с панели — закрывается сразу
