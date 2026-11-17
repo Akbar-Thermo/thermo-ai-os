@@ -428,7 +428,7 @@ html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::
 .te.hdr-off.fine .hdr.peek{transform:none;box-shadow:0 14px 40px rgba(0,0,0,.35)}
 .te.hdr-off.fine .hdr-hide{display:none}
 .te.hdr-off.fine .hdr-pin,.te.hdr-off.fine .hdr-side{display:inline-flex}
-/* переключатель «Сверху / Справа» */
+/* переключатель «Слева / Сверху / Справа» */
 .hdr-side{align-items:center;gap:2px;padding:3px;border-radius:var(--r-md);background:var(--hdr-panel2);border:1px solid var(--hdr-line)}
 .hdr-side button{border:0;background:none;color:var(--hdr-mut);font:600 12px var(--sans);padding:5px 10px;border-radius:var(--r-xs);cursor:pointer;white-space:nowrap}
 .hdr-side button:hover{color:var(--hdr-txt)}
@@ -437,6 +437,9 @@ html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::
 /* панель справа */
 .te.hdr-off.fine.side .hdr{left:auto;right:0;bottom:0;width:280px;display:grid;grid-template-columns:1fr 1fr;align-content:start;gap:8px;padding:20px 16px;overflow:auto;transform:translateX(105%);box-shadow:none}
 .te.hdr-off.fine.side .hdr.peek{transform:none;box-shadow:-18px 0 50px rgba(0,0,0,.4)}
+/* панель слева — то же, что справа, но выезжает от левого края */
+.te.hdr-off.fine.side.side-l .hdr{left:0;right:auto;transform:translateX(-105%)}
+.te.hdr-off.fine.side.side-l .hdr.peek{transform:none;box-shadow:18px 0 50px rgba(0,0,0,.4)}
 .te.hdr-off.fine.side .hdr>*{grid-column:1/-1}
 .te.hdr-off.fine.side .hdr .logo{font-size:var(--fs-lg);padding:0 4px 6px}
 .te.hdr-off.fine.side .hdr-user{display:grid;grid-template-columns:auto auto 1fr;gap:6px;padding:12px;border-radius:var(--r-lg);background:var(--hdr-panel2)}
@@ -12542,8 +12545,9 @@ function AppInner() {
   // верхняя панель: галочка в меню ☰ — показывать её или нет (запоминается на этом устройстве)
   const [hdrOff, setHdrOff] = useState(() => { try { return localStorage.getItem("te:hdroff") === "1"; } catch (e) { return false; } });
   const setHdrOffSave = (v) => { setHdrOff(v); setHdrPeek(false); try { if (v) localStorage.setItem("te:hdroff", "1"); else localStorage.removeItem("te:hdroff"); } catch (e) {} };
-  const [hdrSide, setHdrSide] = useState(() => { try { return localStorage.getItem("te:hdrside") === "1"; } catch (e) { return false; } });
-  const setHdrSideSave = (v) => { setHdrSide(v); setHdrPeek(false); try { if (v) localStorage.setItem("te:hdrside", "1"); else localStorage.removeItem("te:hdrside"); } catch (e) {} };
+  // откуда выезжает скрытая панель: "" — сверху, "r" — справа, "l" — слева (в памяти: "1" — справа, как раньше; "l" — слева)
+  const [hdrSide, setHdrSide] = useState(() => { try { const v = localStorage.getItem("te:hdrside"); return v === "1" ? "r" : v === "l" ? "l" : ""; } catch (e) { return ""; } });
+  const setHdrSideSave = (v) => { setHdrSide(v); setHdrPeek(false); try { if (v) localStorage.setItem("te:hdrside", v === "l" ? "l" : "1"); else localStorage.removeItem("te:hdrside"); } catch (e) {} };
   const [hdrPeek, setHdrPeek] = useState(false);
   useFitKpiNums();
   // мышь (компьютер) — панель выезжает от края; на телефоне — кнопки 📝 🧮 ☰
@@ -12552,7 +12556,7 @@ function AppInner() {
   useEffect(() => {
     if (!hdrOff || !finePtr) return;
     const mv = (e) => {
-      const edge = hdrSide ? e.clientX >= window.innerWidth - 6 : e.clientY <= 6;
+      const edge = hdrSide === "r" ? e.clientX >= window.innerWidth - 6 : hdrSide === "l" ? e.clientX <= 6 : e.clientY <= 6;
       const inside = e.target && e.target.closest && e.target.closest(".hdr");
       if (edge || inside) { clearTimeout(peekT.current); peekT.current = null; if (edge) setHdrPeek(true); }
       else setHdrPeek(false); // мышь ушла с панели — закрывается сразу
@@ -12781,7 +12785,7 @@ function AppInner() {
     onLogout={(note) => { (async () => { if (SECURE && sb) { try { await sb.rpc("te_logout"); } catch (e) {} } endSession(note); })(); }} />}{intro}</>;
   return (<>
     <PeopleCtx.Provider value={peopleCtx}>
-    <div className={"te" + (darkMode ? " dark" : "") + (isPhone() && !finePtr ? " phone" : "") + (finePtr ? " fine" : " touch") + (hdrOff ? " hdr-off" : "") + (hdrSide ? " side" : "")}>
+    <div className={"te" + (darkMode ? " dark" : "") + (isPhone() && !finePtr ? " phone" : "") + (finePtr ? " fine" : " touch") + (hdrOff ? " hdr-off" : "") + (hdrSide ? " side" : "") + (hdrSide === "l" ? " side-l" : "")}>
       <style>{CSS}</style>
       {!finePtr && <button type="button" className={"mnav" + (hdrHidden && !hdrPeek ? " hide-on-scroll" : "")} title="Меню" aria-label="Меню" onClick={() => setHdrPeek(true)}><Ic n="menu" s={22} />{team.unread.total > 0 && <span className="chat-badge mnav-badge">{team.unread.total}</span>}</button>}
       {!finePtr && <div className={"mnav-bg" + (hdrPeek ? " on" : "")} onClick={() => setHdrPeek(false)} />}
@@ -12816,8 +12820,9 @@ function AppInner() {
         {role !== "driver" && <button className={"btn xs hdr-calc" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => { setCalcOpen((v) => !v); if (!finePtr) setHdrPeek(false); }}><Ic n="calc" /><span className="hdr-lbl"> Калькулятор</span></button>}
         <button className="btn xs hdr-hide" title="Скрыть панель — будет выезжать, когда мышь у края экрана" onClick={() => { setHdrOffSave(true); setMobileMenuOpen(false); }}>⌃</button>
         <span className="hdr-side" title="Откуда выезжает панель, когда она скрыта">
-          <button type="button" className={!hdrSide ? "on" : ""} onClick={() => setHdrSideSave(false)}>Сверху</button>
-          <button type="button" className={hdrSide ? "on" : ""} onClick={() => setHdrSideSave(true)}>Справа</button>
+          <button type="button" className={hdrSide === "l" ? "on" : ""} onClick={() => setHdrSideSave("l")}>Слева</button>
+          <button type="button" className={!hdrSide ? "on" : ""} onClick={() => setHdrSideSave("")}>Сверху</button>
+          <button type="button" className={hdrSide === "r" ? "on" : ""} onClick={() => setHdrSideSave("r")}>Справа</button>
         </span>
         <button className="btn xs hdr-pin" title="Закрепить панель (всегда видна)" onClick={() => setHdrOffSave(false)}><Ic n="pin" /><span className="hdr-pin-l"> Закрепить панель</span></button>
         <input ref={restoreRef} type="file" accept=".json,.gz,application/json,application/gzip" style={{ display: "none" }} onChange={onRestore} />
