@@ -450,7 +450,7 @@ html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::
 .te.hdr-off.fine.side .hdr-user .btn.xs:last-child{justify-self:end}
 .te.hdr-off.fine.side .hdr .tabs{display:flex;flex-direction:column;margin:6px 0;gap:2px}
 .te.hdr-off.fine.side .hdr .tab{width:100%;text-align:left;padding:9px 12px;border-radius:var(--r-md);font-size:var(--fs-sm)}
-.te.hdr-off.fine.side .hdr .npanel-btn,.te.hdr-off.fine.side .hdr .hdr-calc{grid-column:auto;height:40px;border-radius:var(--r-md);font-size:var(--fs-sm);font-weight:600;justify-content:center}
+.te.hdr-off.fine.side .hdr .npanel-btn,.te.hdr-off.fine.side .hdr .hdr-calc,.te.hdr-off.fine.side .hdr .hdr-heat{grid-column:auto;height:40px;border-radius:var(--r-md);font-size:var(--fs-sm);font-weight:600;justify-content:center}
 .te.hdr-off.fine.side .hdr .npanel-btn{grid-column:1}
 .te.hdr-off.fine.side .hdr-side{justify-content:stretch;margin-top:4px}
 .te.hdr-off.fine.side .hdr-side button{flex:1;padding:7px 10px}
@@ -489,7 +489,7 @@ html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::
 .te.touch .hdr-user .btn.xs:last-child{justify-self:end}
 .te.touch .hdr .tabs{display:flex;position:static;flex-direction:column;flex-wrap:nowrap;margin:6px 0;gap:2px;background:none;border:0;box-shadow:none;padding:0}
 .te.touch .hdr .tab{width:100%;text-align:left;padding:11px 12px;border-radius:var(--r-md);font-size:var(--fs-md)}
-.te.touch .hdr .npanel-btn,.te.touch .hdr .hdr-calc{grid-column:auto;height:44px;border-radius:var(--r-md);font-size:var(--fs-sm);font-weight:600;justify-content:center}
+.te.touch .hdr .npanel-btn,.te.touch .hdr .hdr-calc,.te.touch .hdr .hdr-heat{grid-column:auto;height:44px;border-radius:var(--r-md);font-size:var(--fs-sm);font-weight:600;justify-content:center}
 .te.touch .hdr .npanel-btn{grid-column:1}
 .te.touch .body{padding:66px 14px 32px}
 .hdr .btn{background:var(--hdr-panel2);border-color:var(--hdr-line);color:var(--hdr-txt)}
@@ -678,6 +678,17 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 body.fw-busy,body.fw-busy *{user-select:none!important}
 .nwin{position:fixed;z-index:5;display:flex;flex-direction:column;gap:10px;padding:16px 18px 14px;border-radius:var(--r-xl);background:var(--panel);border:1px solid var(--line2);box-shadow:0 30px 80px rgba(0,0,0,.45);pointer-events:auto;overflow:hidden}
 .nwin-head{display:flex;align-items:center;gap:8px;cursor:move;user-select:none}
+/* окно «Расчёт отопления»: под шапкой-шторкой (70), но выше страницы; окна-вопросы (100) и калькулятор — поверх */
+.nwin.heatwin{z-index:65;padding:12px 12px 12px;gap:10px;width:min(1240px,calc(100vw - 40px));height:calc(100dvh - 40px);left:50%;top:20px;transform:translateX(-50%)}
+.nwin.heatwin[style*="left"]{transform:none}
+.nwin.heatwin.off{display:none}
+.heatwin .nwin-head{padding:2px 4px 0 6px}
+.heatwin .nwin-head b{display:flex;align-items:center;gap:8px}
+.heatwin-body{flex:1;min-height:0;border-radius:var(--r-lg);overflow:hidden;background:#F5F3EE}
+body.fw-busy iframe{pointer-events:none}
+@media(max-width:820px){.nwin.heatwin{left:0;top:0;width:100vw;height:100dvh;transform:none;border-radius:0;border:0;padding:calc(10px + env(safe-area-inset-top,0px)) 10px calc(10px + env(safe-area-inset-bottom,0px))}}
+.te.touch .nwin.heatwin{left:0;top:0;width:100vw;height:100dvh;transform:none;border-radius:0;border:0;padding:calc(10px + env(safe-area-inset-top,0px)) 10px calc(10px + env(safe-area-inset-bottom,0px))}
+.te.touch .heatwin .npanel-x{min-width:44px;height:44px;font-size:var(--fs-lg)}
 .nwin-head b{font-size:var(--fs-lg);margin-right:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .note-form.in-win{display:flex;flex-direction:column;flex:1;min-height:0}
 .note-form.in-win .note-text-fld{flex:1;min-height:0;display:flex;flex-direction:column}
@@ -965,11 +976,12 @@ html.phone-boot .body,html.phone-boot .card,html.phone-boot .kpi{animation:none!
   .te.fine:not(.hdr-off) .hdr .npanel-btn{order:2;margin-left:auto}
   .te.fine:not(.hdr-off) .hdr .hdr-chat{order:3}
   .te.fine:not(.hdr-off) .hdr .hdr-calc{order:4}
+  .te.fine:not(.hdr-off) .hdr .hdr-heat{order:4}
   .te.fine:not(.hdr-off) .hdr .hdr-user{order:5;margin-left:8px;padding:3px 3px 3px 14px;border-radius:var(--r-pill);background:var(--hdr-panel2);border:1px solid var(--hdr-line);gap:6px!important}
   .te.fine:not(.hdr-off) .hdr .hdr-user>div{text-align:left!important;line-height:1.15;margin-right:4px}
   .te.fine:not(.hdr-off) .hdr .hdr-user .btn.xs{border-radius:var(--r-pill);min-height:30px;padding:4px 11px;background:var(--hdr-bg)}
   .te.fine:not(.hdr-off) .hdr .tabs{order:9;flex-basis:100%;margin:0 0 0 -12px;padding-bottom:8px;gap:2px}
-  .te.fine:not(.hdr-off) .hdr .npanel-btn,.te.fine:not(.hdr-off) .hdr .hdr-chat,.te.fine:not(.hdr-off) .hdr .hdr-calc{min-height:32px;padding:5px 12px;border-radius:var(--r-pill)}
+  .te.fine:not(.hdr-off) .hdr .npanel-btn,.te.fine:not(.hdr-off) .hdr .hdr-chat,.te.fine:not(.hdr-off) .hdr .hdr-calc,.te.fine:not(.hdr-off) .hdr .hdr-heat{min-height:32px;padding:5px 12px;border-radius:var(--r-pill)}
 }
 @media(min-width:821px) and (max-width:1120px){.te.fine:not(.hdr-off) .hdr .hdr-lbl{display:none}}
 .hdr .btn{transition:background var(--dur),border-color var(--dur),color var(--dur)}
@@ -1009,7 +1021,8 @@ tr.batch-head:hover>td{background:color-mix(in srgb,var(--txt) 4%,var(--panel2))
 /* уведомление снизу */
 @keyframes toastin{from{opacity:0;transform:translate(-50%,16px) scale(.98)}to{opacity:1;transform:translate(-50%,0)}}
 .toast{animation:toastin .3s var(--ease-out);border-left-width:4px;box-shadow:var(--shadow-pop);width:max-content}
-.te.touch .hdr .hdr-calc,.te.hdr-off.fine.side .hdr .hdr-calc{grid-column:1/-1}
+.te.touch .hdr .hdr-calc,.te.hdr-off.fine.side .hdr .hdr-calc,.te.touch .hdr .hdr-heat,.te.hdr-off.fine.side .hdr .hdr-heat{grid-column:1/-1}
+.te.touch .hdr .hdr-heat .hdr-lbl,.te.hdr-off.fine.side .hdr .hdr-heat .hdr-lbl{display:inline}
 @media(max-width:820px){.toast{bottom:calc(16px + env(safe-area-inset-bottom,0px))}}
 /* галочки и переключатели — фирменного цвета; календарь, списки и полосы прокрутки браузера — в цвет темы */
 .te{color-scheme:light;accent-color:var(--acc)}
@@ -2118,7 +2131,7 @@ function NoAutofillGuard() {
 // бейдж: старые яркие hex-цвета переводятся в спокойные тона темы (читаются и в светлой, и в тёмной теме)
 const BADGE_TONE = { "#fff": "--t-strong", "#ffffff": "--t-strong", "#9a9a9a": "--t-neutral", "#d6d6d6": "--t-neutral", "#ffb020": "--t-warn", "#ff707b": "--t-bad", "#ff4d5e": "--t-bad", "#3ddc7d": "--t-ok", "#4db8ff": "--t-info" };
 /* Иконки — один набор (контурные, в стиле Lucide), вместо эмодзи. <Ic n="truck" /> — размер по тексту (1.1em) или s={20} */
-const IC = {"history": "<path d=\"M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8\"/><path d=\"M3 3v5h5\"/><path d=\"M12 7v5l4 2\"/>", "chevL": "<path d=\"m15 18-6-6 6-6\"/>", "chevR": "<path d=\"m9 18 6-6-6-6\"/>", "truck": "<path d=\"M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2\"/><path d=\"M15 18H9\"/><path d=\"M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14\"/><circle cx=\"17\" cy=\"18\" r=\"2\"/><circle cx=\"7\" cy=\"18\" r=\"2\"/>", "sheet": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h2\"/><path d=\"M14 13h2\"/><path d=\"M8 17h2\"/><path d=\"M14 17h2\"/>", "download": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" x2=\"12\" y1=\"15\" y2=\"3\"/>", "upload": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"17 8 12 3 7 8\"/><line x1=\"12\" x2=\"12\" y1=\"3\" y2=\"15\"/>", "down": "<path d=\"M12 5v14\"/><path d=\"m19 12-7 7-7-7\"/>", "up": "<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>", "save": "<path d=\"M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z\"/><path d=\"M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7\"/><path d=\"M7 3v4a1 1 0 0 0 1 1h7\"/>", "note": "<path d=\"M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z\"/><path d=\"M15 3v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h8\"/><path d=\"M8 17h5\"/>", "calc": "<rect width=\"16\" height=\"20\" x=\"4\" y=\"2\" rx=\"2\"/><line x1=\"8\" x2=\"16\" y1=\"6\" y2=\"6\"/><line x1=\"16\" x2=\"16\" y1=\"14\" y2=\"18\"/><path d=\"M16 10h.01\"/><path d=\"M12 10h.01\"/><path d=\"M8 10h.01\"/><path d=\"M12 14h.01\"/><path d=\"M8 14h.01\"/><path d=\"M12 18h.01\"/><path d=\"M8 18h.01\"/>", "warehouse": "<path d=\"M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z\"/><path d=\"M6 18h12\"/><path d=\"M6 14h12\"/><rect width=\"12\" height=\"12\" x=\"6\" y=\"10\"/>", "search": "<circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/>", "lock": "<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\"/><path d=\"M7 11V7a5 5 0 0 1 10 0v4\"/>", "pin": "<path d=\"M12 17v5\"/><path d=\"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z\"/>", "eye": "<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>", "eyeoff": "<path d=\"M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49\"/><path d=\"M14.084 14.158a3 3 0 0 1-4.242-4.242\"/><path d=\"M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143\"/><path d=\"m2 2 20 20\"/>", "file": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/>", "trash": "<path d=\"M3 6h18\"/><path d=\"M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6\"/><path d=\"M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2\"/>", "cash": "<rect width=\"20\" height=\"12\" x=\"2\" y=\"6\" rx=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/><path d=\"M6 12h.01M18 12h.01\"/>", "pencil": "<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>", "users": "<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/>", "sun": "<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2\"/><path d=\"M12 20v2\"/><path d=\"m4.93 4.93 1.41 1.41\"/><path d=\"m17.66 17.66 1.41 1.41\"/><path d=\"M2 12h2\"/><path d=\"M20 12h2\"/><path d=\"m6.34 17.66-1.41 1.41\"/><path d=\"m19.07 4.93-1.41 1.41\"/>", "moon": "<path d=\"M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z\"/>", "package": "<path d=\"M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z\"/><path d=\"M12 22V12\"/><path d=\"m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7\"/><path d=\"m7.5 4.27 9 5.15\"/>", "wrench": "<path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z\"/>", "cloud": "<path d=\"M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z\"/>", "link": "<path d=\"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71\"/><path d=\"M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71\"/>", "clipboard": "<rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/>", "folder": "<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "eraser": "<path d=\"m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21\"/><path d=\"M22 21H7\"/><path d=\"m5 11 9 9\"/>", "hourglass": "<path d=\"M5 22h14\"/><path d=\"M5 2h14\"/><path d=\"M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22\"/><path d=\"M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2\"/>", "undo": "<path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"/>", "menu": "<line x1=\"4\" x2=\"20\" y1=\"12\" y2=\"12\"/><line x1=\"4\" x2=\"20\" y1=\"6\" y2=\"6\"/><line x1=\"4\" x2=\"20\" y1=\"18\" y2=\"18\"/>", "chat": "<path d=\"M7.9 20A9 9 0 1 0 4 16.1L2 22Z\"/>", "copy": "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>"};
+const IC = {"history": "<path d=\"M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8\"/><path d=\"M3 3v5h5\"/><path d=\"M12 7v5l4 2\"/>", "chevL": "<path d=\"m15 18-6-6 6-6\"/>", "chevR": "<path d=\"m9 18 6-6-6-6\"/>", "truck": "<path d=\"M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2\"/><path d=\"M15 18H9\"/><path d=\"M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14\"/><circle cx=\"17\" cy=\"18\" r=\"2\"/><circle cx=\"7\" cy=\"18\" r=\"2\"/>", "sheet": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h2\"/><path d=\"M14 13h2\"/><path d=\"M8 17h2\"/><path d=\"M14 17h2\"/>", "download": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"7 10 12 15 17 10\"/><line x1=\"12\" x2=\"12\" y1=\"15\" y2=\"3\"/>", "upload": "<path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><polyline points=\"17 8 12 3 7 8\"/><line x1=\"12\" x2=\"12\" y1=\"3\" y2=\"15\"/>", "down": "<path d=\"M12 5v14\"/><path d=\"m19 12-7 7-7-7\"/>", "up": "<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>", "save": "<path d=\"M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z\"/><path d=\"M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7\"/><path d=\"M7 3v4a1 1 0 0 0 1 1h7\"/>", "note": "<path d=\"M15.5 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z\"/><path d=\"M15 3v4a2 2 0 0 0 2 2h4\"/><path d=\"M8 13h8\"/><path d=\"M8 17h5\"/>", "calc": "<rect width=\"16\" height=\"20\" x=\"4\" y=\"2\" rx=\"2\"/><line x1=\"8\" x2=\"16\" y1=\"6\" y2=\"6\"/><line x1=\"16\" x2=\"16\" y1=\"14\" y2=\"18\"/><path d=\"M16 10h.01\"/><path d=\"M12 10h.01\"/><path d=\"M8 10h.01\"/><path d=\"M12 14h.01\"/><path d=\"M8 14h.01\"/><path d=\"M12 18h.01\"/><path d=\"M8 18h.01\"/>", "warehouse": "<path d=\"M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35A2 2 0 0 1 3.26 6.5l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z\"/><path d=\"M6 18h12\"/><path d=\"M6 14h12\"/><rect width=\"12\" height=\"12\" x=\"6\" y=\"10\"/>", "search": "<circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/>", "lock": "<rect width=\"18\" height=\"11\" x=\"3\" y=\"11\" rx=\"2\" ry=\"2\"/><path d=\"M7 11V7a5 5 0 0 1 10 0v4\"/>", "pin": "<path d=\"M12 17v5\"/><path d=\"M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z\"/>", "eye": "<path d=\"M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>", "eyeoff": "<path d=\"M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49\"/><path d=\"M14.084 14.158a3 3 0 0 1-4.242-4.242\"/><path d=\"M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143\"/><path d=\"m2 2 20 20\"/>", "file": "<path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/>", "trash": "<path d=\"M3 6h18\"/><path d=\"M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6\"/><path d=\"M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2\"/>", "cash": "<rect width=\"20\" height=\"12\" x=\"2\" y=\"6\" rx=\"2\"/><circle cx=\"12\" cy=\"12\" r=\"2\"/><path d=\"M6 12h.01M18 12h.01\"/>", "pencil": "<path d=\"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z\"/><path d=\"m15 5 4 4\"/>", "users": "<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/>", "sun": "<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2\"/><path d=\"M12 20v2\"/><path d=\"m4.93 4.93 1.41 1.41\"/><path d=\"m17.66 17.66 1.41 1.41\"/><path d=\"M2 12h2\"/><path d=\"M20 12h2\"/><path d=\"m6.34 17.66-1.41 1.41\"/><path d=\"m19.07 4.93-1.41 1.41\"/>", "moon": "<path d=\"M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z\"/>", "package": "<path d=\"M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z\"/><path d=\"M12 22V12\"/><path d=\"m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7\"/><path d=\"m7.5 4.27 9 5.15\"/>", "wrench": "<path d=\"M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z\"/>", "cloud": "<path d=\"M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z\"/>", "link": "<path d=\"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71\"/><path d=\"M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71\"/>", "clipboard": "<rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\" ry=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/>", "folder": "<path d=\"M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z\"/>", "eraser": "<path d=\"m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21\"/><path d=\"M22 21H7\"/><path d=\"m5 11 9 9\"/>", "hourglass": "<path d=\"M5 22h14\"/><path d=\"M5 2h14\"/><path d=\"M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22\"/><path d=\"M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2\"/>", "undo": "<path d=\"M9 14 4 9l5-5\"/><path d=\"M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11\"/>", "menu": "<line x1=\"4\" x2=\"20\" y1=\"12\" y2=\"12\"/><line x1=\"4\" x2=\"20\" y1=\"6\" y2=\"6\"/><line x1=\"4\" x2=\"20\" y1=\"18\" y2=\"18\"/>", "chat": "<path d=\"M7.9 20A9 9 0 1 0 4 16.1L2 22Z\"/>", "flame": "<path d=\"M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z\"/>", "copy": "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>"};
 const Ic = ({ n, s, style, title, className = "" }) => <svg className={"ic " + className} width={s || "1.1em"} height={s || "1.1em"} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden={title ? undefined : "true"} role={title ? "img" : undefined} style={style} dangerouslySetInnerHTML={{ __html: (title ? "<title>" + title + "</title>" : "") + (IC[n] || "") }} />;
 const Badge = ({ c, children }) => {
   const col = String(c || "").startsWith("var(") ? c : BADGE_TONE[String(c || "").toLowerCase()] ? "var(" + BADGE_TONE[String(c).toLowerCase()] + ")" : c;
@@ -8743,7 +8756,7 @@ function WhInForm({ products, suppliers, warehouse, onClose, onSave }) {
    Сам калькулятор — отдельная страница (isitish/, собирается в src/isitish.html), показывается в окне внутри раздела:
    грузится только при открытии раздела, свои стили не смешиваются с программой. Данные — только на устройстве. */
 let HEAT_HTML = null;
-function HeatCalcTab({ lang, userName }) {
+function HeatCalcTab({ lang, userName, fill = false }) {
   const [html, setHtml] = useState(HEAT_HTML);
   const [err, setErr] = useState("");
   const [h, setH] = useState(600);
@@ -8753,13 +8766,14 @@ function HeatCalcTab({ lang, userName }) {
     import("./isitish.html?raw").then((m) => { HEAT_HTML = m.default; setHtml(m.default); }).catch((e) => setErr(String((e && e.message) || e)));
   }, []);
   useEffect(() => {
+    if (fill) return; // в окне — высота по окну (CSS)
     const fit = () => { const el = ref.current; if (el) setH(Math.max(420, Math.round(window.innerHeight - el.getBoundingClientRect().top - 12))); };
     fit(); const t = setTimeout(fit, 300);
     window.addEventListener("resize", fit);
     return () => { clearTimeout(t); window.removeEventListener("resize", fit); };
   }, [html]);
   // язык программы и имя менеджера передаются в калькулятор
-  const doc = useMemo(() => (html ? html.replace("<!--HOST-->", () => "<script>window.__ISITISH_HOST=" + JSON.stringify({ lang: lang === "uz" ? "uz" : "ru", user: userName || "", company: "Thermo Engineering" }).replace(/</g, "\\u003c") + "</script>") : ""), [html, lang, userName]);
+  const doc = useMemo(() => (html ? html.replace("<!--HOST-->", () => "<style>html,body{overscroll-behavior:contain}</style><script>window.__ISITISH_HOST=" + JSON.stringify({ lang: lang === "uz" ? "uz" : "ru", user: userName || "", company: "Thermo Engineering" }).replace(/</g, "\\u003c") + "</script>") : ""), [html, lang, userName]);
   if (err) return <div className="card sect" style={{ color: "var(--warn)" }}>Не удалось загрузить расчёт отопления: {err}</div>;
   if (!html) return <div className="card sect mut">Загрузка…</div>;
   // движения мыши внутри окна калькулятора передаются программе: панель меню у края экрана открывается и закрывается как обычно
@@ -8774,7 +8788,29 @@ function HeatCalcTab({ lang, userName }) {
     } catch (e) { /* окно недоступно — ничего страшного */ }
   };
   return <iframe ref={ref} key={lang} onLoad={onLoad} title={lang === "uz" ? "Isitish hisobi" : "Расчёт отопления"} srcDoc={doc}
-    style={{ display: "block", width: "100%", height: h, border: 0, borderRadius: 12, background: "#F5F3EE" }} />;
+    style={{ display: "block", width: "100%", height: fill ? "100%" : h, border: 0, borderRadius: fill ? 0 : 12, background: "#F5F3EE" }} />;
+}
+// «Расчёт отопления» — отдельное окно поверх любого раздела (кнопка в шапке, как «Заметки» и «Калькулятор»).
+// Закрытое окно не сбрасывается: открыли снова — расчёт на месте. Компьютер: окно двигается и растягивается;
+// телефон и планшет: на весь экран
+function HeatWin({ lang, userName, uid, open, onClose }) {
+  const fw = useFloatWin("te:heatwin:" + uid, { minW: 520, minH: 420, def: () => {
+    const W = window.innerWidth, H = window.innerHeight, w = Math.min(1240, W - 40), h = H - 40;
+    return { x: Math.round((W - w) / 2), y: 20, w, h };
+  } });
+  const title = lang === "uz" ? "Isitish hisobi" : "Расчёт отопления";
+  return (
+    <div className={"nwin heatwin" + (open ? "" : " off")} role="dialog" aria-label={title} aria-hidden={!open} ref={fw.ref} style={fw.style}
+      onKeyDown={(e) => { if (e.key === "Escape" && !topModal()) { e.preventDefault(); e.stopPropagation(); onClose(); } }}>
+      <div className="nwin-head" onPointerDown={fw.headDown} onDoubleClick={(e) => { if (!e.target.closest("button")) fw.reset(); }}
+        title={fw.on ? "Перетащите окно за эту полосу · размер — за уголок справа внизу · двойной щелчок — снова по центру" : undefined}>
+        <b><Ic n="flame" /> {title}</b>
+        <button type="button" className="npanel-x" title={lang === "uz" ? "Yopish (hisob saqlanib qoladi)" : "Закрыть (расчёт сохранится — откроете снова, всё на месте)"} onClick={onClose}>✕</button>
+      </div>
+      <div className="heatwin-body"><HeatCalcTab lang={lang} userName={userName} fill /></div>
+      <FwGrip fw={fw} />
+    </div>
+  );
 }
 
 function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
@@ -12716,6 +12752,9 @@ function AppInner() {
   const L = (ru, uz) => lang === "uz" ? uz : ru;
   const [backupOpen, setBackupOpen] = useState(false);
   const [calcOpen, setCalcOpen] = useState(false);
+  const [heatOpen, setHeatOpen] = useState(false);
+  const [heatMounted, setHeatMounted] = useState(false); // окно открывали — дальше держим его (скрытым), чтобы расчёт не пропадал
+  const toggleHeat = (v) => setHeatOpen((o) => { const n = typeof v === "boolean" ? v : !o; if (n) setHeatMounted(true); return n; });
   const [notesOpen, setNotesOpen] = useState(false);
   // чат сотрудников и «в сети» (Аккаунты — колонка «В сети»; кнопка «Чат» в верхней панели)
   const [chatOpen, setChatOpen] = useState(false);
@@ -12836,9 +12875,9 @@ function AppInner() {
       if (leaving) return;
       armed = false;
       if (peekRef.current) { setHdrPeek(false); arm(); return; }
-      if (document.querySelector(".modal-bg, .npanel-bg, .calc")) {
+      if (document.querySelector(".modal-bg, .npanel-bg, .calc, .heatwin:not(.off)")) {
         if (document.querySelector(".modal-bg")) window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-        else { const n = document.querySelector(".npanel-x"); if (n) n.click(); else { const c = document.querySelector(".calc .calc-ib[title^='Закрыть']"); if (c) c.click(); } }
+        else { const n = document.querySelector(".npanel-bg .npanel-x"); if (n) n.click(); else { const c = document.querySelector(".calc .calc-ib[title^='Закрыть']"); if (c) c.click(); else { const hw = document.querySelector(".heatwin:not(.off) .npanel-x"); if (hw) hw.click(); } } }
         arm(); return;
       }
       arm();
@@ -12940,7 +12979,9 @@ function AppInner() {
     catch (err) { await reload("all"); toast("Ошибка восстановления: " + err.message); }
   };
 
-  const roleTabs = acc.tabs;
+  // «Расчёт отопления» — не раздел, а окно (кнопка в шапке). Раздел остаётся только там, где он единственный (Проектировщик)
+  const heatWin = acc.tabs.includes("heat") && acc.tabs.length > 1;
+  const roleTabs = heatWin ? acc.tabs.filter((t) => t !== "heat") : acc.tabs;
   // «От мастеров»: сколько новых списков (число на вкладке), проверка раз в минуту
   const hasUsta = !!currentUser && roleTabs.includes("usta");
   useEffect(() => {
@@ -12954,7 +12995,7 @@ function AppInner() {
   const TAB_LABELS_UZ = { usta: "Ustalardan", heat: "Isitish hisobi", delivery: "Yetkazish", request: "Yangi ariza", dash: "Boshqaruv", objects: "Ob'ektlar", products: "Tovarlar", wh: "Ombor Thermo", suppliers: "Ta'minotchilar", masters: "Ustalar", finance: "Moliya", log: "Jurnal", admin: "Hisoblar" , notes: "Eslatmalar" };
   const TAB_LABELS = lang === "uz" ? TAB_LABELS_UZ : TAB_LABELS_RU;
   const allTabs = roleTabs.map((id) => ({ id, label: TAB_LABELS[id] }));
-  useEffect(() => { if (currentUser) { setTab(roleTabs[0]); setOpenId(null); } }, [currentUser ? currentUser.id + ":" + currentUser.role : ""]);
+  useEffect(() => { if (currentUser) { setTab(roleTabs[0]); setOpenId(null); } setHeatOpen(false); setHeatMounted(false); }, [currentUser ? currentUser.id + ":" + currentUser.role : ""]);
   // права роли изменили — открытый раздел стал недоступен: переходим в первый доступный
   useEffect(() => { if (currentUser && roleTabs.length && !roleTabs.includes(tab)) setTab(roleTabs[0]); }, [roleTabs.join(","), tab]);
   useHotActions(() => (currentUser && !noCloud ? [{ label: "Сменить облачный пароль", run: () => setCloudChange(true) }] : []));
@@ -13047,6 +13088,7 @@ function AppInner() {
         <button className="burger" onClick={() => setMobileMenuOpen((v) => !v)} title="Меню">{mobileMenuOpen ? "✕" : <Ic n="menu" s={20} />}</button>
         <button className={"btn xs npanel-btn" + (notesOpen ? " pri" : "")} title="Заметки: Alt два раза подряд (или левый + правый Alt)" onClick={() => { setNotesOpen((v) => !v); if (!finePtr) setHdrPeek(false); }}><Ic n="note" /><span className="hdr-lbl"> Заметки</span></button>
         <button className={"btn xs hdr-chat" + (chatOpen ? " pri" : "")} title="Чат сотрудников" onClick={() => (chatOpen ? setChatOpen(false) : openChat(null))}><Ic n="chat" /><span className="hdr-lbl"> Чат</span>{team.unread.total > 0 && <span className="chat-badge">{team.unread.total}</span>}</button>
+        {heatWin && <button className={"btn xs hdr-heat" + (heatOpen ? " pri" : "")} title={lang === "uz" ? "Isitish hisobi — alohida oynada" : "Расчёт отопления — отдельное окно поверх любого раздела"} onClick={() => { toggleHeat(); if (!finePtr) setHdrPeek(false); }}><Ic n="flame" /><span className="hdr-lbl"> {lang === "uz" ? "Isitish hisobi" : "Расчёт отопления"}</span></button>}
         {role !== "driver" && <button className={"btn xs hdr-calc" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => { setCalcOpen((v) => !v); if (!finePtr) setHdrPeek(false); }}><Ic n="calc" /><span className="hdr-lbl"> Калькулятор</span></button>}
         <button className="btn xs hdr-hide" title="Скрыть панель — будет выезжать, когда мышь у края экрана" onClick={() => { setHdrOffSave(true); setMobileMenuOpen(false); }}>⌃</button>
         <span className="hdr-side" title="Откуда выезжает панель, когда она скрыта">
@@ -13097,6 +13139,7 @@ function AppInner() {
       {wipeOpen && role === "boss" && <WipeModal data={data} reload={reload} onClose={() => setWipeOpen(false)} onDone={async () => {
         await reload("all"); setWipeOpen(false); setOpenId(null); toast("База очищена. Товары, поставщики и мастера сохранены.");
       }} />}
+      {heatWin && heatMounted && currentUser && <HeatWin lang={lang} userName={currentUser.name || currentUser.username} uid={currentUser.id} open={heatOpen} onClose={() => setHeatOpen(false)} />}
       {calcOpen && <Calculator onClose={() => setCalcOpen(false)} />}
       {chatOpen && currentUser && <ChatWin team={team} data={data} me={currentUser} start={chatStart} toast={toast} onClose={() => setChatOpen(false)} />}
       {notesOpen && currentUser && <NotesPanel data={data} reload={reload} toast={toast} user={currentUser} boss={role === "boss"} onClose={() => setNotesOpen(false)} />}
