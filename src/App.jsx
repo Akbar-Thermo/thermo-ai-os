@@ -8088,6 +8088,20 @@ function ObjectExcelImport({ products, suppliers, onClose, onSave }) {
     </>
   );
 }
+// поле для быстрого ввода в длинных таблицах: пока печатаете — текст хранится в самом поле, в список (и в черновик) уходит
+// через короткую паузу, при выходе из поля и при закрытии. Иначе каждая цифра перерисовывает всю таблицу, и программа «залипает».
+function DeferInput({ value, onChange, delay = 300, onBlur, onFocus, ...rest }) {
+  const [v, setV] = useState(value == null ? "" : value);
+  const foc = useRef(false), timer = useRef(null), pend = useRef(null), cb = useRef(onChange);
+  cb.current = onChange;
+  useEffect(() => { if (!foc.current) setV(value == null ? "" : value); }, [value]);
+  const flush = () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } if (pend.current != null) { const x = pend.current; pend.current = null; cb.current({ target: { value: x } }); } };
+  useEffect(() => () => flush(), []);
+  return <input {...rest} value={v}
+    onFocus={(e) => { foc.current = true; if (onFocus) onFocus(e); }}
+    onChange={(e) => { const x = e.target.value; setV(x); pend.current = x; if (timer.current) clearTimeout(timer.current); timer.current = setTimeout(flush, delay); }}
+    onBlur={(e) => { foc.current = false; flush(); if (onBlur) onBlur(e); }} />;
+}
 // черновик «Добавить позиции вручную / Новая поставка»: хранится на этом устройстве по объекту; не пропадает, если закрыть окно или уйти в другой раздел
 const addDraftKey = (objId, newBatch) => "te:adddraft:" + objId + ":" + (newBatch ? "nb" : "m");
 function loadAddDraft(key) { try { const d = JSON.parse(localStorage.getItem(key) || "null"); return d && Array.isArray(d.rows) && d.rows.length ? d : null; } catch (e) { return null; } }
@@ -8098,8 +8112,8 @@ function AddItemsModal({ perechCat = false, draftKey = "", fin = true, products,
   // новая строка — сверху списка; в объект строки сохраняются в порядке добавления
   const addRow = (r) => setRows((prev) => [{ ...r, _k: uuid() }, ...prev]);
   const blank = () => addRow({ product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: 0, price: 0, supplier_id: "" });
-  const upd = (i, k, val) => setRows(rows.map((r, j) => (j === i ? { ...r, [k]: val } : r)));
-  const del = (i) => setRows(rows.filter((_, j) => j !== i));
+  const upd = (i, k, val) => setRows((prev) => prev.map((r, j) => (j === i ? { ...r, [k]: val } : r)));
+  const del = (i) => setRows((prev) => prev.filter((_, j) => j !== i));
   const total = rows.reduce((a, r) => a + parseNum(r.qty) * parseNum(r.price), 0);
   const validK = rows.filter((r) => String(r.name || "").trim() && parseNum(r.qty) > 0).reverse();
   const valid = validK.map(({ _k, ...r }) => r);
@@ -8164,7 +8178,7 @@ function AddItemsModal({ perechCat = false, draftKey = "", fin = true, products,
           <tbody>
             {rows.map((r, i) => (
               <tr key={r._k || i}>
-                <td><input className="inp" value={r.name} onChange={(e) => upd(i, "name", e.target.value)} />
+                <td><DeferInput className="inp" value={r.name} onChange={(e) => upd(i, "name", e.target.value)} />
                   {r.product_id && whQty[r.product_id] ? (() => {
                     const pid = r.product_id, exQ = whExact[pid] || 0, sm = whSim[pid], have = round2(exQ + (r.alt && sm ? sm.qty : 0));
                     return <>
@@ -8177,10 +8191,10 @@ function AddItemsModal({ perechCat = false, draftKey = "", fin = true, products,
                       </label>}
                     </>;
                   })() : null}</td>
-                <td><input className="inp" value={r.unit} onChange={(e) => upd(i, "unit", e.target.value)} /></td>
-                <td><input type="number" className="inp" min={0} value={r.qty} onChange={(e) => upd(i, "qty", e.target.value)} style={{ borderColor: parseNum(r.qty) > 0 ? undefined : "var(--bad)" }} /></td>
-                {fin && <td><input type="number" className="inp num" min={0} value={r.cost} onChange={(e) => upd(i, "cost", e.target.value)} title="Себестоимость (закупочная цена)" /></td>}
-                <td><input type="number" className="inp num" value={r.price} onChange={(e) => upd(i, "price", e.target.value)} /></td>
+                <td><DeferInput className="inp" value={r.unit} onChange={(e) => upd(i, "unit", e.target.value)} /></td>
+                <td><DeferInput type="number" className="inp" min={0} value={r.qty} onChange={(e) => upd(i, "qty", e.target.value)} style={{ borderColor: parseNum(r.qty) > 0 ? undefined : "var(--bad)" }} /></td>
+                {fin && <td><DeferInput type="number" className="inp num" min={0} value={r.cost} onChange={(e) => upd(i, "cost", e.target.value)} title="Себестоимость (закупочная цена)" /></td>}
+                <td><DeferInput type="number" className="inp num" value={r.price} onChange={(e) => upd(i, "price", e.target.value)} /></td>
                 <td><select className="inp" value={r.supplier_id || ""} onChange={(e) => upd(i, "supplier_id", e.target.value)}><option value="">—</option>{activeSuppliers(suppliers, r.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></td>
                 <td><button className="btn xs dng" onClick={() => del(i)}>✕</button></td>
               </tr>
@@ -8851,15 +8865,15 @@ function WhInForm({ products, suppliers, warehouse, onClose, onSave }) {
               const w = whOf(r.product_id);
               return (
                 <tr key={r._k}>
-                  <td><input className="inp" value={r.name} onChange={(e) => upd(r._k, { name: e.target.value, product_id: null })} placeholder="товар не из базы — впишите название" />
+                  <td><DeferInput className="inp" value={r.name} onChange={(e) => upd(r._k, { name: e.target.value, product_id: null })} placeholder="товар не из базы — впишите название" />
                     {w && <div className="xs mut" style={{ marginTop: 3 }}>на складе уже {fmt(w.qty)} {w.unit || "шт"} — прибавится</div>}
                     {r.supplier_id && <label className="row xs" style={{ gap: 5, marginTop: 3, cursor: "pointer", color: r.toDebt ? "var(--warn)" : "var(--mut)", fontWeight: 700 }}>
                       <input type="checkbox" checked={!!r.toDebt} onChange={(e) => upd(r._k, { toDebt: e.target.checked })} /> в долг поставщику {fmt2(parseNum(r.qty) * parseNum(r.cost))}
                     </label>}</td>
-                  <td><input className="inp" value={r.unit} onChange={(e) => upd(r._k, { unit: e.target.value })} /></td>
-                  <td><input type="number" className="inp" min={0} value={r.qty} onChange={(e) => upd(r._k, { qty: e.target.value })} style={{ borderColor: parseNum(r.qty) > 0 ? undefined : "var(--bad)" }} /></td>
-                  <td><input type="number" className="inp num" value={r.cost} onChange={(e) => upd(r._k, { cost: e.target.value })} /></td>
-                  <td><input type="number" className="inp num" value={r.price} onChange={(e) => upd(r._k, { price: e.target.value })} /></td>
+                  <td><DeferInput className="inp" value={r.unit} onChange={(e) => upd(r._k, { unit: e.target.value })} /></td>
+                  <td><DeferInput type="number" className="inp" min={0} value={r.qty} onChange={(e) => upd(r._k, { qty: e.target.value })} style={{ borderColor: parseNum(r.qty) > 0 ? undefined : "var(--bad)" }} /></td>
+                  <td><DeferInput type="number" className="inp num" value={r.cost} onChange={(e) => upd(r._k, { cost: e.target.value })} /></td>
+                  <td><DeferInput type="number" className="inp num" value={r.price} onChange={(e) => upd(r._k, { price: e.target.value })} /></td>
                   <td><select className="inp" value={r.supplier_id || ""} onChange={(e) => upd(r._k, { supplier_id: e.target.value })}><option value="">— без поставщика —</option>{activeSuppliers(suppliers, r.supplier_id).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></td>
                   <td><button className="btn xs dng" onClick={() => del(r._k)}>✕</button></td>
                 </tr>
