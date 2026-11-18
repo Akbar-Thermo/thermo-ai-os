@@ -7855,15 +7855,22 @@ function CostQuickRow({ i, n, val, onVal, onKey, onPaste }) {
 // замена позиции объекта другим товаром из базы: количество и поставка остаются, товар, поставщик, ед., себестоимость и цена — новые
 function ItemReplaceModal({ item, products, suppliers, fin, onClose, onSave }) {
   const [p, setP] = useState(null);
+  const [man, setMan] = useState(false); // ручной ввод: товара нет в базе
+  const [mv, setMv] = useState({ name: "", unit: item.unit || "шт", cost: "", supplier_id: item.supplier_id || "" });
   const [qty, setQty] = useState(inNum(item.qty ?? 0));
   const [price, setPrice] = useState("");
   const [busy, setBusy] = useState(false);
   const supName = (id) => (suppliers.find((s) => s.id === id) || {}).name || "—";
   const pick = (x) => { setP(x); setPrice(inNum(retailOf(x) || 0)); };
+  const setM = (k) => (e) => setMv({ ...mv, [k]: e.target.value });
+  const mName = String(mv.name || "").trim();
+  const ready = man ? !!mName : !!p;
   const save = async () => {
-    if (!p || busy) return;
+    if (!ready || busy) return;
     setBusy(true);
-    const out = { ...item, product_id: p.id, name: p.name, size: p.size || "", unit: p.unit || item.unit, supplier_id: p.supplier_id || null, cost: Number(p.cost) || 0, price: Math.max(0, parseNum(price)), qty: Math.max(0, parseNum(qty)) };
+    const out = man
+      ? { ...item, product_id: null, manual: true, name: mName, size: "", unit: String(mv.unit || "").trim() || "шт", supplier_id: mv.supplier_id || null, cost: Math.max(0, parseNum(mv.cost)), price: Math.max(0, parseNum(price)), qty: Math.max(0, parseNum(qty)) }
+      : { ...item, product_id: p.id, manual: false, name: p.name, size: p.size || "", unit: p.unit || item.unit, supplier_id: p.supplier_id || null, cost: Number(p.cost) || 0, price: Math.max(0, parseNum(price)), qty: Math.max(0, parseNum(qty)) };
     if (!(await confirmLowPrice([out]))) { setBusy(false); return; }
     await onSave(out);
     setBusy(false);
@@ -7873,18 +7880,30 @@ function ItemReplaceModal({ item, products, suppliers, fin, onClose, onSave }) {
       <div className="repl-old sm" style={{ padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 8, marginBottom: 12 }}>
         <span className="mut">Сейчас:</span> <b>{item.name}</b> · {fmt(item.qty)} {item.unit} · {fmt2(item.price)}{item.supplier_id ? " · " + supName(item.supplier_id) : ""}
       </div>
-      <ProductPicker closeOnPick products={products} suppliers={suppliers} placeholder="на что заменить: название, код, поставщик…" onPick={pick} />
-      {p && <div className="repl-new" style={{ marginTop: 12 }}>
-        <div className="sm" style={{ marginBottom: 8 }}><span className="mut">Новый:</span> <b>{p.name}</b>{p.size && !String(p.name).includes(p.size) ? " " + p.size : ""} · {supName(p.supplier_id)}{fin ? " · себест. " + fmt2(p.cost) : ""}</div>
+      <div className="row" style={{ gap: 6, marginBottom: 10 }}>
+        <button className={"btn xs" + (!man ? " pri" : "")} onClick={() => setMan(false)}>Из базы</button>
+        <button className={"btn xs repl-man" + (man ? " pri" : "")} onClick={() => setMan(true)}>Ввести вручную (нет в базе)</button>
+      </div>
+      {!man && <ProductPicker closeOnPick products={products} suppliers={suppliers} placeholder="на что заменить: название, код, поставщик…" onPick={pick} />}
+      {man && <div className="repl-new">
         <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <Fld label={"Количество, " + (p.unit || item.unit || "")}><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)} /></Fld>
+          <div style={{ gridColumn: "1/-1" }}><Fld label="Наименование"><input className="inp" autoFocus value={mv.name} onChange={setM("name")} placeholder="название нового товара" /></Fld></div>
+          <Fld label="Ед. изм."><input className="inp" value={mv.unit} onChange={setM("unit")} /></Fld>
+          <Fld label="Поставщик"><select className="inp" value={mv.supplier_id || ""} onChange={setM("supplier_id")}><option value="">—</option>{activeSuppliers(suppliers, mv.supplier_id).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Fld>
+          {fin && <Fld label="Себестоимость"><input type="number" className="inp" min={0} value={mv.cost} onChange={setM("cost")} /></Fld>}
+        </div>
+      </div>}
+      {(p || man) && <div className="repl-new" style={{ marginTop: 12 }}>
+        {!man && <div className="sm" style={{ marginBottom: 8 }}><span className="mut">Новый:</span> <b>{p.name}</b>{p.size && !String(p.name).includes(p.size) ? " " + p.size : ""} · {supName(p.supplier_id)}{fin ? " · себест. " + fmt2(p.cost) : ""}</div>}
+        <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          <Fld label={"Количество, " + ((man ? mv.unit : p.unit) || item.unit || "")}><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)} /></Fld>
           <Fld label="Цена продажи"><input type="number" className="inp" min={0} value={price} onChange={(e) => setPrice(e.target.value)} /></Fld>
         </div>
         <p className="xs mut" style={{ marginTop: 6 }}>Сумма позиции: {fmt(parseNum(qty) * parseNum(price))} (было {fmt((Number(item.qty) || 0) * (Number(item.price) || 0))})</p>
       </div>}
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" onClick={onClose}>Отмена</button>
-        <button className="btn pri repl-ok" disabled={!p || busy} onClick={save}>{busy ? "Заменяю…" : "Заменить"}</button>
+        <button className="btn pri repl-ok" disabled={!ready || busy} onClick={save}>{busy ? "Заменяю…" : "Заменить"}</button>
       </div>
     </Modal>
   );
