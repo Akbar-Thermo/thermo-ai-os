@@ -3010,6 +3010,10 @@ const askWhAlt = (p, exQ, sim, want) => askConfirm({
   ok: "Да, со склада", cancel: "Нет, у поставщика", focus: "ok",
 });
 const whQtyMap = (warehouse) => { const m = {}; (warehouse || []).forEach((w) => { if (w.product_id && Number(w.qty) > 0) m[w.product_id] = (m[w.product_id] || 0) + Number(w.qty); }); return m; };
+// набрано не в той раскладке: «ьфшт» = «main», «cfynt[]» = «сантех» — ищем и так, и так
+const KB_RU = "йцукенгшщзхъфывапролджэячсмитьбюё", KB_EN = "qwertyuiop[]asdfghjkl;'zxcvbnm,.`";
+const kbConv = (str, from, to) => String(str || "").toLowerCase().split("").map((c) => { const i = from.indexOf(c); return i >= 0 ? to[i] : c; }).join("");
+const kbVariants = (q) => { const t = String(q || "").trim().toLowerCase(); if (!t) return []; return [...new Set([t, kbConv(t, KB_RU, KB_EN), kbConv(t, KB_EN, KB_RU)])]; };
 /* Фильтр «поставщики → бренды» (поиск товара в заявке/объекте/складе и «Товары»):
    галочки поставщиков; наведение или стрелки на поставщика — справа его бренды (→ — в бренды, ↑↓, Enter, ← — назад) */
 function SupBrandFilter({ suppliers, products, sfs, setSfs, sbr, setSbr, onChange, onDone, width = 210 }) {
@@ -3020,6 +3024,9 @@ function SupBrandFilter({ suppliers, products, sfs, setSfs, sbr, setSbr, onChang
   const [supOpen, setSupOpen] = useState(false);
   const [supQ, setSupQ] = useState("");
   const supRef = useRef(null);
+  const supInp = useRef(null);
+  // отметили поставщика — набранный текст стирается, курсор в поле: сразу пишите следующего
+  const afterPick = () => { setSupQ(""); setSupAct(-1); setBrAct(-1); setTimeout(() => { if (supInp.current) supInp.current.focus(); }, 0); };
   useEffect(() => {
     if (!supOpen) return;
     const h = (e) => { if (supRef.current && !supRef.current.contains(e.target)) setSupOpen(false); };
@@ -3030,6 +3037,7 @@ function SupBrandFilter({ suppliers, products, sfs, setSfs, sbr, setSbr, onChang
     setSfs((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
     if (sfs.includes(id)) setSbr((b) => { const n = { ...b }; delete n[id]; return n; });
     if (onChange) onChange();
+    afterPick();
   };
   // бренды поставщика (по числу товаров); отметка бренда сама включает поставщика в фильтр
   const supBrands = useMemo(() => {
@@ -3059,7 +3067,8 @@ function SupBrandFilter({ suppliers, products, sfs, setSfs, sbr, setSbr, onChang
               <div className="sup-pop" style={{ position: "absolute", top: "105%", left: 0, width: 290, zIndex: 1002, background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 10, boxShadow: "0 16px 44px rgba(0,0,0,.2)", padding: 8 }}>
                 {(() => {
                   // все действующие поставщики (и новые — ещё без товаров), по алфавиту
-                  const list = suppliers.filter((x) => (x.status !== "inactive" || sfSet.has(x.id)) && (!supQ.trim() || String(x.name || "").toLowerCase().includes(supQ.trim().toLowerCase())))
+                  const qv = kbVariants(supQ);
+                  const list = suppliers.filter((x) => { if (x.status === "inactive" && !sfSet.has(x.id)) return false; if (!qv.length) return true; const n = String(x.name || "").toLowerCase().replace(/ё/g, "е"), nl = translit(n).toLowerCase(); return qv.some((v) => n.includes(v) || nl.includes(v)); })
                     .map((x) => ({ x, k: translit(String(x.name || "").trim()).toLowerCase() })).sort((a, b) => a.k.localeCompare(b.k, "en", { numeric: true, sensitivity: "base" })).map((r) => r.x);
                   const hs = hov && list.some((x) => x.id === hov) ? hov : null;
                   const brands = hs ? supBrands[hs] || [] : [];
@@ -3077,7 +3086,7 @@ function SupBrandFilter({ suppliers, products, sfs, setSfs, sbr, setSbr, onChang
                     } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setSupOpen(false); setBrAct(-1); if (onDone) onDone(); }
                   };
                   return <>
-                    <input className="inp" autoFocus placeholder={isPhone() ? "Найти поставщика…" : "Найти поставщика…  (↑↓ · → бренды · Enter — отметить)"} value={supQ} onChange={(e) => { setSupQ(e.target.value); setSupAct(-1); setBrAct(-1); }} onKeyDown={onKey} style={{ marginBottom: 6 }} />
+                    <input ref={supInp} className="inp" autoFocus placeholder={isPhone() ? "Найти поставщика…" : "Найти поставщика…  (↑↓ · → бренды · Enter — отметить)"} value={supQ} onChange={(e) => { setSupQ(e.target.value); setSupAct(-1); setBrAct(-1); }} onKeyDown={onKey} style={{ marginBottom: 6 }} />
                     <div className="sup-list" style={{ maxHeight: 300, overflow: "auto" }}>
                       {list.map((x, i) => (
                         <label key={x.id} className={"row clk pick-sup" + (hs === x.id ? " hov" : "")} data-on={supAct === i ? "1" : undefined} onMouseEnter={() => { setHov(x.id); setSupAct(i); setBrAct(-1); }}
@@ -3120,11 +3129,33 @@ function SupBrandFilter({ suppliers, products, sfs, setSfs, sbr, setSbr, onChang
           </div>
   );
 }
+// двойное нажатие Ctrl — курсор в поиск товара (в самом верхнем открытом окне)
+const PICKERS = [];
+let ctrlDown = false, ctrlOther = false, ctrlLast = 0;
+if (typeof window !== "undefined" && !window.__teCtrl2) {
+  window.__teCtrl2 = 1;
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Control") { if (!e.repeat) { ctrlDown = true; ctrlOther = false; } return; }
+    if (ctrlDown) ctrlOther = true; else ctrlLast = 0;
+  }, true);
+  window.addEventListener("keyup", (e) => {
+    if (e.key !== "Control") return;
+    const tap = ctrlDown && !ctrlOther; ctrlDown = false;
+    if (!tap) { ctrlLast = 0; return; }
+    const now = Date.now();
+    if (now - ctrlLast < 500) {
+      ctrlLast = 0;
+      for (let i = PICKERS.length - 1; i >= 0; i--) { const el = PICKERS[i].current; if (el && el.isConnected && el.offsetParent !== null) { el.focus(); el.select(); break; } }
+    } else ctrlLast = now;
+  }, true);
+  window.addEventListener("blur", () => { ctrlDown = false; ctrlLast = 0; });
+}
 function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnPick = false, whQty = null, whSim = null, whStock = null, whRes = null, whAge = null, whExact = null, askQty = false, persistKey = null }) {
   // askQty: после выбора товара сразу спрашиваем количество (Enter — добавить и вернуться к поиску)
   const [pend, setPend] = useState(() => { if (!persistKey) return null; try { const id = (JSON.parse(localStorage.getItem(persistKey) || "{}") || {}).pend; return id ? products.find((p) => p.id === id) || null : null; } catch (e) { return null; } });
   const [pq, setPq] = useState(() => { if (!persistKey) return "1"; try { return (JSON.parse(localStorage.getItem(persistKey) || "{}") || {}).pq || "1"; } catch (e) { return "1"; } });
   const searchRef = useRef(null);
+  useEffect(() => { PICKERS.push(searchRef); return () => { const i = PICKERS.indexOf(searchRef); if (i >= 0) PICKERS.splice(i, 1); }; }, []);
   // показываем ВСЕ найденные товары (без лимита). Список прокручивается, рисуются только видимые строки.
   // Поиск по словам: «труба 25» найдёт «ХВС ТРУБА PN16 - 25» (все слова, в любом порядке).
   const ROW = 68, BOX_H = 420; // строка — до 2 строк названия: длинные названия видны целиком
@@ -3160,7 +3191,8 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
     return () => document.removeEventListener("mousedown", h);
   }, [open]);
   // список виден, пока поиск «открыт» (клик мимо — закрывает, текст поиска остаётся; клик в поле — снова открывает)
-  const active = open && (q.trim().length >= 2 || sf);
+  const [onlyWh, setOnlyWh] = useState(false); // галочка «Со склада»: только товары, которые лежат на Складе Thermo
+  const active = open && (q.trim().length >= 2 || sf || onlyWh);
   // порядок — обычный (как в «Товары»); товары со Склада Thermo вперёд НЕ поднимаем (мешали искать) — остаток склада виден в строке товара
   const whSet = useMemo(() => new Set((whStock || []).map((p) => p.id)), [whStock]);
   const whLabel = (p) => {
@@ -3177,14 +3209,15 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
       const p = products[i];
       if (p.status === "archive" && !whSet.has(p.id)) continue; // архивный товар, который лежит на складе, — найти можно
       if (sf && !sfSet.has(p.supplier_id)) continue;
+      if (onlyWh && !whSet.has(p.id)) continue;
       const bf = sbr[p.supplier_id];
       if (bf && bf.length && !bf.includes(String(p.brand || "").trim())) continue;
       const s = idx[i];
       if (words.every((w) => s.includes(w))) out.push(p);
     }
     return out;
-  }, [q, products, idx, sfSet, sf, sbr, active, order, whSet]);
-  useEffect(() => { setTop(0); if (listRef.current) listRef.current.scrollTop = 0; }, [q, sfSet, sbr]);
+  }, [q, products, idx, sfSet, sf, sbr, active, order, whSet, onlyWh]);
+  useEffect(() => { setTop(0); if (listRef.current) listRef.current.scrollTop = 0; }, [q, sfSet, sbr, onlyWh]);
   // при навигации стрелками держим активную строку в видимой области
   useEffect(() => {
     const el = listRef.current;
@@ -3195,7 +3228,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
   }, [activeIdx]);
   const pick = (p) => {
     if (askQty) { setPend(p); setPq("1"); return; }
-    const r = onPick(p); setQ(""); setActiveIdx(-1); if (closeOnPick) setOpen(false);
+    const r = onPick(p, undefined, onlyWh ? { fromWh: true } : undefined); setQ(""); setActiveIdx(-1); if (closeOnPick) setOpen(false);
     if (r && typeof r.then === "function") r.then(backToSearch, backToSearch); // был вопрос «со склада?» — после ответа снова в поиск
   };
   // после добавления текст поиска (например «отвод 50 100») остаётся выделенным, список найденного — открытым:
@@ -3204,7 +3237,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
   const confirmQty = () => {
     const n = parseNum(pq);
     if (!(n > 0) || !pend) return;
-    const r = onPick(pend, n); setPend(null);
+    const r = onPick(pend, n, onlyWh ? { fromWh: true } : undefined); setPend(null);
     if (closeOnPick) { setQ(""); setActiveIdx(-1); setOpen(false); }
     backToSearch();
     // если добавление спросило «со склада?» — после ответа курсор снова в поиске (а не в пропавшем поле количества)
@@ -3234,6 +3267,11 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
           onChange={(e) => { setQ(e.target.value); setActiveIdx(-1); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown} />
+        {whStock && whStock.length > 0 && <label className="row clk sm only-wh" title="Показать только товары, которые лежат на Складе Thermo; выбранный товар сразу отмечается «со склада»"
+          style={{ gap: 5, flexWrap: "nowrap", padding: "0 8px", border: "1px solid " + (onlyWh ? "var(--ok)" : "var(--line)"), borderRadius: 8, color: onlyWh ? "var(--ok)" : "var(--mut)", fontWeight: 700, whiteSpace: "nowrap" }}>
+          <input type="checkbox" checked={onlyWh} onChange={(e) => { setOnlyWh(e.target.checked); setOpen(true); setActiveIdx(-1); setTimeout(() => { if (searchRef.current) searchRef.current.focus(); }, 0); }} />
+          <Ic n="warehouse" /> Со склада ({whStock.length})
+        </label>}
       </div>
       {pend && (
         <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1001, boxShadow: "0 16px 44px rgba(0,0,0,.18)", padding: "12px 14px" }}>
@@ -5146,7 +5184,8 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
 
   // свободно на складе для строки: свой товар + аналог (если согласились его брать)
   const whFor = (l, pid) => round2((wh.exact[pid] || 0) + (l.alt && wh.sim[pid] ? wh.sim[pid].qty : 0));
-  const addFromBase = async (p, n = 1) => {
+  const addFromBase = async (p, n = 1, o = null) => {
+    const fw = o && o.fromWh ? { fromWh: true } : {}; // выбран с галочкой «Со склада»
     const add = Number(n) > 0 ? Number(n) : 1;
     const exQ = wh.exact[p.id] || 0, sim = wh.sim[p.id];
     const had = lines.find((l) => l.product_id === p.id);
@@ -5157,9 +5196,9 @@ function RequestWizard({ data, reload, toast, openObject, draftKey = WZ_KEY, onM
     if (exQ > 0 || alt) toast("Со Склада Thermo: " + (exQ > 0 ? "«" + p.name + "» — " + fmt(Math.min(exQ, want)) : "") + (alt ? (exQ > 0 ? " + " : "") + "аналог «" + sim.name + "»" : "") + " · " + (p.unit || "шт"));
     setLines((prev) => {
       const ex = prev.find((l) => l.product_id === p.id);
-      if (ex) return prev.map((l) => (l.product_id === p.id ? { ...l, qty: round2(qn(l.qty) + add), alt } : l));
+      if (ex) return prev.map((l) => (l.product_id === p.id ? { ...l, qty: round2(qn(l.qty) + add), alt, ...fw } : l));
       // новый товар — в начало списка (сверху)
-      return [{ id: uuid(), product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: add, cost: p.cost, supplier_id: null, manual: false, alt }, ...prev];
+      return [{ id: uuid(), product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: add, cost: p.cost, supplier_id: null, manual: false, alt, ...fw }, ...prev];
     });
   };
   // строки из Excel: найденные товары складываются с уже выбранными, остальные — ручные позиции
@@ -8159,11 +8198,11 @@ function AddItemsModal({ perechCat = false, draftKey = "", fin = true, products,
     <>
     <Modal title={newBatch ? "Новая поставка" : "Добавить позиции вручную"} onClose={tryClose} w={fin ? 960 : 860} thru>
       <div className="row" style={{ marginBottom: 10 }}>
-        <ProductPicker askQty products={products} suppliers={suppliers} whQty={whQty} whSim={whSim} whStock={whStock} placeholder="найти товар в базе и добавить строку…" whRes={whRes} whAge={whAge} whExact={whExact} onPick={async (p, n) => {
+        <ProductPicker askQty products={products} suppliers={suppliers} whQty={whQty} whSim={whSim} whStock={whStock} placeholder="найти товар в базе и добавить строку…" whRes={whRes} whAge={whAge} whExact={whExact} onPick={async (p, n, o) => {
           // аналог другого поставщика на складе — только если своего не хватает и согласились
           const want = n || 1, exQ = (whExact || {})[p.id] || 0, sim = whSim[p.id];
           const alt = sim && exQ < want ? await askWhAlt(p, exQ, sim, want) : false;
-          addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: want, cost: p.cost, price: retailOf(p), supplier_id: p.supplier_id, alt });
+          addRow({ product_id: p.id, name: p.name, size: p.size, unit: p.unit, qty: want, cost: p.cost, price: retailOf(p), supplier_id: p.supplier_id, alt, ...(o && o.fromWh ? { fromWh: true } : {}) });
         }} />
         <button className="btn" onClick={blank}>+ Пустая строка (товара нет в базе)</button>
       </div>
