@@ -3083,13 +3083,14 @@ function SupBrandFilter({ suppliers, products, sfs, setSfs, sbr, setSbr, onChang
                     else if ((e.key === "Enter" || (e.key === " " && !supQ)) && (inBr || supAct >= 0)) {
                       e.preventDefault(); e.stopPropagation();
                       if (inBr) toggleBrand(hs, brands[brAct].b); else if (list[supAct]) toggleSup(list[supAct].id);
-                    } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setSupOpen(false); setBrAct(-1); if (onDone) onDone(); }
+                    } else if (e.key === "Enter" && !supQ.trim()) { e.preventDefault(); e.stopPropagation(); setSupOpen(false); setBrAct(-1); if (onDone) onDone(); } // пустое поле + Enter — готово, курсор в поиск товара
+                    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setSupOpen(false); setBrAct(-1); if (onDone) onDone(); }
                   };
                   return <>
-                    <input ref={supInp} className="inp" autoFocus placeholder={isPhone() ? "Найти поставщика…" : "Найти поставщика…  (↑↓ · → бренды · Enter — отметить)"} value={supQ} onChange={(e) => { setSupQ(e.target.value); setSupAct(-1); setBrAct(-1); }} onKeyDown={onKey} style={{ marginBottom: 6 }} />
+                    <input ref={supInp} className="inp" autoFocus placeholder={isPhone() ? "Найти поставщика…" : "Пишите имя → Enter отметить · пусто + Enter — готово"} value={supQ} onChange={(e) => { setSupQ(e.target.value); setSupAct(e.target.value.trim() ? 0 : -1); setBrAct(-1); }} onKeyDown={onKey} style={{ marginBottom: 6 }} />
                     <div className="sup-list" style={{ maxHeight: 300, overflow: "auto" }}>
                       {list.map((x, i) => (
-                        <label key={x.id} className={"row clk pick-sup" + (hs === x.id ? " hov" : "")} data-on={supAct === i ? "1" : undefined} onMouseEnter={() => { setHov(x.id); setSupAct(i); setBrAct(-1); }}
+                        <label key={x.id} className={"row clk pick-sup" + (hs === x.id || supAct === i ? " hov" : "")} data-on={supAct === i ? "1" : undefined} onMouseEnter={() => { setHov(x.id); setSupAct(i); setBrAct(-1); }}
                           style={{ gap: 8, flexWrap: "nowrap", padding: "6px 6px", borderRadius: 6, background: sfSet.has(x.id) ? "var(--acc-tint)" : "none" }}>
                           <input type="checkbox" checked={sfSet.has(x.id)} onChange={() => toggleSup(x.id)} />
                           <span className="sm" style={{ flex: 1, fontWeight: sfSet.has(x.id) ? 700 : 500 }}>{x.name}{sbr[x.id] && sbr[x.id].length ? <span className="xs" style={{ color: "var(--acc)", fontWeight: 600 }}> · брендов: {sbr[x.id].length}</span> : null}</span>
@@ -7204,7 +7205,9 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
     toast(r === "xlsx" ? "Excel для клиента скачан" + (uz || (pr && cur !== "usd") ? " (в сумах)" : pr ? " (в $)" : "") : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
   };
   // спрашиваем: в $ или в сумах (у перечисления «в сумах» — его документ с НДС по курсам поставок)
-  const openClient = () => setClientPick(true);
+  // выбор $ / сум — только в перечислении; в обычном объекте Excel сразу в долларах
+  const openClient = () => { if (isPerech(obj)) setClientPick(true); else exportClient("usd", 0); };
+  const openCost = () => { if (isPerech(obj)) setCostPick(true); else exportCost("usd", 0); };
   // акт сверки с поставщиками — как в «Поставщиках», но только по этому объекту
   // (поставки объекта, возвраты с объекта поставщику, оплаты поставщику, записанные в объекте)
   const objSups = useMemo(() => {
@@ -7408,7 +7411,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
     isLive(obj) && (obj.items || []).some((i) => !i.from_warehouse) ? { label: "Отгрузить товар", keys: "Alt+O", code: "KeyO", run: () => setShipForm(true) } : null,
     { label: "Excel клиенту", run: openClient },
     { label: "Лист доставки", run: exportDelivery },
-    { label: "Excel себестоимость", run: () => setCostPick(true) },
+    { label: "Excel себестоимость", run: openCost },
     { label: "Изменить объект", run: () => setEditObj(true) },
     { label: "Импорт Excel в объект", run: () => setImpItems(true) },
     { label: "Назад к объектам", keys: "Esc", run: back },
@@ -7438,7 +7441,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
         <div className="xl-group">
           <button className="btn" onClick={openClient} title={isPerech(obj) ? "Перечисление: в сумах (с НДС, по курсам поставок) или в $ — выбор при скачивании" : "В $ или в сумах — выбор при скачивании"}><Ic n="download" /> Excel клиенту</button>
           <button className="btn" onClick={exportDelivery}><Ic n="truck" /> Лист доставки</button>
-          <button className="btn" onClick={() => setCostPick(true)} title="Внутренний: себестоимость, цена и прибыль по каждой позиции — в $ или в сумах"><Ic n="sheet" /> Excel себестоимость</button>
+          <button className="btn" onClick={openCost} title={isPerech(obj) ? "Внутренний: себестоимость, цена и прибыль по каждой позиции — в $ или в сумах" : "Внутренний: себестоимость, цена и прибыль по каждой позиции, в $"}><Ic n="sheet" /> Excel себестоимость</button>
           {fin && objSups.length > 0 && <button className="btn obj-akt" onClick={exportObjAkt} title={"Акт сверки с поставщиком только по этому объекту: " + objSups.map((x) => x.name).join(", ")}><Ic n="sheet" /> Акт сверки</button>}
         </div>
       </div>
