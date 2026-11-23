@@ -7062,7 +7062,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
                   <td className="objt-st"><Badge c={st.c}>{st.label.replace(" (старый статус)", "")}</Badge></td>
                   <td className="num objt-sum">{fmt(f.saleNet)}</td>
                   <td className="num objt-debt" style={{ fontWeight: 700, color: debt > 0.004 ? "var(--bad)" : debt < -0.004 ? "var(--ok)" : "var(--mut)" }} title={debt < -0.004 ? "переплата клиента" : ""}>{debt > 0.004 ? fmt(debt) : debt < -0.004 ? "+" + fmt(-debt) : "—"}{pc && isLive(o) && Math.abs(pc.debt) > 0.004 && <div className="xs" style={{ fontWeight: 600 }}>{pc.debt > 0 ? sumFmt(pc.debt) + " сум" : "аванс " + sumFmt(-pc.debt) + " сум"}</div>}
-                    {debt > 0.004 && <div className="xs objt-lastpay" style={{ fontWeight: 500, color: payAge == null || payAge > 30 ? "var(--warn)" : "var(--mut)" }} title={lastPay ? "Последняя оплата клиента: " + dt(lastPay) : "Клиент ещё не платил"}>{lastPay ? "опл. " + dt(lastPay) + " · " + payAge + " дн." : "оплат не было"}</div>}</td>
+                    {debt > 0.004 && lastPay && <div className="xs objt-lastpay" style={{ fontWeight: 500, color: payAge > 30 ? "var(--warn)" : "var(--mut)" }} title={"Последняя оплата клиента: " + dt(lastPay)}>опл. {dt(lastPay)} · {payAge} дн.</div>}</td>
                   <td className="xs mut mono objt-upd">{dt(upd.slice(0, 10))}</td>
                   <td className="objt-act" onClick={(e) => e.stopPropagation()}><div className="row" style={{ gap: 4, flexWrap: "nowrap", justifyContent: "flex-end" }}>
                     <button className="btn xs" title="Изменить объект" aria-label="Изменить" onClick={() => setEditO(o)}><Ic n="pencil" /></button>
