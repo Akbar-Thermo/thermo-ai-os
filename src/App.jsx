@@ -693,6 +693,9 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .btn.objf-ci.on{background:var(--warn);border-color:var(--warn);color:#fff}
 .ci-tag{display:inline-block;margin-left:6px;padding:0 6px;border-radius:6px;font-size:11px;font-weight:800;vertical-align:1px;white-space:nowrap}
 .ci-tag.none{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+.ci-tag.nosup{background:color-mix(in srgb,var(--acc2) 16%,transparent);color:var(--acc2)}
+tr.ci-nosup>td:first-child{box-shadow:inset 3px 0 var(--acc2)}
+.ci-chip.nosup{border-color:var(--acc2);color:var(--acc2)}
 .ci-tag.over{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
 tr.ci-none>td:first-child{box-shadow:inset 3px 0 var(--warn)}
 tr.ci-over>td:first-child{box-shadow:inset 3px 0 var(--bad)}
@@ -6976,9 +6979,9 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
     // последняя оплата клиента и позиции с проблемной себестоимостью — для «Должники» и «⚠ Себестоимость»
     let lastPay = "";
     opsOf(finance_ops, o.id).forEach((x) => { if (x.type === "client_payment" && !x.voided && Number(x.amount) > 0) { const d = String(x.op_date || x.created_at || "").slice(0, 10); if (d > lastPay) lastPay = d; } });
-    let ci0 = 0, ci1 = 0;
-    (o.items || []).forEach((i) => { const t = costIssue(i); if (t === "none") ci0++; else if (t === "over") ci1++; });
-    return { o, f, upd, hay: hay + (pc ? " перечисление perechisleniye " + String(((o.perech || {}).client || {}).inn || "") : ""), debt, mk, mn, pc, lastPay, ci0, ci1 };
+    let ci0 = 0, ci1 = 0, ci2 = 0;
+    (o.items || []).forEach((i) => { const t = costIssue(i); if (t === "none") ci0++; else if (t === "over") ci1++; if (noSup(i)) ci2++; });
+    return { o, f, upd, hay: hay + (pc ? " перечисление perechisleniye " + String(((o.perech || {}).client || {}).inn || "") : ""), debt, mk, mn, pc, lastPay, ci0, ci1, ci2 };
   }), [objects, finance_ops, masterName]);
   if (obj) return <ObjectDetail obj={obj} data={objWorld(data, obj)} reload={reload} toast={toast} fin={fin} perech={perech} back={() => setOpenId(null)} />;
   // поиск: каждое слово где угодно (название, клиент, телефон, адрес, мастер, менеджер, статус); латиница = кириллица; телефон — по цифрам
@@ -6997,9 +7000,9 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   }[sort.k] || ((a, b) => a.upd.localeCompare(b.upd));
   const mOk = (r) => !mF || r.mk === mF;
   const sOk = (r) => !sF || stKey(r.o) === sF;
-  const pOk = (r) => !pF || (pF === "debt" ? r.debt > 0.004 : r.ci0 + r.ci1 > 0);
+  const pOk = (r) => !pF || (pF === "debt" ? r.debt > 0.004 : r.ci0 + r.ci1 + r.ci2 > 0);
   const base = found.filter(mOk).filter(sOk);
-  const nDebt = base.filter((r) => r.debt > 0.004), nCi = fin ? base.filter((r) => r.ci0 + r.ci1 > 0).length : 0;
+  const nDebt = base.filter((r) => r.debt > 0.004), nCi = fin ? base.filter((r) => r.ci0 + r.ci1 + r.ci2 > 0).length : 0;
   const sumDebt = nDebt.reduce((a, r) => a + r.debt, 0);
   const sortedRows = base.filter(pOk).sort((a, b) => cmp(a, b) * sort.d || b.upd.localeCompare(a.upd));
   const shown = sortedRows.map((r) => r.o);
@@ -7038,7 +7041,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         <StatusFilter list={found.filter(mOk).map((r) => r.o)} value={sF} onPick={setSF} />
         {nDebt.length > 0 && <button className={"btn xs objf-debt" + (pF === "debt" ? " on" : "")} title="Только объекты с долгом клиента — больше долг выше; под суммой — когда клиент платил последний раз"
           onClick={() => { if (pF === "debt") setPF(""); else { setPF("debt"); sortBy("debt", -1); } }}>Должники: {nDebt.length} · {fmt(sumDebt)}</button>}
-        {nCi > 0 && <button className={"btn xs objf-ci" + (pF === "cost" ? " on" : "")} title="Объекты, где есть позиции без себестоимости или с себестоимостью выше цены продажи" onClick={() => setPF(pF === "cost" ? "" : "cost")}>⚠ Себестоимость: {nCi}</button>}
+        {nCi > 0 && <button className={"btn xs objf-ci" + (pF === "cost" ? " on" : "")} title="Объекты, где есть позиции без себестоимости, с себестоимостью выше цены продажи или без поставщика" onClick={() => setPF(pF === "cost" ? "" : "cost")}>⚠ Проверить: {nCi}</button>}
       </div>
       {!shown.length ? <div className="card mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? <>Ничего не найдено{(q || mF || sF || pF) && <> · <button type="button" className="btn xs" onClick={() => { setQ(""); setMF(""); setSF(""); setPF(""); }}>Показать все</button></>}</> : "Объектов пока нет — создайте через «Новая заявка»"}</div> : (
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
@@ -7048,14 +7051,14 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
             <SortTh k="sum" num w={110}>Сумма</SortTh><SortTh k="debt" num w={120}>Долг клиента</SortTh><SortTh k="upd" w={110}>Изменён</SortTh><th style={{ width: 76 }}></th>
           </tr></thead>
           <tbody>
-            {sortedRows.slice(0, lim).map(({ o, f, upd, debt, pc, lastPay, ci0, ci1 }) => {
+            {sortedRows.slice(0, lim).map(({ o, f, upd, debt, pc, lastPay, ci0, ci1, ci2 }) => {
               const payAge = lastPay ? Math.max(0, Math.round((Date.now() - new Date(lastPay + "T12:00:00").getTime()) / 864e5)) : null;
               const st = stById(o.status);
               return (
                 <tr key={o.id} className="clk" onClick={() => setOpenId(o.id)}>
                   <td className="objt-name"><div className="row" style={{ gap: 8, flexWrap: "nowrap", alignItems: "flex-start" }}>
                     <span onClick={(e) => e.stopPropagation()} style={{ paddingTop: 2 }} title="Пометка для себя — видна только вам на этом устройстве"><MarkDot value={objMarks[o.id] || ""} onClick={() => toggleObjMark(o.id)} /></span>
-                    <div style={{ minWidth: 0 }}><div style={{ fontWeight: 700 }}>{o.name}{fin && ci0 > 0 && <span className="ci-tag none" title="Позиций без себестоимости">нет себест.: {ci0}</span>}{fin && ci1 > 0 && <span className="ci-tag over" title="Позиций с себестоимостью выше цены продажи">&gt; цены: {ci1}</span>}</div>{o.address && <div className="xs mut">{o.address}</div>}</div>
+                    <div style={{ minWidth: 0 }}><div style={{ fontWeight: 700 }}>{o.name}{fin && ci0 > 0 && <span className="ci-tag none" title="Позиций без себестоимости">нет себест.: {ci0}</span>}{fin && ci1 > 0 && <span className="ci-tag over" title="Позиций с себестоимостью выше цены продажи">&gt; цены: {ci1}</span>}{fin && ci2 > 0 && <span className="ci-tag nosup" title="Позиций без поставщика">нет пост.: {ci2}</span>}</div>{o.address && <div className="xs mut">{o.address}</div>}</div>
                   </div></td>
                   <td className="objt-cl"><div>{o.client || "—"}</div>{o.phone && <div className="xs mut mono">{o.phone}</div>}</td>
                   <td className="objt-ms sm">{o.master || masterName[o.master_id] || <span className="mut">—</span>}{o.manager && <div className="xs mut">{o.manager}</div>}</td>
@@ -7217,13 +7220,13 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
     const was = isLive(obj), will = isLive({ status: s });
     // переводим в работу — сначала проверяем себестоимость: без неё прибыль не посчитается, выше цены — убыток
     if (!was && will && fin) {
-      const bad = (obj.items || []).map((i) => ({ i, t: costIssue(i) })).filter((x) => x.t);
+      const bad = (obj.items || []).map((i) => ({ i, t: costIssue(i) || (noSup(i) ? "nosup" : null) })).filter((x) => x.t);
       if (bad.length) {
-        const n0 = bad.filter((x) => x.t === "none").length, n1 = bad.length - n0;
+        const n0 = bad.filter((x) => x.t === "none").length, n1 = bad.filter((x) => x.t === "over").length, n2 = bad.filter((x) => x.t === "nosup").length;
         const go = await askConfirm({
-          title: "Проверьте себестоимость",
-          text: [n0 ? "без себестоимости — " + n0 + " поз. (прибыль по ним не посчитается)" : "", n1 ? "себестоимость выше цены продажи — " + n1 + " поз. (продажа в убыток)" : ""].filter(Boolean).join("; ") + ". Всё равно перевести в «" + stById(s).label + "»?",
-          items: bad.slice(0, 50).map(({ i, t }) => [i.name || "—", t === "none" ? "нет себестоимости" : "себест. " + fmt2(i.cost) + " > цены " + fmt2(i.price)]),
+          title: "Проверьте позиции",
+          text: [n0 ? "без себестоимости — " + n0 + " поз. (прибыль по ним не посчитается)" : "", n1 ? "себестоимость выше цены продажи — " + n1 + " поз. (продажа в убыток)" : "", n2 ? "без поставщика — " + n2 + " поз. (не попадут в долг поставщику)" : ""].filter(Boolean).join("; ") + ". Всё равно перевести в «" + stById(s).label + "»?",
+          items: bad.slice(0, 50).map(({ i, t }) => [i.name || "—", t === "none" ? "нет себестоимости" : t === "nosup" ? "нет поставщика" : "себест. " + fmt2(i.cost) + " > цены " + fmt2(i.price)]),
           ok: "Да, перевести",
         });
         if (!go) return;
@@ -7818,11 +7821,11 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
 
       <div className="row sect" style={{ marginBottom: 8 }}>
         <h3 style={{ marginRight: "auto" }}>Материалы объекта</h3>
-        {fin && !costMode && ["none", "over"].map((t) => { const its = (obj.items || []).filter((i) => costIssue(i) === t); if (!its.length) return null; return (
-          <button key={t} className={"btn xs ci-chip " + t} title={(t === "none" ? "Позиции без себестоимости" : "Позиции, где себестоимость выше цены продажи") + " — нажмите, чтобы показать первую"}
+        {fin && !costMode && ["none", "over", "nosup"].map((t) => { const its = (obj.items || []).filter((i) => (t === "nosup" ? noSup(i) : costIssue(i) === t)); if (!its.length) return null; return (
+          <button key={t} className={"btn xs ci-chip " + t} title={(t === "none" ? "Позиции без себестоимости" : t === "over" ? "Позиции, где себестоимость выше цены продажи" : "Позиции без поставщика") + " — нажмите, чтобы показать первую"}
             onClick={() => { const ids = new Set(its.map((i) => i.id)); const nos = {}; batches.forEach((b) => { if (b.items.some((i) => ids.has(i.id))) nos[b.no] = true; }); setOpenBatches((o) => ({ ...o, ...nos }));
-              setTimeout(() => { const r = document.querySelector("tr.ci-" + t); if (r) { r.scrollIntoView({ block: "center", behavior: "smooth" }); r.animate([{ background: "var(--acc-tint)" }, { background: "transparent" }], { duration: 1600 }); } }, 80); }}>
-            ⚠ {t === "none" ? "Без себестоимости" : "Себест. выше цены"}: {its.length}
+              setTimeout(() => { const r = document.querySelector(t === "nosup" ? "tr[data-nosup]" : "tr.ci-" + t); if (r) { r.scrollIntoView({ block: "center", behavior: "smooth" }); r.animate([{ background: "var(--acc-tint)" }, { background: "transparent" }], { duration: 1600 }); } }, 80); }}>
+            ⚠ {t === "none" ? "Без себестоимости" : t === "over" ? "Себест. выше цены" : "Без поставщика"}: {its.length}
           </button>); })}
         {costMode ? <span className="sm" style={{ fontWeight: 700, color: "var(--acc)" }}><Ic n="pencil" /> Себестоимость подряд</span> : <>
           {isLive(obj) && (obj.items || []).some((i) => !i.from_warehouse) && <button className="btn" style={unshippedCnt ? { borderColor: "var(--warn)", color: "var(--warn)", fontWeight: 700 } : undefined} onClick={() => setShipForm(true)}><Ic n="truck" /> Отгрузить товар{unshippedCnt ? " (" + unshippedCnt + ")" : " ✓"}</button>}
@@ -7847,7 +7850,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
                       {closedBatches[b.no] ? "▸" : "▾"} <Ic n="truck" /> ПОСТАВКА №{b.no} · <input type="date" className="inp batch-date" title="Дата накладной — нажмите, чтобы изменить" value={String(b.date || "").slice(0, 10)}
                         onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => setBatchDate(b.no, e.target.value)} /> · позиций: {b.items.length} · на сумму {fmt(b.items.reduce((a, i) => a + i.qty * i.price, 0))}
                       {b.items.some((i) => lateAdded.has(i.id)) && <span className="late-sum" style={{ color: "var(--warn)" }}> · добавлено позже: {b.items.filter((i) => lateAdded.has(i.id)).length} поз. на {fmt2(b.items.filter((i) => lateAdded.has(i.id)).reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0))}</span>}
-                      {fin && !costMode && (() => { const n0 = b.items.filter((i) => costIssue(i) === "none").length, n1 = b.items.filter((i) => costIssue(i) === "over").length; return <>{n0 > 0 && <span className="ci-tag none">нет себест.: {n0}</span>}{n1 > 0 && <span className="ci-tag over">себест. &gt; цены: {n1}</span>}</>; })()}
+                      {fin && !costMode && (() => { const n0 = b.items.filter((i) => costIssue(i) === "none").length, n1 = b.items.filter((i) => costIssue(i) === "over").length; const n2 = b.items.filter(noSup).length; return <>{n0 > 0 && <span className="ci-tag none">нет себест.: {n0}</span>}{n1 > 0 && <span className="ci-tag over">себест. &gt; цены: {n1}</span>}{n2 > 0 && <span className="ci-tag nosup">нет поставщика: {n2}</span>}</>; })()}
                       {b.items.some((i) => !isShipped(i)) ? <span style={{ color: "var(--warn)" }}> · не отгружено: {b.items.filter((i) => !isShipped(i)).length}</span> : b.items.some((i) => i.shipped) ? <span style={{ color: "var(--ok)" }}> · отгружено ✓</span> : null}
                       <span className="xs mut" style={{ fontWeight: 500 }}>  — нажмите чтобы {closedBatches[b.no] ? "раскрыть" : "свернуть"}</span>
                       {!costMode && fin && <button className="btn xs dng batch-del" title="Удалить всю поставку (все её позиции)" onClick={(e) => { e.stopPropagation(); setDelBatch(b); }}><Ic n="trash" /> Удалить поставку</button>}
@@ -8221,6 +8224,8 @@ function ShipModal({ obj, batches, fin, supName, onClose, onShip, onUnship }) {
 // в базу уходят только по потере фокуса (onBlur) — чтобы не слать запрос на каждое нажатие клавиши
 // и не ловить промежуточные значения вроде "1" при наборе "15".
 // проблема с себестоимостью позиции: "none" — не введена, "over" — выше цены продажи (в убыток)
+// позиция без поставщика (товар не со Склада Thermo) — не попадёт в долг поставщику и в акт сверки
+const noSup = (i) => !i.supplier_id && !i.from_warehouse;
 const costIssue = (i, price) => { const c = Number(i.cost) || 0, p = price != null ? price : Number(i.price) || 0; return c <= 0 ? "none" : c > p + 1e-7 ? "over" : null; };
 function ObjectItemRow({ i, late, fin, supName, setItemQty, setItemPrice, setEditItem, setDelItemId, setItemMark, onReplace = null }) {
   const [qty, setQty] = useState(inNum(i.qty));
@@ -8231,10 +8236,11 @@ function ObjectItemRow({ i, late, fin, supName, setItemQty, setItemPrice, setEdi
   useEffect(() => { setPrice(inNum(i.price)); }, [i.price]);
   const same = (a, b) => Math.abs(a - (Number(b) || 0)) < 1e-7;
   const ci = fin ? costIssue(i, parseNum(price)) : null;
+  const ns = fin && noSup(i);
   return (
-    <tr className={ci ? "ci-" + ci : undefined}>
+    <tr className={ci ? "ci-" + ci : ns ? "ci-nosup" : undefined} data-nosup={ns ? "1" : undefined}>
       <td style={{ width: 28, paddingRight: 0, verticalAlign: "middle" }}><MarkDot value={mk} onClick={async () => { const nx = nextMark(mk); setMk(nx); if (!(await setItemMark(i.id, nx))) setMk(i.mark || ""); }} /></td>
-      <td style={{ fontWeight: 600 }}>{onReplace && !i.from_warehouse ? <span className="it-repl" role="button" tabIndex={0} title="Заменить на другой товар" onClick={() => onReplace(i)} onKeyDown={(e) => { if (e.key === "Enter") onReplace(i); }}>{i.name}</span> : i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{ci === "none" && <span className="ci-tag none" title="Себестоимость не введена — прибыль по позиции не считается">нет себест.</span>}{ci === "over" && <span className="ci-tag over" title={"Себестоимость " + fmt2(i.cost) + " выше цены продажи " + fmt2(parseNum(price)) + " — позиция в убыток"}>себест. {fmt2(i.cost)} &gt; цены</span>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «В процессе»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}{late && <div className="xs late-add" style={{ color: "var(--warn)" }} title="Позиция добавлена в эту поставку позже остальных — сумма поставки после этого выросла">добавлено позже: {dt(late)}</div>}</td>
+      <td style={{ fontWeight: 600 }}>{onReplace && !i.from_warehouse ? <span className="it-repl" role="button" tabIndex={0} title="Заменить на другой товар" onClick={() => onReplace(i)} onKeyDown={(e) => { if (e.key === "Enter") onReplace(i); }}>{i.name}</span> : i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{ci === "none" && <span className="ci-tag none" title="Себестоимость не введена — прибыль по позиции не считается">нет себест.</span>}{ci === "over" && <span className="ci-tag over" title={"Себестоимость " + fmt2(i.cost) + " выше цены продажи " + fmt2(parseNum(price)) + " — позиция в убыток"}>себест. {fmt2(i.cost)} &gt; цены</span>}{ns && <span className="ci-tag nosup" title="Поставщик не указан — позиция не попадёт в долг поставщику и в акт сверки. Укажите через ✎">нет поставщика</span>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «В процессе»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}{late && <div className="xs late-add" style={{ color: "var(--warn)" }} title="Позиция добавлена в эту поставку позже остальных — сумма поставки после этого выросла">добавлено позже: {dt(late)}</div>}</td>
       <td><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)}
         onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (!same(v, i.qty)) { if (!(await setItemQty(i.id, v))) setQty(inNum(i.qty)); } else setQty(inNum(i.qty)); }} /></td>
       <td className="sm">{i.unit}</td>
