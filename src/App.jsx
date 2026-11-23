@@ -539,13 +539,13 @@ textarea.inp{min-height:120px;font-family:var(--mono);font-size:var(--fs-xs);res
 .fld{display:flex;flex-direction:column;gap:5px;min-width:0}
 .fld label{font-size:var(--fs-xs);color:var(--mut);font-weight:600}
 table.t{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
-table.t th{font-size:var(--fs-xs);color:var(--mut);text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);font-weight:600;background:var(--panel2)}
-table.t td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+table.t th{font-size:var(--fs-xs);color:var(--mut);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);font-weight:600;background:var(--panel2)}
+table.t td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
 table.t tbody tr:last-child td{border-bottom:0}
 .vt-box{overflow:auto;max-height:calc(100vh - 210px);min-height:320px}
 table.vt{table-layout:fixed;width:100%;min-width:1040px}
 table.vt thead th{position:sticky;top:0;z-index:2;background:var(--panel2)}
-table.vt td{padding:4px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.vt td{padding:5px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 table.vt td div{overflow:hidden;text-overflow:ellipsis}
 table.t tr:hover td{background:var(--hover)}
 .num{font-variant-numeric:tabular-nums;font-size:var(--fs-sm);text-align:right;white-space:nowrap}
@@ -1128,6 +1128,136 @@ tr.batch-head:hover>td{background:color-mix(in srgb,var(--txt) 4%,var(--panel2))
   .cfm-box>.row:last-child .btn{width:100%}
   .m-ret>.row:first-child{position:sticky;top:0;z-index:3;background:var(--panel);margin:-14px -12px 10px!important;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px;border-bottom:1px solid var(--line)}
 }
+
+/* ================= Дизайн 3 (ноябрь 2026): по мотивам Linear, Stripe, Vercel и Apple (Liquid Glass) =================
+   · Linear — «не спорить за внимание»: спокойная навигация, меньше рамок, неактивное приглушено;
+   · Stripe — таблица как главный экран: тихая шапка таблицы, ровные строки, цифры справа;
+   · Vercel — сдержанный цвет: фирменный красный только у главного действия и активного раздела;
+   · Apple — «стекло» только у навигации (шапка, меню, кнопка ☰), окна снизу с «ручкой» на телефоне.
+   Только внешний вид: разметка, прокрутка (installWheelTrap / installTouchTrap) и поведение не меняются. */
+:root{
+  --bg:#f3f4f6; --panel:#fdfdfd; --panel2:#f6f7f9; --line:#e5e7eb; --line2:#d3d7dd;
+  --txt:#15171c; --mut:#646b76; --hover:rgba(21,23,28,.028);
+  --t-neutral:#646b76; --t-strong:#15171c;
+  --hdr-bg:#fbfbfc; --hdr-txt:#15171c; --hdr-mut:#646b76; --hdr-line:#e3e5e9; --hdr-panel2:#eff1f3;
+  --glass:rgba(251,251,252,.74);
+  --shadow:0 0 0 1px rgba(16,24,40,.015),0 1px 2px rgba(16,24,40,.05),0 2px 6px -2px rgba(16,24,40,.04);
+  --shadow-xs:0 1px 2px rgba(16,24,40,.05);
+  --shadow-pop:0 0 0 1px rgba(16,24,40,.04),0 4px 10px rgba(16,24,40,.06),0 28px 64px -18px rgba(16,24,40,.30);
+  --acc-ring:rgba(255,31,48,.16);
+}
+.te.dark{
+  --bg:#0d0f12; --panel:#15171b; --panel2:#1b1e23; --line:#25292f; --line2:#323740;
+  --txt:#e7e9ec; --mut:#8a919b; --hover:rgba(255,255,255,.03);
+  --t-neutral:#959ca6; --t-strong:#e7e9ec;
+  --hdr-bg:#101215; --hdr-txt:#e7e9ec; --hdr-mut:#8a919b; --hdr-line:#23262c; --hdr-panel2:#1c1f24;
+  --glass:rgba(16,18,21,.72);
+  --shadow:0 0 0 1px rgba(255,255,255,.015),0 1px 2px rgba(0,0,0,.3);
+  --shadow-xs:0 1px 2px rgba(0,0,0,.3);
+  --shadow-pop:0 0 0 1px rgba(255,255,255,.05),0 28px 70px -18px rgba(0,0,0,.75);
+}
+.te{letter-spacing:-.003em}
+/* ---- шапка: светлое «стекло» вместо тёмной полосы с красной чертой ---- */
+.hdr{background:var(--glass);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--hdr-line)}
+.te.fine:not(.hdr-off) .hdr{box-shadow:none}
+.te.hdr-off.fine .hdr,.te.touch .hdr{background:color-mix(in srgb,var(--hdr-bg) 88%,transparent)}
+.te.fine .tabs{border-bottom-color:var(--hdr-line)!important}
+@media(max-width:820px){.te.fine .tabs{background:var(--hdr-bg)!important;box-shadow:0 18px 40px -12px rgba(16,24,40,.25)!important}}
+.logo{letter-spacing:.06em;font-weight:800}
+.logo small{letter-spacing:.18em}
+.tab{color:var(--hdr-mut);font-weight:550;border-radius:var(--r-sm)}
+.tab .ic{opacity:.55}
+.tab:hover{color:var(--hdr-txt);background:var(--hdr-panel2)}
+.tab.on,.tab.on:hover{color:var(--hdr-txt);background:var(--hdr-panel2);box-shadow:none;font-weight:650}
+.tab.on .ic{color:var(--acc);opacity:1}
+/* активный раздел в строке сверху — красная черта по нижнему краю шапки (как вкладки Vercel / Stripe) */
+@media(min-width:821px){
+  .te.fine:not(.hdr-off) .hdr .tab.on::after{content:"";position:absolute;left:10px;right:10px;bottom:-9px;height:2px;border-radius:2px 2px 0 0;background:var(--acc)}
+}
+/* активный раздел в списке (меню сбоку, телефон) — красная метка слева */
+.te.touch .hdr .tab.on::before,.te.hdr-off.fine.side .hdr .tab.on::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--acc)}
+@media(max-width:820px){.te.fine .tabs .tab.on::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--acc)}}
+.tab.on .tab-n{background:var(--acc);color:#fff}
+.tab-grp{background:var(--hdr-line)}
+.hdr .btn{background:transparent;border-color:transparent;color:var(--hdr-txt);box-shadow:none}
+.hdr .btn:hover{background:var(--hdr-panel2);border-color:transparent;color:var(--hdr-txt)}
+.hdr .btn.pri,.hdr .btn.pri:hover{background:var(--acc);border-color:var(--acc);color:#fff}
+.te.fine:not(.hdr-off) .hdr .npanel-btn,.te.fine:not(.hdr-off) .hdr .hdr-chat,.te.fine:not(.hdr-off) .hdr .hdr-calc,.te.fine:not(.hdr-off) .hdr .hdr-heat{border:1px solid var(--hdr-line)}
+.te.fine:not(.hdr-off) .hdr .hdr-user{background:var(--panel);border-color:var(--hdr-line);box-shadow:var(--shadow-xs)}
+.te.fine:not(.hdr-off) .hdr .hdr-user .btn.xs{background:var(--hdr-panel2)}
+.te.fine:not(.hdr-off) .hdr .hdr-user .btn.xs:hover{background:var(--hdr-line)}
+.te.touch .hdr-user,.te.hdr-off.fine.side .hdr-user{background:var(--panel)!important;border:1px solid var(--hdr-line);box-shadow:var(--shadow-xs)}
+.te.touch .hdr-user .btn.xs,.te.hdr-off.fine.side .hdr-user .btn.xs{background:var(--hdr-panel2)!important}
+.te.touch .hdr .npanel-btn,.te.touch .hdr .hdr-chat,.te.touch .hdr .hdr-calc,.te.touch .hdr .hdr-heat,
+.te.hdr-off.fine.side .hdr .npanel-btn,.te.hdr-off.fine.side .hdr .hdr-chat,.te.hdr-off.fine.side .hdr .hdr-calc,.te.hdr-off.fine.side .hdr .hdr-heat{background:var(--panel);border:1px solid var(--hdr-line);box-shadow:var(--shadow-xs)}
+.hdr-side{background:var(--hdr-panel2);border-color:var(--hdr-line)}
+.hdr-side button.on{background:var(--panel);color:var(--hdr-txt);box-shadow:var(--shadow-xs)}
+.hdr-hide{background:var(--hdr-bg)!important;border-color:var(--hdr-line)!important;color:var(--hdr-mut)!important}
+.burger{background:var(--hdr-panel2);border-color:var(--hdr-line);color:var(--hdr-txt)}
+.te.hdr-off.fine .hdr.peek{box-shadow:0 18px 50px -10px rgba(16,24,40,.28)}
+.te.hdr-off.fine.side .hdr.peek{box-shadow:-18px 0 50px -10px rgba(16,24,40,.3)}
+.te.hdr-off.fine.side.side-l .hdr.peek{box-shadow:18px 0 50px -10px rgba(16,24,40,.3)}
+.te.touch .hdr.peek{box-shadow:-18px 0 60px -10px rgba(16,24,40,.35)}
+/* телефон: кнопка ☰ — «стекло», как панели iOS */
+.te.touch .mnav{background:var(--glass);-webkit-backdrop-filter:saturate(180%) blur(18px);backdrop-filter:saturate(180%) blur(18px);border-color:var(--hdr-line);color:var(--hdr-txt);box-shadow:0 6px 20px -6px rgba(16,24,40,.28);border-radius:16px}
+.te.touch .mnav-bg{background:rgba(10,12,16,.32)}
+/* ---- страница ---- */
+h2{font-size:24px;font-weight:700;letter-spacing:-.022em}
+h3{letter-spacing:-.012em}
+.card{border-color:var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow)}
+.te.dark .card,.te.dark .kpi{box-shadow:none}
+.kpi{border-radius:var(--r-lg);box-shadow:var(--shadow);padding:16px 18px}
+.kpi .l{font-size:var(--fs-xs);font-weight:550;color:var(--mut)}
+.kpi .v{font-size:26px;font-weight:700;letter-spacing:-.025em;margin-top:6px}
+/* ---- кнопки: светлая с тонкой тенью; главная — фирменный красный с мягким бликом, без «свечения» ---- */
+.btn{border-color:var(--line2);background:var(--panel);box-shadow:var(--shadow-xs);font-weight:600}
+.btn:hover{background:var(--panel2);border-color:color-mix(in srgb,var(--mut) 40%,var(--line2))}
+.te.dark .btn{background:var(--panel2)}
+.te.dark .btn:hover{background:color-mix(in srgb,var(--txt) 7%,var(--panel2))}
+.btn.pri,.te.dark .btn.pri{background:var(--acc) linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,0));border-color:var(--acc2);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 1px 2px rgba(214,0,26,.28)}
+.btn.pri:hover,.te.dark .btn.pri:hover{background:var(--acc2) linear-gradient(180deg,rgba(255,255,255,.1),rgba(255,255,255,0));border-color:var(--acc2);box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 2px 8px -2px rgba(214,0,26,.45)}
+.btn.pri:disabled{box-shadow:none}
+.btn:disabled{box-shadow:none}
+.btn.dng{color:var(--bad)}
+/* ---- поля ---- */
+.inp,select.inp,textarea.inp{border-color:var(--line2);box-shadow:var(--shadow-xs)}
+.te.dark .inp,.te.dark select.inp,.te.dark textarea.inp{background:var(--panel2);box-shadow:none}
+.inp:focus{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-ring)}
+.fld label{font-weight:550}
+/* ---- таблицы (как в Stripe): тихая шапка, ровные строки, цифры табличные ---- */
+table.t th{background:var(--panel);color:var(--mut);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.045em;border-bottom:1px solid var(--line)}
+table.vt thead th{background:var(--panel);padding-left:10px;padding-right:10px}
+table.t td{border-bottom-color:color-mix(in srgb,var(--line) 75%,transparent)}
+table.t tr:hover td{background:var(--hover)}
+.card>table.t:first-child th:first-child,.card>div>table.t:first-child th:first-child{border-top-left-radius:var(--r-lg)}
+/* ---- сегменты (как в iOS) ---- */
+.seg{background:color-mix(in srgb,var(--txt) 5%,var(--panel2));border-color:transparent;border-radius:var(--r-md);padding:3px}
+.seg button{border-radius:7px;font-weight:550}
+.seg button.on{background:var(--panel);color:var(--txt);font-weight:650;box-shadow:0 1px 2px rgba(16,24,40,.08),0 0 0 .5px rgba(16,24,40,.06)}
+.te.dark .seg button.on{background:var(--line2)}
+.step{border-color:var(--line2)}
+/* ---- окна ---- */
+.modal-bg{background:rgba(10,12,16,.38);-webkit-backdrop-filter:blur(8px) saturate(120%);backdrop-filter:blur(8px) saturate(120%)}
+.modal{border-color:var(--line);border-radius:var(--r-xl);box-shadow:var(--shadow-pop)}
+.npanel-bg{background:rgba(10,12,16,.38)}
+.npanel,.nwin,.chat-win,.calc{border-color:var(--line);box-shadow:var(--shadow-pop)}
+@media(max-width:700px){
+  .modal.cfm-box{position:relative;padding-top:26px}
+  .modal.cfm-box::before{content:"";position:absolute;top:8px;left:50%;width:36px;height:5px;margin-left:-18px;border-radius:3px;background:var(--line2)}
+}
+/* уведомление снизу — плавающая «таблетка» */
+.toast{background:color-mix(in srgb,var(--panel) 92%,transparent);-webkit-backdrop-filter:saturate(180%) blur(16px);backdrop-filter:saturate(180%) blur(16px);border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:14px;font-weight:550}
+.toast[role=alert]{border-left-color:var(--bad)}
+/* предупреждения — мягкая подложка */
+.abwarn{border-color:color-mix(in srgb,var(--warn) 35%,transparent)!important;background:color-mix(in srgb,var(--warn) 6%,var(--panel))!important;box-shadow:none}
+/* лента мастеров в «Объектах» */
+.obj-m{border-color:var(--line2);background:var(--panel);box-shadow:var(--shadow-xs)}
+.obj-m.on{box-shadow:0 2px 8px -2px rgba(16,24,40,.3)}
+.obj-q .inp{box-shadow:var(--shadow-xs)}
+.totop{border-color:var(--line);background:var(--glass);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 8px 24px -8px rgba(16,24,40,.3)}
+/* полосы прокрутки внутри списков и таблиц — тонкие */
+.te .vt-box,.te .cmdk-list,.te .ret-box,.te .kassa-ops,.te .npanel-list,.te .chat-items,.te .chat-msgs,.te .card{scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
+@media(prefers-reduced-transparency:reduce){.hdr,.te.touch .mnav,.toast,.totop{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--hdr-bg)}.toast,.totop{background:var(--panel)}}
 `;
 
 /* ============ DATA LAYER = Supabase (db из ./db.js) ============ */
