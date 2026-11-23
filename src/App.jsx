@@ -3325,6 +3325,20 @@ const isSeqCode = (c) => /^\d+$/.test(String(c == null ? "" : c).trim());
 const normPName = (x) => String(x || "").toLowerCase().replace(/ё/g, "е").replace(/[«»"“”„'`]/g, "").replace(/\s+/g, " ").trim();
 // товар базы для позиции объекта: по product_id; если связи нет (товар добавлен вручную, базу перезагружали) —
 // по названию у того же поставщика, только если такой товар один
+// то же, что prodForItem, но по готовому индексу (для длинных списков: без перебора всей базы на каждую позицию)
+function prodIndex(products) {
+  const byId = new Map(), byName = new Map();
+  (products || []).forEach((p) => { byId.set(p.id, p); const n = normPName(p.name); if (!n) return; if (!byName.has(n)) byName.set(n, []); byName.get(n).push(p); });
+  return { byId, byName };
+}
+function prodForItemIdx(i, ix) {
+  if (i.product_id) { const p = ix.byId.get(i.product_id); if (p) return p; }
+  const n = normPName(i.name);
+  if (!n) return null;
+  let c = (ix.byName.get(n) || []).filter((p) => !i.supplier_id || !p.supplier_id || p.supplier_id === i.supplier_id);
+  if (c.length > 1 && i.supplier_id) { const e = c.filter((p) => p.supplier_id === i.supplier_id); if (e.length === 1) c = e; }
+  return c.length === 1 ? c[0] : null;
+}
 function prodForItem(i, products) {
   const list = products || [];
   if (i.product_id) { const p = list.find((x) => x.id === i.product_id); if (p) return p; }
@@ -6885,6 +6899,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
   const [costDraft, setCostDraft] = useState({});
   const [costToProd, setCostToProd] = useState(true);
   const [costBusy, setCostBusy] = useState(false);
+  const prodIx = useMemo(() => prodIndex(products), [products]);
+  const cqH = useRef({}); // обработчики строк «Себестоимость подряд» — через ref, чтобы строки не перерисовывались зря
   const supName = (id) => (suppliers.find((s) => s.id === id) || {}).name || "—";
   const itemName = (iid) => ((obj.items || []).find((i) => i.id === iid) || {}).name || "";
 
@@ -7331,16 +7347,12 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
   // «Себестоимость подряд»: порядок полей ввода = порядок видимых строк таблицы
   const cqList = costMode ? batches.flatMap((b) => (closedBatches[b.no] ? [] : b.items)) : [];
   const cqPos = new Map(cqList.map((i, n) => [i.id, n]));
-  const cqSet = (id, v) => setCostDraft((d) => ({ ...d, [id]: v }));
+  const cqSet = (id, v) => setCostDraft((d) => { if (v == null) { if (!(id in d)) return d; const x = { ...d }; delete x[id]; return x; } return d[id] === v ? d : { ...d, [id]: v }; });
   const cqKey = (e, n, i) => {
     if (e.key === "Enter" || e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       const up = e.key === "ArrowUp" || (e.key === "Enter" && e.shiftKey);
       if (!costFocus(n + (up ? -1 : 1)) && !up) { const b = document.querySelector(".cq-save"); if (b) b.focus(); }
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      setCostDraft((d) => { const x = { ...d }; delete x[i.id]; return x; });
-      const el = e.target; setTimeout(() => el.select(), 0);
     }
   };
   // столбец из Excel: «1 234,50», «$12.5», «1,234.50» — каждая строка в следующую позицию
@@ -7362,6 +7374,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
     toast("Вставлено значений: " + k + (lines.length > k ? " · лишние строки пропущены: " + (lines.length - k) : ""));
     setTimeout(() => costFocus(Math.min(n + k, cqList.length - 1)), 30);
   };
+  cqH.current = { set: cqSet, key: cqKey, paste: cqPaste };
   const cqTot = costMode ? (obj.items || []).reduce((a, i) => {
     const q = Number(i.qty) || 0, c0 = Number(i.cost) || 0, d = costDraft[i.id];
     const c1 = d != null ? Math.max(0, costOf(d)) : c0;
@@ -7377,7 +7390,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
       const d = costDraft[i.id];
       const c = d != null ? Math.max(0, costOf(d)) : Number(i.cost) || 0;
       if (!(c > 0)) return;
-      const p = prodForItem(i, products);
+      const p = prodForItemIdx(i, prodIx);
       if (!p || Math.abs((Number(p.cost) || 0) - c) <= 0.00001) return;
       out.set(p.id, { p, c, i });
     });
@@ -7494,7 +7507,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
                   </tr>
                 ) : null}
                 {!closedBatches[b.no] && b.items.map((i) => (costMode
-              ? <CostQuickRow key={i.id} i={i} n={cqPos.get(i.id)} val={costDraft[i.id]} onVal={cqSet} onKey={cqKey} onPaste={cqPaste} />
+              ? <CostQuickRow key={i.id} i={i} n={cqPos.get(i.id)} val={costDraft[i.id]} h={cqH} />
               : <ObjectItemRow key={i.id} i={i} late={lateAdded.get(i.id)} fin={fin} supName={supName} setItemQty={setItemQty} setItemPrice={setItemPrice} setEditItem={setEditItem} setDelItemId={setDelItemId} setItemMark={setItemMark} onReplace={setReplItem} />
                 ))}
               </React.Fragment>
@@ -7868,10 +7881,15 @@ function ObjectItemRow({ i, late, fin, supName, setItemQty, setItemPrice, setEdi
   );
 }
 // строка режима «Себестоимость подряд»: поле себестоимости + прибыль позиции пересчитывается сразу
-function CostQuickRow({ i, n, val, onVal, onKey, onPaste }) {
+// Пока печатаете — значение живёт в самой строке (прибыль строки считается сразу); в страницу объекта
+// (итоги внизу, «Изменено: N») уходит при выходе из поля / Enter / ↑↓. Иначе каждая цифра перерисовывала всю страницу.
+const CostQuickRow = React.memo(function CostQuickRow({ i, n, val, h }) {
+  const [loc, setLoc] = useState(val);
+  useEffect(() => { setLoc(val); }, [val]);
+  const push = (v) => h.current.set(i.id, v);
   const c0 = Number(i.cost) || 0;
-  const cost = val != null ? Math.max(0, parseCost(val)) : c0;
-  const changed = val != null && cost !== c0;
+  const cost = loc != null ? Math.max(0, parseCost(loc)) : c0;
+  const changed = loc != null && cost !== c0;
   const real = changed && Math.abs(cost - c0) > 0.00001; // не только «хвост» после запятой
   const q = Number(i.qty) || 0, price = Number(i.price) || 0;
   const pr = price - cost, pct = price > 0 ? (pr / price) * 100 : null;
@@ -7883,8 +7901,13 @@ function CostQuickRow({ i, n, val, onVal, onKey, onPaste }) {
       <td className="num" style={{ whiteSpace: "nowrap" }}>{fmt(q)} <span className="sm mut">{i.unit}</span></td>
       <td style={{ textAlign: "center" }}>
         <input className={"inp num cq-inp" + (changed ? " ch" : "")} data-cq={n} inputMode="decimal" enterKeyHint="next" autoComplete="off" placeholder="0"
-          value={val != null ? val : c0 ? inNum(c0) : ""} onChange={(e) => onVal(i.id, e.target.value)}
-          onFocus={(e) => e.target.select()} onKeyDown={(e) => onKey(e, n, i)} onPaste={(e) => onPaste(e, n)} />
+          value={loc != null ? loc : c0 ? inNum(c0) : ""} onChange={(e) => setLoc(e.target.value)}
+          onFocus={(e) => e.target.select()} onBlur={() => push(loc)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") { e.preventDefault(); const el = e.target; setLoc(undefined); push(undefined); el.value = c0 ? inNum(c0) : ""; el.select(); setTimeout(() => el.select(), 30); return; }
+            if (e.key === "Enter" || e.key === "ArrowDown" || e.key === "ArrowUp") push(loc);
+            h.current.key(e, n, i);
+          }} onPaste={(e) => h.current.paste(e, n)} />
         {real && <div className="xs mut cq-was">было {fmt2(c0)}</div>}
       </td>
       <td className="num cq-hm">{fmt2(price)}</td>
@@ -7893,7 +7916,7 @@ function CostQuickRow({ i, n, val, onVal, onKey, onPaste }) {
       </td>
     </tr>
   );
-}
+});
 // замена позиции объекта другим товаром из базы: количество и поставка остаются, товар, поставщик, ед., себестоимость и цена — новые
 function ItemReplaceModal({ item, products, suppliers, fin, onClose, onSave }) {
   const [p, setP] = useState(null);
