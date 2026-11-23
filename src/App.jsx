@@ -7163,6 +7163,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
   const perechAfter = async (why) => { if (!pObj) return 0; const fr = await db.from("finance_ops").select().eq("object_id", obj.id); return fr.error ? 0 : perechRecalc(obj, fr.data || [], why); };
   // «Себестоимость подряд»: себестоимость всех позиций вводится в таблице одна за другой (Enter — к следующей)
   const [costMode, setCostMode] = useState(false);
+  const [costBatch, setCostBatch] = useState(null); // «Себестоимость подряд» по одной поставке (№) или null — все
+  const [costAsk, setCostAsk] = useState(false);    // окно «По какой поставке?»
   const [costDraft, setCostDraft] = useState({});
   const [costToProd, setCostToProd] = useState(true);
   const [costBusy, setCostBusy] = useState(false);
@@ -7322,12 +7324,17 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
     if (el) { el.focus(); el.select(); return true; }
     return false;
   };
-  const startCost = () => {
-    setCostDraft({});
+  // несколько поставок — сначала спрашиваем, по какой вводить себестоимость
+  const startCost = (no) => {
+    if (no === undefined && batches.length > 1) { setCostAsk(true); return; }
+    setCostAsk(false);
+    if (!costMode) setCostDraft({});
+    setCostBatch(no === undefined || no === null ? null : no);
     setCostMode(true);
     setTimeout(() => costFocus(0), 60);
   };
-  const exitCost = () => { setCostMode(false); setCostDraft({}); };
+  const exitCost = () => { setCostMode(false); setCostDraft({}); setCostBatch(null); };
+  const inCostBatch = (b) => costBatch == null || b.no === costBatch;
   useEffect(() => {
     if (!costMode) return;
     document.body.classList.add("cq-on");
@@ -7617,7 +7624,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
 
   const unshippedCnt = (obj.items || []).filter((i) => !isShipped(i)).length;
   // «Себестоимость подряд»: порядок полей ввода = порядок видимых строк таблицы
-  const cqList = costMode ? batches.flatMap((b) => (closedBatches[b.no] ? [] : b.items)) : [];
+  const cqList = costMode ? batches.flatMap((b) => (closedBatches[b.no] || !inCostBatch(b) ? [] : b.items)) : [];
   const cqPos = new Map(cqList.map((i, n) => [i.id, n]));
   const cqSet = (id, v) => setCostDraft((d) => { if (v == null) { if (!(id in d)) return d; const x = { ...d }; delete x[id]; return x; } return d[id] === v ? d : { ...d, [id]: v }; });
   const cqKey = (e, n, i) => {
@@ -7647,7 +7654,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
     setTimeout(() => costFocus(Math.min(n + k, cqList.length - 1)), 30);
   };
   cqH.current = { set: cqSet, key: cqKey, paste: cqPaste };
-  const cqTot = costMode ? (obj.items || []).reduce((a, i) => {
+  const cqTot = costMode ? batches.filter(inCostBatch).flatMap((b) => b.items).reduce((a, i) => {
     const q = Number(i.qty) || 0, c0 = Number(i.cost) || 0, d = costDraft[i.id];
     const c1 = d != null ? Math.max(0, costOf(d)) : c0;
     return { c0: a.c0 + q * c0, c1: a.c1 + q * c1, s: a.s + q * (Number(i.price) || 0) };
@@ -7677,7 +7684,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
   // поставки и дни возвратов по порядку дат (в один день — сначала поставка); в «Себестоимость подряд» — только поставки
   const timeline = (() => {
     let last = String(obj.created_at || "").slice(0, 10);
-    const ev = batches.map((b, i) => { const d = String(b.date || "").slice(0, 10) || last; last = d; return { kind: "b", b, date: d, o: 0, i }; });
+    const ev = batches.map((b, i) => { const d = String(b.date || "").slice(0, 10) || last; last = d; return { kind: "b", b, date: d, o: 0, i }; }).filter((e) => !costMode || inCostBatch(e.b));
     if (!costMode) {
       const byDay = new Map();
       retOps.forEach((o) => { const d = String(o.op_date || o.created_at || "").slice(0, 10); if (!byDay.has(d)) byDay.set(d, []); byDay.get(d).push(o); });
@@ -7690,7 +7697,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
   useHotActions(() => [
     { label: "Новая поставка", keys: "Alt+N", code: "KeyN", run: () => setAddItems("newbatch") },
     { label: "+ Список вручную", keys: "Alt+L", code: "KeyL", run: () => setAddItems(true) },
-    (obj.items || []).length && !costMode ? { label: "Себестоимость подряд", keys: "Alt+S", code: "KeyS", run: startCost } : null,
+    (obj.items || []).length && !costMode ? { label: "Себестоимость подряд", keys: "Alt+S", code: "KeyS", run: () => startCost() } : null,
     pObj ? (perech ? { label: "+ Банковский платёж", keys: "Alt+P", code: "KeyP", run: () => setPerechPay(true) } : null)
       : (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes("client_payment") && payLive(obj) ? { label: "+ Оплата клиента", keys: "Alt+P", code: "KeyP", run: () => setOpForm({ type: "client_payment" }) } : null,
     isLive(obj) && (obj.items || []).some((i) => !i.from_warehouse) ? { label: "Отгрузить товар", keys: "Alt+O", code: "KeyO", run: () => setShipForm(true) } : null,
@@ -7828,8 +7835,24 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
           </tbody>
         </table>
       </div>
+      {costAsk && <Modal title="Себестоимость подряд — по какой поставке?" onClose={() => setCostAsk(false)} w={520}>
+        <div className="grid" style={{ gridTemplateColumns: "1fr", gap: 6 }} onKeyDown={(e) => { const k = Number(e.key); if (k >= 1 && k <= batches.length) { e.preventDefault(); startCost(batches[k - 1].no); } }}>
+          {batches.map((b, k) => { const n0 = b.items.filter((i) => costIssue(i) === "none").length, n1 = b.items.filter((i) => costIssue(i) === "over").length; return (
+            <button key={b.no} className="btn cq-pick" autoFocus={k === 0} style={{ justifyContent: "flex-start", textAlign: "left", gap: 8 }} onClick={() => startCost(b.no)}>
+              <span className="xs mono" style={{ opacity: .6, width: 14 }}>{k + 1}</span>
+              <Ic n="truck" /> <b>Поставка №{b.no}</b>
+              <span className="xs mut">{b.date ? dt(String(b.date).slice(0, 10)) + " · " : ""}позиций: {b.items.length}</span>
+              <span style={{ marginLeft: "auto" }}>{n0 > 0 && <span className="ci-tag none">нет себест.: {n0}</span>}{n1 > 0 && <span className="ci-tag over">&gt; цены: {n1}</span>}</span>
+            </button>); })}
+          <button className="btn cq-pick" style={{ justifyContent: "flex-start", gap: 8 }} onClick={() => startCost(null)}><span style={{ width: 14 }}></span><b>Все поставки</b> <span className="xs mut">позиций: {(obj.items || []).length}</span></button>
+        </div>
+        <p className="xs mut" style={{ marginTop: 10 }}>Цифра 1–{Math.min(9, batches.length)} — сразу нужная поставка. Введённое по одной поставке не теряется, если перейти на другую.</p>
+      </Modal>}
       {costMode && cqTot && (
         <div className="cq-bar">
+          {batches.length > 1 && <button className="btn xs cq-batch" title="Ввести себестоимость по другой поставке (уже введённое сохранится в черновике)" onClick={() => setCostAsk(true)}>
+            <Ic n="truck" /> {costBatch == null ? "Все поставки" : "Поставка №" + costBatch} ▾
+          </button>}
           <div className="cq-sum sm">
             <div><b className={cqN ? "cq-n on" : "cq-n"}>Изменено: {cqN} поз.</b></div>
             <div>Себестоимость: {fmt2(cqTot.c0)}{cqN ? <> → <b>{fmt2(cqTot.c1)}</b></> : null} · Прибыль по позициям: {fmt2(cqTot.s - cqTot.c0)}{cqN ? <> → <b style={{ color: cqTot.s - cqTot.c1 < 0 ? "var(--bad)" : "var(--ok)" }}>{fmt2(cqTot.s - cqTot.c1)}</b></> : null}</div>
@@ -7856,7 +7879,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
           <button className="btn xs" onClick={() => (t.id === "client_payment" && pObj ? setPerechPay(true) : setOpForm({ type: t.id }))}>+ {t.id === "client_payment" && pObj ? "Банковский платёж" : t.label}</button>
           {t.id === "discount" && (obj.items || []).length > 0 && <button className="btn xs" onClick={() => setPctForm(true)} title="Цена продажи = себестоимость ÷ (1 − %)">+ Прибыль от себестоимости</button>}
         </React.Fragment>)}
-        {(obj.items || []).length > 0 && !costMode && <button className="btn xs cq-start" onClick={startCost} title="Себестоимость всех позиций — в таблице одна за другой: ввели, Enter — следующая (Alt+S)"><Ic n="pencil" /> Себестоимость подряд</button>}
+        {(obj.items || []).length > 0 && !costMode && <button className="btn xs cq-start" onClick={() => startCost()} title="Себестоимость всех позиций — в таблице одна за другой: ввели, Enter — следующая (Alt+S)"><Ic n="pencil" /> Себестоимость подряд</button>}
       </div>
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">
