@@ -193,6 +193,22 @@ const cloudOkKey = (uid) => "te:cloud:" + uid;
 const isPhone = () => { try { const ua = navigator.userAgent || ""; return /Android|iPhone|iPad|iPod|Mobile/i.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); } catch (e) { return false; } };
 const cloudOkGet = (uid) => { try { return sessionStorage.getItem(cloudOkKey(uid)) === "1" || (isPhone() && localStorage.getItem(cloudOkKey(uid)) === "1"); } catch (e) { return false; } };
 const cloudOkSet = (uid) => { try { sessionStorage.setItem(cloudOkKey(uid), "1"); if (isPhone()) localStorage.setItem(cloudOkKey(uid), "1"); } catch (e) {} };
+// несколько аккаунтов на одном устройстве (как в Telegram): вход в каждый сохраняется, переключение — без пароля
+const ACC_KEY = "te:accounts", ACC_MAX = 5;
+const accList = () => { try { const a = JSON.parse(localStorage.getItem(ACC_KEY) || "[]"); return Array.isArray(a) ? a.filter((x) => x && x.id) : []; } catch (e) { return []; } };
+const accSave = (a) => { try { localStorage.setItem(ACC_KEY, JSON.stringify(a.slice(0, ACC_MAX))); } catch (e) {} };
+const accUpsert = (u, token) => { if (!u || !u.id) return; const a = accList().filter((x) => x.id !== u.id); const old = accList().find((x) => x.id === u.id); accSave([{ id: u.id, name: u.name || "", username: u.username || "", role: u.role || "", token: token || (old && old.token) || null, at: Date.now() }, ...a]); };
+const accRemove = (id) => accSave(accList().filter((x) => x.id !== id));
+const accDropToken = (tok) => { if (tok) accSave(accList().filter((x) => x.token !== tok)); };
+// переключиться: кладём вход выбранного аккаунта и перезапускаем страницу (данные прошлого аккаунта не остаются в памяти)
+const accSwitchTo = (a) => {
+  try {
+    if (a.token) { localStorage.setItem("te:token", a.token); localStorage.removeItem("te:session"); }
+    else { localStorage.setItem("te:session", a.id); localStorage.removeItem("te:token"); }
+    sessionStorage.setItem("te:acc-switch", a.name || a.username || "");
+  } catch (e) {}
+  window.location.reload();
+};
 const cloudOkDrop = (uid) => { try { sessionStorage.removeItem(cloudOkKey(uid)); localStorage.removeItem(cloudOkKey(uid)); } catch (e) {} };
 async function cloudRow() {
   const r = await db.from("requests").select().eq("mode", CLOUD_MODE);
@@ -656,6 +672,9 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .inp.role-name{padding:4px 6px;font-size:var(--fs-xs);font-weight:800;text-align:center;min-width:110px}
 .inp.role-base{padding:2px 4px;font-size:var(--fs-2xs);width:auto}
 .brand-fly{position:absolute;top:0;left:calc(100% + 6px);width:240px;background:var(--panel);border:1px solid var(--line2);border-radius:var(--r-md);box-shadow:0 16px 44px rgba(0,0,0,.2);padding:8px;z-index:1003}
+.acc-av{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font-weight:800;font-size:13px;margin-right:8px;flex:none}
+.btn.pri .acc-av{background:#fff;color:var(--acc)}
+.acc-btn{position:relative}.acc-n{position:absolute;top:-5px;right:-5px;min-width:15px;height:15px;border-radius:8px;background:var(--acc);color:#fff;font-size:10px;font-weight:800;line-height:15px;padding:0 3px}
 .ci-tag{display:inline-block;margin-left:6px;padding:0 6px;border-radius:6px;font-size:11px;font-weight:800;vertical-align:1px;white-space:nowrap}
 .ci-tag.none{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
 .ci-tag.over{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
@@ -12088,7 +12107,38 @@ function UserForm({ u, users, self, onClose, onSave, data = null, uperms = {}, h
     </Modal>
   );
 }
+// окно «Аккаунты»: все входы на этом устройстве, переключение одним нажатием (или клавишами 1–5)
+function AccSwitch({ cur, onClose, onAdd, onLogout }) {
+  const [list, setList] = useState(() => { const a = accList(); return a.some((x) => x.id === cur.id) ? a : [{ id: cur.id, name: cur.name, username: cur.username }, ...a]; });
+  const go = (a) => { if (a.id === cur.id) { onClose(); return; } accSwitchTo(a); };
+  useEffect(() => {
+    const h = (e) => { if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return; const k = Number(e.key); if (k >= 1 && k <= list.length && !e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); go(list[k - 1]); } };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [list]);
+  return (
+    <Modal title="Аккаунты" onClose={onClose} w={400}>
+      <div className="acc-list">
+        {list.map((a, k) => { const me = a.id === cur.id; return (
+          <div key={a.id} className={"row acc-row" + (me ? " on" : "")} style={{ gap: 6, flexWrap: "nowrap", marginBottom: 6 }}>
+            <button className={"btn" + (me ? " pri" : "")} style={{ flex: 1, justifyContent: "flex-start", textAlign: "left" }} onClick={() => go(a)} autoFocus={k === 0}>
+              <span className="acc-av">{String(a.name || a.username || "?").trim().charAt(0).toUpperCase()}</span>
+              <span style={{ minWidth: 0 }}><b>{a.name || a.username}</b> <span className="xs mono" style={{ opacity: .7 }}>{a.username}</span></span>
+              <span className="xs" style={{ marginLeft: "auto", opacity: .7 }}>{me ? "✓ сейчас" : k + 1}</span>
+            </button>
+            {!me && <button className="btn xs" title="Убрать этот аккаунт с устройства" aria-label="Убрать" onClick={() => { accRemove(a.id); setList((l) => l.filter((x) => x.id !== a.id)); }}>✕</button>}
+          </div>); })}
+      </div>
+      <div className="row" style={{ gap: 8, marginTop: 12, justifyContent: "space-between" }}>
+        <button className="btn" disabled={list.length >= ACC_MAX} title={list.length >= ACC_MAX ? "Не больше " + ACC_MAX + " аккаунтов на устройстве" : "Войти ещё в один аккаунт — этот останется сохранённым"} onClick={onAdd}>+ Добавить аккаунт</button>
+        <button className="btn dng" onClick={onLogout} title="Выйти из текущего аккаунта (он уберётся с устройства)">Выйти из «{cur.name || cur.username}»</button>
+      </div>
+      <p className="xs mut" style={{ marginTop: 10 }}>Переключение — без пароля, клавишами 1–{Math.max(1, list.length)}. Облачный пароль спросят один раз за сеанс.</p>
+    </Modal>
+  );
+}
 function LoginScreen({ users, onLogin, bootErr, onRetry, secure = false, seed = false, note = "" }) {
+  const [saved, setSaved] = useState(() => accList());
   const [username, setUsername] = useState("");
   const [pw, setPw] = useState("");
   const [show, setShow] = useState(false);
@@ -12137,6 +12187,17 @@ function LoginScreen({ users, onLogin, bootErr, onRetry, secure = false, seed = 
         )}
         {note && !err && <p className="sm" style={{ color: "var(--warn)", textAlign: "center", marginBottom: 10 }}>{note}</p>}
         {err && <p className="sm" style={{ color: "var(--bad)", textAlign: "center", marginBottom: 10 }}>{err}</p>}
+        {saved.length > 0 && <div className="acc-saved" style={{ marginBottom: 14 }}>
+          <div className="xs mut" style={{ marginBottom: 6 }}>Аккаунты на этом устройстве — вход без пароля:</div>
+          {saved.map((a) => <div key={a.id} className="row acc-row" style={{ gap: 6, flexWrap: "nowrap", marginBottom: 6 }}>
+            <button className="btn" style={{ flex: 1, justifyContent: "flex-start", textAlign: "left" }} onClick={() => accSwitchTo(a)}>
+              <span className="acc-av">{String(a.name || a.username || "?").trim().charAt(0).toUpperCase()}</span>
+              <span><b>{a.name || a.username}</b> <span className="xs mut mono">{a.username}</span></span>
+            </button>
+            <button className="btn xs" title="Убрать с этого устройства" aria-label="Убрать" onClick={() => { accRemove(a.id); setSaved(accList()); }}>✕</button>
+          </div>)}
+          <div className="xs mut" style={{ textAlign: "center", margin: "10px 0 0" }}>или войдите в другой аккаунт:</div>
+        </div>}
         <div className="grid" style={{ gridTemplateColumns: "1fr" }}>
           <Fld label="Логин"><input className="inp mono" value={username} onChange={(e) => setUsername(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} autoFocus /></Fld>
           <Fld label="Пароль"><div style={{ position: "relative" }}>
@@ -12787,12 +12848,13 @@ function AppInner() {
           const { data: me, error } = await sb.rpc("te_me");
           if (error && !/te_session_required/.test(String(error.message || ""))) throw new Error(error.message);
           if (me && me.id && !isStaff(me)) {
+            accUpsert(me, tok);
             setCurrentUser(me); CURRENT_USER = me;
             const r = await reload(BOOT_TABLES);
             if (r.allFailed) setBootErr(r.failed.join(", "));
             await beforeShow();
             bootRest();
-          } else { setDbSession(null); try { localStorage.removeItem("te:token"); } catch (e) {} }
+          } else { setDbSession(null); accDropToken(tok); try { localStorage.removeItem("te:token"); } catch (e) {} if (accList().length) setLoginNote("Вход в этот аккаунт истёк — войдите снова или выберите другой аккаунт"); }
         } catch (e) { console.error(e); setBootErr(String(e && (e.message || e))); }
       }
       setReady(true);
@@ -12807,7 +12869,8 @@ function AppInner() {
       const uid = localStorage.getItem("te:session");
       if (uid && !CURRENT_USER) {
         const { data: users } = await db.from("users").select().eq("id", uid).eq("status", "active");
-        if (users && users.length) { CURRENT_USER = users[0]; await beforeShow(); setCurrentUser(users[0]); }
+        if (users && users.length) { CURRENT_USER = users[0]; accUpsert(users[0], null); await beforeShow(); setCurrentUser(users[0]); }
+        else accRemove(uid);
       }
       if (!CURRENT_USER) await beforeShow(); // экран входа — тоже уже со шрифтом
     } catch (e) {
@@ -12864,6 +12927,7 @@ function AppInner() {
     const u = data.users.find((x) => x.id === currentUser.id);
     if (!u || u.status !== "active" || isStaff(u)) {
       if (SECURE && sb) sb.rpc("te_logout").then(() => {}, () => {});
+      accRemove(currentUser.id);
       endSession(u ? "Аккаунт отключён" : "");
       return;
     }
@@ -12877,6 +12941,7 @@ function AppInner() {
     setLoginNote("");
     setLang("ru"); try { localStorage.setItem("te:lang", "ru"); } catch (e) {} // вход — всегда на русском
     setCurrentUser(u); CURRENT_USER = u;
+    accUpsert(u, token || null);
     if (!token) { try { localStorage.setItem("te:session", u.id); } catch (e) {} }
     await logAction("Вход в систему", "user:" + u.username, "");
     await reload(BOOT_TABLES);
@@ -12891,10 +12956,24 @@ function AppInner() {
     if (SECURE) { setDbSession(null); setData(EMPTY_DATA); setOpenId(null); setBackupOpen(false); }
     setLoginNote(note || "");
   };
+  // «Выйти» — выходит только из этого аккаунта; если на устройстве есть другие — сразу открывается следующий
   const doLogout = async () => {
     if (SECURE && sb) { try { await sb.rpc("te_logout"); } catch (e) {} }
+    const me = CURRENT_USER;
+    if (me) accRemove(me.id);
+    const next = accList()[0];
+    if (next) { if (me) cloudOkDrop(me.id); accSwitchTo(next); return; }
     endSession("");
   };
+  // «+ Добавить аккаунт»: текущий вход остаётся сохранённым (без выхода на сервере), открывается экран входа
+  const addAccount = () => {
+    setCurrentUser(null); CURRENT_USER = null;
+    try { localStorage.removeItem("te:session"); localStorage.removeItem("te:token"); } catch (e) {}
+    if (SECURE) { setDbSession(null); setData(EMPTY_DATA); setOpenId(null); setBackupOpen(false); }
+    setLoginNote("");
+  };
+  const [accOpen, setAccOpen] = useState(false);
+  useEffect(() => { try { const n = sessionStorage.getItem("te:acc-switch"); if (n != null && currentUser) { sessionStorage.removeItem("te:acc-switch"); toast("Аккаунт: " + (currentUser.name || currentUser.username)); } } catch (e) {} }, [currentUser ? currentUser.id : ""]);
   // сервер ответил «нужен вход»: сессия истекла, аккаунт отключён — или защиту только что включили (тогда перезапуск)
   useEffect(() => {
     let fired = false;
@@ -12906,7 +12985,7 @@ function AppInner() {
         window.location.reload();
         return;
       }
-      if (CURRENT_USER) endSession("Сессия завершена — войдите снова");
+      if (CURRENT_USER) { accRemove(CURRENT_USER.id); endSession("Сессия завершена — войдите снова"); }
     };
     window.addEventListener("te-session-lost", h);
     return () => window.removeEventListener("te-session-lost", h);
@@ -13307,6 +13386,7 @@ function AppInner() {
     <PeopleCtx.Provider value={peopleCtx}>
     <div className={"te" + (darkMode ? " dark" : "") + (isPhone() && !finePtr ? " phone" : "") + (finePtr ? " fine" : " touch") + (hdrOff ? " hdr-off" : "") + (hdrSide ? " side" : "") + (hdrSide === "l" ? " side-l" : "")}>
       <style>{CSS}</style>
+      {accOpen && <AccSwitch cur={currentUser} onClose={() => setAccOpen(false)} onAdd={() => { setAccOpen(false); addAccount(); }} onLogout={() => { setAccOpen(false); doLogout(); }} />}
       {!finePtr && <button type="button" className={"mnav" + (hdrHidden && !hdrPeek ? " hide-on-scroll" : "")} title="Меню" aria-label="Меню" onClick={() => setHdrPeek(true)}><Ic n="menu" s={22} />{team.unread.total > 0 && <span className="chat-badge mnav-badge">{team.unread.total}</span>}</button>}
       {!finePtr && <div className={"mnav-bg" + (hdrPeek ? " on" : "")} onClick={() => setHdrPeek(false)} />}
       <div className={"hdr" + (hdrHidden && finePtr && !hdrOff ? " hide-on-scroll" : "") + (hdrPeek ? " peek" : "")} onMouseLeave={hdrLeave} onMouseEnter={hdrEnter}>
@@ -13318,6 +13398,7 @@ function AppInner() {
           </div>
           <button className="btn xs" onClick={toggleLang} title={lang === "ru" ? "Весь экран — латиницей (узбекская латиница)" : "Kirill yozuviga qaytish"} style={{ fontWeight: 800 }}>{lang === "ru" ? "UZ" : "RU"}</button>
           <button className="btn xs" onClick={toggleDark} title={darkMode ? "Светлая тема" : "Тёмная тема"}>{darkMode ? <Ic n="sun" s={15} /> : <Ic n="moon" s={15} />}</button>
+<button className="btn xs acc-btn" onClick={() => { setAccOpen(true); setMobileMenuOpen(false); if (!finePtr) setHdrPeek(false); }} title="Сменить аккаунт / добавить аккаунт"><Ic n="users" s={15} />{accList().length > 1 ? <span className="acc-n">{accList().length}</span> : null}</button>
           <button className="btn xs" onClick={doLogout} title={lang === "uz" ? "Chiqish" : "Выйти"}>{lang === "uz" ? "Chiqish" : "Выйти"}</button>
         </div>
         <div className={"tabs" + (mobileMenuOpen ? " open" : "")}>
@@ -13334,6 +13415,7 @@ function AppInner() {
             <div style={{ marginRight: "auto" }}><b className="sm">{currentUser.name || currentUser.username}</b> <span className="xs mut">{lang === "uz" && ({ boss: "Rahbar", manager: "Menejer", driver: "Yetkazuvchi", designer: "Loyihachi" })[acc.id] || acc.label}</span></div>
             <button className="btn xs" onClick={toggleLang} style={{ fontWeight: 800 }}>{lang === "ru" ? "UZ" : "RU"}</button>
             <button className="btn xs" onClick={toggleDark}>{darkMode ? <Ic n="sun" s={15} /> : <Ic n="moon" s={15} />}</button>
+            <button className="btn xs" onClick={() => { setAccOpen(true); setMobileMenuOpen(false); setHdrPeek(false); }}><Ic n="users" s={15} /> {lang === "uz" ? "Akkauntlar" : "Аккаунты"}</button>
             <button className="btn xs" onClick={doLogout}>{lang === "uz" ? "Chiqish" : "Выйти"}</button>
             <label className="hdr-chk clk"><input type="checkbox" checked={!hdrOff} onChange={(e) => { setHdrOffSave(!e.target.checked); setMobileMenuOpen(false); }} /> Верхняя панель</label>
           </div>
