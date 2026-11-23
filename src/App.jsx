@@ -687,6 +687,10 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .btn.pay-btn.sm2{font-size:13px;padding:6px 14px;min-height:34px;box-shadow:none}
 .fo-sep{width:1px;align-self:stretch;background:var(--line);margin:0 4px}
 @media (max-width:640px){.pay-card{flex-direction:column;align-items:stretch}.btn.pay-btn{width:100%;justify-content:center}}
+.btn.objf-debt{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,var(--line));font-weight:700}
+.btn.objf-debt.on{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn.objf-ci{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line));font-weight:700}
+.btn.objf-ci.on{background:var(--warn);border-color:var(--warn);color:#fff}
 .ci-tag{display:inline-block;margin-left:6px;padding:0 6px;border-radius:6px;font-size:11px;font-weight:800;vertical-align:1px;white-space:nowrap}
 .ci-tag.none{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
 .ci-tag.over{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
@@ -6948,10 +6952,11 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   // фильтр по статусу (вместо прежнего вида «По статусам»)
   const [sF, setSF] = useState("");
   const [sort, setSort] = useState(() => { try { const x = JSON.parse(localStorage.getItem("te:objsort") || "null"); return x && x.k ? x : { k: "upd", d: -1 }; } catch (e) { return { k: "upd", d: -1 }; } });
-  const sortBy = (k) => { const n = sort.k === k ? { k, d: -sort.d } : { k, d: k === "name" || k === "client" || k === "master" || k === "status" ? 1 : -1 }; setSort(n); try { localStorage.setItem("te:objsort", JSON.stringify(n)); } catch (e) {} };
+  const sortBy = (k, force) => { const n = force ? { k, d: force } : sort.k === k ? { k, d: -sort.d } : { k, d: k === "name" || k === "client" || k === "master" || k === "status" ? 1 : -1 }; setSort(n); try { localStorage.setItem("te:objsort", JSON.stringify(n)); } catch (e) {} };
   const [lim, setLim] = useState(150); // длинный список — частями, чтобы экран не тормозил
   // единственный фильтр — по мастеру (лента сверху)
   const [mF, setMF] = useState("");
+  const [pF, setPF] = useState(""); // быстрый фильтр: "debt" — должники, "cost" — проблемы с себестоимостью
   useEffect(() => { setLim(150); setMF(""); }, [pmode]);
   useEffect(() => { setLim(150); }, [q, mF, sF, sort.k, sort.d]);
   // по каждому объекту — один раз: суммы, долг, дата последнего действия и текст для поиска
@@ -6968,7 +6973,12 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
     const hay = txt + " " + translit(txt) + " " + String(o.phone || "").replace(/\D/g, "");
     const debt = isLive(o) ? f.clientDebt : 0;
     const pc = isPerech(o) ? perechCalc(o, finance_ops) : null; // перечисление: долг клиента в сумах
-    return { o, f, upd, hay: hay + (pc ? " перечисление perechisleniye " + String(((o.perech || {}).client || {}).inn || "") : ""), debt, mk, mn, pc };
+    // последняя оплата клиента и позиции с проблемной себестоимостью — для «Должники» и «⚠ Себестоимость»
+    let lastPay = "";
+    opsOf(finance_ops, o.id).forEach((x) => { if (x.type === "client_payment" && !x.voided && Number(x.amount) > 0) { const d = String(x.op_date || x.created_at || "").slice(0, 10); if (d > lastPay) lastPay = d; } });
+    let ci0 = 0, ci1 = 0;
+    (o.items || []).forEach((i) => { const t = costIssue(i); if (t === "none") ci0++; else if (t === "over") ci1++; });
+    return { o, f, upd, hay: hay + (pc ? " перечисление perechisleniye " + String(((o.perech || {}).client || {}).inn || "") : ""), debt, mk, mn, pc, lastPay, ci0, ci1 };
   }), [objects, finance_ops, masterName]);
   if (obj) return <ObjectDetail obj={obj} data={objWorld(data, obj)} reload={reload} toast={toast} fin={fin} perech={perech} back={() => setOpenId(null)} />;
   // поиск: каждое слово где угодно (название, клиент, телефон, адрес, мастер, менеджер, статус); латиница = кириллица; телефон — по цифрам
@@ -6987,7 +6997,11 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   }[sort.k] || ((a, b) => a.upd.localeCompare(b.upd));
   const mOk = (r) => !mF || r.mk === mF;
   const sOk = (r) => !sF || stKey(r.o) === sF;
-  const sortedRows = found.filter(mOk).filter(sOk).sort((a, b) => cmp(a, b) * sort.d || b.upd.localeCompare(a.upd));
+  const pOk = (r) => !pF || (pF === "debt" ? r.debt > 0.004 : r.ci0 + r.ci1 > 0);
+  const base = found.filter(mOk).filter(sOk);
+  const nDebt = base.filter((r) => r.debt > 0.004), nCi = fin ? base.filter((r) => r.ci0 + r.ci1 > 0).length : 0;
+  const sumDebt = nDebt.reduce((a, r) => a + r.debt, 0);
+  const sortedRows = base.filter(pOk).sort((a, b) => cmp(a, b) * sort.d || b.upd.localeCompare(a.upd));
   const shown = sortedRows.map((r) => r.o);
   // мастера — с числом объектов (с учётом поиска) и долгом клиентов по их объектам; больше объектов — левее
   const mAgg = new Map();
@@ -7022,8 +7036,11 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         </div>
       </div>
         <StatusFilter list={found.filter(mOk).map((r) => r.o)} value={sF} onPick={setSF} />
+        {nDebt.length > 0 && <button className={"btn xs objf-debt" + (pF === "debt" ? " on" : "")} title="Только объекты с долгом клиента — больше долг выше; под суммой — когда клиент платил последний раз"
+          onClick={() => { if (pF === "debt") setPF(""); else { setPF("debt"); sortBy("debt", -1); } }}>Должники: {nDebt.length} · {fmt(sumDebt)}</button>}
+        {nCi > 0 && <button className={"btn xs objf-ci" + (pF === "cost" ? " on" : "")} title="Объекты, где есть позиции без себестоимости или с себестоимостью выше цены продажи" onClick={() => setPF(pF === "cost" ? "" : "cost")}>⚠ Себестоимость: {nCi}</button>}
       </div>
-      {!shown.length ? <div className="card mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? <>Ничего не найдено{(q || mF || sF) && <> · <button type="button" className="btn xs" onClick={() => { setQ(""); setMF(""); setSF(""); }}>Показать все</button></>}</> : "Объектов пока нет — создайте через «Новая заявка»"}</div> : (
+      {!shown.length ? <div className="card mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? <>Ничего не найдено{(q || mF || sF || pF) && <> · <button type="button" className="btn xs" onClick={() => { setQ(""); setMF(""); setSF(""); setPF(""); }}>Показать все</button></>}</> : "Объектов пока нет — создайте через «Новая заявка»"}</div> : (
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t objt">
           <thead><tr>
@@ -7031,19 +7048,21 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
             <SortTh k="sum" num w={110}>Сумма</SortTh><SortTh k="debt" num w={120}>Долг клиента</SortTh><SortTh k="upd" w={110}>Изменён</SortTh><th style={{ width: 76 }}></th>
           </tr></thead>
           <tbody>
-            {sortedRows.slice(0, lim).map(({ o, f, upd, debt, pc }) => {
+            {sortedRows.slice(0, lim).map(({ o, f, upd, debt, pc, lastPay, ci0, ci1 }) => {
+              const payAge = lastPay ? Math.max(0, Math.round((Date.now() - new Date(lastPay + "T12:00:00").getTime()) / 864e5)) : null;
               const st = stById(o.status);
               return (
                 <tr key={o.id} className="clk" onClick={() => setOpenId(o.id)}>
                   <td className="objt-name"><div className="row" style={{ gap: 8, flexWrap: "nowrap", alignItems: "flex-start" }}>
                     <span onClick={(e) => e.stopPropagation()} style={{ paddingTop: 2 }} title="Пометка для себя — видна только вам на этом устройстве"><MarkDot value={objMarks[o.id] || ""} onClick={() => toggleObjMark(o.id)} /></span>
-                    <div style={{ minWidth: 0 }}><div style={{ fontWeight: 700 }}>{o.name}</div>{o.address && <div className="xs mut">{o.address}</div>}</div>
+                    <div style={{ minWidth: 0 }}><div style={{ fontWeight: 700 }}>{o.name}{fin && ci0 > 0 && <span className="ci-tag none" title="Позиций без себестоимости">нет себест.: {ci0}</span>}{fin && ci1 > 0 && <span className="ci-tag over" title="Позиций с себестоимостью выше цены продажи">&gt; цены: {ci1}</span>}</div>{o.address && <div className="xs mut">{o.address}</div>}</div>
                   </div></td>
                   <td className="objt-cl"><div>{o.client || "—"}</div>{o.phone && <div className="xs mut mono">{o.phone}</div>}</td>
                   <td className="objt-ms sm">{o.master || masterName[o.master_id] || <span className="mut">—</span>}{o.manager && <div className="xs mut">{o.manager}</div>}</td>
                   <td className="objt-st"><Badge c={st.c}>{st.label.replace(" (старый статус)", "")}</Badge></td>
                   <td className="num objt-sum">{fmt(f.saleNet)}</td>
-                  <td className="num objt-debt" style={{ fontWeight: 700, color: debt > 0.004 ? "var(--bad)" : debt < -0.004 ? "var(--ok)" : "var(--mut)" }} title={debt < -0.004 ? "переплата клиента" : ""}>{debt > 0.004 ? fmt(debt) : debt < -0.004 ? "+" + fmt(-debt) : "—"}{pc && isLive(o) && Math.abs(pc.debt) > 0.004 && <div className="xs" style={{ fontWeight: 600 }}>{pc.debt > 0 ? sumFmt(pc.debt) + " сум" : "аванс " + sumFmt(-pc.debt) + " сум"}</div>}</td>
+                  <td className="num objt-debt" style={{ fontWeight: 700, color: debt > 0.004 ? "var(--bad)" : debt < -0.004 ? "var(--ok)" : "var(--mut)" }} title={debt < -0.004 ? "переплата клиента" : ""}>{debt > 0.004 ? fmt(debt) : debt < -0.004 ? "+" + fmt(-debt) : "—"}{pc && isLive(o) && Math.abs(pc.debt) > 0.004 && <div className="xs" style={{ fontWeight: 600 }}>{pc.debt > 0 ? sumFmt(pc.debt) + " сум" : "аванс " + sumFmt(-pc.debt) + " сум"}</div>}
+                    {debt > 0.004 && <div className="xs objt-lastpay" style={{ fontWeight: 500, color: payAge == null || payAge > 30 ? "var(--warn)" : "var(--mut)" }} title={lastPay ? "Последняя оплата клиента: " + dt(lastPay) : "Клиент ещё не платил"}>{lastPay ? "опл. " + dt(lastPay) + " · " + payAge + " дн." : "оплат не было"}</div>}</td>
                   <td className="xs mut mono objt-upd">{dt(upd.slice(0, 10))}</td>
                   <td className="objt-act" onClick={(e) => e.stopPropagation()}><div className="row" style={{ gap: 4, flexWrap: "nowrap", justifyContent: "flex-end" }}>
                     <button className="btn xs" title="Изменить объект" aria-label="Изменить" onClick={() => setEditO(o)}><Ic n="pencil" /></button>
@@ -7196,6 +7215,20 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
   const setStatus = async (s) => {
     if (s === "paid" && !fullyPaid(obj, finance_ops)) { toast("«Оплачено» — только когда клиент оплатил 100%. Осталось оплатить: " + fmt2(Math.max(0, f.saleNet - f.paidClient - f.paidIgnored))); return; }
     const was = isLive(obj), will = isLive({ status: s });
+    // переводим в работу — сначала проверяем себестоимость: без неё прибыль не посчитается, выше цены — убыток
+    if (!was && will && fin) {
+      const bad = (obj.items || []).map((i) => ({ i, t: costIssue(i) })).filter((x) => x.t);
+      if (bad.length) {
+        const n0 = bad.filter((x) => x.t === "none").length, n1 = bad.length - n0;
+        const go = await askConfirm({
+          title: "Проверьте себестоимость",
+          text: [n0 ? "без себестоимости — " + n0 + " поз. (прибыль по ним не посчитается)" : "", n1 ? "себестоимость выше цены продажи — " + n1 + " поз. (продажа в убыток)" : ""].filter(Boolean).join("; ") + ". Всё равно перевести в «" + stById(s).label + "»?",
+          items: bad.slice(0, 50).map(({ i, t }) => [i.name || "—", t === "none" ? "нет себестоимости" : "себест. " + fmt2(i.cost) + " > цены " + fmt2(i.price)]),
+          ok: "Да, перевести",
+        });
+        if (!go) return;
+      }
+    }
     let note = "", ok = true;
     if (!was && will) {
       const t = await whTakePending(obj);
