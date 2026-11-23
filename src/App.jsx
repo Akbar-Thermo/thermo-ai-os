@@ -43,6 +43,7 @@ function dbReport(t, e) {
 let BUSY_N = 0;
 const BUSY_SUBS = new Set();
 const busyEmit = () => BUSY_SUBS.forEach((f) => { try { f(BUSY_N); } catch (e) {} });
+let MARK_Q = Promise.resolve(); // пометки позиций пишутся по очереди — быстрые нажатия не затирают друг друга
 let BUSY_SILENT = 0; // фоновое автообновление — без индикатора
 const busyInc = () => { if (BUSY_SILENT) return; BUSY_N++; busyEmit(); };
 const busyDec = () => { BUSY_N = Math.max(0, BUSY_N - 1); busyEmit(); };
@@ -5236,6 +5237,14 @@ const LINE_MARKS = [
 ];
 // кружок-пометка строки (нет → красный → белый → нет)
 const nextMark = (cur) => LINE_MARKS[(LINE_MARKS.findIndex((m) => m.id === (cur || "")) + 1) % LINE_MARKS.length].id;
+// пометка объекта в списке «Объекты»: только красный / нет, хранится на этом устройстве у этого сотрудника — в базу не пишется
+const objMarkKey = () => "te:objmark:" + ((CURRENT_USER && CURRENT_USER.id) || "");
+const objMarksGet = () => { try { return JSON.parse(localStorage.getItem(objMarkKey()) || "{}") || {}; } catch (e) { return {}; } };
+function useObjMarks() {
+  const [m, setM] = useState(objMarksGet);
+  const toggle = (id) => setM((prev) => { const n = { ...prev }; if (n[id]) delete n[id]; else n[id] = "r"; try { localStorage.setItem(objMarkKey(), JSON.stringify(n)); } catch (e) {} return n; });
+  return [m, toggle];
+}
 function MarkDot({ value, onClick }) {
   const mark = LINE_MARKS.find((m) => m.id === (value || ""));
   return <button type="button" className="mark-dot" title="Выделить строку цветом" onClick={onClick}
@@ -6896,6 +6905,7 @@ function PerechPanel({ obj, data, reload, toast, onPay }) {
 }
 
 function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = true, perech = true, pmode = false, setPmode = null }) {
+  const [objMarks, toggleObjMark] = useObjMarks();
   const { finance_ops, suppliers } = data;
   const objects = useMemo(() => (data.objects || []).filter((o) => isPerech(o) === pmode), [data.objects, pmode]);
   const [delObj, setDelObj] = useState(null);
@@ -7014,7 +7024,10 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
               const st = stById(o.status);
               return (
                 <tr key={o.id} className="clk" onClick={() => setOpenId(o.id)}>
-                  <td className="objt-name"><div style={{ fontWeight: 700 }}>{o.name}</div>{o.address && <div className="xs mut">{o.address}</div>}</td>
+                  <td className="objt-name"><div className="row" style={{ gap: 8, flexWrap: "nowrap", alignItems: "flex-start" }}>
+                    <span onClick={(e) => e.stopPropagation()} style={{ paddingTop: 2 }} title="Пометка для себя — видна только вам на этом устройстве"><MarkDot value={objMarks[o.id] || ""} onClick={() => toggleObjMark(o.id)} /></span>
+                    <div style={{ minWidth: 0 }}><div style={{ fontWeight: 700 }}>{o.name}</div>{o.address && <div className="xs mut">{o.address}</div>}</div>
+                  </div></td>
                   <td className="objt-cl"><div>{o.client || "—"}</div>{o.phone && <div className="xs mut mono">{o.phone}</div>}</td>
                   <td className="objt-ms sm">{o.master || masterName[o.master_id] || <span className="mut">—</span>}{o.manager && <div className="xs mut">{o.manager}</div>}</td>
                   <td className="objt-st"><Badge c={st.c}>{st.label.replace(" (старый статус)", "")}</Badge></td>
@@ -7232,9 +7245,14 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
     return n;
   };
   // цветная пометка позиции — без записи в журнал
-  const setItemMark = async (iid, mark) => saveItems((cur) => cur.map((i) => {
-    if (i.id !== iid) return i;
-    const n = { ...i }; if (mark) n.mark = mark; else delete n.mark; return n;
+  // кружок-пометка позиции: кружок меняется сразу, запись — тихо в фоне (без «загрузки» и без перезагрузки данных)
+  const setItemMark = (iid, mark) => (MARK_Q = MARK_Q.then(async () => {
+    BUSY_SILENT++;
+    try {
+      const r = await updateObjectItems(obj.id, (cur) => cur.map((i) => { if (i.id !== iid) return i; const n = { ...i }; if (mark) n.mark = mark; else delete n.mark; return n; }));
+      if (!r.error) { const it = (obj.items || []).find((i) => i.id === iid); if (it) { if (mark) it.mark = mark; else delete it.mark; } }
+      return !r.error;
+    } catch (e) { return false; } finally { BUSY_SILENT = Math.max(0, BUSY_SILENT - 1); }
   }));
   const setItemPrice = async (iid, price) => {
     const ok = await saveItems((cur) => cur.map((i) => (i.id === iid ? { ...i, price } : i)));
