@@ -656,6 +656,12 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .inp.role-name{padding:4px 6px;font-size:var(--fs-xs);font-weight:800;text-align:center;min-width:110px}
 .inp.role-base{padding:2px 4px;font-size:var(--fs-2xs);width:auto}
 .brand-fly{position:absolute;top:0;left:calc(100% + 6px);width:240px;background:var(--panel);border:1px solid var(--line2);border-radius:var(--r-md);box-shadow:0 16px 44px rgba(0,0,0,.2);padding:8px;z-index:1003}
+.ci-tag{display:inline-block;margin-left:6px;padding:0 6px;border-radius:6px;font-size:11px;font-weight:800;vertical-align:1px;white-space:nowrap}
+.ci-tag.none{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+.ci-tag.over{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
+tr.ci-none>td:first-child{box-shadow:inset 3px 0 var(--warn)}
+tr.ci-over>td:first-child{box-shadow:inset 3px 0 var(--bad)}
+.ci-chip{font-weight:700}.ci-chip.none{border-color:var(--warn);color:var(--warn)}.ci-chip.over{border-color:var(--bad);color:var(--bad)}
 .pick-sup.hov{outline:1px solid var(--acc);outline-offset:-1px}
 @media(max-width:600px){.brand-fly{position:static;width:auto;margin-top:8px;box-shadow:none}}
 .npanel-bg{position:fixed;inset:0;z-index:950;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(3px)}
@@ -7477,6 +7483,12 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
 
       <div className="row sect" style={{ marginBottom: 8 }}>
         <h3 style={{ marginRight: "auto" }}>Материалы объекта</h3>
+        {fin && !costMode && ["none", "over"].map((t) => { const its = (obj.items || []).filter((i) => costIssue(i) === t); if (!its.length) return null; return (
+          <button key={t} className={"btn xs ci-chip " + t} title={(t === "none" ? "Позиции без себестоимости" : "Позиции, где себестоимость выше цены продажи") + " — нажмите, чтобы показать первую"}
+            onClick={() => { const ids = new Set(its.map((i) => i.id)); const nos = {}; batches.forEach((b) => { if (b.items.some((i) => ids.has(i.id))) nos[b.no] = true; }); setOpenBatches((o) => ({ ...o, ...nos }));
+              setTimeout(() => { const r = document.querySelector("tr.ci-" + t); if (r) { r.scrollIntoView({ block: "center", behavior: "smooth" }); r.animate([{ background: "var(--acc-tint)" }, { background: "transparent" }], { duration: 1600 }); } }, 80); }}>
+            ⚠ {t === "none" ? "Без себестоимости" : "Себест. выше цены"}: {its.length}
+          </button>); })}
         {costMode ? <span className="sm" style={{ fontWeight: 700, color: "var(--acc)" }}><Ic n="pencil" /> Себестоимость подряд</span> : <>
           {isLive(obj) && (obj.items || []).some((i) => !i.from_warehouse) && <button className="btn" style={unshippedCnt ? { borderColor: "var(--warn)", color: "var(--warn)", fontWeight: 700 } : undefined} onClick={() => setShipForm(true)}><Ic n="truck" /> Отгрузить товар{unshippedCnt ? " (" + unshippedCnt + ")" : " ✓"}</button>}
           <button className="btn" onClick={() => setAddItems(true)}>+ Список вручную{draftCnt.m ? " · черновик " + draftCnt.m : ""}</button>
@@ -7500,6 +7512,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
                       {closedBatches[b.no] ? "▸" : "▾"} <Ic n="truck" /> ПОСТАВКА №{b.no} · <input type="date" className="inp batch-date" title="Дата накладной — нажмите, чтобы изменить" value={String(b.date || "").slice(0, 10)}
                         onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => setBatchDate(b.no, e.target.value)} /> · позиций: {b.items.length} · на сумму {fmt(b.items.reduce((a, i) => a + i.qty * i.price, 0))}
                       {b.items.some((i) => lateAdded.has(i.id)) && <span className="late-sum" style={{ color: "var(--warn)" }}> · добавлено позже: {b.items.filter((i) => lateAdded.has(i.id)).length} поз. на {fmt2(b.items.filter((i) => lateAdded.has(i.id)).reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.price) || 0), 0))}</span>}
+                      {fin && !costMode && (() => { const n0 = b.items.filter((i) => costIssue(i) === "none").length, n1 = b.items.filter((i) => costIssue(i) === "over").length; return <>{n0 > 0 && <span className="ci-tag none">нет себест.: {n0}</span>}{n1 > 0 && <span className="ci-tag over">себест. &gt; цены: {n1}</span>}</>; })()}
                       {b.items.some((i) => !isShipped(i)) ? <span style={{ color: "var(--warn)" }}> · не отгружено: {b.items.filter((i) => !isShipped(i)).length}</span> : b.items.some((i) => i.shipped) ? <span style={{ color: "var(--ok)" }}> · отгружено ✓</span> : null}
                       <span className="xs mut" style={{ fontWeight: 500 }}>  — нажмите чтобы {closedBatches[b.no] ? "раскрыть" : "свернуть"}</span>
                       {!costMode && fin && <button className="btn xs dng batch-del" title="Удалить всю поставку (все её позиции)" onClick={(e) => { e.stopPropagation(); setDelBatch(b); }}><Ic n="trash" /> Удалить поставку</button>}
@@ -7855,6 +7868,8 @@ function ShipModal({ obj, batches, fin, supName, onClose, onShip, onUnship }) {
 // Строка таблицы материалов объекта: количество/цена редактируются свободно на экране,
 // в базу уходят только по потере фокуса (onBlur) — чтобы не слать запрос на каждое нажатие клавиши
 // и не ловить промежуточные значения вроде "1" при наборе "15".
+// проблема с себестоимостью позиции: "none" — не введена, "over" — выше цены продажи (в убыток)
+const costIssue = (i, price) => { const c = Number(i.cost) || 0, p = price != null ? price : Number(i.price) || 0; return c <= 0 ? "none" : c > p + 1e-7 ? "over" : null; };
 function ObjectItemRow({ i, late, fin, supName, setItemQty, setItemPrice, setEditItem, setDelItemId, setItemMark, onReplace = null }) {
   const [qty, setQty] = useState(inNum(i.qty));
   const [mk, setMk] = useState(i.mark || "");
@@ -7863,10 +7878,11 @@ function ObjectItemRow({ i, late, fin, supName, setItemQty, setItemPrice, setEdi
   useEffect(() => { setQty(inNum(i.qty)); }, [i.qty]);
   useEffect(() => { setPrice(inNum(i.price)); }, [i.price]);
   const same = (a, b) => Math.abs(a - (Number(b) || 0)) < 1e-7;
+  const ci = fin ? costIssue(i, parseNum(price)) : null;
   return (
-    <tr>
+    <tr className={ci ? "ci-" + ci : undefined}>
       <td style={{ width: 28, paddingRight: 0, verticalAlign: "middle" }}><MarkDot value={mk} onClick={async () => { const nx = nextMark(mk); setMk(nx); if (!(await setItemMark(i.id, nx))) setMk(i.mark || ""); }} /></td>
-      <td style={{ fontWeight: 600 }}>{onReplace && !i.from_warehouse ? <span className="it-repl" role="button" tabIndex={0} title="Заменить на другой товар" onClick={() => onReplace(i)} onKeyDown={(e) => { if (e.key === "Enter") onReplace(i); }}>{i.name}</span> : i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «В процессе»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}{late && <div className="xs late-add" style={{ color: "var(--warn)" }} title="Позиция добавлена в эту поставку позже остальных — сумма поставки после этого выросла">добавлено позже: {dt(late)}</div>}</td>
+      <td style={{ fontWeight: 600 }}>{onReplace && !i.from_warehouse ? <span className="it-repl" role="button" tabIndex={0} title="Заменить на другой товар" onClick={() => onReplace(i)} onKeyDown={(e) => { if (e.key === "Enter") onReplace(i); }}>{i.name}</span> : i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{ci === "none" && <span className="ci-tag none" title="Себестоимость не введена — прибыль по позиции не считается">нет себест.</span>}{ci === "over" && <span className="ci-tag over" title={"Себестоимость " + fmt2(i.cost) + " выше цены продажи " + fmt2(parseNum(price)) + " — позиция в убыток"}>себест. {fmt2(i.cost)} &gt; цены</span>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «В процессе»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}{late && <div className="xs late-add" style={{ color: "var(--warn)" }} title="Позиция добавлена в эту поставку позже остальных — сумма поставки после этого выросла">добавлено позже: {dt(late)}</div>}</td>
       <td><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)}
         onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (!same(v, i.qty)) { if (!(await setItemQty(i.id, v))) setQty(inNum(i.qty)); } else setQty(inNum(i.qty)); }} /></td>
       <td className="sm">{i.unit}</td>
