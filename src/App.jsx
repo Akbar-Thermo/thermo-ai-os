@@ -1258,6 +1258,100 @@ table.t tr:hover td{background:var(--hover)}
 /* полосы прокрутки внутри списков и таблиц — тонкие */
 .te .vt-box,.te .cmdk-list,.te .ret-box,.te .kassa-ops,.te .npanel-list,.te .chat-items,.te .chat-msgs,.te .card{scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
 @media(prefers-reduced-transparency:reduce){.hdr,.te.touch .mnav,.toast,.totop{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--hdr-bg)}.toast,.totop{background:var(--panel)}}
+
+/* ================= Структура страниц (ноябрь 2026, по образцу бизнес-программ: SAP Fiori, Odoo) =================
+   1) Шапка страницы (.ph) — белая полоса на всю ширину под меню: путь (раздел › страница), крупный заголовок,
+      действия справа. 2) Список = панель фильтров (.lr-bar) + таблица одним блоком.
+   3) Карточка объекта / мастера / поставщика — шапка с «← назад», статусом и ключевыми цифрами в той же полосе.
+   4) Подразделы (Материалы, Финансовые операции…) — заголовок с кнопками сливается с таблицей в один блок.
+   5) В меню сверху — поле «Поиск…» (Ctrl+K) по всей программе. */
+.body:has(.ph){padding-top:0}
+.te.touch .body:has(.ph){padding-top:0}
+.ph{position:relative;background:var(--panel);box-shadow:0 0 0 100vmax var(--panel),0 1px 0 100vmax var(--line);clip-path:inset(0 -100vmax -1px);
+  padding:16px 0 18px!important;margin:0 0 22px!important;row-gap:10px!important;column-gap:10px!important;align-items:center}
+.ph::before{content:var(--crumb,"");flex-basis:100%;order:-1;font-size:11px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);line-height:1.2;min-height:13px}
+.ph h2{font-size:28px;font-weight:750;letter-spacing:-.025em;line-height:1.15;margin:0}
+.ph h2 .mut{font-weight:500;letter-spacing:0;font-size:var(--fs-md)}
+.ph h2 + .sm,.ph h2 + div{margin-top:4px}
+.ph h2 .bdg{vertical-align:6px;margin-left:4px;font-size:12px}
+/* карточка (объект, мастер, поставщик, доставка): «← назад» — ссылка в строке пути, ниже заголовок */
+.ph-obj::before{content:"›  " var(--crumb,"");flex-basis:auto;order:-1;align-self:center;margin-left:-2px}
+.ph-obj::after{content:"";flex-basis:100%;order:-1;height:0}
+.ph-obj .ph-back{order:-2;min-height:0!important;height:auto;padding:0!important;border:0!important;background:none!important;box-shadow:none!important;font-size:11px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--acc)}
+.ph-obj .ph-back:hover{color:var(--acc2);text-decoration:underline;text-underline-offset:3px}
+/* баннер «бэкап» над шапкой страницы — тонкая полоса на всю ширину */
+.body > .abwarn{border-radius:0!important;border-width:0 0 1px!important;margin:0 0 0!important;box-shadow:0 0 0 100vmax color-mix(in srgb,var(--warn) 6%,var(--panel)),0 1px 0 100vmax color-mix(in srgb,var(--warn) 30%,transparent);clip-path:inset(0 -100vmax -1px);padding:9px 0!important;animation:none}
+/* ключевые цифры карточки объекта — в той же белой полосе, без отдельных плиток */
+.ph:has(+ .kpis){margin-bottom:0!important;padding-bottom:6px!important;box-shadow:0 0 0 100vmax var(--panel);clip-path:inset(0 -100vmax)}
+.ph + .kpis{position:relative;background:var(--panel);box-shadow:0 0 0 100vmax var(--panel),0 1px 0 100vmax var(--line);clip-path:inset(0 -100vmax -1px);padding:6px 0 18px;margin-bottom:22px!important;
+  display:flex!important;flex-wrap:wrap;gap:0!important}
+.ph + .kpis .kpi{flex:0 1 auto;min-width:150px;background:none;border:0;border-left:1px solid var(--line);border-radius:0;box-shadow:none;padding:2px 28px 2px 18px;animation:none}
+.ph + .kpis .kpi:first-child{border-left:0;padding-left:0}
+.ph + .kpis .kpi .l{font-size:11px;font-weight:650;letter-spacing:.06em;text-transform:uppercase}
+.ph + .kpis .kpi .v{font-size:24px;margin-top:2px}
+/* меню сверху: поиск по программе */
+.hdr-search{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 8px 0 11px;min-width:0;border:1px solid var(--hdr-line);border-radius:var(--r-md);background:var(--hdr-panel2);color:var(--hdr-mut);font:500 var(--fs-sm) var(--sans);cursor:pointer;transition:border-color var(--dur),background var(--dur),color var(--dur)}
+.hdr-search:hover{border-color:var(--line2);color:var(--hdr-txt);background:var(--panel)}
+.hdr-search span{flex:1;text-align:left}
+.hdr-search kbd{font-size:10px;background:var(--panel);color:var(--hdr-mut)}
+.hdr-search:focus-visible{outline:2px solid var(--acc-ring);outline-offset:2px}
+@media(min-width:821px){
+  .te.fine:not(.hdr-off) .hdr .hdr-search{order:1;flex:0 1 360px;margin-left:18px}
+  .te.fine:not(.hdr-off) .hdr .npanel-btn{margin-left:auto}
+}
+.te.touch .hdr .hdr-search,.te.hdr-off.fine.side .hdr .hdr-search{height:42px;grid-column:1/-1}
+.te.touch .hdr-search kbd{display:none}
+@media(max-width:820px){.te.fine:not(.hdr-off) .hdr .hdr-search{order:8;width:38px;height:38px;padding:0;justify-content:center;flex:none}.te.fine:not(.hdr-off) .hdr .hdr-search span,.te.fine:not(.hdr-off) .hdr .hdr-search kbd{display:none}}
+/* список: панель фильтров + таблица — один блок */
+.lr-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 14px;background:var(--panel);border:1px solid var(--line);border-bottom:0;border-radius:var(--r-lg) var(--r-lg) 0 0;box-shadow:var(--shadow)}
+.lr-bar + .card,.lr-bar + .card.vt-box{border-top-left-radius:0!important;border-top-right-radius:0!important;margin-top:0;clip-path:inset(0 -20px -20px)}
+.lr-bar + .card > table.t thead th{border-top:1px solid var(--line)}
+.lr-bar + .card.mut{border-top:1px solid var(--line)}
+.lr-bar .obj-find{flex:1 1 340px;min-width:0}
+.lr-bar .obj-q .inp{height:38px;font-size:var(--fs-md);border-radius:var(--r-md)}
+.lr-bar .seg{flex:none}
+.lr-q{position:relative;flex:1 1 260px;min-width:0;max-width:420px}
+.lr-q .ic{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--mut);pointer-events:none}
+.lr-q .inp{padding-left:34px;height:36px}
+.lr-sp{flex:1 0 0}
+.lr-bar > .btn,.lr-bar > select.inp{flex:none}
+.vt-box{max-height:calc(100vh - 290px)}
+/* подраздел (Материалы объекта, Финансовые операции, Оплаты…): заголовок с кнопками + таблица — один блок */
+.row.sect:has(> h3:first-child):has(+ .card){margin-bottom:0!important;padding:12px 14px 12px 16px;background:var(--panel);border:1px solid var(--line);border-bottom:0;border-radius:var(--r-lg) var(--r-lg) 0 0;box-shadow:var(--shadow);gap:8px}
+.row.sect:has(> h3:first-child):has(+ .card) + .card{border-top-left-radius:0;border-top-right-radius:0;clip-path:inset(0 -20px -20px)}
+.row.sect:has(> h3:first-child):has(+ .card) + .card > table.t thead th{border-top:1px solid var(--line)}
+.row.sect:has(> h3:first-child):has(+ .card) h3{font-size:var(--fs-lg)}
+/* в панелях инструментов второстепенные кнопки тише — выделяется только главное действие */
+.row.sect:has(> h3:first-child) > .btn:not(.pri):not(.ci-chip),.lr-bar > .btn:not(.pri):not(.dng){background:transparent;border-color:transparent;box-shadow:none;color:var(--txt)}
+.row.sect:has(> h3:first-child) > .btn:not(.pri):not(.ci-chip):hover,.lr-bar > .btn:not(.pri):not(.dng):hover{background:var(--panel2);border-color:var(--line)}
+/* выгрузки в шапке карточки объекта — группа «Документы» */
+.ph .xl-group{flex-basis:100%;order:5;gap:4px;align-items:center;padding-top:10px;border-top:1px dashed var(--line);flex-wrap:wrap}
+.ph .xl-group::before{content:"Документы";font-size:11px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin-right:8px}
+.ph .xl-group .btn{background:transparent;border-color:transparent;box-shadow:none;padding:6px 10px}
+.ph .xl-group .btn:hover{background:var(--panel2);border-color:var(--line)}
+/* телефон */
+@media(max-width:820px){
+  .ph{padding:14px 0 14px!important;margin-bottom:16px!important}
+  .ph h2{font-size:24px}
+  .ph + .kpis .kpi{min-width:0;flex:1 1 40%;padding:8px 12px 8px 0;border-left:0}
+  .ph + .kpis{gap:4px 0!important}
+  .lr-bar{padding:10px}
+  .lr-q{max-width:none;flex-basis:100%}
+  .ph .xl-group::before{flex-basis:100%}
+}
+.te.touch .ph{padding-top:calc(18px + env(safe-area-inset-top,0px))!important}
+.te.touch .ph::before{min-height:44px;display:flex;align-items:center;padding-right:60px}
+.te.touch .ph-obj::before{min-height:44px;display:flex;align-items:center}
+.te.touch .ph-obj .ph-back{min-height:44px!important}
+/* фильтр периода (Дашборд, Финансы) — внутри белой шапки страницы; выбранный период — тёмный, красный только у действий */
+.ph:has(+ .ph-flt){margin-bottom:0!important;padding-bottom:8px!important;box-shadow:0 0 0 100vmax var(--panel);clip-path:inset(0 -100vmax)}
+.ph + .ph-flt{position:relative;background:var(--panel)!important;border:0!important;border-radius:0!important;box-shadow:0 0 0 100vmax var(--panel),0 1px 0 100vmax var(--line)!important;clip-path:inset(0 -100vmax -1px);padding:4px 0 16px!important;margin:0 0 22px!important;animation:none}
+.ph-flt .btn.pri,.ph-flt .btn.pri:hover{background:var(--txt);border-color:var(--txt);color:var(--panel);box-shadow:none}
+.ph-obj::before{content:none}
+.body > .abwarn{border-width:0!important}
+.ph + .kpis{margin-top:-1px!important}
+.lr-bar .seg{flex:0 1 auto;flex-wrap:wrap;max-width:100%}
+.te.touch .hdr-user,.te.hdr-off.fine.side .hdr-user{grid-template-columns:auto auto auto 1fr!important}
 `;
 
 /* ============ DATA LAYER = Supabase (db из ./db.js) ============ */
@@ -3653,20 +3747,23 @@ function ProductsTab({ data, reload, toast, pmode = false, setPmode = null, allP
   };
   return (
     <div>
-      <div className="row sect">
+      <div className="row sect ph">
         <h2 style={{ marginRight: "auto" }}>{pmode ? "Товары — перечисление" : "База товаров"} <span className="mut sm">({list.length !== products.length ? list.length + " из " + products.length : products.length})</span></h2>
         {setPmode && <PerechToggle on={pmode} set={(v) => { setSel([]); setPmode(v); }} />}
-        {!pmode && sel.length > 0 && <button className="btn" onClick={() => setCopyAsk(true)} title="Копии станут отдельными товарами перечисления: их цену и себестоимость меняете отдельно">→ В перечисление ({sel.length})</button>}
-        <input className="inp" style={{ maxWidth: 200 }} placeholder="Поиск…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button className="btn" onClick={() => setImp(true)}>Импорт Excel/CSV</button>
+        <button className="btn pri" onClick={() => setEdit({ unit: "шт", status: "active", stock: 0, cost: 0, price: 0, code: String(nextProductCode(products)) })}>+ Товар</button>
+      </div>
+      <div className="lr-bar">
+        <div className="lr-q"><Ic n="search" /><input className="inp" placeholder="Поиск: название, код, бренд…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <SupBrandFilter suppliers={suppliers} products={products} sfs={sfs} setSfs={setSfs} sbr={sbr} setSbr={setSbr} width={200} />
-        <select className="inp" style={{ maxWidth: 150 }} value={brandF} onChange={(e) => setBrandF(e.target.value)}>
+        <select className="inp" style={{ maxWidth: 170 }} value={brandF} onChange={(e) => setBrandF(e.target.value)}>
           <option value="">Все бренды</option>
           {brands.map((b) => <option key={b} value={b}>{b}</option>)}
         </select>
+        <span className="lr-sp" />
+        {!pmode && sel.length > 0 && <button className="btn" onClick={() => setCopyAsk(true)} title="Копии станут отдельными товарами перечисления: их цену и себестоимость меняете отдельно">→ В перечисление ({sel.length})</button>}
         {sel.length > 0 && <button className="btn dng" onClick={() => setConfirmDel(true)}><Ic n="trash" /> Удалить ({sel.length})</button>}
         {needRenum && products.length > 0 && <button className="btn" onClick={() => setRenum({ busy: false, done: 0, total: 0, err: "" })} title="Коды станут 1, 2, 3 … по порядку">№ Пронумеровать коды</button>}
-        <button className="btn" onClick={() => setImp(true)}>Импорт Excel/CSV</button>
-        <button className="btn pri" onClick={() => setEdit({ unit: "шт", status: "active", stock: 0, cost: 0, price: 0, code: String(nextProductCode(products)) })}>+ Товар</button>
       </div>
       <div className="card vt-box" ref={boxRef} style={{ padding: 0 }} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
         <table className="t vt">
@@ -4574,8 +4671,8 @@ function SuppliersTab({ data, reload, toast, fin = true, pmode = false, setPmode
   return (
     <div>
       {cur ? <>
-        <div className="row sect">
-          <button className="btn" onClick={() => setOpenId(null)}>← Поставщики</button>
+        <div className="row sect ph ph-obj">
+          <button className="btn ph-back" onClick={() => setOpenId(null)}>← Поставщики</button>
           <div style={{ marginRight: "auto" }}>
             <h2>{cur.name} {cur.status === "inactive" && <Badge c="#9a9a9a">неактивен</Badge>} {pmode && <Badge c="var(--acc)">перечисление</Badge>}</h2>
             <div className="sm mut">{[cur.contact, cur.phone, "товаров: " + (prodCnt[cur.id] || 0)].filter(Boolean).join(" · ")}
@@ -4588,7 +4685,7 @@ function SuppliersTab({ data, reload, toast, fin = true, pmode = false, setPmode
         </div>
         <AktSverkaModal inline s={cur} objects={objects} ops={finance_ops} whMoves={wh_moves} products={products} toast={toast} reload={reload} canEdit={fin} onClose={() => setOpenId(null)} />
       </> : <>
-      <div className="row sect">
+      <div className="row sect ph">
         <h2 style={{ marginRight: "auto" }}>{pmode ? "Поставщики — перечисление" : "Поставщики"} <span className="mut sm">({suppliers.length})</span></h2>
         {setPmode && <PerechToggle on={pmode} set={(v) => { setOpenId(null); setPmode(v); }} />}
         <input className="inp" style={{ maxWidth: 220 }} placeholder="Поиск поставщика…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -4906,7 +5003,7 @@ function UstaListsTab({ data, toast, userName, canDel, onCount, goRequest }) {
   const masterOf = (x) => (x.master_id ? masters.find((m) => m.id === x.master_id) : null);
   return (
     <div>
-      <div className="row" style={{ marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+      <div className="row ph" style={{ marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
         <h2 style={{ marginRight: "auto" }}>Списки от мастеров</h2>
         {[["new", "Новые", nNew], ["done", "Обработанные", (rows || []).length - nNew], ["all", "Все", (rows || []).length]].map(([id, l, n]) => (
           <button key={id} className={"btn xs" + (flt === id ? " pri" : "")} onClick={() => setFlt(id)}>{l}: <b style={{ marginLeft: 3 }}>{n}</b></button>
@@ -5046,7 +5143,7 @@ function RequestTabs(props) {
   const active = state.tabs.find((t) => t.id === state.active) || state.tabs[0];
   return (
     <div>
-      <div className="row" style={{ marginBottom: 10 }}>
+      <div className="row ph" style={{ marginBottom: 10 }}>
         <h2 style={{ marginRight: "auto" }}>{props.pmode ? "Новая заявка — перечисление" : "Новая заявка"}</h2>
         {props.setPmode && (((meta[active.id] || {}).count || 0) > 0
           ? <span title="В заявке уже есть позиции из другой базы товаров — сначала сохраните или закройте её, потом переключайте"><button className="btn" disabled style={props.pmode ? { borderColor: "var(--acc)", color: "var(--acc)" } : undefined}>{props.pmode ? "☑" : "☐"} Перечисление</button></span>
@@ -6882,7 +6979,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   const SortTh = ({ k, children, num, w }) => <th className={"clk objt-th" + (num ? " num" : "")} style={w ? { width: w } : undefined} onClick={() => sortBy(k)} title="Сортировать">{children}<span className="objt-arr">{sort.k === k ? (sort.d > 0 ? " ↑" : " ↓") : ""}</span></th>;
   return (
     <div>
-      <div className="row sect">
+      <div className="row sect ph">
         <h2 style={{ marginRight: "auto" }}>{pmode ? "Объекты — перечисление" : "Объекты"} <span className="mut sm">({shown.length !== objects.length ? shown.length + " из " + objects.length : objects.length})</span></h2>
         {setPmode && <PerechToggle on={pmode} set={setPmode} />}
         {fin && <button className="btn obj-debts-x" title={mF ? "Excel: долги клиентов по объектам выбранного мастера" : "Excel: долги клиентов по всем мастерам"} onClick={() => {
@@ -6893,7 +6990,8 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         <button className="btn pri" onClick={goRequest}>+ Новая заявка</button>
       </div>
       <MasterBar items={mItems} value={mF} onPick={setMF} />
-      <div className="obj-find sect">
+      <div className="lr-bar">
+      <div className="obj-find">
         <div className="obj-q">
           <span className="obj-q-ic"><Ic n="search" /></span>
           <input className="inp" data-kbnav="1" autoFocus={!isPhone()} data-phone-nofocus="1" placeholder={isPhone() ? "Найти: объект, клиент, телефон…" : "Найти объект: название, клиент, телефон, мастер, адрес…"} value={q}
@@ -6902,7 +7000,8 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
           {q && <button type="button" className="obj-q-x" title="Очистить" onClick={() => setQ("")}>✕</button>}
         </div>
       </div>
-      <div className="sect"><StatusFilter list={found.filter(mOk).map((r) => r.o)} value={sF} onPick={setSF} /></div>
+        <StatusFilter list={found.filter(mOk).map((r) => r.o)} value={sF} onPick={setSF} />
+      </div>
       {!shown.length ? <div className="card mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? <>Ничего не найдено{(q || mF || sF) && <> · <button type="button" className="btn xs" onClick={() => { setQ(""); setMF(""); setSF(""); }}>Показать все</button></>}</> : "Объектов пока нет — создайте через «Новая заявка»"}</div> : (
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t objt">
@@ -7586,10 +7685,10 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
   ]);
   return (
     <div>
-      <div className="row sect">
-        <button className="btn" onClick={back}>← Объекты</button>
+      <div className="row sect ph ph-obj">
+        <button className="btn ph-back" onClick={back}>← Объекты</button>
         <div style={{ marginRight: "auto" }}>
-          <h2>{obj.name}</h2>
+          <h2>{obj.name} <Badge c={stById(obj.status).c}>{stById(obj.status).label.replace(" (старый статус)", "")}</Badge></h2>
           <div className="sm mut">
             {obj.client} · {obj.phone} · менеджер:{" "}
             <b style={{ color: "var(--txt)" }}>{obj.manager || "—"}</b>{/* менеджер — тот, кто создал заявку; менять нельзя */}
@@ -8748,7 +8847,7 @@ function MastersTab({ data, reload, toast, openObject, fin = true, canDel = fals
   if (m) return <MasterDetail m={m} data={data} reload={reload} toast={toast} fin={fin} canDel={canDel} back={() => setOpenId(null)} openObject={openObject} edit={edit} setEdit={setEdit} />;
   return (
     <div>
-      <div className="row sect">
+      <div className="row sect ph">
         <h2 style={{ marginRight: "auto" }}>Мастера <span className="mut sm">({masters.length})</span></h2>
         {fin && <button className="btn pri" onClick={() => setEdit({ status: "active", bonus_percent: 10 })}>+ Мастер</button>}
       </div>
@@ -8807,8 +8906,8 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
   const KPI = ({ l, v, c }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}</div></div>;
   return (
     <div>
-      <div className="row sect">
-        <button className="btn" onClick={back}>← Мастера</button>
+      <div className="row sect ph ph-obj">
+        <button className="btn ph-back" onClick={back}>← Мастера</button>
         <div style={{ marginRight: "auto" }}>
           <h2>{m.name} {m.status !== "active" && <Badge c="#9a9a9a">неактивен</Badge>}</h2>
           <div className="sm mut">{m.specialty} · {m.phone}{fin ? " · бонус по умолчанию: " + (m.bonus_percent || 0) + "% от валовой" : ""}{m.note ? " · " + m.note : ""}</div>
@@ -9208,8 +9307,8 @@ function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
     };
     return (
       <div>
-        <div className="row sect">
-          <button className="btn" onClick={() => setOpenId(null)}>← Доставка</button>
+        <div className="row sect ph ph-obj">
+          <button className="btn ph-back" onClick={() => setOpenId(null)}>← Доставка</button>
           <h2 style={{ marginRight: "auto" }}>{obj.name}</h2>
           <button className="btn" onClick={() => deliverySheetStart(obj, suppliers, toast, () => setDelPick(true))}>📄 Лист доставки</button>
           {(obj.items || []).some((i) => !i.from_warehouse) && <button className="btn pri" onClick={() => setShip(true)}><Ic n="truck" /> Отгрузить / Доставлено{pending(obj) ? " (" + pending(obj) + ")" : " ✓"}</button>}
@@ -9251,7 +9350,7 @@ function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
   }
   return (
     <div>
-      <div className="row sect">
+      <div className="row sect ph">
         <h2 style={{ marginRight: "auto" }}>Доставка <span className="mut sm">({list.length})</span></h2>
         <input className="inp" style={{ maxWidth: 260 }} data-kbnav="1" placeholder="Поиск: объект, клиент, адрес…" value={q} onChange={(e) => setQ(e.target.value)} />
         <label className="row sm" style={{ gap: 6, cursor: "pointer" }}><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> показать и доставленные</label>
@@ -9501,7 +9600,7 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
   };
   return (
     <div>
-      <div className="row sect">
+      <div className="row sect ph">
         <h2 style={{ marginRight: "auto" }}>Склад Thermo <span className="mut sm">(возвраты с объектов и приход вручную)</span></h2>
         {!readOnly && <button className="btn" onClick={() => setInForm(true)}>+ Приход вручную</button>}
         {!readOnly && <button className="btn pri" disabled={!stock.length} onClick={() => setIssue(true)}>→ Отправить на объект</button>}
@@ -10337,13 +10436,13 @@ function DashboardMain({ data }) {
 
   return (
     <div className="dash">
-      <div className="row sect" style={{ alignItems: "baseline" }}>
+      <div className="row sect ph" style={{ alignItems: "baseline" }}>
         <h2 style={{ marginRight: "auto" }}>Дашборд <span className="sm mut" style={{ fontWeight: 500 }}>· {periodTitle}{mgr ? " · " + mgr : ""}</span></h2>
         <button className="btn" onClick={exportXlsx}><Ic n="download" /> Excel</button>
       </div>
 
       {/* фильтры — одна строка над всеми показателями */}
-      <div className="card sect" style={{ padding: "10px 12px" }}>
+      <div className="card sect ph-flt" style={{ padding: "10px 12px" }}>
         <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
           {DASH_PRESETS.map((p) => <button key={p.id} className={"btn xs " + (preset === p.id ? "pri" : "")} onClick={() => pick(p.id)}>{preset === p.id ? "✓ " : ""}{p.label}</button>)}
           <span className="row" style={{ gap: 4, marginLeft: "auto" }}>
@@ -10575,8 +10674,8 @@ function FinanceTab({ data, reload, toast, boss = false }) {
     .sort((a, b) => String(b.op_date || b.created_at || "").localeCompare(String(a.op_date || a.created_at || "")) || String(b.created_at || "").localeCompare(String(a.created_at || "")));
   return (
     <div>
-      <h2 className="sect">Финансы и долги</h2>
-      <div className="row sect" style={{ gap: 8, padding: "8px 10px", background: "var(--panel2)", borderRadius: 8 }}>
+      <div className="row sect ph"><h2 style={{ marginRight: "auto" }}>Финансы и долги</h2></div>
+      <div className="row sect ph-flt" style={{ gap: 8, padding: "8px 10px", background: "var(--panel2)", borderRadius: 8 }}>
         <span className="sm" style={{ fontWeight: 700 }}>Период:</span>
         <Fld label="С даты"><input type="date" className="inp" style={{ width: 150 }} value={from} onChange={(e) => setFrom(e.target.value)} /></Fld>
         <Fld label="По дату"><input type="date" className="inp" style={{ width: 150 }} value={to} onChange={(e) => setTo(e.target.value)} /></Fld>
@@ -11630,7 +11729,7 @@ function LogTab({ data, reload, toast, onBackup }) {
   const fmtTs = (s) => { try { return new Date(s).toLocaleString("ru-RU"); } catch (e) { return s; } };
   return (
     <div>
-      <div className="row sect">
+      <div className="row sect ph">
         <h2 style={{ marginRight: "auto" }}>Журнал действий <span className="mut sm">({audit_log.length})</span></h2>
         {onBackup && <button className="btn" title="Бэкап и восстановление базы" onClick={onBackup}><Ic n="save" /> Бэкап</button>}
         <button className={"btn log-onlydel" + (onlyDel ? " pri" : "")} title="Показать только удалённое, что можно восстановить" onClick={() => setOnlyDel(!onlyDel)}>↩ Удалённое{nDel ? " (" + nDel + ")" : ""}</button>
@@ -11701,7 +11800,7 @@ function AdminTab({ data, reload, toast, currentUser, isBoss = true, seen = {}, 
   useEffect(() => { reload(["requests"]); }, []);
   return (
     <div>
-      <div className="row sect">
+      <div className="row sect ph">
         <h2 style={{ marginRight: "auto" }}>Аккаунты <span className="mut sm">({users.length})</span></h2>
         <button className="btn pri" onClick={() => setEdit({ role: "manager", status: "active" })}>+ Аккаунт</button>
       </div>
@@ -13521,6 +13620,7 @@ function AppInner() {
       {!finePtr && <div className={"mnav-bg" + (hdrPeek ? " on" : "")} onClick={() => setHdrPeek(false)} />}
       <div className={"hdr" + (hdrHidden && finePtr && !hdrOff ? " hide-on-scroll" : "") + (hdrPeek ? " peek" : "")} onMouseLeave={hdrLeave} onMouseEnter={hdrEnter}>
         <div className="logo">THERMO<span>•</span>ENGINEERING</div>
+        <button type="button" className="hdr-search" title="Поиск по всей программе: объекты, товары, поставщики, мастера, действия (Ctrl+K)" onClick={() => { setPalette(true); setMobileMenuOpen(false); if (!finePtr) setHdrPeek(false); }}><Ic n="search" /><span>{lang === "uz" ? "Qidiruv…" : "Поиск…"}</span><kbd>Ctrl K</kbd></button>
         <div className="row hdr-user" style={{ gap: 8 }}>
           <div style={{ textAlign: "right" }}>
             <div style={{ fontWeight: 700, fontSize: 13 }}>{currentUser.name || currentUser.username}</div>
@@ -13565,7 +13665,7 @@ function AppInner() {
         <button className="btn xs hdr-pin" title="Закрепить панель (всегда видна)" onClick={() => setHdrOffSave(false)}><Ic n="pin" /><span className="hdr-pin-l"> Закрепить панель</span></button>
         <input ref={restoreRef} type="file" accept=".json,.gz,application/json,application/gzip" style={{ display: "none" }} onChange={onRestore} />
       </div>
-      <div className="body" key={tab + ":" + tabNonce}>
+      <div className="body" key={tab + ":" + tabNonce} style={{ "--crumb": JSON.stringify((() => { const g = menuGroups.find((x) => x.tabs.some((t) => t.id === tab)); return (g && g.title ? g.title : lang === "uz" ? "Bosh sahifa" : "Главная") + "  ›  " + (TAB_LABELS[tab] || ""); })()) }}>
         {bootErr && <div className="card sect" style={{ borderColor: "var(--warn)", color: "var(--warn)" }}>Ошибка подключения к Supabase: {bootErr}</div>}
         {abShow && <div className="card sect abwarn" role="status">
           <span className="sm"><Ic n="save" /> {abNeed === "perm" ? "Автобэкап ждёт разрешения на запись в папку «" + ((abCur && abCur.folder) || "") + "» — браузер спрашивает один раз после перезапуска."
