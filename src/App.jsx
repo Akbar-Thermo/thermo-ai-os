@@ -698,6 +698,9 @@ tr.ci-nosup>td:first-child,tr[data-nosup]>td:first-child{box-shadow:inset 3px 0 
 tr.ci-none[data-nosup]>td:first-child{box-shadow:inset 3px 0 var(--warn),inset 6px 0 #3b82f6}
 tr.ci-over[data-nosup]>td:first-child{box-shadow:inset 3px 0 var(--bad),inset 6px 0 #3b82f6}
 .ci-chip.nosup{border-color:#3b82f6;color:#3b82f6}
+.ci-tag[role=button]:hover{filter:brightness(1.15);text-decoration:underline;text-underline-offset:2px}
+.ci-ok{display:inline-block;margin-left:6px;font-size:11px;font-weight:800;color:var(--mut);opacity:.7;cursor:pointer}
+.ci-ok:hover{opacity:1;color:var(--ok)}
 .ci-tag.over{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
 tr.ci-none>td:first-child{box-shadow:inset 3px 0 var(--warn)}
 tr.ci-over>td:first-child{box-shadow:inset 3px 0 var(--bad)}
@@ -7200,6 +7203,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
   const [costMode, setCostMode] = useState(false);
   const [costBatch, setCostBatch] = useState(null); // «Себестоимость подряд» по одной поставке (№) или null — все
   const [costAsk, setCostAsk] = useState(false);    // окно «По какой поставке?»
+  const [ackItems, setAckItems] = useState(null);   // окно «Проверено — оставить так»
   const [costDraft, setCostDraft] = useState({});
   const [costToProd, setCostToProd] = useState(true);
   const [costBusy, setCostBusy] = useState(false);
@@ -7383,6 +7387,17 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
     setTimeout(() => costFocus(0), 60);
   };
   const exitCost = () => { setCostMode(false); setCostDraft({}); setCostBatch(null); };
+  // «Проверено — оставить так» / снять отметку
+  const saveAck = async (its, note) => {
+    const ids = new Set(its.map((i) => i.id)), at = new Date().toISOString(), by = (CURRENT_USER && (CURRENT_USER.name || CURRENT_USER.username)) || "";
+    const ok = await saveItems((cur) => cur.map((i) => (ids.has(i.id) ? { ...i, ci_ok: { sig: ciSig(i), by, at, note } } : i)));
+    if (ok) { await logAction("Проверено — оставить так", "object:" + obj.name, its.map((i) => i.name).join(", ").slice(0, 300) + (note ? "; причина: " + note : "")); toast("Отмечено как проверенное: " + its.length + " поз."); setAckItems(null); }
+    else toast("Не удалось сохранить");
+  };
+  const unAck = async (it) => {
+    if (!(await askConfirm({ title: "Снять «Проверено»?", text: "«" + it.name + "» — метка снова появится.", ok: "Снять" }))) return;
+    if (await saveItems((cur) => cur.map((i) => { if (i.id !== it.id) return i; const n = { ...i }; delete n.ci_ok; return n; }))) await logAction("Снята отметка «Проверено»", "object:" + obj.name, it.name);
+  };
   // «Оплата клиента»: null — этому сотруднику недоступна; false — пока нельзя (статус); true — можно
   const canPay = !(fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes("client_payment") ? null : isPerech(obj) ? (perech ? true : null) : payLive(obj);
   const payClient = () => (isPerech(obj) ? setPerechPay(true) : setOpForm({ type: "client_payment" }));
@@ -7829,6 +7844,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
               setTimeout(() => { const r = document.querySelector(t === "nosup" ? "tr[data-nosup]" : "tr.ci-" + t); if (r) { r.scrollIntoView({ block: "center", behavior: "smooth" }); r.animate([{ background: "var(--acc-tint)" }, { background: "transparent" }], { duration: 1600 }); } }, 80); }}>
             ⚠ {t === "none" ? "Без себестоимости" : t === "over" ? "Себест. выше цены" : "Без поставщика"}: {its.length}
           </button>); })}
+        {fin && !costMode && (() => { const its = (obj.items || []).filter((i) => costIssue(i) || noSup(i)); return its.length ? <button className="btn xs ci-ackall" title="Все метки просмотрены — убрать их (вернутся, если поменяется себестоимость, цена или поставщик)" onClick={() => setAckItems(its)}>✓ Все проверены</button> : null; })()}
         {costMode ? <span className="sm" style={{ fontWeight: 700, color: "var(--acc)" }}><Ic n="pencil" /> Себестоимость подряд</span> : <>
           {isLive(obj) && (obj.items || []).some((i) => !i.from_warehouse) && <button className="btn" style={unshippedCnt ? { borderColor: "var(--warn)", color: "var(--warn)", fontWeight: 700 } : undefined} onClick={() => setShipForm(true)}><Ic n="truck" /> Отгрузить товар{unshippedCnt ? " (" + unshippedCnt + ")" : " ✓"}</button>}
           <button className="btn" onClick={() => setAddItems(true)}>+ Список вручную{draftCnt.m ? " · черновик " + draftCnt.m : ""}</button>
@@ -7861,7 +7877,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
                 ) : null}
                 {!closedBatches[b.no] && b.items.map((i) => (costMode
               ? <CostQuickRow key={i.id} i={i} n={cqPos.get(i.id)} val={costDraft[i.id]} h={cqH} />
-              : <ObjectItemRow key={i.id} i={i} late={lateAdded.get(i.id)} fin={fin} supName={supName} setItemQty={setItemQty} setItemPrice={setItemPrice} setEditItem={setEditItem} setDelItemId={setDelItemId} setItemMark={setItemMark} onReplace={setReplItem} />
+              : <ObjectItemRow key={i.id} i={i} late={lateAdded.get(i.id)} fin={fin} onAck={fin ? setAckItems : null} onUnack={fin ? unAck : null} supName={supName} setItemQty={setItemQty} setItemPrice={setItemPrice} setEditItem={setEditItem} setDelItemId={setDelItemId} setItemMark={setItemMark} onReplace={setReplItem} />
                 ))}
               </React.Fragment>
             ); })() : (() => { const day = ev.day, k = "ret:" + day, live = ev.ops.filter((o) => !o.voided); return (
@@ -7902,6 +7918,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
           </tbody>
         </table>
       </div>
+      {ackItems && <CiAckModal items={ackItems} onClose={() => setAckItems(null)} onSave={(note) => saveAck(ackItems, note)} />}
       {costAsk && <Modal title="Себестоимость подряд — по какой поставке?" onClose={() => setCostAsk(false)} w={520}>
         <div className="grid" style={{ gridTemplateColumns: "1fr", gap: 6 }} onKeyDown={(e) => { const k = Number(e.key); if (k >= 1 && k <= batches.length) { e.preventDefault(); startCost(batches[k - 1].no); } }}>
           {batches.map((b, k) => { const n0 = b.items.filter((i) => costIssue(i) === "none").length, n1 = b.items.filter((i) => costIssue(i) === "over").length; return (
@@ -8227,9 +8244,34 @@ function ShipModal({ obj, batches, fin, supName, onClose, onShip, onUnship }) {
 // и не ловить промежуточные значения вроде "1" при наборе "15".
 // проблема с себестоимостью позиции: "none" — не введена, "over" — выше цены продажи (в убыток)
 // позиция без поставщика (товар не со Склада Thermo) — не попадёт в долг поставщику и в акт сверки
-const noSup = (i) => !i.supplier_id && !i.from_warehouse;
-const costIssue = (i, price) => { const c = Number(i.cost) || 0, p = price != null ? price : Number(i.price) || 0; return c <= 0 ? "none" : c > p + 1e-7 ? "over" : null; };
-function ObjectItemRow({ i, late, fin, supName, setItemQty, setItemPrice, setEditItem, setDelItemId, setItemMark, onReplace = null }) {
+// «Проверено — оставить так»: метка снимается, пока у позиции не поменяются себестоимость, цена или поставщик
+const ciSig = (i, price) => [round2(Number(i.cost) || 0), round2(price != null ? price : Number(i.price) || 0), i.supplier_id || "", i.from_warehouse ? 1 : 0].join("|");
+const ciAck = (i, price) => !!(i && i.ci_ok && i.ci_ok.sig === ciSig(i, price));
+const noSupRaw = (i) => !i.supplier_id && !i.from_warehouse;
+const costIssueRaw = (i, price) => { const c = Number(i.cost) || 0, p = price != null ? price : Number(i.price) || 0; return c <= 0 ? "none" : c > p + 1e-7 ? "over" : null; };
+const noSup = (i) => noSupRaw(i) && !ciAck(i);
+const costIssue = (i, price) => (ciAck(i, price) ? null : costIssueRaw(i, price));
+// окно «Проверено — оставить так» (одна позиция или все с метками)
+function CiAckModal({ items, onSave, onClose }) {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const why = (i) => [costIssueRaw(i) === "none" ? "нет себестоимости" : costIssueRaw(i) === "over" ? "себест. " + fmt2(i.cost) + " > цены " + fmt2(i.price) : "", noSupRaw(i) ? "нет поставщика" : ""].filter(Boolean).join(" · ");
+  const go = async () => { if (busy) return; setBusy(true); await onSave(note.trim()); setBusy(false); };
+  return (
+    <Modal title={items.length === 1 ? "Проверено — оставить так?" : "Отметить проверенными: " + items.length + " поз."} onClose={onClose} w={560}>
+      <div className="ci-ack-list" style={{ maxHeight: 260, overflow: "auto", marginBottom: 10 }}>
+        {items.map((i) => <div key={i.id} className="row sm" style={{ gap: 8, flexWrap: "nowrap", padding: "4px 0", borderBottom: "1px solid var(--line)" }}><b style={{ minWidth: 0, flex: 1 }}>{i.name}</b><span className="xs mut" style={{ whiteSpace: "nowrap" }}>{why(i)}</span></div>)}
+      </div>
+      <Fld label="Причина (необязательно)"><input className="inp" autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="например: цену клиенту уже назвали" onKeyDown={(e) => { if (e.key === "Enter") go(); }} /></Fld>
+      <p className="xs mut" style={{ marginTop: 8 }}>Метки уберутся (в расчётах ничего не меняется). Если у позиции поменяется себестоимость, цена или поставщик — метка вернётся.</p>
+      <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
+        <button className="btn" onClick={onClose}>Отмена</button>
+        <button className="btn pri" disabled={busy} onClick={go}>✓ Проверено</button>
+      </div>
+    </Modal>
+  );
+}
+function ObjectItemRow({ i, late, fin, supName, setItemQty, setItemPrice, setEditItem, setDelItemId, setItemMark, onReplace = null, onAck = null, onUnack = null }) {
   const [qty, setQty] = useState(inNum(i.qty));
   const [mk, setMk] = useState(i.mark || "");
   useEffect(() => { setMk(i.mark || ""); }, [i.mark]);
@@ -8239,10 +8281,12 @@ function ObjectItemRow({ i, late, fin, supName, setItemQty, setItemPrice, setEdi
   const same = (a, b) => Math.abs(a - (Number(b) || 0)) < 1e-7;
   const ci = fin ? costIssue(i, parseNum(price)) : null;
   const ns = fin && noSup(i);
+  const acked = fin && !ci && !ns && ciAck(i, parseNum(price)) && (costIssueRaw(i, parseNum(price)) || noSupRaw(i));
+  const ackClick = onAck ? { role: "button", tabIndex: 0, style: { cursor: "pointer" }, onClick: () => onAck([i]), onKeyDown: (e) => { if (e.key === "Enter") onAck([i]); } } : {};
   return (
     <tr className={ci ? "ci-" + ci : ns ? "ci-nosup" : undefined} data-nosup={ns ? "1" : undefined}>
       <td style={{ width: 28, paddingRight: 0, verticalAlign: "middle" }}><MarkDot value={mk} onClick={async () => { const nx = nextMark(mk); setMk(nx); if (!(await setItemMark(i.id, nx))) setMk(i.mark || ""); }} /></td>
-      <td style={{ fontWeight: 600 }}>{onReplace && !i.from_warehouse ? <span className="it-repl" role="button" tabIndex={0} title="Заменить на другой товар" onClick={() => onReplace(i)} onKeyDown={(e) => { if (e.key === "Enter") onReplace(i); }}>{i.name}</span> : i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{ci === "none" && <span className="ci-tag none" title="Себестоимость не введена — прибыль по позиции не считается">нет себест.</span>}{ci === "over" && <span className="ci-tag over" title={"Себестоимость " + fmt2(i.cost) + " выше цены продажи " + fmt2(parseNum(price)) + " — позиция в убыток"}>себест. {fmt2(i.cost)} &gt; цены</span>}{ns && <span className="ci-tag nosup" title="Поставщик не указан — позиция не попадёт в долг поставщику и в акт сверки. Укажите через ✎">нет поставщика</span>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «В процессе»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}{late && <div className="xs late-add" style={{ color: "var(--warn)" }} title="Позиция добавлена в эту поставку позже остальных — сумма поставки после этого выросла">добавлено позже: {dt(late)}</div>}</td>
+      <td style={{ fontWeight: 600 }}>{onReplace && !i.from_warehouse ? <span className="it-repl" role="button" tabIndex={0} title="Заменить на другой товар" onClick={() => onReplace(i)} onKeyDown={(e) => { if (e.key === "Enter") onReplace(i); }}>{i.name}</span> : i.name}{i.from_warehouse && <Badge c="#3ddc7d"> склад</Badge>}{ci === "none" && <span className="ci-tag none" {...ackClick} title="Себестоимость не введена — прибыль по позиции не считается. Нажмите: «Проверено — оставить так»">нет себест.</span>}{ci === "over" && <span className="ci-tag over" {...ackClick} title={"Себестоимость " + fmt2(i.cost) + " выше цены продажи " + fmt2(parseNum(price)) + " — позиция в убыток. Нажмите: «Проверено — оставить так»"}>себест. {fmt2(i.cost)} &gt; цены</span>}{ns && <span className="ci-tag nosup" {...ackClick} title="Поставщик не указан — позиция не попадёт в долг поставщику и в акт сверки. Укажите через ✎ или нажмите: «Проверено — оставить так»">нет поставщика</span>}{acked && <span className="ci-ok" role="button" tabIndex={0} title={"Проверено: " + (i.ci_ok.by || "—") + ", " + dt(String(i.ci_ok.at || "").slice(0, 10)) + (i.ci_ok.note ? " — " + i.ci_ok.note : "") + (onUnack ? "\nНажмите, чтобы снять отметку" : "")} onClick={() => onUnack && onUnack(i)}>✓</span>}{i.from_warehouse && <div className="xs mut">{i.wh_pending ? "со склада Thermo — спишется при «В процессе»" : "со склада Thermo"}</div>}{!isShipped(i) && <div className="xs" style={{ color: "var(--warn)", fontWeight: 600 }}>не отгружено</div>}{late && <div className="xs late-add" style={{ color: "var(--warn)" }} title="Позиция добавлена в эту поставку позже остальных — сумма поставки после этого выросла">добавлено позже: {dt(late)}</div>}</td>
       <td><input type="number" className="inp" min={0} value={qty} onChange={(e) => setQty(e.target.value)}
         onBlur={async () => { const v = Math.max(0, parseNum(qty)); if (!same(v, i.qty)) { if (!(await setItemQty(i.id, v))) setQty(inNum(i.qty)); } else setQty(inNum(i.qty)); }} /></td>
       <td className="sm">{i.unit}</td>
