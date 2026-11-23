@@ -693,9 +693,11 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .btn.objf-ci.on{background:var(--warn);border-color:var(--warn);color:#fff}
 .ci-tag{display:inline-block;margin-left:6px;padding:0 6px;border-radius:6px;font-size:11px;font-weight:800;vertical-align:1px;white-space:nowrap}
 .ci-tag.none{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
-.ci-tag.nosup{background:color-mix(in srgb,var(--acc2) 16%,transparent);color:var(--acc2)}
-tr.ci-nosup>td:first-child{box-shadow:inset 3px 0 var(--acc2)}
-.ci-chip.nosup{border-color:var(--acc2);color:var(--acc2)}
+.ci-tag.nosup{background:color-mix(in srgb,#3b82f6 18%,transparent);color:#3b82f6}
+tr.ci-nosup>td:first-child,tr[data-nosup]>td:first-child{box-shadow:inset 3px 0 #3b82f6}
+tr.ci-none[data-nosup]>td:first-child{box-shadow:inset 3px 0 var(--warn),inset 6px 0 #3b82f6}
+tr.ci-over[data-nosup]>td:first-child{box-shadow:inset 3px 0 var(--bad),inset 6px 0 #3b82f6}
+.ci-chip.nosup{border-color:#3b82f6;color:#3b82f6}
 .ci-tag.over{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
 tr.ci-none>td:first-child{box-shadow:inset 3px 0 var(--warn)}
 tr.ci-over>td:first-child{box-shadow:inset 3px 0 var(--bad)}
