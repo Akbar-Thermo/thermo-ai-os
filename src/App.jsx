@@ -676,6 +676,17 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .acc-av{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font-weight:800;font-size:13px;margin-right:8px;flex:none}
 .btn.pri .acc-av{background:#fff;color:var(--acc)}
 .acc-btn{position:relative}.acc-n{position:absolute;top:-5px;right:-5px;min-width:15px;height:15px;border-radius:8px;background:var(--acc);color:#fff;font-size:10px;font-weight:800;line-height:15px;padding:0 3px}
+.pay-card{display:flex;align-items:center;gap:16px;padding:12px 16px;border:2px solid var(--ok);border-radius:12px;background:color-mix(in srgb,var(--ok) 9%,var(--panel))}
+.pay-card.off{border-color:var(--line);border-style:dashed;background:var(--panel)}
+.pay-card .pay-t{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ok)}
+.pay-card.off .pay-t{color:var(--mut)}
+.pay-prog{height:8px;border-radius:4px;background:color-mix(in srgb,var(--ok) 18%,transparent);overflow:hidden;margin:6px 0 5px;max-width:520px}
+.pay-prog>i{display:block;height:100%;background:var(--ok);border-radius:4px}
+.btn.pay-btn{background:var(--ok);border-color:var(--ok);color:#fff;font-weight:800;font-size:15px;padding:10px 20px;min-height:44px;white-space:nowrap;box-shadow:0 2px 8px color-mix(in srgb,var(--ok) 35%,transparent)}
+.btn.pay-btn:hover{filter:brightness(1.07)}
+.btn.pay-btn.sm2{font-size:13px;padding:6px 14px;min-height:34px;box-shadow:none}
+.fo-sep{width:1px;align-self:stretch;background:var(--line);margin:0 4px}
+@media (max-width:640px){.pay-card{flex-direction:column;align-items:stretch}.btn.pay-btn{width:100%;justify-content:center}}
 .ci-tag{display:inline-block;margin-left:6px;padding:0 6px;border-radius:6px;font-size:11px;font-weight:800;vertical-align:1px;white-space:nowrap}
 .ci-tag.none{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
 .ci-tag.over{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
@@ -1323,8 +1334,8 @@ table.t tr:hover td{background:var(--hover)}
 .row.sect:has(> h3:first-child):has(+ .card) + .card > table.t thead th{border-top:1px solid var(--line)}
 .row.sect:has(> h3:first-child):has(+ .card) h3{font-size:var(--fs-lg)}
 /* в панелях инструментов второстепенные кнопки тише — выделяется только главное действие */
-.row.sect:has(> h3:first-child) > .btn:not(.pri):not(.ci-chip),.lr-bar > .btn:not(.pri):not(.dng){background:transparent;border-color:transparent;box-shadow:none;color:var(--txt)}
-.row.sect:has(> h3:first-child) > .btn:not(.pri):not(.ci-chip):hover,.lr-bar > .btn:not(.pri):not(.dng):hover{background:var(--panel2);border-color:var(--line)}
+.row.sect:has(> h3:first-child) > .btn:not(.pri):not(.ci-chip):not(.pay-btn),.lr-bar > .btn:not(.pri):not(.dng){background:transparent;border-color:transparent;box-shadow:none;color:var(--txt)}
+.row.sect:has(> h3:first-child) > .btn:not(.pri):not(.ci-chip):not(.pay-btn):hover,.lr-bar > .btn:not(.pri):not(.dng):hover{background:var(--panel2);border-color:var(--line)}
 /* выгрузки в шапке карточки объекта — группа «Документы» */
 .ph .xl-group{flex-basis:100%;order:5;gap:4px;align-items:center;padding-top:10px;border-top:1px dashed var(--line);flex-wrap:wrap}
 .ph .xl-group::before{content:"Документы";font-size:11px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin-right:8px}
@@ -7334,6 +7345,9 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
     setTimeout(() => costFocus(0), 60);
   };
   const exitCost = () => { setCostMode(false); setCostDraft({}); setCostBatch(null); };
+  // «Оплата клиента»: null — этому сотруднику недоступна; false — пока нельзя (статус); true — можно
+  const canPay = !(fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes("client_payment") ? null : isPerech(obj) ? (perech ? true : null) : payLive(obj);
+  const payClient = () => (isPerech(obj) ? setPerechPay(true) : setOpForm({ type: "client_payment" }));
   const inCostBatch = (b) => costBatch == null || b.no === costBatch;
   useEffect(() => {
     if (!costMode) return;
@@ -7750,6 +7764,21 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
           ? <KPI l={f.clientDebt < 0 ? "Переплата клиента" : "Долг клиента"} v={Math.abs(f.clientDebt)} c={f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--txt)" : "var(--mut)"} />
           : <KPI l="Долг клиента — не учитывается" v={Math.max(0, f.clientDebt)} c="var(--mut)" />}
       </div>
+      {canPay !== null && (() => {
+        const tot = Math.max(0, f.saleNet), paid = f.paidClient, left = f.clientDebt, pct = tot > 0.004 ? Math.max(0, Math.min(100, (paid / tot) * 100)) : paid > 0 ? 100 : 0;
+        return (
+          <div className={"pay-card sect" + (canPay ? "" : " off")}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="pay-t"><Ic n="cash" /> Оплата клиента</div>
+              <div className="pay-prog"><i style={{ width: pct + "%" }} /></div>
+              <div className="sm">Оплачено <b style={{ color: "var(--ok)" }}>{fmt2(paid)}</b> из {fmt2(tot)} ({Math.round(pct)}%)
+                {left > 0.004 ? <> · осталось <b style={{ color: "var(--bad)" }}>{fmt2(left)}</b></> : left < -0.004 ? <> · переплата <b>{fmt2(-left)}</b></> : tot > 0.004 ? <> · <b style={{ color: "var(--ok)" }}>оплачено полностью ✓</b></> : null}
+              </div>
+              {!canPay && <div className="xs mut" style={{ marginTop: 3 }}>Оплату можно записать после статуса «В процессе».</div>}
+            </div>
+            {canPay && <button className="btn pay-btn" onClick={payClient} title="Записать оплату клиента (Alt+P)"><Ic n="cash" /> {pObj ? "+ Банковский платёж" : "+ Оплата клиента"}</button>}
+          </div>);
+      })()}
       {pObj && (perech
         ? <PerechPanel obj={obj} data={data} reload={reload} toast={toast} onPay={() => setPerechPay(true)} />
         : <div className="card sect sm" style={{ padding: "10px 14px" }}><Badge c="var(--acc)">Перечисление</Badge> Клиент платит через банк: «Excel клиенту» — в сумах (или в $ — выбор при скачивании). Договор, счета и банковские платежи — у сотрудников с правом «Перечисление».</div>)}
@@ -7875,7 +7904,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
       )}
       <div className="row sect">
         <h3 style={{ marginRight: "auto" }}>Финансовые операции</h3>
-        {OP_TYPES.filter((t) => (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes(t.id) && (t.id !== "client_payment" || (pObj ? perech : payLive(obj))) && t.id !== "return").map((t) => <React.Fragment key={t.id}>
+        {canPay && <><button className="btn pay-btn sm2" onClick={payClient}><Ic n="cash" /> {pObj ? "+ Банковский платёж" : "+ Оплата клиента"}</button><span className="fo-sep" /></>}
+        {OP_TYPES.filter((t) => (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes(t.id) && t.id !== "client_payment" && t.id !== "return").map((t) => <React.Fragment key={t.id}>
           <button className="btn xs" onClick={() => (t.id === "client_payment" && pObj ? setPerechPay(true) : setOpForm({ type: t.id }))}>+ {t.id === "client_payment" && pObj ? "Банковский платёж" : t.label}</button>
           {t.id === "discount" && (obj.items || []).length > 0 && <button className="btn xs" onClick={() => setPctForm(true)} title="Цена продажи = себестоимость ÷ (1 − %)">+ Прибыль от себестоимости</button>}
         </React.Fragment>)}
