@@ -1499,6 +1499,12 @@ table.t tr:hover td{background:var(--hover)}
 .obj-m.on .obj-m-n{color:var(--txt)!important;font-weight:700!important}
 .obj-m.none .obj-m-n{font-style:italic}
 .obj-mnav{width:28px!important;height:28px!important;margin-top:-14px!important;box-shadow:none!important}
+/* без «свечения»: у кнопок и полей нет цветных теней — только ровный цвет и тонкая рамка */
+.btn.pri,.te.dark .btn.pri,.btn.pri:hover,.te.dark .btn.pri:hover{box-shadow:none!important;background-image:none!important}
+.tab.on,.tab.on:hover{box-shadow:none!important}
+.inp:focus,.te .inp:focus{box-shadow:0 0 0 1px var(--acc)!important}
+.btn:focus-visible,.tab:focus-visible,.obj-m:focus-visible,.cfm-box .btn:focus{box-shadow:none!important;outline:2px solid var(--acc)!important;outline-offset:1px}
+.btn.pay-btn,.te.dark .btn.pay-btn{box-shadow:none!important}
 .btn.pay-btn,.te.dark .btn.pay-btn{background:#2f855a!important;border-color:#2f855a!important;color:#fff!important}
 .btn.pay-btn:hover,.te.dark .btn.pay-btn:hover{background:#276749!important;border-color:#276749!important}
 `;
@@ -7982,10 +7988,10 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
             </select>
           </div>
         </div>
-        <select className="inp" style={{ maxWidth: 240 }} value={obj.status} onChange={(e) => setStatus(e.target.value)}>
+        {/* статус: поле по ширине выбранного слова (не по самому длинному пункту списка) */}
+        <select className="inp obj-st-sel" title="Статус объекта" style={{ width: (String(stById(obj.status).label.replace(" (старый статус)", "")).length * 8.2 + 46) + "px" }} value={obj.status} onChange={(e) => setStatus(e.target.value)}>
           {statusOptions(obj.status).map((s) => { const off = s.id === "paid" && obj.status !== "paid" && !fullyPaid(obj, finance_ops); return <option key={s.id} value={s.id} disabled={off}>{s.label}{off ? " — после оплаты 100%" : ""}</option>; })}
         </select>
-        {perech && !pObj && <button className="btn" onClick={() => setPerechSetup(true)} title="Клиент платит через банк: договор, счета, накладные и долг — в сумах с НДС"><Ic n="file" /> Перечисление</button>}
         {/* все выгрузки — в одном меню «Документы», всегда в этом порядке */}
         <DropMenu label="Документы" icon="file" title="Excel клиенту, лист доставки, себестоимость, акт сверки" items={[
           { label: "Excel клиенту", icon: "download", run: openClient, title: isPerech(obj) ? "Перечисление: в сумах (с НДС, по курсам поставок) или в $ — выбор при скачивании" : "В $" },
@@ -7993,6 +7999,8 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
           { label: "Excel себестоимость", icon: "sheet", run: openCost, sep: true, title: "Внутренний: себестоимость, цена и прибыль по каждой позиции" },
           { label: "Акт сверки по объекту", icon: "sheet", run: exportObjAkt, hidden: !(fin && objSups.length > 0), title: "Акт сверки с поставщиком только по этому объекту: " + objSups.map((x) => x.name).join(", ") },
         ]} />
+        {/* редкое действие — в «⋯»: сделать объект «перечислением» (клиент платит через банк) */}
+        <DropMenu label="" cls="more" title="Ещё действия" items={[{ label: "Перечисление (оплата через банк)…", icon: "file", hidden: !(perech && !pObj), run: () => setPerechSetup(true), title: "Клиент платит через банк: договор, счета, накладные и долг — в сумах с НДС" }]} />
       </div>
 
       {!isLive(obj) && f.paidIgnored > 0 && (
