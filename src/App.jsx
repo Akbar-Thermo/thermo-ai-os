@@ -398,7 +398,7 @@ const CSS = `
   --ease:cubic-bezier(.2,.7,.2,1); --ease-out:cubic-bezier(.16,1,.3,1); --dur:.16s;
   /* шкалы дизайна (одни на всё приложение): размеры шрифта, скругления, отступы, высота кнопок */
   --fs-2xs:11px; --fs-xs:12px; --fs-sm:13px; --fs-md:14px; --fs-lg:16px; --fs-xl:18px; --fs-2xl:22px; --fs-3xl:28px;
-  --r-xs:6px; --r-sm:8px; --r-md:10px; --r-lg:14px; --r-xl:20px; --r-pill:999px;
+  --r-xs:6px; --r-sm:8px; --r-md:10px; --r-lg:12px; --r-xl:14px; --r-pill:6px; /* «таблеток» (полностью круглых рамок) в программе нет: только мягкие углы */
   --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px;
   --h-btn:36px; --h-btn-xs:28px;
 }
@@ -591,7 +591,7 @@ table.t tr:hover td{background:var(--hover)}
 .m-ret .ret-foot>.row{flex:1}
 }
 .steps{display:flex;gap:6px;margin:10px 0 18px;flex-wrap:wrap}
-.step{padding:6px 12px;border-radius:var(--r-xl);font-size:var(--fs-xs);font-weight:600;border:1px solid var(--line);color:var(--mut)}
+.step{padding:6px 12px;border-radius:var(--r-xs);font-size:var(--fs-xs);font-weight:600;border:1px solid var(--line);color:var(--mut)}
 .step.on{border-color:var(--acc);color:#fff;background:var(--acc)}
 .step.done{color:var(--ok);border-color:var(--ok)}
 @keyframes toastin{from{opacity:0;transform:translate(-50%,14px)}to{opacity:1;transform:translate(-50%,0)}}
@@ -1505,6 +1505,8 @@ table.t tr:hover td{background:var(--hover)}
 .inp:focus,.te .inp:focus{box-shadow:0 0 0 1px var(--acc)!important}
 .btn:focus-visible,.tab:focus-visible,.obj-m:focus-visible,.cfm-box .btn:focus{box-shadow:none!important;outline:2px solid var(--acc)!important;outline-offset:1px}
 .btn.pay-btn,.te.dark .btn.pay-btn{box-shadow:none!important}
+/* никаких «таблеток»: шаги, метки, счётчики, переключатели — прямоугольные с мягкими углами */
+.step,.bdg,.perm-chip,.npanel-cnt,.chat-day span,.seg,.seg button,.seg .btn,.st-filter,.st-filter button,.hdr-side,.hdr-side button,.tab,.obj-lr .btn,.btn.xs{border-radius:6px!important}
 .btn.pay-btn,.te.dark .btn.pay-btn{background:#2f855a!important;border-color:#2f855a!important;color:#fff!important}
 .btn.pay-btn:hover,.te.dark .btn.pay-btn:hover{background:#276749!important;border-color:#276749!important}
 `;
