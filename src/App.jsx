@@ -9253,11 +9253,14 @@ function MastersTab({ data, reload, toast, openObject, fin = true, canDel = fals
 }
 // Личная ссылка мастера на «Список материалов» (/usta/?k=КОД): без логина и пароля, имя и телефон подставляются сами,
 // списки приходят в «От мастеров» уже от его имени. Ключ хранится в usta_keys (supabase/usta/02_usta_keys.sql).
-function ustaNewKey() {
-  const a = "abcdefghjkmnpqrstuvwxyz23456789", b = new Uint8Array(18);
+// ссылка вида сайт/zokir-aka-k7m2p9x4qr8t: имя мастера латиницей + 12 случайных знаков (их и не угадать)
+function ustaNewKey(name) {
+  const a = "abcdefghjkmnpqrstuvwxyz23456789", b = new Uint8Array(12);
   (window.crypto || {}).getRandomValues ? window.crypto.getRandomValues(b) : b.forEach((_, i) => { b[i] = Math.floor(Math.random() * 256); });
-  return Array.from(b, (x) => a[x % a.length]).join("");
+  const slug = translit(String(name || "")).toLowerCase().replace(/[ʻʼ'`’‘"]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32).replace(/-+$/, "") || "m";
+  return slug + "-" + Array.from(b, (x) => a[x % a.length]).join("");
 }
+const ustaLink = (key) => window.location.origin + (/^[a-z0-9-]{1,40}-[a-z0-9]{12}$/.test(key) ? "/" + key : "/usta/?k=" + key);
 function MasterUstaCard({ m, toast }) {
   const [key, setKey] = useState(undefined); // undefined — загрузка, null — нет ссылки, "" — база не обновлена
   const [lists, setLists] = useState([]);
@@ -9271,10 +9274,10 @@ function MasterUstaCard({ m, toast }) {
     if (!l.error) setLists(l.data || []);
   };
   useEffect(() => { load(); }, [m.id]);
-  const link = key ? window.location.origin + "/usta/?k=" + key : "";
+  const link = key ? ustaLink(key) : "";
   const make = async () => {
     setBusy(true);
-    const k = ustaNewKey();
+    const k = ustaNewKey(m.name);
     if (key) await db.from("usta_keys").delete().eq("master_id", m.id);
     const r = await db.from("usta_keys").insert([{ master_id: m.id, key: k }]);
     setBusy(false); setAskNew(false);

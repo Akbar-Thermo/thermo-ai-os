@@ -832,7 +832,8 @@ if (typeof module !== "undefined") module.exports = ENGINE;
   var uid = function () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); };
   var draft = load(K.draft, {});
   // личная ссылка мастера: /usta/?k=КОД — имя и телефон подставляются сами, список приходит к нам «от его аккаунта»
-  var urlKey = ""; try { urlKey = (new URLSearchParams(location.search).get("k") || "").trim(); } catch (e) {}
+  // yangi ko'rinish: /zokir-aka-k7m2p9x4qr8t (ustaning ismi + kod) — «usta» so'zisiz
+  var urlKey = ""; try { urlKey = (new URLSearchParams(location.search).get("k") || "").trim(); var pm = location.pathname.match(/^\/([a-z0-9-]{1,40}-[a-z0-9]{12})\/?$/); if (!urlKey && pm) urlKey = pm[1]; } catch (e) {}
   var S = {
     lang: load(K.lang, (navigator.language || "").indexOf("ru") === 0 ? "ru" : "uz"),
     who: load(K.who, { name: "", phone: "" }), editWho: false,
