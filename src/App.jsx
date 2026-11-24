@@ -1473,6 +1473,13 @@ table.t tr:hover td{background:var(--hover)}
 .pay-card.off{border-left-color:var(--line2)!important}
 .pay-card .pay-t{color:var(--mut)!important}
 .bot-tile .bot-ic{background:var(--panel2)!important;color:var(--mut)!important}
+/* мастера над списком объектов: без разноцветных кружков; выбранный — синим, как всё выбранное */
+.obj-m-av,.te.dark .obj-m-av{background:var(--panel2)!important;color:var(--mut)!important;border:1px solid var(--line)}
+.obj-m.all .obj-m-av{color:var(--txt)!important}
+.obj-m.on,.te.dark .obj-m.on{background:var(--acc-tint)!important;border-color:var(--acc)!important;color:var(--txt)!important;box-shadow:none!important}
+.obj-m.on .obj-m-av,.te.dark .obj-m.on .obj-m-av{background:var(--acc)!important;color:#fff!important;border-color:var(--acc)}
+.obj-m.on .obj-m-s{opacity:1!important;color:var(--mut)!important}
+.obj-m.on .obj-m-d,.obj-m-d{color:var(--bad)!important}
 .btn.pay-btn,.te.dark .btn.pay-btn{background:#2f855a!important;border-color:#2f855a!important;color:#fff!important}
 .btn.pay-btn:hover,.te.dark .btn.pay-btn:hover{background:#276749!important;border-color:#276749!important}
 `;
@@ -7188,7 +7195,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         {nCi > 0 && <button className={"btn xs objf-ci" + (pF === "cost" ? " on" : "")} title="Объекты, где есть позиции без себестоимости, с себестоимостью выше цены продажи или без поставщика" onClick={() => setPF(pF === "cost" ? "" : "cost")}>⚠ Проверить: {nCi}</button>}
       </div>
       {!q && !mF && !sF && !pF && (() => { const byId = new Map(objects.map((o) => [o.id, o])); const rec = recentGet().map((id) => byId.get(id)).filter(Boolean).slice(0, 6); return rec.length > 1 ? (
-        <div className="row obj-recent" style={{ gap: 6, margin: "-4px 0 12px", flexWrap: "wrap" }}>
+        <div className="row obj-recent" style={{ gap: 6, margin: "10px 0 12px", flexWrap: "wrap" }}>
           <span className="xs mut" style={{ fontWeight: 700 }}><Ic n="history" s={13} /> Недавние:</span>
           {rec.map((o) => <button key={o.id} type="button" className="btn xs" title={[o.client, o.phone].filter(Boolean).join(" · ")} onClick={() => setOpenId(o.id)}>{o.name}</button>)}
         </div>) : null; })()}
