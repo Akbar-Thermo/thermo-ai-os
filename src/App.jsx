@@ -6099,13 +6099,14 @@ function MasterBar({ items, value, onPick, noun = ["объект", "объект
     upd();
     const el = ref.current;
     if (!el) return undefined;
-    // колесо мыши над лентой листает её вбок (у края ленты — как обычно, страница)
+    // колесо мыши над лентой листает её вбок. ПРАВИЛО прокрутки: у края ленты страница НЕ двигается
+    // (лента крутится сама по себе); если лента вся помещается (крутить нечего) — колесо крутит страницу как обычно
     const wh = (e) => {
       if (e.ctrlKey || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
       const max = el.scrollWidth - el.clientWidth;
-      if (max <= 0 || (e.deltaY < 0 && el.scrollLeft <= 0) || (e.deltaY > 0 && el.scrollLeft >= max - 1)) return;
+      if (max <= 4) return;
       e.preventDefault();
-      el.scrollLeft += e.deltaY * (e.deltaMode === 1 ? 32 : 1);
+      el.scrollLeft = Math.max(0, Math.min(max, el.scrollLeft + e.deltaY * (e.deltaMode === 1 ? 32 : 1)));
     };
     el.addEventListener("wheel", wh, { passive: false });
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(upd) : null;
