@@ -729,6 +729,14 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .dm-noic{width:16px;flex:none}
 .dm-sep{height:1px;background:var(--line);margin:4px 2px}
 @media (max-width:640px){.dm-pop{left:10px!important;right:10px!important;top:auto!important;bottom:calc(10px + env(safe-area-inset-bottom,0px));min-width:0}}
+.osb-wrap{position:sticky;top:0;height:0;z-index:40}
+.te:not(.side):not(.hdr-off) > .hdr:not(.hide-on-scroll) ~ .body .osb-wrap{top:var(--hdr-h,0px)}
+.osb{display:flex;align-items:center;gap:10px;padding:7px 12px;border:1px solid var(--line);border-top:0;border-radius:0 0 12px 12px;background:color-mix(in srgb,var(--panel) 94%,transparent);backdrop-filter:blur(8px);box-shadow:0 8px 22px rgba(0,0,0,.18);transform:translateY(-130%);opacity:0;pointer-events:none;transition:transform .2s var(--ease,ease),opacity .2s}
+.osb.on{transform:none;opacity:1;pointer-events:auto}
+.osb-n{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:34vw}
+.osb-sp{flex:1}.osb-m{white-space:nowrap}
+.osb .btn.pay-btn,.osb .btn.pay-btn:hover{background:var(--ok)!important;border-color:var(--ok)!important;color:#fff!important}
+@media (max-width:640px){.osb{gap:6px;padding:6px 8px}.osb .bdg,.osb-m:first-of-type{display:none}.osb-n{max-width:40vw}}
 .ci-tag{display:inline-block;margin-left:6px;padding:0 6px;border-radius:6px;font-size:11px;font-weight:800;vertical-align:1px;white-space:nowrap}
 .ci-tag.none{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
 .ci-tag.nosup{background:color-mix(in srgb,#3b82f6 18%,transparent);color:#3b82f6}
@@ -7439,6 +7447,13 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
   // «Оплата клиента»: null — этому сотруднику недоступна; false — пока нельзя (статус); true — можно
   const canPay = !(fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes("client_payment") ? null : isPerech(obj) ? (perech ? true : null) : payLive(obj);
   const payClient = () => (isPerech(obj) ? setPerechPay(true) : setOpForm({ type: "client_payment" }));
+  const phRef = useRef(null);
+  const [osb, setOsb] = useState(false);
+  useEffect(() => {
+    const el = phRef.current; if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setOsb(!e.isIntersecting && e.boundingClientRect.top < 0), { threshold: 0 });
+    io.observe(el); return () => io.disconnect();
+  }, [obj.id]);
   const inCostBatch = (b) => costBatch == null || b.no === costBatch;
   useEffect(() => {
     if (!costMode) return;
@@ -7815,7 +7830,20 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
   ]);
   return (
     <div>
-      <div className="row sect ph ph-obj">
+      {/* узкая панель: шапка объекта ушла вверх — имя, статус, долг и «Оплата» остаются на виду */}
+      <div className="osb-wrap" aria-hidden={!osb}>
+        <div className={"osb" + (osb ? " on" : "")}>
+          <button className="btn xs" onClick={back} title="К списку объектов">←</button>
+          <b className="osb-n" title={obj.name}>{obj.name}</b>
+          <Badge c={stById(obj.status).c}>{stById(obj.status).label.replace(" (старый статус)", "")}</Badge>
+          <span className="osb-sp" />
+          <span className="sm osb-m">Сумма <b>{fmt2(f.saleNet)}</b></span>
+          {isLive(obj) && Math.abs(f.clientDebt) > 0.004 && <span className="sm osb-m">{f.clientDebt > 0 ? <>Долг <b style={{ color: "var(--bad)" }}>{fmt2(f.clientDebt)}</b></> : <>Переплата <b>{fmt2(-f.clientDebt)}</b></>}</span>}
+          {canPay && <button className="btn xs pay-btn sm2" onClick={payClient}><Ic n="cash" /> Оплата</button>}
+          <button className="btn xs" title="Наверх" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}><Ic n="up" /></button>
+        </div>
+      </div>
+      <div ref={phRef} className="row sect ph ph-obj">
         <button className="btn ph-back" onClick={back}>← Объекты</button>
         <div style={{ marginRight: "auto" }}>
           <h2>{obj.name} <Badge c={stById(obj.status).c}>{stById(obj.status).label.replace(" (старый статус)", "")}</Badge></h2>
@@ -13605,13 +13633,13 @@ function AppInner() {
   const [heatMounted, setHeatMounted] = useState(false); // окно открывали — дальше держим его (скрытым), чтобы расчёт не пропадал
   const toggleHeat = (v) => setHeatOpen((o) => { const n = typeof v === "boolean" ? v : !o; if (n) { setHeatMounted(true); setHdrHidden(false); } return n; });
   // окно расчёта стоит под шапкой: её высота — в переменной --hdr-h (меню всегда видно и работает)
+  // высота шапки — в --hdr-h всегда: под неё встают окно расчёта и узкая панель объекта
   useEffect(() => {
-    if (!heatOpen) return;
     const el = document.querySelector(".te > .hdr"); if (!el) return;
     const set = () => document.documentElement.style.setProperty("--hdr-h", Math.round(el.getBoundingClientRect().height) + "px");
     set(); const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(set) : null; if (ro) ro.observe(el);
     return () => { if (ro) ro.disconnect(); };
-  }, [heatOpen]);
+  }, [!!currentUser]);
   const [notesOpen, setNotesOpen] = useState(false);
   // чат сотрудников и «в сети» (Аккаунты — колонка «В сети»; кнопка «Чат» в верхней панели)
   const [chatOpen, setChatOpen] = useState(false);
