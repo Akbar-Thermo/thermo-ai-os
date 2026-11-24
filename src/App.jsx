@@ -1236,22 +1236,24 @@ tr.batch-head:hover>td{background:color-mix(in srgb,var(--txt) 4%,var(--panel2))
    · Apple — «стекло» только у навигации (шапка, меню, кнопка ☰), окна снизу с «ручкой» на телефоне.
    Только внешний вид: разметка, прокрутка (installWheelTrap / installTouchTrap) и поведение не меняются. */
 :root{
-  --bg:#f3f4f6; --panel:#fdfdfd; --panel2:#f6f7f9; --line:#e5e7eb; --line2:#d3d7dd;
-  --txt:#15171c; --mut:#646b76; --hover:rgba(21,23,28,.028);
-  --t-neutral:#646b76; --t-strong:#15171c;
-  --hdr-bg:#fbfbfc; --hdr-txt:#15171c; --hdr-mut:#646b76; --hdr-line:#e3e5e9; --hdr-panel2:#eff1f3;
-  --glass:rgba(251,251,252,.74);
+  /* фон «чистый нейтральный серый» (как Microsoft 365 / Linear): без цветового оттенка, выбор руководителя — вариант B */
+  --bg:#f5f5f5; --panel:#ffffff; --panel2:#f7f7f7; --line:#e5e5e5; --line2:#d1d1d1;
+  --txt:#1f1f1f; --mut:#616161; --hover:rgba(0,0,0,.03);
+  --t-neutral:#616161; --t-strong:#1f1f1f;
+  --hdr-bg:#ffffff; --hdr-txt:#1f1f1f; --hdr-mut:#616161; --hdr-line:#e5e5e5; --hdr-panel2:#f0f0f0;
+  --glass:rgba(255,255,255,.82);
   --shadow:0 0 0 1px rgba(16,24,40,.015),0 1px 2px rgba(16,24,40,.05),0 2px 6px -2px rgba(16,24,40,.04);
   --shadow-xs:0 1px 2px rgba(16,24,40,.05);
   --shadow-pop:0 0 0 1px rgba(16,24,40,.04),0 4px 10px rgba(16,24,40,.06),0 28px 64px -18px rgba(16,24,40,.30);
   --acc-ring:rgba(37,99,235,.18);
 }
 .te.dark{
-  --bg:#0d0f12; --panel:#15171b; --panel2:#1b1e23; --line:#25292f; --line2:#323740;
-  --txt:#e7e9ec; --mut:#8a919b; --hover:rgba(255,255,255,.03);
-  --t-neutral:#959ca6; --t-strong:#e7e9ec;
-  --hdr-bg:#101215; --hdr-txt:#e7e9ec; --hdr-mut:#8a919b; --hdr-line:#23262c; --hdr-panel2:#1c1f24;
-  --glass:rgba(16,18,21,.72);
+  /* тёмная: не чёрный, а тёмно-серый (рекомендация Material Design), без цветового оттенка */
+  --bg:#1b1b1d; --panel:#242427; --panel2:#2b2b2f; --line:#34343a; --line2:#44444b;
+  --txt:#ececee; --mut:#a1a1aa; --hover:rgba(255,255,255,.035);
+  --t-neutral:#a1a1aa; --t-strong:#ececee;
+  --hdr-bg:#202023; --hdr-txt:#ececee; --hdr-mut:#a1a1aa; --hdr-line:#2f2f34; --hdr-panel2:#2b2b2f;
+  --glass:rgba(32,32,35,.82);
   --shadow:0 0 0 1px rgba(255,255,255,.015),0 1px 2px rgba(0,0,0,.3);
   --shadow-xs:0 1px 2px rgba(0,0,0,.3);
   --shadow-pop:0 0 0 1px rgba(255,255,255,.05),0 28px 70px -18px rgba(0,0,0,.75);
