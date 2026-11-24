@@ -38,6 +38,9 @@
     try { var n = Function('"use strict";return (' + t + ")")(); n = Math.round(Number(n) * 1000) / 1000; return isFinite(n) && n > 0 ? n : 0; } catch (e) { return 0; }
   }
   var isExpr = function (v) { return /\d\s*[+\-*/xх×]\s*[\d(]/i.test(String(v || "")); };
+  // kompyuter: keng ekran — programmadagidek ko'rinish (shapka, jadval, o'ng panel); telefon — eskicha
+  var DESK = window.matchMedia ? window.matchMedia("(min-width: 900px)") : { matches: false };
+  var isDesk = function () { return !!DESK.matches; };
   var digits = function (p) { return String(p || "").replace(/\D/g, ""); };
   function toast(msg) {
     var t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t);
@@ -49,7 +52,23 @@
   function shell() {
     document.documentElement.lang = S.lang;
     document.title = T("title") + " — Thermo";
-    $("app").innerHTML =
+    document.body.classList.toggle("desk", isDesk());
+    if (isDesk()) $("app").innerHTML =
+      '<div class="dk"><header class="dh"><div class="dlogo">THERMO<span>•</span>ENGINEERING</div><div class="dtt">' + esc(T("title")) + '</div>' +
+      '<div class="lang"><button data-l="uz" class="' + (S.lang === "uz" ? "on" : "") + '">UZ</button><button data-l="ru" class="' + (S.lang === "ru" ? "on" : "") + '">RU</button></div></header>' +
+      '<div class="dg"><main class="dm">' +
+      '<input class="inp dobj" id="obj" placeholder="' + esc(T("objectPh")) + '" value="' + esc(S.object) + '" maxlength="200" aria-label="' + esc(T("object")) + '">' +
+      '<div class="dtools"><div id="secbar"></div><div class="dtb"><button class="btn sm" id="bCat">☰ ' + esc(T("catalog")) + '</button><button class="btn sm" id="bPaste">⧉ ' + esc(T("paste")) + '</button></div></div>' +
+      '<div class="dadd"><input class="inp" id="q" placeholder="' + esc(T("inputPh")) + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><button class="btn pri" id="bAdd">+ ' + esc(T("add")) + '</button><div class="sug" id="sug"></div></div>' +
+      '<div class="dtbl"><div class="dthd"><span>№</span><span>' + esc(T("colItem")) + '</span><span class="r">' + esc(T("qty")) + '</span><span></span></div><div id="list"></div></div>' +
+      '</main><aside class="da">' +
+      '<div class="card" id="who"></div>' +
+      '<div class="card"><div class="lbl">' + esc(T("note")) + '</div><input class="inp" id="note" placeholder="' + esc(T("notePh")) + '" value="' + esc(S.note) + '" maxlength="1000"></div>' +
+      '<button class="btn pri big" id="bSend"></button>' +
+      '<div class="card dl"><div class="row" style="margin-bottom:6px"><b style="flex:1">' + esc(T("myLists")) + '</b><button class="btn sm" id="bNew">+ ' + esc(T("newList")) + '</button></div><div id="dlists"></div>' +
+      '<button class="link mutl" id="bClear" style="margin:8px 0 0">' + esc(T("clear")) + '</button></div>' +
+      '</aside></div></div>';
+    else $("app").innerHTML =
       '<div class="wrap">' +
       '<div class="top"><div class="logo">T</div><div><h1>' + esc(T("title")) + '</h1><div class="s">' + esc(T("sub")) + '</div></div>' +
       '<div class="lang"><button data-l="uz" class="' + (S.lang === "uz" ? "on" : "") + '">UZ</button><button data-l="ru" class="' + (S.lang === "ru" ? "on" : "") + '">RU</button></div></div>' +
@@ -69,7 +88,7 @@
     $("note").oninput = function (e) { S.note = e.target.value; save(); };
     $("bCat").onclick = function () { openCatalog(); };
     $("bPaste").onclick = openPaste;
-    $("bHist").onclick = openHistory;
+    if ($("bHist")) $("bHist").onclick = openHistory;
     $("bNew").onclick = newList;
     $("bClear").onclick = function () { if (!S.lines.length) return; confirmSheet(T("clearQ"), function () { S.lines = []; S.secs = []; S.cur = ""; S.view = "list"; save(); renderSecs(); renderList(); }); };
     var q = $("q");
@@ -81,8 +100,10 @@
     };
     $("bAdd").onclick = acceptTop;
     $("bSend").onclick = send;
-    renderWho(); renderSecs(); renderList(); renderSug();
+    renderWho(); renderSecs(); renderList(); renderSug(); renderLists();
+    if (isDesk() && !S.lines.length) setTimeout(function () { var q = $("q"); if (q) q.focus(); }, 0);
   }
+  if (DESK.addEventListener) DESK.addEventListener("change", function () { closeSheet(); shell(); });
   // ---------- bo'limlar (qavat, xona…) va «Jami» ----------
   function secName(id) { var x = S.secs.find(function (s) { return s.id === id; }); return x ? x.name : T("noSec"); }
   function renderSecs() {
@@ -148,6 +169,7 @@
 
   // ---------- ro'yxat ----------
   function lineHtml(l, i, ro) {
+    if (isDesk()) return lineDesk(l, i, ro);
     var chips = (l.vars || []).filter(Boolean).map(function (v) { return '<span class="tag">' + esc(v) + '</span>'; }).join("") + (l.size ? '<span class="tag sz">' + esc(l.size) + '</span>' : "");
     if (!l.known) chips = '<span class="tag w">? ' + esc(T("unknown")) + '</span>';
     if (ro && l.n > 1) chips += '<span class="tag">' + esc(T("fromSecs").replace("{n}", l.n)) + "</span>";
@@ -157,6 +179,39 @@
       (ro ? '<div class="qty"><div class="v">' + fmtQ(l.qty) + "<small>" + esc(l.unit || "") + "</small></div></div>"
           : '<div class="qty' + (l.qty ? "" : " none") + '"><button data-act="minus">−</button><div class="v" data-act="edit">' + fmtQ(l.qty) + '<small>' + esc(l.unit || "") + '</small>' + ex + '</div><button data-act="plus">+</button></div>') + "</div>";
   }
+  // kompyuter: jadval qatori — soni shu yerning o'zida yoziladi (12+8+6 ham), Enter — keyingi tovarni yozishga qaytadi
+  function lineDesk(l, i, ro) {
+    var chips = (l.vars || []).filter(Boolean).map(function (v) { return '<span class="tag">' + esc(v) + '</span>'; }).join("") + (l.size ? '<span class="tag sz">' + esc(l.size) + '</span>' : "");
+    if (!l.known) chips = '<span class="tag w">? ' + esc(T("unknown")) + '</span>';
+    if (ro && l.n > 1) chips += '<span class="tag">' + esc(T("fromSecs").replace("{n}", l.n)) + "</span>";
+    var qv = l.expr && isExpr(l.expr) ? l.expr : l.qty ? fmtQ(l.qty) : "";
+    return '<div class="ln dr' + (l.known ? "" : " unk") + (ro ? " ro" : "") + (S.fresh === l.id ? " fresh" : "") + '" data-id="' + l.id + '"><div class="n">' + (i + 1) + "</div>" +
+      '<div class="t" data-act="edit" title="' + esc(T("edit")) + '"><span class="nm">' + esc(l.name) + '</span> <span class="ch">' + chips + "</span></div>" +
+      (ro ? '<div class="dq"><b>' + fmtQ(l.qty) + "</b> <span>" + esc(l.unit || "") + "</span></div><div></div>"
+          : '<div class="dq"><input class="qin' + (l.qty ? "" : " none") + '" value="' + esc(qv) + '" placeholder="0" autocomplete="off" aria-label="' + esc(T("qty")) + '"><span>' + esc(l.unit || "") + '</span><small class="res">' + (l.expr && isExpr(l.expr) ? "= " + fmtQ(l.qty) : "") + "</small></div>" +
+            '<button class="dx" data-act="del" title="' + esc(T("del")) + '" aria-label="' + esc(T("del")) + '">✕</button>') + "</div>";
+  }
+  function bindQtyInputs(L) {
+    L.querySelectorAll(".qin").forEach(function (inp) {
+      var row = inp.closest(".ln"), res = row.querySelector(".res");
+      var l = function () { return S.lines.find(function (x) { return x.id === row.dataset.id; }); };
+      inp.oninput = function () { res.textContent = isExpr(inp.value) ? "= " + fmtQ(calcQty(inp.value)) : ""; };
+      var commit = function () {
+        var x = l(); if (!x) return; var v = inp.value.trim();
+        x.qty = calcQty(v) || null; x.expr = isExpr(v) ? v : "";
+        inp.classList.toggle("none", !x.qty); save(); renderSend();
+      };
+      inp.onchange = commit;
+      inp.onkeydown = function (e) {
+        if (e.key === "Enter") { e.preventDefault(); commit(); var q = $("q"); if (q) q.focus(); }
+        else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          var all = Array.prototype.slice.call(L.querySelectorAll(".qin")), k = all.indexOf(inp) + (e.key === "ArrowDown" ? 1 : -1);
+          if (all[k]) { e.preventDefault(); commit(); all[k].focus(); all[k].select(); }
+        }
+      };
+      inp.onfocus = function () { inp.select(); };
+    });
+  }
   function renderList() {
     var L = $("list");
     if (S.view === "total" && S.lines.length) {
@@ -165,7 +220,7 @@
       renderSend(); return;
     }
     if (!S.lines.length) {
-      L.innerHTML = '<div class="card empty"><b>' + esc(T("emptyT")) + '</b>' + esc(T("emptyD")) + '</div>';
+      L.innerHTML = '<div class="card empty"><b>' + esc(T("emptyT")) + '</b>' + esc(T(isDesk() ? "emptyDk" : "emptyD")) + '</div>';
     } else if (S.secs.length) {
       // bo'limlar bo'yicha: har bo'lim sarlavhasi bilan (bosilsa — yangi tovarlar shu bo'limga tushadi)
       var groups = [{ id: "", name: T("noSec") }].concat(S.secs), html = "", k = 0;
@@ -188,6 +243,7 @@
           var l = S.lines.find(function (x) { return x.id === el.dataset.id; }); if (!l) return;
           var a = act.dataset.act;
           if (a === "edit") return openPicker(l, false);
+          if (a === "del") { S.lines = S.lines.filter(function (x) { return x.id !== l.id; }); save(); renderList(); return; }
           var st = 1, cur = Number(l.qty) || 0;
           l.qty = a === "plus" ? cur + st : Math.max(0, cur - st);
           if (!l.qty) l.qty = a === "plus" ? 1 : null;
@@ -195,6 +251,7 @@
           save(); renderList();
         };
       });
+      bindQtyInputs(L);
       if (S.fresh) { var f = L.querySelector(".fresh"); if (f && f.scrollIntoView) f.scrollIntoView({ block: "nearest", behavior: "smooth" }); S.fresh = null; }
     }
     renderSend();
@@ -210,8 +267,8 @@
     if (l.sec == null) l.sec = S.cur || "";
     if (S.view === "total") S.view = "list";
     var same = l.known && S.lines.find(function (x) { return x.known && (x.sec || "") === (l.sec || "") && lineLabel(x) === lineLabel(l) && x.unit === l.unit; });
-    if (same) { same.qty = (Number(same.qty) || 0) + (Number(l.qty) || 0) || null; same.expr = ""; S.fresh = same.id; }
-    else { S.lines.push(l); S.fresh = l.id; }
+    if (same) { same.qty = (Number(same.qty) || 0) + (Number(l.qty) || 0) || null; same.expr = ""; S.fresh = same.id; S.lastId = same.id; }
+    else { S.lines.push(l); S.fresh = l.id; S.lastId = l.id; }
     save(); renderList();
   }
 
@@ -255,6 +312,10 @@
     var it = l.ii >= 0 ? E.items[l.ii] : null;
     var needPick = (it && it.sizes.length && !l.size) || !l.qty;
     clearInput();
+    if (isDesk() && !(it && it.sizes.length && !l.size) && !l.qty) {
+      // kompyuterda: tovar darhol jadvalga tushadi, kursor uning «soni» katagida
+      addLine(l); var f = document.querySelector('.ln[data-id="' + (S.lastId || "") + '"] .qin'); if (f) f.focus(); return;
+    }
     if (needPick) openPicker(l, true); else { addLine(l); $("q").focus(); }
   }
   function acceptTop() {
@@ -407,31 +468,36 @@
     S.listId = x.id; S.object = x.object || ""; S.note = x.note || ""; S.lines = (x.lines || []).map(function (l) { return Object.assign({}, l); });
     S.secs = (x.secs || []).slice(); S.cur = ""; S.view = "list"; save(); closeSheet(); shell();
   }
-  function openHistory() {
-    var h = '<h3>' + esc(T("myLists")) + "</h3>";
+  function listsHtml() {
+    var dt = function (t) { return new Date(t).toLocaleDateString(S.lang === "ru" ? "ru-RU" : "uz-UZ"); };
     var drafts = S.lists.filter(function (x) { return x.id !== S.listId; });
-    h += '<div class="lbl grp">' + esc(T("drafts")) + "</div>";
+    var h = '<div class="lbl grp">' + esc(T("drafts")) + "</div>";
     if (!drafts.length) h += '<div class="d">' + esc(T("noHistory")) + "</div>";
     h += drafts.map(function (x) {
-      return '<div class="hist"><div class="t"><b>' + esc(x.object || T("noObject")) + "</b>" + esc(new Date(x.at).toLocaleDateString(S.lang === "ru" ? "ru-RU" : "uz-UZ")) + " · " + (x.lines || []).length + " " + esc(T("items")) + (x.secs && x.secs.length ? " · " + x.secs.length + " " + esc(T("secs")) : "") + '</div><button class="btn sm" data-d="' + x.id + '">' + esc(T("open")) + '</button><button class="btn sm ghost" data-x="' + x.id + '" aria-label="' + esc(T("del")) + '">✕</button></div>';
+      return '<div class="hist"><div class="t"><b>' + esc(x.object || T("noObject")) + "</b>" + esc(dt(x.at)) + " · " + (x.lines || []).length + " " + esc(T("items")) + (x.secs && x.secs.length ? " · " + x.secs.length + " " + esc(T("secs")) : "") + '</div><button class="btn sm" data-d="' + x.id + '">' + esc(T("open")) + '</button><button class="btn sm ghost" data-x="' + x.id + '" aria-label="' + esc(T("del")) + '">✕</button></div>';
     }).join("");
     h += '<div class="lbl grp">' + esc(T("sentLists")) + "</div>";
     if (!S.hist.length) h += '<div class="d">' + esc(T("noHistory")) + "</div>";
     h += S.hist.map(function (x, i) {
-      return '<div class="hist"><div class="t"><b>№' + esc(x.num) + " · " + esc(new Date(x.at).toLocaleDateString(S.lang === "ru" ? "ru-RU" : "uz-UZ")) + '</b>' + esc(x.object || "") + " · " + x.lines.length + " " + esc(T("items")) + '</div><button class="btn sm" data-h="' + i + '">' + esc(T("open")) + "</button></div>";
+      return '<div class="hist"><div class="t"><b>№' + esc(x.num) + " · " + esc(dt(x.at)) + '</b>' + esc(x.object || "") + " · " + x.lines.length + " " + esc(T("items")) + '</div><button class="btn sm" data-h="' + i + '">' + esc(T("open")) + "</button></div>";
     }).join("");
-    h += '<div class="acts"><button class="btn" id="hC">' + esc(T("back")) + "</button></div>";
-    sheet(h, function (root) {
-      $("hC").onclick = closeSheet;
-      root.querySelectorAll("[data-d]").forEach(function (b) { b.onclick = function () { save(); var x = S.lists.find(function (y) { return y.id === b.dataset.d; }); if (x) openList(x); }; });
-      root.querySelectorAll("[data-x]").forEach(function (b) { b.onclick = function () { S.lists = S.lists.filter(function (y) { return y.id !== b.dataset.x; }); store(K.lists, S.lists); openHistory(); }; });
-      // yuborilgan ro'yxat — nusxa sifatida yangi ro'yxat bo'lib ochiladi (o'zgartirib, qayta yuborish mumkin)
-      root.querySelectorAll("[data-h]").forEach(function (b) {
-        b.onclick = function () {
-          var x = S.hist[Number(b.dataset.h)]; save();
-          openList({ id: uid(), object: x.object || "", note: "", lines: x.lines.map(function (l) { return Object.assign({}, l, { id: uid() }); }), secs: x.secs || [] });
-        };
-      });
+    return h;
+  }
+  function bindLists(root, again) {
+    root.querySelectorAll("[data-d]").forEach(function (b) { b.onclick = function () { save(); var x = S.lists.find(function (y) { return y.id === b.dataset.d; }); if (x) openList(x); }; });
+    root.querySelectorAll("[data-x]").forEach(function (b) { b.onclick = function () { S.lists = S.lists.filter(function (y) { return y.id !== b.dataset.x; }); store(K.lists, S.lists); again(); }; });
+    // yuborilgan ro'yxat — nusxa sifatida yangi ro'yxat bo'lib ochiladi (o'zgartirib, qayta yuborish mumkin)
+    root.querySelectorAll("[data-h]").forEach(function (b) {
+      b.onclick = function () {
+        var x = S.hist[Number(b.dataset.h)]; save();
+        openList({ id: uid(), object: x.object || "", note: "", lines: x.lines.map(function (l) { return Object.assign({}, l, { id: uid() }); }), secs: x.secs || [] });
+      };
+    });
+  }
+  function renderLists() { var d = $("dlists"); if (!d) return; d.innerHTML = listsHtml(); bindLists(d, renderLists); }
+  function openHistory() {
+    sheet('<h3>' + esc(T("myLists")) + "</h3>" + listsHtml() + '<div class="acts"><button class="btn" id="hC">' + esc(T("back")) + "</button></div>", function (root) {
+      $("hC").onclick = closeSheet; bindLists(root, openHistory);
     });
   }
 
@@ -452,7 +518,11 @@
     if (!S.me && (S.who.name.trim().length < 2 || d.length < 9)) { S.editWho = true; renderWho(); toast(d.length && d.length < 9 ? T("errPhone") : T("needWho")); (S.who.name.trim().length < 2 ? $("wName") : $("wPhone")).focus(); return; }
     if (!S.lines.length) { toast(T("needLines")); $("q").focus(); return; }
     var noQ = S.lines.find(function (l) { return !l.qty; });
-    if (noQ) { toast(T("needQty")); openPicker(noQ, false); return; }
+    if (noQ) {
+      toast(T("needQty"));
+      if (isDesk()) { if (S.view === "total") { S.view = "list"; renderSecs(); renderList(); } var f = document.querySelector('.ln[data-id="' + noQ.id + '"] .qin'); if (f) { f.focus(); return; } }
+      openPicker(noQ, false); return;
+    }
     S.sending = true; renderSend();
     // bizga — jami (hamma bo'limlar qo'shilgan); bo'limlar faqat ustaning o'zida qoladi
     var payload = { key: S.me ? S.key : "", name: S.who.name.trim(), phone: S.who.phone.trim(), object: S.object.trim(), note: S.note.trim(), lines: totals().map(function (l) {
@@ -503,6 +573,9 @@
       if (/usta_key/.test(String((x.j && x.j.message) || ""))) keyLost();
     }).catch(function () { /* internet yo'q — keyin yuborishda tekshiriladi */ if (S.key) { S.me = S.me || null; } });
   }
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && $("sheetBg")) { closeSheet(); var q = $("q"); if (q && isDesk()) q.focus(); }
+  });
   shell();
   checkKey();
 })();

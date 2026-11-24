@@ -123,6 +123,79 @@ body.lock{overflow:hidden}
 .keybad{background:var(--warn-t);color:var(--warn);border-radius:10px;padding:8px 10px;font-size:13.5px;font-weight:600;margin-bottom:10px}
 .btn.sm{padding:7px 12px;font-size:14px}
 .btn.ghost{border-color:transparent;color:var(--mut);padding:7px 9px}
+
+/* ===== kompyuter (≥900px): programmadagidek — shapka, jadval, o'ng panel ===== */
+body.desk{font-size:14px}
+body.desk .dk{min-height:100vh}
+.dh{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:16px;padding:12px 28px;background:color-mix(in srgb,var(--panel) 85%,transparent);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--line)}
+.dlogo{font-weight:800;letter-spacing:.06em;font-size:14px;white-space:nowrap}
+.dlogo span{color:var(--acc);margin:0 2px}
+.dtt{color:var(--mut);font-weight:600;font-size:14px;padding-left:16px;border-left:1px solid var(--line);margin-right:auto}
+body.desk .lang{border-radius:6px}
+body.desk .lang button{padding:5px 10px}
+.dg{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:22px;padding:22px 28px 40px;align-items:start}
+.dm{min-width:0}
+body.desk .inp{border-radius:6px;border-width:1px;padding:9px 11px;font-size:14px}
+body.desk .inp:focus{border-color:var(--mut)}
+body.desk .btn{border-radius:6px;border-width:1px;padding:8px 13px;font-size:14px}
+body.desk .btn:active{transform:translateY(1px)}
+body.desk .btn.big{padding:12px;font-size:15px;border-radius:8px;margin-bottom:12px}
+body.desk .btn.sm{padding:6px 10px;font-size:13px}
+body.desk .card{border-radius:8px;padding:14px;margin-bottom:12px}
+body.desk .chip{border-radius:6px;border-width:1px;padding:6px 10px;font-size:13px}
+body.desk .chip.on{border-color:var(--mut);background:var(--bg);color:var(--txt)}
+body.desk .seg{border-radius:6px;border-width:1px}
+body.desk .seg button{padding:6px 10px;font-size:13px}
+.dobj{font-size:20px!important;font-weight:700;border-color:transparent!important;background:transparent!important;padding:6px 8px!important;margin:0 0 10px -8px;width:calc(100% + 8px)}
+.dobj:hover{background:var(--panel)!important;border-color:var(--line)!important}
+.dobj:focus{background:var(--panel)!important;border-color:var(--mut)!important}
+.dtools{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
+.dtools #secbar{flex:1;min-width:0}
+.dtools .secbar{margin:0}
+.dtb{display:flex;gap:8px;flex:none}
+.dadd{position:relative;display:flex;gap:8px;margin-bottom:10px}
+.dadd .inp{flex:1;font-size:15px!important;padding:11px 12px!important}
+.dadd .sug{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:15;margin:0;border-radius:8px;max-height:60vh}
+.dtbl{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.dthd,.ln.dr{display:grid;grid-template-columns:38px minmax(0,1fr) 210px 36px;align-items:center;gap:10px}
+.dthd{padding:9px 12px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.045em;color:var(--mut);border-bottom:1px solid var(--line)}
+.dthd .r{text-align:left}
+.ln.dr{margin:0;border:0;border-radius:0;border-bottom:1px solid var(--line);padding:7px 12px;background:transparent}
+.ln.dr:last-child{border-bottom:0}
+.ln.dr:hover{background:rgba(127,127,127,.05)}
+.ln.dr.unk{background:var(--warn-t)}
+.ln.dr.fresh{animation:frd 1.4s ease}
+@keyframes frd{0%{background:var(--acc-t)}100%{background:transparent}}
+.ln.dr .n{text-align:left;width:auto}
+.ln.dr .t{cursor:pointer;display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+.ln.dr .nm{font-size:14px;font-weight:600}
+.ln.dr .ch{margin:0;display:inline-flex}
+.ln.dr .t:hover .nm{text-decoration:underline;text-decoration-color:var(--line)}
+.dq{display:flex;align-items:center;gap:7px}
+.dq span{color:var(--mut);font-size:13px;min-width:22px}
+.dq .res{color:var(--acc);font-weight:700;font-size:13px;white-space:nowrap}
+.qin{width:96px;border:1px solid var(--line);border-radius:6px;padding:7px 9px;font-size:14px;font-weight:700;text-align:right;background:var(--panel);outline:none}
+.qin:focus{border-color:var(--mut)}
+.qin.none{border-color:var(--warn);background:var(--warn-t)}
+.dx{border:0;background:none;color:var(--mut);width:30px;height:30px;border-radius:6px;opacity:.45}
+.ln.dr:hover .dx{opacity:1}
+.dx:hover{background:var(--bg);color:var(--bad)}
+body.desk .sechd{margin:0;padding:10px 12px 6px;border-bottom:1px solid var(--line);background:var(--bg);font-size:12px}
+body.desk .secempty{padding:8px 12px;border-bottom:1px solid var(--line)}
+body.desk .empty{padding:34px 10px}
+.da{position:sticky;top:76px}
+.dl .hist{padding:8px 0}
+.dl .hist .t b{font-size:14px}
+.dl .d{color:var(--mut);font-size:13px;margin:0 0 6px}
+.dl .lbl.grp{margin:10px 0 2px}
+/* oynalar kompyuterda — ekran o'rtasida */
+body.desk .sheet-bg{align-items:center}
+body.desk .sheet{border-radius:10px;max-width:560px;max-height:84vh;padding:20px 22px;animation:none}
+body.desk .sheet .qbig button{width:40px;height:40px;border-radius:6px;font-size:20px}
+body.desk .sheet .qbig input{width:130px;font-size:18px!important}
+body.desk .toast{top:auto;bottom:24px;border-radius:8px}
+@media (min-width:900px) and (max-width:1100px){.dg{grid-template-columns:minmax(0,1fr) 290px;padding:18px 18px 30px;gap:16px}.dh{padding:12px 18px}}
+.link.mutl{color:var(--mut);font-weight:500}.link.mutl:hover{color:var(--bad)}
 </style></head>
 <body><div id="app"></div>
 <script>window.USTA_CFG = {"url": "https://ettbatawccumoqrrtyql.supabase.co", "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0dGJhdGF3Y2N1bW9xcnJ0eXFsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzNDM0NjYsImV4cCI6MjA5NjkxOTQ2Nn0.mi5bv7nWHcJS6sL_dunlv97PLbddwy5NFId03utv_XE"};</script>
@@ -688,7 +761,7 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     err: "Yuborib bo'lmadi. Internetni tekshirib, qayta bosing.", errRate: "Juda ko'p ro'yxat yuborildi. Birozdan keyin qayta urinib ko'ring.",
     errPhone: "Telefon raqami noto'g'ri", pasteT: "Ro'yxatni joylang", pasteD: "Telegramdagi ro'yxatingizni nusxalab shu yerga joylang — har bir qator alohida tovar bo'ladi.",
     pasteBtn: "Ro'yxatga qo'shish", back: "Orqaga", search: "Qidirish", clear: "Ro'yxatni tozalash", clearQ: "Ro'yxat butunlay o'chirilsinmi?",
-    myLink: "shaxsiy havola", keyBad: "Bu havola eskirgan yoki noto'g'ri. Rahbardan yangi havola so'rang — hozircha ism va telefon bilan yuborish mumkin.",
+    colItem: "Tovar", emptyDk: "Tepada tovarni yozing va Enter bosing — dastur o'zi topadi, keyin sonini yozasiz (12+8+6 ham bo'ladi) va yana Enter.", myLink: "shaxsiy havola", keyBad: "Bu havola eskirgan yoki noto'g'ri. Rahbardan yangi havola so'rang — hozircha ism va telefon bilan yuborish mumkin.",
     noSec: "Bo'limsiz", addSec: "Bo'lim", secEdit: "Bo'limni o'zgartirish", secD: "Masalan: 1-qavat, 2-qavat, oshxona, hammom. Yangi tovarlar tanlangan bo'limga tushadi.", secPh: "Bo'lim nomi", secEmpty: "Bu bo'limda hozircha tovar yo'q — pastda yozing", secs: "bo'lim",
     viewList: "Bo'limlar", viewTotal: "Jami", totalD: "Jami — hamma bo'limlar qo'shildi (shu ro'yxat yuboriladi)", fromSecs: "{n} bo'limdan",
     calcHint: "hisoblash mumkin: 12+8+6 yoki 3*4", myLists: "Mening ro'yxatlarim", drafts: "Saqlangan (yuborilmagan)", sentLists: "Yuborilganlar", noObject: "Nomsiz ro'yxat",
@@ -711,7 +784,7 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     err: "Не удалось отправить. Проверьте интернет и нажмите ещё раз.", errRate: "Слишком много списков. Попробуйте чуть позже.",
     errPhone: "Неверный номер телефона", pasteT: "Вставьте список", pasteD: "Скопируйте свой список из Telegram и вставьте сюда — каждая строка станет отдельным товаром.",
     pasteBtn: "Добавить в список", back: "Назад", search: "Поиск", clear: "Очистить список", clearQ: "Удалить весь список?",
-    myLink: "личная ссылка", keyBad: "Эта ссылка устарела или неверна. Попросите новую у руководителя — пока можно отправить с именем и телефоном.",
+    colItem: "Товар", emptyDk: "Напишите товар сверху и нажмите Enter — программа найдёт его, затем впишите количество (можно 12+8+6) и снова Enter.", myLink: "личная ссылка", keyBad: "Эта ссылка устарела или неверна. Попросите новую у руководителя — пока можно отправить с именем и телефоном.",
     noSec: "Без раздела", addSec: "Раздел", secEdit: "Изменить раздел", secD: "Например: 1 этаж, 2 этаж, кухня, ванная. Новые товары попадают в выбранный раздел.", secPh: "Название раздела", secEmpty: "В этом разделе пока нет товаров — пишите внизу", secs: "разд.",
     viewList: "По разделам", viewTotal: "Итого", totalD: "Итого — все разделы сложены (отправляется этот список)", fromSecs: "из {n} разд.",
     calcHint: "можно считать: 12+8+6 или 3*4", myLists: "Мои списки", drafts: "Сохранённые (не отправлены)", sentLists: "Отправленные", noObject: "Список без названия",
@@ -759,6 +832,9 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     try { var n = Function('"use strict";return (' + t + ")")(); n = Math.round(Number(n) * 1000) / 1000; return isFinite(n) && n > 0 ? n : 0; } catch (e) { return 0; }
   }
   var isExpr = function (v) { return /\d\s*[+\-*/xх×]\s*[\d(]/i.test(String(v || "")); };
+  // kompyuter: keng ekran — programmadagidek ko'rinish (shapka, jadval, o'ng panel); telefon — eskicha
+  var DESK = window.matchMedia ? window.matchMedia("(min-width: 900px)") : { matches: false };
+  var isDesk = function () { return !!DESK.matches; };
   var digits = function (p) { return String(p || "").replace(/\D/g, ""); };
   function toast(msg) {
     var t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t);
@@ -770,7 +846,23 @@ if (typeof module !== "undefined") module.exports = ENGINE;
   function shell() {
     document.documentElement.lang = S.lang;
     document.title = T("title") + " — Thermo";
-    $("app").innerHTML =
+    document.body.classList.toggle("desk", isDesk());
+    if (isDesk()) $("app").innerHTML =
+      '<div class="dk"><header class="dh"><div class="dlogo">THERMO<span>•</span>ENGINEERING</div><div class="dtt">' + esc(T("title")) + '</div>' +
+      '<div class="lang"><button data-l="uz" class="' + (S.lang === "uz" ? "on" : "") + '">UZ</button><button data-l="ru" class="' + (S.lang === "ru" ? "on" : "") + '">RU</button></div></header>' +
+      '<div class="dg"><main class="dm">' +
+      '<input class="inp dobj" id="obj" placeholder="' + esc(T("objectPh")) + '" value="' + esc(S.object) + '" maxlength="200" aria-label="' + esc(T("object")) + '">' +
+      '<div class="dtools"><div id="secbar"></div><div class="dtb"><button class="btn sm" id="bCat">☰ ' + esc(T("catalog")) + '</button><button class="btn sm" id="bPaste">⧉ ' + esc(T("paste")) + '</button></div></div>' +
+      '<div class="dadd"><input class="inp" id="q" placeholder="' + esc(T("inputPh")) + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><button class="btn pri" id="bAdd">+ ' + esc(T("add")) + '</button><div class="sug" id="sug"></div></div>' +
+      '<div class="dtbl"><div class="dthd"><span>№</span><span>' + esc(T("colItem")) + '</span><span class="r">' + esc(T("qty")) + '</span><span></span></div><div id="list"></div></div>' +
+      '</main><aside class="da">' +
+      '<div class="card" id="who"></div>' +
+      '<div class="card"><div class="lbl">' + esc(T("note")) + '</div><input class="inp" id="note" placeholder="' + esc(T("notePh")) + '" value="' + esc(S.note) + '" maxlength="1000"></div>' +
+      '<button class="btn pri big" id="bSend"></button>' +
+      '<div class="card dl"><div class="row" style="margin-bottom:6px"><b style="flex:1">' + esc(T("myLists")) + '</b><button class="btn sm" id="bNew">+ ' + esc(T("newList")) + '</button></div><div id="dlists"></div>' +
+      '<button class="link mutl" id="bClear" style="margin:8px 0 0">' + esc(T("clear")) + '</button></div>' +
+      '</aside></div></div>';
+    else $("app").innerHTML =
       '<div class="wrap">' +
       '<div class="top"><div class="logo">T</div><div><h1>' + esc(T("title")) + '</h1><div class="s">' + esc(T("sub")) + '</div></div>' +
       '<div class="lang"><button data-l="uz" class="' + (S.lang === "uz" ? "on" : "") + '">UZ</button><button data-l="ru" class="' + (S.lang === "ru" ? "on" : "") + '">RU</button></div></div>' +
@@ -790,7 +882,7 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     $("note").oninput = function (e) { S.note = e.target.value; save(); };
     $("bCat").onclick = function () { openCatalog(); };
     $("bPaste").onclick = openPaste;
-    $("bHist").onclick = openHistory;
+    if ($("bHist")) $("bHist").onclick = openHistory;
     $("bNew").onclick = newList;
     $("bClear").onclick = function () { if (!S.lines.length) return; confirmSheet(T("clearQ"), function () { S.lines = []; S.secs = []; S.cur = ""; S.view = "list"; save(); renderSecs(); renderList(); }); };
     var q = $("q");
@@ -802,8 +894,10 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     };
     $("bAdd").onclick = acceptTop;
     $("bSend").onclick = send;
-    renderWho(); renderSecs(); renderList(); renderSug();
+    renderWho(); renderSecs(); renderList(); renderSug(); renderLists();
+    if (isDesk() && !S.lines.length) setTimeout(function () { var q = $("q"); if (q) q.focus(); }, 0);
   }
+  if (DESK.addEventListener) DESK.addEventListener("change", function () { closeSheet(); shell(); });
   // ---------- bo'limlar (qavat, xona…) va «Jami» ----------
   function secName(id) { var x = S.secs.find(function (s) { return s.id === id; }); return x ? x.name : T("noSec"); }
   function renderSecs() {
@@ -869,6 +963,7 @@ if (typeof module !== "undefined") module.exports = ENGINE;
 
   // ---------- ro'yxat ----------
   function lineHtml(l, i, ro) {
+    if (isDesk()) return lineDesk(l, i, ro);
     var chips = (l.vars || []).filter(Boolean).map(function (v) { return '<span class="tag">' + esc(v) + '</span>'; }).join("") + (l.size ? '<span class="tag sz">' + esc(l.size) + '</span>' : "");
     if (!l.known) chips = '<span class="tag w">? ' + esc(T("unknown")) + '</span>';
     if (ro && l.n > 1) chips += '<span class="tag">' + esc(T("fromSecs").replace("{n}", l.n)) + "</span>";
@@ -878,6 +973,39 @@ if (typeof module !== "undefined") module.exports = ENGINE;
       (ro ? '<div class="qty"><div class="v">' + fmtQ(l.qty) + "<small>" + esc(l.unit || "") + "</small></div></div>"
           : '<div class="qty' + (l.qty ? "" : " none") + '"><button data-act="minus">−</button><div class="v" data-act="edit">' + fmtQ(l.qty) + '<small>' + esc(l.unit || "") + '</small>' + ex + '</div><button data-act="plus">+</button></div>') + "</div>";
   }
+  // kompyuter: jadval qatori — soni shu yerning o'zida yoziladi (12+8+6 ham), Enter — keyingi tovarni yozishga qaytadi
+  function lineDesk(l, i, ro) {
+    var chips = (l.vars || []).filter(Boolean).map(function (v) { return '<span class="tag">' + esc(v) + '</span>'; }).join("") + (l.size ? '<span class="tag sz">' + esc(l.size) + '</span>' : "");
+    if (!l.known) chips = '<span class="tag w">? ' + esc(T("unknown")) + '</span>';
+    if (ro && l.n > 1) chips += '<span class="tag">' + esc(T("fromSecs").replace("{n}", l.n)) + "</span>";
+    var qv = l.expr && isExpr(l.expr) ? l.expr : l.qty ? fmtQ(l.qty) : "";
+    return '<div class="ln dr' + (l.known ? "" : " unk") + (ro ? " ro" : "") + (S.fresh === l.id ? " fresh" : "") + '" data-id="' + l.id + '"><div class="n">' + (i + 1) + "</div>" +
+      '<div class="t" data-act="edit" title="' + esc(T("edit")) + '"><span class="nm">' + esc(l.name) + '</span> <span class="ch">' + chips + "</span></div>" +
+      (ro ? '<div class="dq"><b>' + fmtQ(l.qty) + "</b> <span>" + esc(l.unit || "") + "</span></div><div></div>"
+          : '<div class="dq"><input class="qin' + (l.qty ? "" : " none") + '" value="' + esc(qv) + '" placeholder="0" autocomplete="off" aria-label="' + esc(T("qty")) + '"><span>' + esc(l.unit || "") + '</span><small class="res">' + (l.expr && isExpr(l.expr) ? "= " + fmtQ(l.qty) : "") + "</small></div>" +
+            '<button class="dx" data-act="del" title="' + esc(T("del")) + '" aria-label="' + esc(T("del")) + '">✕</button>') + "</div>";
+  }
+  function bindQtyInputs(L) {
+    L.querySelectorAll(".qin").forEach(function (inp) {
+      var row = inp.closest(".ln"), res = row.querySelector(".res");
+      var l = function () { return S.lines.find(function (x) { return x.id === row.dataset.id; }); };
+      inp.oninput = function () { res.textContent = isExpr(inp.value) ? "= " + fmtQ(calcQty(inp.value)) : ""; };
+      var commit = function () {
+        var x = l(); if (!x) return; var v = inp.value.trim();
+        x.qty = calcQty(v) || null; x.expr = isExpr(v) ? v : "";
+        inp.classList.toggle("none", !x.qty); save(); renderSend();
+      };
+      inp.onchange = commit;
+      inp.onkeydown = function (e) {
+        if (e.key === "Enter") { e.preventDefault(); commit(); var q = $("q"); if (q) q.focus(); }
+        else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          var all = Array.prototype.slice.call(L.querySelectorAll(".qin")), k = all.indexOf(inp) + (e.key === "ArrowDown" ? 1 : -1);
+          if (all[k]) { e.preventDefault(); commit(); all[k].focus(); all[k].select(); }
+        }
+      };
+      inp.onfocus = function () { inp.select(); };
+    });
+  }
   function renderList() {
     var L = $("list");
     if (S.view === "total" && S.lines.length) {
@@ -886,7 +1014,7 @@ if (typeof module !== "undefined") module.exports = ENGINE;
       renderSend(); return;
     }
     if (!S.lines.length) {
-      L.innerHTML = '<div class="card empty"><b>' + esc(T("emptyT")) + '</b>' + esc(T("emptyD")) + '</div>';
+      L.innerHTML = '<div class="card empty"><b>' + esc(T("emptyT")) + '</b>' + esc(T(isDesk() ? "emptyDk" : "emptyD")) + '</div>';
     } else if (S.secs.length) {
       // bo'limlar bo'yicha: har bo'lim sarlavhasi bilan (bosilsa — yangi tovarlar shu bo'limga tushadi)
       var groups = [{ id: "", name: T("noSec") }].concat(S.secs), html = "", k = 0;
@@ -909,6 +1037,7 @@ if (typeof module !== "undefined") module.exports = ENGINE;
           var l = S.lines.find(function (x) { return x.id === el.dataset.id; }); if (!l) return;
           var a = act.dataset.act;
           if (a === "edit") return openPicker(l, false);
+          if (a === "del") { S.lines = S.lines.filter(function (x) { return x.id !== l.id; }); save(); renderList(); return; }
           var st = 1, cur = Number(l.qty) || 0;
           l.qty = a === "plus" ? cur + st : Math.max(0, cur - st);
           if (!l.qty) l.qty = a === "plus" ? 1 : null;
@@ -916,6 +1045,7 @@ if (typeof module !== "undefined") module.exports = ENGINE;
           save(); renderList();
         };
       });
+      bindQtyInputs(L);
       if (S.fresh) { var f = L.querySelector(".fresh"); if (f && f.scrollIntoView) f.scrollIntoView({ block: "nearest", behavior: "smooth" }); S.fresh = null; }
     }
     renderSend();
@@ -931,8 +1061,8 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     if (l.sec == null) l.sec = S.cur || "";
     if (S.view === "total") S.view = "list";
     var same = l.known && S.lines.find(function (x) { return x.known && (x.sec || "") === (l.sec || "") && lineLabel(x) === lineLabel(l) && x.unit === l.unit; });
-    if (same) { same.qty = (Number(same.qty) || 0) + (Number(l.qty) || 0) || null; same.expr = ""; S.fresh = same.id; }
-    else { S.lines.push(l); S.fresh = l.id; }
+    if (same) { same.qty = (Number(same.qty) || 0) + (Number(l.qty) || 0) || null; same.expr = ""; S.fresh = same.id; S.lastId = same.id; }
+    else { S.lines.push(l); S.fresh = l.id; S.lastId = l.id; }
     save(); renderList();
   }
 
@@ -976,6 +1106,10 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     var it = l.ii >= 0 ? E.items[l.ii] : null;
     var needPick = (it && it.sizes.length && !l.size) || !l.qty;
     clearInput();
+    if (isDesk() && !(it && it.sizes.length && !l.size) && !l.qty) {
+      // kompyuterda: tovar darhol jadvalga tushadi, kursor uning «soni» katagida
+      addLine(l); var f = document.querySelector('.ln[data-id="' + (S.lastId || "") + '"] .qin'); if (f) f.focus(); return;
+    }
     if (needPick) openPicker(l, true); else { addLine(l); $("q").focus(); }
   }
   function acceptTop() {
@@ -1128,31 +1262,36 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     S.listId = x.id; S.object = x.object || ""; S.note = x.note || ""; S.lines = (x.lines || []).map(function (l) { return Object.assign({}, l); });
     S.secs = (x.secs || []).slice(); S.cur = ""; S.view = "list"; save(); closeSheet(); shell();
   }
-  function openHistory() {
-    var h = '<h3>' + esc(T("myLists")) + "</h3>";
+  function listsHtml() {
+    var dt = function (t) { return new Date(t).toLocaleDateString(S.lang === "ru" ? "ru-RU" : "uz-UZ"); };
     var drafts = S.lists.filter(function (x) { return x.id !== S.listId; });
-    h += '<div class="lbl grp">' + esc(T("drafts")) + "</div>";
+    var h = '<div class="lbl grp">' + esc(T("drafts")) + "</div>";
     if (!drafts.length) h += '<div class="d">' + esc(T("noHistory")) + "</div>";
     h += drafts.map(function (x) {
-      return '<div class="hist"><div class="t"><b>' + esc(x.object || T("noObject")) + "</b>" + esc(new Date(x.at).toLocaleDateString(S.lang === "ru" ? "ru-RU" : "uz-UZ")) + " · " + (x.lines || []).length + " " + esc(T("items")) + (x.secs && x.secs.length ? " · " + x.secs.length + " " + esc(T("secs")) : "") + '</div><button class="btn sm" data-d="' + x.id + '">' + esc(T("open")) + '</button><button class="btn sm ghost" data-x="' + x.id + '" aria-label="' + esc(T("del")) + '">✕</button></div>';
+      return '<div class="hist"><div class="t"><b>' + esc(x.object || T("noObject")) + "</b>" + esc(dt(x.at)) + " · " + (x.lines || []).length + " " + esc(T("items")) + (x.secs && x.secs.length ? " · " + x.secs.length + " " + esc(T("secs")) : "") + '</div><button class="btn sm" data-d="' + x.id + '">' + esc(T("open")) + '</button><button class="btn sm ghost" data-x="' + x.id + '" aria-label="' + esc(T("del")) + '">✕</button></div>';
     }).join("");
     h += '<div class="lbl grp">' + esc(T("sentLists")) + "</div>";
     if (!S.hist.length) h += '<div class="d">' + esc(T("noHistory")) + "</div>";
     h += S.hist.map(function (x, i) {
-      return '<div class="hist"><div class="t"><b>№' + esc(x.num) + " · " + esc(new Date(x.at).toLocaleDateString(S.lang === "ru" ? "ru-RU" : "uz-UZ")) + '</b>' + esc(x.object || "") + " · " + x.lines.length + " " + esc(T("items")) + '</div><button class="btn sm" data-h="' + i + '">' + esc(T("open")) + "</button></div>";
+      return '<div class="hist"><div class="t"><b>№' + esc(x.num) + " · " + esc(dt(x.at)) + '</b>' + esc(x.object || "") + " · " + x.lines.length + " " + esc(T("items")) + '</div><button class="btn sm" data-h="' + i + '">' + esc(T("open")) + "</button></div>";
     }).join("");
-    h += '<div class="acts"><button class="btn" id="hC">' + esc(T("back")) + "</button></div>";
-    sheet(h, function (root) {
-      $("hC").onclick = closeSheet;
-      root.querySelectorAll("[data-d]").forEach(function (b) { b.onclick = function () { save(); var x = S.lists.find(function (y) { return y.id === b.dataset.d; }); if (x) openList(x); }; });
-      root.querySelectorAll("[data-x]").forEach(function (b) { b.onclick = function () { S.lists = S.lists.filter(function (y) { return y.id !== b.dataset.x; }); store(K.lists, S.lists); openHistory(); }; });
-      // yuborilgan ro'yxat — nusxa sifatida yangi ro'yxat bo'lib ochiladi (o'zgartirib, qayta yuborish mumkin)
-      root.querySelectorAll("[data-h]").forEach(function (b) {
-        b.onclick = function () {
-          var x = S.hist[Number(b.dataset.h)]; save();
-          openList({ id: uid(), object: x.object || "", note: "", lines: x.lines.map(function (l) { return Object.assign({}, l, { id: uid() }); }), secs: x.secs || [] });
-        };
-      });
+    return h;
+  }
+  function bindLists(root, again) {
+    root.querySelectorAll("[data-d]").forEach(function (b) { b.onclick = function () { save(); var x = S.lists.find(function (y) { return y.id === b.dataset.d; }); if (x) openList(x); }; });
+    root.querySelectorAll("[data-x]").forEach(function (b) { b.onclick = function () { S.lists = S.lists.filter(function (y) { return y.id !== b.dataset.x; }); store(K.lists, S.lists); again(); }; });
+    // yuborilgan ro'yxat — nusxa sifatida yangi ro'yxat bo'lib ochiladi (o'zgartirib, qayta yuborish mumkin)
+    root.querySelectorAll("[data-h]").forEach(function (b) {
+      b.onclick = function () {
+        var x = S.hist[Number(b.dataset.h)]; save();
+        openList({ id: uid(), object: x.object || "", note: "", lines: x.lines.map(function (l) { return Object.assign({}, l, { id: uid() }); }), secs: x.secs || [] });
+      };
+    });
+  }
+  function renderLists() { var d = $("dlists"); if (!d) return; d.innerHTML = listsHtml(); bindLists(d, renderLists); }
+  function openHistory() {
+    sheet('<h3>' + esc(T("myLists")) + "</h3>" + listsHtml() + '<div class="acts"><button class="btn" id="hC">' + esc(T("back")) + "</button></div>", function (root) {
+      $("hC").onclick = closeSheet; bindLists(root, openHistory);
     });
   }
 
@@ -1173,7 +1312,11 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     if (!S.me && (S.who.name.trim().length < 2 || d.length < 9)) { S.editWho = true; renderWho(); toast(d.length && d.length < 9 ? T("errPhone") : T("needWho")); (S.who.name.trim().length < 2 ? $("wName") : $("wPhone")).focus(); return; }
     if (!S.lines.length) { toast(T("needLines")); $("q").focus(); return; }
     var noQ = S.lines.find(function (l) { return !l.qty; });
-    if (noQ) { toast(T("needQty")); openPicker(noQ, false); return; }
+    if (noQ) {
+      toast(T("needQty"));
+      if (isDesk()) { if (S.view === "total") { S.view = "list"; renderSecs(); renderList(); } var f = document.querySelector('.ln[data-id="' + noQ.id + '"] .qin'); if (f) { f.focus(); return; } }
+      openPicker(noQ, false); return;
+    }
     S.sending = true; renderSend();
     // bizga — jami (hamma bo'limlar qo'shilgan); bo'limlar faqat ustaning o'zida qoladi
     var payload = { key: S.me ? S.key : "", name: S.who.name.trim(), phone: S.who.phone.trim(), object: S.object.trim(), note: S.note.trim(), lines: totals().map(function (l) {
@@ -1224,6 +1367,9 @@ if (typeof module !== "undefined") module.exports = ENGINE;
       if (/usta_key/.test(String((x.j && x.j.message) || ""))) keyLost();
     }).catch(function () { /* internet yo'q — keyin yuborishda tekshiriladi */ if (S.key) { S.me = S.me || null; } });
   }
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && $("sheetBg")) { closeSheet(); var q = $("q"); if (q && isDesk()) q.focus(); }
+  });
   shell();
   checkKey();
 })();

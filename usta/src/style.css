@@ -118,3 +118,76 @@ body.lock{overflow:hidden}
 .keybad{background:var(--warn-t);color:var(--warn);border-radius:10px;padding:8px 10px;font-size:13.5px;font-weight:600;margin-bottom:10px}
 .btn.sm{padding:7px 12px;font-size:14px}
 .btn.ghost{border-color:transparent;color:var(--mut);padding:7px 9px}
+
+/* ===== kompyuter (≥900px): programmadagidek — shapka, jadval, o'ng panel ===== */
+body.desk{font-size:14px}
+body.desk .dk{min-height:100vh}
+.dh{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:16px;padding:12px 28px;background:color-mix(in srgb,var(--panel) 85%,transparent);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--line)}
+.dlogo{font-weight:800;letter-spacing:.06em;font-size:14px;white-space:nowrap}
+.dlogo span{color:var(--acc);margin:0 2px}
+.dtt{color:var(--mut);font-weight:600;font-size:14px;padding-left:16px;border-left:1px solid var(--line);margin-right:auto}
+body.desk .lang{border-radius:6px}
+body.desk .lang button{padding:5px 10px}
+.dg{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:22px;padding:22px 28px 40px;align-items:start}
+.dm{min-width:0}
+body.desk .inp{border-radius:6px;border-width:1px;padding:9px 11px;font-size:14px}
+body.desk .inp:focus{border-color:var(--mut)}
+body.desk .btn{border-radius:6px;border-width:1px;padding:8px 13px;font-size:14px}
+body.desk .btn:active{transform:translateY(1px)}
+body.desk .btn.big{padding:12px;font-size:15px;border-radius:8px;margin-bottom:12px}
+body.desk .btn.sm{padding:6px 10px;font-size:13px}
+body.desk .card{border-radius:8px;padding:14px;margin-bottom:12px}
+body.desk .chip{border-radius:6px;border-width:1px;padding:6px 10px;font-size:13px}
+body.desk .chip.on{border-color:var(--mut);background:var(--bg);color:var(--txt)}
+body.desk .seg{border-radius:6px;border-width:1px}
+body.desk .seg button{padding:6px 10px;font-size:13px}
+.dobj{font-size:20px!important;font-weight:700;border-color:transparent!important;background:transparent!important;padding:6px 8px!important;margin:0 0 10px -8px;width:calc(100% + 8px)}
+.dobj:hover{background:var(--panel)!important;border-color:var(--line)!important}
+.dobj:focus{background:var(--panel)!important;border-color:var(--mut)!important}
+.dtools{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
+.dtools #secbar{flex:1;min-width:0}
+.dtools .secbar{margin:0}
+.dtb{display:flex;gap:8px;flex:none}
+.dadd{position:relative;display:flex;gap:8px;margin-bottom:10px}
+.dadd .inp{flex:1;font-size:15px!important;padding:11px 12px!important}
+.dadd .sug{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:15;margin:0;border-radius:8px;max-height:60vh}
+.dtbl{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.dthd,.ln.dr{display:grid;grid-template-columns:38px minmax(0,1fr) 210px 36px;align-items:center;gap:10px}
+.dthd{padding:9px 12px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.045em;color:var(--mut);border-bottom:1px solid var(--line)}
+.dthd .r{text-align:left}
+.ln.dr{margin:0;border:0;border-radius:0;border-bottom:1px solid var(--line);padding:7px 12px;background:transparent}
+.ln.dr:last-child{border-bottom:0}
+.ln.dr:hover{background:rgba(127,127,127,.05)}
+.ln.dr.unk{background:var(--warn-t)}
+.ln.dr.fresh{animation:frd 1.4s ease}
+@keyframes frd{0%{background:var(--acc-t)}100%{background:transparent}}
+.ln.dr .n{text-align:left;width:auto}
+.ln.dr .t{cursor:pointer;display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+.ln.dr .nm{font-size:14px;font-weight:600}
+.ln.dr .ch{margin:0;display:inline-flex}
+.ln.dr .t:hover .nm{text-decoration:underline;text-decoration-color:var(--line)}
+.dq{display:flex;align-items:center;gap:7px}
+.dq span{color:var(--mut);font-size:13px;min-width:22px}
+.dq .res{color:var(--acc);font-weight:700;font-size:13px;white-space:nowrap}
+.qin{width:96px;border:1px solid var(--line);border-radius:6px;padding:7px 9px;font-size:14px;font-weight:700;text-align:right;background:var(--panel);outline:none}
+.qin:focus{border-color:var(--mut)}
+.qin.none{border-color:var(--warn);background:var(--warn-t)}
+.dx{border:0;background:none;color:var(--mut);width:30px;height:30px;border-radius:6px;opacity:.45}
+.ln.dr:hover .dx{opacity:1}
+.dx:hover{background:var(--bg);color:var(--bad)}
+body.desk .sechd{margin:0;padding:10px 12px 6px;border-bottom:1px solid var(--line);background:var(--bg);font-size:12px}
+body.desk .secempty{padding:8px 12px;border-bottom:1px solid var(--line)}
+body.desk .empty{padding:34px 10px}
+.da{position:sticky;top:76px}
+.dl .hist{padding:8px 0}
+.dl .hist .t b{font-size:14px}
+.dl .d{color:var(--mut);font-size:13px;margin:0 0 6px}
+.dl .lbl.grp{margin:10px 0 2px}
+/* oynalar kompyuterda — ekran o'rtasida */
+body.desk .sheet-bg{align-items:center}
+body.desk .sheet{border-radius:10px;max-width:560px;max-height:84vh;padding:20px 22px;animation:none}
+body.desk .sheet .qbig button{width:40px;height:40px;border-radius:6px;font-size:20px}
+body.desk .sheet .qbig input{width:130px;font-size:18px!important}
+body.desk .toast{top:auto;bottom:24px;border-radius:8px}
+@media (min-width:900px) and (max-width:1100px){.dg{grid-template-columns:minmax(0,1fr) 290px;padding:18px 18px 30px;gap:16px}.dh{padding:12px 18px}}
+.link.mutl{color:var(--mut);font-weight:500}.link.mutl:hover{color:var(--bad)}
