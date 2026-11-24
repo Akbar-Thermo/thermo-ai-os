@@ -746,6 +746,24 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .bnav-badge{position:absolute;top:2px;right:calc(50% - 22px)}
 .bnav .tab-n{position:absolute;top:2px;right:calc(50% - 22px)}
 .te.phone .mnav{display:none!important}
+.bnav-it.x{display:none}
+/* пишете в поле — клавиатура открыта, нижняя панель не закрывает поле */
+.te.phone:has(input:focus:not([type=checkbox]):not([type=radio]),textarea:focus,select:focus) .bnav{display:none}
+/* iPhone: поле 16px — экран не увеличивается при нажатии на поле */
+.te.touch .inp,.te.touch input.inp,.te.touch select.inp,.te.touch textarea.inp{font-size:16px}
+.te.phone .ph::before{min-height:26px;padding-right:0}
+/* широкий планшет: разделы — вертикальной панелью слева (как в SAP / Material), до 7 разделов */
+@media (min-width:900px){
+  .te.phone .bnav{top:0;bottom:0;right:auto;width:86px;flex-direction:column;justify-content:flex-start;gap:4px;padding:calc(14px + env(safe-area-inset-top,0px)) 6px 14px;border-top:0;border-right:1px solid var(--line)}
+  .te.phone .bnav-it{flex:none;min-height:62px}
+  .te.phone .bnav-it span{white-space:normal;text-align:center;line-height:1.15;overflow:visible}
+  .te.phone .bnav-it.x{display:flex}
+  .te.phone .bnav-it:last-child{margin-top:auto}
+  .te.phone .bnav-it.on::before{top:14px;bottom:14px;left:0;right:auto;width:3px;height:auto;border-radius:0 3px 3px 0}
+  .te.phone .body{padding-left:calc(86px + 20px)!important;padding-bottom:32px!important}
+  .te.phone .cq-bar{bottom:10px!important}
+  .te.phone .toast,.te.phone .totop,.te.phone .busypill{bottom:22px!important}
+}
 .te.phone .body{padding-bottom:calc(84px + env(safe-area-inset-bottom,0px))!important}
 .te.phone .cq-bar{bottom:calc(66px + env(safe-area-inset-bottom,0px))!important}
 .te.phone .toast,.te.phone .totop,.te.phone .busypill{bottom:calc(74px + env(safe-area-inset-bottom,0px))!important}
@@ -13217,6 +13235,28 @@ function CommandPalette({ tabs, objects, onTab, onObject, onClose }) {
   );
 }
 // подсказка: все сочетания клавиш
+// выбор разделов нижней панели телефона: по порядку нажатия; первые 4 — на телефоне, до 7 — на планшете
+function BnavCfg({ tabs, value, onClose, onSave }) {
+  const [sel, setSel] = useState(() => value.filter((id) => tabs.some((t) => t.id === id)));
+  const tog = (id) => setSel((a) => (a.includes(id) ? a.filter((x) => x !== id) : a.length >= 7 ? a : [...a, id]));
+  return (
+    <Modal title="Нижняя панель" onClose={onClose} w={420}>
+      <p className="sm mut" style={{ marginBottom: 10 }}>Отметьте разделы по порядку. На телефоне видны первые 4, на планшете — до 7. Остальные — в «Меню».</p>
+      <div className="grid" style={{ gridTemplateColumns: "1fr", gap: 4 }}>
+        {tabs.map((t) => { const k = sel.indexOf(t.id); return (
+          <label key={t.id} className="row clk bnav-cfg" style={{ gap: 10, padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 10, flexWrap: "nowrap" }}>
+            <input type="checkbox" checked={k >= 0} onChange={() => tog(t.id)} />
+            <span style={{ flex: 1 }}>{t.label}</span>
+            {k >= 0 && <b className="xs" style={{ color: k < 4 ? "var(--acc)" : "var(--mut)" }}>{k + 1}{k >= 4 ? " · планшет" : ""}</b>}
+          </label>); })}
+      </div>
+      <div className="row" style={{ justifyContent: "space-between", marginTop: 14 }}>
+        <button className="btn" onClick={() => onSave([])}>По умолчанию</button>
+        <button className="btn pri" onClick={() => onSave(sel)}>Сохранить</button>
+      </div>
+    </Modal>
+  );
+}
 function KeysHelp({ tabs, onClose }) {
   const here = hotActions().filter((a) => a.keys);
   const Row = ({ k, t }) => <tr><td style={{ whiteSpace: "nowrap", width: 150 }}>{k.split(" / ").map((x, i) => <React.Fragment key={i}>{i > 0 && " / "}<kbd>{x}</kbd></React.Fragment>)}</td><td className="sm">{t}</td></tr>;
@@ -14034,6 +14074,8 @@ function AppInner() {
   // ---- работа с клавиатуры ----
   const [palette, setPalette] = useState(false);
   const [keysHelp, setKeysHelp] = useState(false);
+  const [bnavOwn, setBnavOwn] = useState(() => { try { const a = JSON.parse(localStorage.getItem("te:bnav") || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; } });
+  const [bnavCfg, setBnavCfg] = useState(false);
   useEffect(() => { if (tab === "objects" && openId) recentPush(openId); }, [tab, openId]);
   // открыли любой раздел (меню, Alt+цифра, ссылка на объект…) — окно расчёта закрывается, раздел виден
   useEffect(() => { setHeatOpen(false); }, [tab, tabNonce, openId]);
@@ -14100,11 +14142,13 @@ function AppInner() {
       {!finePtr && <div className={"mnav-bg" + (hdrPeek ? " on" : "")} onClick={() => setHdrPeek(false)} />}
       {/* телефон: нижняя панель — 4 главных раздела под пальцем + «Меню» (все разделы) */}
       {isPhone() && !finePtr && (() => {
+        // свой выбор (⚙ «Нижняя панель» в меню) или по умолчанию; на телефоне видно 4, на широком планшете (панель слева) — до 7
         const pref = ["objects", "request", "products", "finance", "dash", "delivery", "wh", "suppliers", "masters", "heat", "log"];
-        const ids = pref.filter((id) => allTabs.some((t) => t.id === id)).slice(0, 4);
+        const own = bnavOwn.filter((id) => allTabs.some((t) => t.id === id));
+        const ids = (own.length ? [...own, ...pref.filter((id) => !own.includes(id))] : pref).filter((id) => allTabs.some((t) => t.id === id)).slice(0, 7);
         const on = (id) => (id === "heat" && heatWin ? heatOpen : tab === id && !hdrPeek);
         return <nav className="bnav" aria-label="Главные разделы">
-          {ids.map((id) => <button key={id} type="button" className={"bnav-it" + (on(id) ? " on" : "")} onClick={() => {
+          {ids.map((id, k) => <button key={id} type="button" className={"bnav-it" + (on(id) ? " on" : "") + (k >= 4 ? " x" : "")} onClick={() => {
             setHdrPeek(false);
             if (id === "heat" && heatWin) { toggleHeat(true); return; }
             if (tab === id) { setOpenId(null); setTabNonce((n) => n + 1); window.scrollTo({ top: 0, behavior: "smooth" }); }
@@ -14145,6 +14189,7 @@ function AppInner() {
         <button className={"btn xs npanel-btn" + (notesOpen ? " pri" : "")} title="Заметки: Alt два раза подряд (или левый + правый Alt)" onClick={() => { setNotesOpen((v) => !v); if (!finePtr) setHdrPeek(false); }}><Ic n="note" /><span className="hdr-lbl"> Заметки</span></button>
         <button className={"btn xs hdr-chat" + (chatOpen ? " pri" : "")} title="Чат сотрудников" onClick={() => (chatOpen ? setChatOpen(false) : openChat(null))}><Ic n="chat" /><span className="hdr-lbl"> Чат</span>{team.unread.total > 0 && <span className="chat-badge">{team.unread.total}</span>}</button>
         {role !== "driver" && <button className={"btn xs hdr-calc" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => { setCalcOpen((v) => !v); if (!finePtr) setHdrPeek(false); }}><Ic n="calc" /><span className="hdr-lbl"> Калькулятор</span></button>}
+        {!finePtr && isPhone() && <button className="btn xs hdr-bnav" title="Какие разделы стоят в нижней панели" onClick={() => { setHdrPeek(false); setBnavCfg(true); }}><Ic n="dash" /><span className="hdr-lbl"> Нижняя панель</span></button>}
         {finePtr && <button className={"btn xs hdr-keys" + (keysHelp ? " pri" : "")} title="Все сочетания клавиш (?)" onClick={() => setKeysHelp(true)}><b style={{ fontSize: 14, lineHeight: 1 }}>?</b><span className="hdr-lbl"> Клавиши</span></button>}
         <button className="btn xs hdr-hide" title="Скрыть панель — будет выезжать, когда мышь у края экрана" onClick={() => { setHdrOffSave(true); setMobileMenuOpen(false); }}>⌃</button>
         <div className="hdr-sec hdr-sec-p" role="presentation">{lang === "uz" ? "Panel" : "Панель"}</div>
@@ -14173,6 +14218,7 @@ function AppInner() {
         {tab === "dash" && <Dashboard data={data} />}
         {palette && <CommandPalette tabs={allTabs} objects={role === "designer" ? [] : data.objects || []} onTab={goTab} onObject={(id) => { setTab("objects"); setOpenId(id); }} onClose={() => setPalette(false)} />}
         {keysHelp && <KeysHelp tabs={allTabs} onClose={() => setKeysHelp(false)} />}
+        {bnavCfg && <BnavCfg tabs={allTabs} value={bnavOwn} onClose={() => setBnavCfg(false)} onSave={(v) => { setBnavOwn(v); try { localStorage.setItem("te:bnav", JSON.stringify(v)); } catch (e) {} setBnavCfg(false); }} />}
         {cloudChange && <CloudChange user={currentUser} toast={toast} onClose={() => setCloudChange(false)} />}
         {tab === "objects" && <ObjectsTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} goRequest={() => setTab("request")} fin={!!acc.perms.fin} pmode={pmode} setPmode={setPmode} />}
         {tab === "request" && <RequestTabs data={pWorld} pmode={pmode} setPmode={setPmode} reload={reload} toast={toast} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
