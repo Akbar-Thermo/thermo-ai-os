@@ -387,7 +387,7 @@ const CSS = `
    (активная вкладка, главные кнопки, акценты). Цифры — табличные, без моноширинного шрифта. */
 :root{
   --bg:#ebeeec; --panel:#fdfdfc; --panel2:#f4f6f5; --line:#e1e5e2; --line2:#ccd3cf;
-  --txt:#1f2629; --mut:#66706f; --acc:#2563eb; --acc2:#1d4ed8; --acc-tint:rgba(37,99,235,.07); --wh-tint:rgba(44,122,82,.07); --acc-ring:rgba(37,99,235,.2); --brand:#ff1f30;
+  --txt:#1f2629; --mut:#66706f; --acc:#2b6cb0; --acc2:#2c5282; --acc-tint:rgba(43,108,176,.08); --wh-tint:rgba(44,122,82,.07); --acc-ring:rgba(43,108,176,.2); --brand:#ff1f30;
   --ok:#2c7a52; --warn:#99650f; --bad:#b33a3a;
   --t-neutral:#66706f; --t-ok:#2c7a52; --t-warn:#99650f; --t-bad:#b33a3a; --t-info:#2f6a9e; --t-violet:#6a55a3; --t-strong:#1f2629;
   --mono:'JetBrains Mono',ui-monospace,monospace; --sans:'Onest',system-ui,sans-serif;
@@ -404,7 +404,7 @@ const CSS = `
 }
 .te.dark{
   --bg:#121618; --panel:#191e21; --panel2:#20272a; --line:#2a3337; --line2:#364146;
-  --txt:#dfe4e2; --mut:#8d9896; --acc:#3b82f6; --acc2:#2563eb; --acc-tint:rgba(59,130,246,.12); --wh-tint:rgba(61,220,125,.08); --acc-ring:rgba(59,130,246,.3); --brand:#ff1f30;
+  --txt:#dfe4e2; --mut:#8d9896; --acc:#3d78b8; --acc2:#2b6cb0; --acc-tint:rgba(61,120,184,.14); --wh-tint:rgba(61,220,125,.08); --acc-ring:rgba(61,120,184,.3); --brand:#ff1f30;
   --ok:#5fb88a; --warn:#d4a24c; --bad:#e07272;
   --t-neutral:#9aa5a3; --t-ok:#5fb88a; --t-warn:#d4a24c; --t-bad:#e07272; --t-info:#6ea9de; --t-violet:#a597de; --t-strong:#dfe4e2;
   --hdr-bg:#101416; --hdr-line:#253035; --hdr-panel2:#1b2327;
@@ -769,11 +769,11 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .te.phone .toast,.te.phone .totop,.te.phone .busypill{bottom:calc(74px + env(safe-area-inset-bottom,0px))!important}
 .ci-tag{display:inline-block;margin-left:6px;padding:0 6px;border-radius:6px;font-size:11px;font-weight:800;vertical-align:1px;white-space:nowrap}
 .ci-tag.none{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
-.ci-tag.nosup{background:color-mix(in srgb,#3b82f6 18%,transparent);color:#3b82f6}
-tr.ci-nosup>td:first-child,tr[data-nosup]>td:first-child{box-shadow:inset 3px 0 #3b82f6}
-tr.ci-none[data-nosup]>td:first-child{box-shadow:inset 3px 0 var(--warn),inset 6px 0 #3b82f6}
-tr.ci-over[data-nosup]>td:first-child{box-shadow:inset 3px 0 var(--bad),inset 6px 0 #3b82f6}
-.ci-chip.nosup{border-color:#3b82f6;color:#3b82f6}
+.ci-tag.nosup{background:color-mix(in srgb,#3d78b8 18%,transparent);color:#3d78b8}
+tr.ci-nosup>td:first-child,tr[data-nosup]>td:first-child{box-shadow:inset 3px 0 #3d78b8}
+tr.ci-none[data-nosup]>td:first-child{box-shadow:inset 3px 0 var(--warn),inset 6px 0 #3d78b8}
+tr.ci-over[data-nosup]>td:first-child{box-shadow:inset 3px 0 var(--bad),inset 6px 0 #3d78b8}
+.ci-chip.nosup{border-color:#3d78b8;color:#3d78b8}
 .ci-tag[role=button]:hover{filter:brightness(1.15);text-decoration:underline;text-underline-offset:2px}
 .ci-ok{display:inline-block;margin-left:6px;font-size:11px;font-weight:800;color:var(--mut);opacity:.7;cursor:pointer}
 .ci-ok:hover{opacity:1;color:var(--ok)}
@@ -1245,7 +1245,7 @@ tr.batch-head:hover>td{background:color-mix(in srgb,var(--txt) 4%,var(--panel2))
   --shadow:0 0 0 1px rgba(16,24,40,.015),0 1px 2px rgba(16,24,40,.05),0 2px 6px -2px rgba(16,24,40,.04);
   --shadow-xs:0 1px 2px rgba(16,24,40,.05);
   --shadow-pop:0 0 0 1px rgba(16,24,40,.04),0 4px 10px rgba(16,24,40,.06),0 28px 64px -18px rgba(16,24,40,.30);
-  --acc-ring:rgba(37,99,235,.18);
+  --acc-ring:rgba(43,108,176,.18);
 }
 .te.dark{
   /* тёмная: не чёрный, а тёмно-серый (рекомендация Material Design), без цветового оттенка */
@@ -1463,7 +1463,7 @@ table.t tr:hover td{background:var(--hover)}
 .ci-tag{background:transparent!important;color:var(--txt)!important;font-weight:600;padding:0 2px;display:inline-flex;align-items:center;gap:5px;opacity:.9}
 .ci-tag::before{content:"";width:7px;height:7px;border-radius:50%;flex:none;background:var(--warn)}
 .ci-tag.over::before{background:var(--bad)}
-.ci-tag.nosup::before{background:#3b82f6}
+.ci-tag.nosup::before{background:#3d78b8}
 .btn.objf-debt,.btn.objf-ci{color:var(--txt)!important;border-color:var(--line)!important;background:var(--panel)!important}
 .btn.objf-debt::before,.btn.objf-ci::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--bad);margin-right:6px;display:inline-block}
 .btn.objf-ci::before{background:var(--warn)}
