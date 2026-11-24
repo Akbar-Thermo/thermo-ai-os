@@ -514,7 +514,7 @@ html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::
 .hdr .btn{background:var(--hdr-panel2);border-color:var(--hdr-line);color:var(--hdr-txt)}
 .hdr .btn:hover{border-color:var(--acc);color:#fff}
 .hdr .mut{color:var(--hdr-mut)}
-.body{padding:22px 24px 40px;max-width:1300px;margin:0 auto}
+.body{padding:22px 28px 40px;max-width:none;margin:0} /* рабочая область — на всю ширину экрана, как в 1С / SAP / Odoo (не узкая «страница PDF» по центру) */
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px;box-shadow:var(--shadow)}
 .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
 .grid{display:grid;gap:12px}
