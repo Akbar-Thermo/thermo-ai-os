@@ -703,6 +703,21 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .bots-seg .btn>span{display:flex;flex-direction:column;line-height:1.2}
 .bots-hint{opacity:.7;font-weight:500}
 .bots-det .card.sect{margin-top:0 !important}
+.acc-mini{position:relative}
+.acc-me{display:flex;align-items:center;gap:6px}
+.acc-me-t{text-align:inherit;line-height:1.25}
+.acc-me-n{font-weight:700;font-size:13px}
+.acc-tg{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--mut);cursor:pointer;padding:0;font-weight:800;font-size:15px;line-height:1;transition:transform .15s}
+.acc-tg:hover{color:var(--text,inherit);border-color:var(--acc)}
+.acc-mini.open .acc-tg{transform:rotate(180deg);color:var(--acc);border-color:var(--acc)}
+.acc-drop{position:absolute;top:calc(100% + 6px);right:0;z-index:80;min-width:220px;padding:6px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:0 10px 28px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:2px}
+.acc-mini.inline .acc-drop,.te.side .acc-drop{position:static;box-shadow:none;margin-top:6px;min-width:0}
+.acc-o{display:flex;align-items:center;gap:8px;padding:6px 8px;border:0;border-radius:8px;background:transparent;color:inherit;text-align:left;cursor:pointer;width:100%}
+.acc-o:hover,.acc-o:focus-visible{background:color-mix(in srgb,var(--acc) 12%,transparent)}
+.acc-o .acc-av{margin-right:0;width:24px;height:24px;font-size:12px}
+.acc-av.plus{background:transparent;border:1px dashed var(--mut);color:var(--mut)}
+.acc-o.add{border-top:1px solid var(--line);border-radius:0 0 8px 8px;margin-top:2px;padding-top:8px}
+.acc-o-t{display:flex;flex-direction:column;line-height:1.2;min-width:0}
 .ci-tag{display:inline-block;margin-left:6px;padding:0 6px;border-radius:6px;font-size:11px;font-weight:800;vertical-align:1px;white-space:nowrap}
 .ci-tag.none{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
 .ci-tag.nosup{background:color-mix(in srgb,#3b82f6 18%,transparent);color:#3b82f6}
@@ -12557,6 +12572,38 @@ function UserForm({ u, users, self, onClose, onSave, data = null, uperms = {}, h
     </Modal>
   );
 }
+// логин в меню: рядом стрелка — под логином раскрываются другие аккаунты этого устройства (нажал — переключился);
+// если аккаунт один — вместо стрелки «+» (добавить аккаунт)
+function AccMini({ cur, role, onAdd, inline = false }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const others = accList().filter((a) => a.id !== cur.id);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const k = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", h, true); document.addEventListener("keydown", k);
+    return () => { document.removeEventListener("pointerdown", h, true); document.removeEventListener("keydown", k); };
+  }, [open]);
+  const name = cur.name || cur.username;
+  return (
+    <div ref={ref} className={"acc-mini" + (inline ? " inline" : "") + (open ? " open" : "")}>
+      <div className="acc-me">
+        <div className="acc-me-t"><div className="acc-me-n">{name}</div><div className="xs mut">{role}</div></div>
+        {others.length
+          ? <button type="button" className="acc-tg" aria-expanded={open} title={open ? "Скрыть" : "Другие аккаунты (" + others.length + ")"} onClick={() => setOpen((v) => !v)}><Ic n="down" s={13} /></button>
+          : <button type="button" className="acc-tg plus" title="Добавить аккаунт" onClick={onAdd}>+</button>}
+      </div>
+      {open && others.length > 0 && <div className="acc-drop" role="menu">
+        {others.map((a) => <button key={a.id} type="button" role="menuitem" className="acc-o" title={"Перейти в аккаунт «" + (a.name || a.username) + "» — без пароля"} onClick={() => accSwitchTo(a)}>
+          <span className="acc-av">{String(a.name || a.username || "?").trim().charAt(0).toUpperCase()}</span>
+          <span className="acc-o-t"><b>{a.name || a.username}</b><span className="xs mut">{a.username}</span></span>
+        </button>)}
+        <button type="button" className="acc-o add" onClick={() => { setOpen(false); onAdd(); }}><span className="acc-av plus">+</span><span className="acc-o-t"><b>Добавить аккаунт</b></span></button>
+      </div>}
+    </div>
+  );
+}
 // окно «Аккаунты»: все входы на этом устройстве, переключение одним нажатием (или клавишами 1–5)
 function AccSwitch({ cur, onClose, onAdd, onLogout }) {
   const [list, setList] = useState(() => { const a = accList(); return a.some((x) => x.id === cur.id) ? a : [{ id: cur.id, name: cur.name, username: cur.username }, ...a]; });
@@ -13843,13 +13890,9 @@ function AppInner() {
         <div className="logo">THERMO<span>•</span>ENGINEERING</div>
         <button type="button" className="hdr-search" title="Поиск по всей программе: объекты, товары, поставщики, мастера, действия (Ctrl+K)" onClick={() => { setPalette(true); setMobileMenuOpen(false); if (!finePtr) setHdrPeek(false); }}><Ic n="search" /><span>{lang === "uz" ? "Qidiruv…" : "Поиск…"}</span><kbd>Ctrl K</kbd></button>
         <div className="row hdr-user" style={{ gap: 8 }}>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontWeight: 700, fontSize: 13 }}>{currentUser.name || currentUser.username}</div>
-            <div className="xs mut">{lang === "uz" && ({ boss: "Rahbar", manager: "Menejer", driver: "Yetkazuvchi", designer: "Loyihachi" })[acc.id] || acc.label}</div>
-          </div>
+          <AccMini cur={currentUser} role={lang === "uz" && ({ boss: "Rahbar", manager: "Menejer", driver: "Yetkazuvchi", designer: "Loyihachi" })[acc.id] || acc.label} onAdd={() => { setMobileMenuOpen(false); setHdrPeek(false); addAccount(); }} />
           <button className="btn xs" onClick={toggleLang} title={lang === "ru" ? "Весь экран — латиницей (узбекская латиница)" : "Kirill yozuviga qaytish"} style={{ fontWeight: 800 }}>{lang === "ru" ? "UZ" : "RU"}</button>
           <button className="btn xs" onClick={toggleDark} title={darkMode ? "Светлая тема" : "Тёмная тема"}>{darkMode ? <Ic n="sun" s={15} /> : <Ic n="moon" s={15} />}</button>
-<button className="btn xs acc-btn" onClick={() => { setAccOpen(true); setMobileMenuOpen(false); if (!finePtr) setHdrPeek(false); }} title="Сменить аккаунт / добавить аккаунт"><Ic n="users" s={15} />{accList().length > 1 ? <span className="acc-n">{accList().length}</span> : null}</button>
           <button className="btn xs" onClick={doLogout} title={lang === "uz" ? "Chiqish" : "Выйти"}>{lang === "uz" ? "Chiqish" : "Выйти"}</button>
         </div>
         <div className={"tabs" + (mobileMenuOpen ? " open" : "")}>
@@ -13863,10 +13906,9 @@ function AppInner() {
           }} title={(g.title ? g.title + " · " : "") + "Alt+" + (allTabs.indexOf(t) === 9 ? 0 : allTabs.indexOf(t) + 1)}>{TAB_IC[t.id] && <Ic n={TAB_IC[t.id]} />}<span>{t.label}</span>{t.id === "usta" && ustaNew > 0 && <span className="tab-n">{ustaNew}</span>}</button>)}
           </React.Fragment>)}
           <div className="menu-extra">
-            <div style={{ marginRight: "auto" }}><b className="sm">{currentUser.name || currentUser.username}</b> <span className="xs mut">{lang === "uz" && ({ boss: "Rahbar", manager: "Menejer", driver: "Yetkazuvchi", designer: "Loyihachi" })[acc.id] || acc.label}</span></div>
+            <div style={{ marginRight: "auto" }}><AccMini inline cur={currentUser} role={lang === "uz" && ({ boss: "Rahbar", manager: "Menejer", driver: "Yetkazuvchi", designer: "Loyihachi" })[acc.id] || acc.label} onAdd={() => { setMobileMenuOpen(false); setHdrPeek(false); addAccount(); }} /></div>
             <button className="btn xs" onClick={toggleLang} style={{ fontWeight: 800 }}>{lang === "ru" ? "UZ" : "RU"}</button>
             <button className="btn xs" onClick={toggleDark}>{darkMode ? <Ic n="sun" s={15} /> : <Ic n="moon" s={15} />}</button>
-            <button className="btn xs" onClick={() => { setAccOpen(true); setMobileMenuOpen(false); setHdrPeek(false); }}><Ic n="users" s={15} /> {lang === "uz" ? "Akkauntlar" : "Аккаунты"}</button>
             <button className="btn xs" onClick={doLogout}>{lang === "uz" ? "Chiqish" : "Выйти"}</button>
             <label className="hdr-chk clk"><input type="checkbox" checked={!hdrOff} onChange={(e) => { setHdrOffSave(!e.target.checked); setMobileMenuOpen(false); }} /> Верхняя панель</label>
           </div>
