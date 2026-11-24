@@ -1099,9 +1099,9 @@ html.phone-boot .body,html.phone-boot .card,html.phone-boot .kpi{animation:none!
 /* ================= Дизайн 2 (ноябрь 2026): шапка, кнопки, поля, таблицы, окна, движение =================
    Настроение: надёжно, спокойно, быстро. Фирменный красный — только для главного действия и активного раздела. */
 /* шапка на компьютере (закреплена сверху): 1-я строка — логотип · заметки/чат/калькулятор · аккаунт; 2-я — разделы.
-   Края шапки совпадают с краями страницы (ширина .body 1300px) */
+   Края шапки совпадают с краями страницы (.body — на всю ширину, отступ 28px) */
 @media(min-width:821px){
-  .te.fine:not(.hdr-off) .hdr{padding:12px max(24px,calc((100% - 1300px)/2 + 24px)) 0;row-gap:10px;column-gap:8px;box-shadow:0 1px 0 rgba(0,0,0,.2)}
+  .te.fine:not(.hdr-off) .hdr{padding:12px 28px 0;row-gap:10px;column-gap:8px;box-shadow:0 1px 0 rgba(0,0,0,.2)}
   .te.fine:not(.hdr-off) .hdr .logo{order:0;margin-right:12px}
   .te.fine:not(.hdr-off) .hdr .npanel-btn{order:2;margin-left:auto}
   .te.fine:not(.hdr-off) .hdr .hdr-chat{order:3}
@@ -1120,7 +1120,7 @@ html.phone-boot .body,html.phone-boot .card,html.phone-boot .kpi{animation:none!
   .hdr{-webkit-app-region:drag;app-region:drag}
   .hdr button,.hdr a,.hdr input,.hdr select,.hdr label,.hdr .tabs,.hdr .tab,.hdr .hdr-user,.hdr .hdr-side,.hdr .burger{-webkit-app-region:no-drag;app-region:no-drag}
   .te .hdr{padding-right:max(22px,calc(100vw - env(titlebar-area-x,0px) - env(titlebar-area-width,100vw) + 12px))}
-  .te.fine:not(.hdr-off) .hdr{padding-right:max(24px,calc((100% - 1300px)/2 + 24px),calc(100vw - env(titlebar-area-x,0px) - env(titlebar-area-width,100vw) + 12px))}
+  .te.fine:not(.hdr-off) .hdr{padding-right:max(28px,calc(100vw - env(titlebar-area-x,0px) - env(titlebar-area-width,100vw) + 12px))}
   .te.hdr-off.fine.side .hdr{padding-top:calc(env(titlebar-area-height,0px) + 8px)}
   .te.hdr-off .body{padding-top:calc(env(titlebar-area-height,0px) + 14px)}
   .heatwin .nwin-head{min-height:env(titlebar-area-height,0px);padding-right:calc(100vw - env(titlebar-area-x,0px) - env(titlebar-area-width,100vw) + 8px);-webkit-app-region:drag;app-region:drag}
