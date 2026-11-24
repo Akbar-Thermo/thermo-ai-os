@@ -7959,7 +7959,6 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
       )}
       <div className="row sect">
         <h3 style={{ marginRight: "auto" }}>Финансовые операции</h3>
-        {canPay && <><button className="btn pay-btn sm2" onClick={payClient}><Ic n="cash" /> {pObj ? "+ Банковский платёж" : "+ Оплата клиента"}</button><span className="fo-sep" /></>}
         {OP_TYPES.filter((t) => (fin ? OBJECT_OP_TYPES : MANAGER_OP_TYPES).includes(t.id) && t.id !== "client_payment" && t.id !== "return").map((t) => <React.Fragment key={t.id}>
           <button className="btn xs" onClick={() => (t.id === "client_payment" && pObj ? setPerechPay(true) : setOpForm({ type: t.id }))}>+ {t.id === "client_payment" && pObj ? "Банковский платёж" : t.label}</button>
           {t.id === "discount" && (obj.items || []).length > 0 && <button className="btn xs" onClick={() => setPctForm(true)} title="Цена продажи = себестоимость ÷ (1 − %)">+ Прибыль от себестоимости</button>}
