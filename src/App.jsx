@@ -1434,6 +1434,27 @@ table.t tr:hover td{background:var(--hover)}
 .ph + .kpis{margin-top:-1px!important}
 .lr-bar .seg{flex:0 1 auto;flex-wrap:wrap;max-width:100%}
 .te.touch .hdr-user,.te.hdr-off.fine.side .hdr-user{grid-template-columns:auto auto auto 1fr!important}
+
+/* ================= Спокойные цвета (ноябрь 2026, по SAP Fiori Horizon, Fluent 2, Salesforce SLDS) =================
+   Правило: фон и почти весь интерфейс — нейтральные; один цвет действия (синий); красный / жёлтый / зелёный —
+   только там, где есть смысл (долг, ошибка, предупреждение, деньги). Цвет без смысла — не ставим. */
+.bdg{color:var(--txt)!important;background:var(--panel2)!important;border:1px solid var(--line)!important;font-weight:600;display:inline-flex;align-items:center;gap:6px;padding:1px 9px 1px 8px}
+.bdg::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--bc,var(--mut));flex:none}
+.ci-tag{background:transparent!important;color:var(--txt)!important;font-weight:600;padding:0 2px;display:inline-flex;align-items:center;gap:5px;opacity:.9}
+.ci-tag::before{content:"";width:7px;height:7px;border-radius:50%;flex:none;background:var(--warn)}
+.ci-tag.over::before{background:var(--bad)}
+.ci-tag.nosup::before{background:#3b82f6}
+.btn.objf-debt,.btn.objf-ci{color:var(--txt)!important;border-color:var(--line)!important;background:var(--panel)!important}
+.btn.objf-debt::before,.btn.objf-ci::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--bad);margin-right:6px;display:inline-block}
+.btn.objf-ci::before{background:var(--warn)}
+.btn.objf-debt.on,.btn.objf-ci.on{border-color:var(--acc)!important;background:var(--acc-tint)!important;color:var(--txt)!important}
+.btn.ci-chip{color:var(--txt)!important;border-color:var(--line)!important}
+.pay-card{background:var(--panel)!important;border:1px solid var(--line)!important;box-shadow:var(--shadow);border-left:4px solid var(--ok)!important}
+.pay-card.off{border-left-color:var(--line2)!important}
+.pay-card .pay-t{color:var(--mut)!important}
+.bot-tile .bot-ic{background:var(--panel2)!important;color:var(--mut)!important}
+.btn.pay-btn,.te.dark .btn.pay-btn{background:#2f855a!important;border-color:#2f855a!important;color:#fff!important}
+.btn.pay-btn:hover,.te.dark .btn.pay-btn:hover{background:#276749!important;border-color:#276749!important}
 `;
 
 /* ============ DATA LAYER = Supabase (db из ./db.js) ============ */
@@ -2557,7 +2578,8 @@ const IC = {"bot": "<path d=\"M12 8V4H8\"/><rect width=\"16\" height=\"12\" x=\"
 const Ic = ({ n, s, style, title, className = "" }) => <svg className={"ic " + className} width={s || "1.1em"} height={s || "1.1em"} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden={title ? undefined : "true"} role={title ? "img" : undefined} style={style} dangerouslySetInnerHTML={{ __html: (title ? "<title>" + title + "</title>" : "") + (IC[n] || "") }} />;
 const Badge = ({ c, children }) => {
   const col = String(c || "").startsWith("var(") ? c : BADGE_TONE[String(c || "").toLowerCase()] ? "var(" + BADGE_TONE[String(c).toLowerCase()] + ")" : c;
-  return <span className="bdg" style={{ color: col, borderColor: "color-mix(in srgb, " + col + " 35%, transparent)", background: "color-mix(in srgb, " + col + " 9%, transparent)" }}>{children}</span>;
+  // спокойный вид (как статусы в SAP Fiori / Linear): нейтральная плашка, цвет — только у точки
+  return <span className="bdg" style={{ "--bc": col }}>{children}</span>;
 };
 // недавно открытые объекты (у каждого сотрудника на этом устройстве): Ctrl+K и список «Объекты»
 const recentKey = () => "te:recent:" + ((CURRENT_USER && CURRENT_USER.id) || "");
@@ -7934,7 +7956,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
       )}
       <div className="kpis sect">
         <KPI l={f.clientExp > 0.004 ? "Сумма для клиента (нетто)" : "Сумма товара (нетто)"} v={f.saleNet} sub={f.retSale > 0.004 || Math.abs(f.discount) > 0.004 || f.clientExp > 0.004 ? "выдано товара " + fmt2(f.sale) + (f.retSale > 0.004 ? " − возвраты " + fmt2(f.retSale) : "") + (Math.abs(f.discount) > 0.004 ? " − скидка " + fmt2(f.discount) : "") + (f.clientExp > 0.004 ? " + доп. расходы клиенту " + fmt2(f.clientExp) : "") : null} />
-        <KPI l="Оплачено клиентом" v={f.paidClient} c="var(--ok)" />
+        <KPI l="Оплачено клиентом" v={f.paidClient} />
         {isLive(obj)
           ? <KPI l={f.clientDebt < 0 ? "Переплата клиента" : "Долг клиента"} v={Math.abs(f.clientDebt)} c={f.clientDebt > 0 ? "var(--bad)" : f.clientDebt < 0 ? "var(--txt)" : "var(--mut)"} />
           : <KPI l="Долг клиента — не учитывается" v={Math.max(0, f.clientDebt)} c="var(--mut)" />}
