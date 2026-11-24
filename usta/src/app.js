@@ -41,6 +41,36 @@
   // kompyuter: keng ekran — programmadagidek ko'rinish (shapka, jadval, o'ng panel); telefon — eskicha
   var DESK = window.matchMedia ? window.matchMedia("(min-width: 900px)") : { matches: false };
   var isDesk = function () { return !!DESK.matches; };
+  // ---------- tovarlar bazasi (programmadagi «Товары», narxsiz) — faqat kompyuterda va shaxsiy havola bilan ----------
+  // qidiruv programmadagidek: hamma so'zlar istalgan tartibda nomda/kodda/qo'shimcha nomlarda bo'lsa topiladi; lotincha ham («truba 25»)
+  var BASE = null, baseLoading = false;
+  var TR_MAP = { а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "j", з: "z", и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "x", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ъ: "", ы: "i", ь: "", э: "e", ю: "yu", я: "ya", ў: "o‘", қ: "q", ғ: "g‘", ҳ: "h" };
+  function translit(t) { return t.replace(/[а-яёўқғҳ]/g, function (c) { return TR_MAP[c] != null ? TR_MAP[c] : c; }); }
+  function baseText(r) {
+    var t = [r[1], r[5], r[4], r[3]].filter(Boolean).join(" ").toLowerCase().replace(/ё/g, "е");
+    return t + " " + t.replace(/[\s\-_."']+/g, "") + (/[а-яё]/.test(t) ? " " + translit(t) : "");
+  }
+  function loadBase() {
+    if (BASE || baseLoading || !S.me || !isDesk()) return;
+    baseLoading = true;
+    fetch(CFG.url + "/rest/v1/rpc/usta_catalog", {
+      method: "POST", headers: { "Content-Type": "application/json", apikey: CFG.key, Authorization: "Bearer " + CFG.key },
+      body: JSON.stringify({ p_key: S.key }),
+    }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+      baseLoading = false;
+      if (!Array.isArray(j) || !j.length) return;
+      BASE = j.map(function (r) { return { id: r[0], name: r[1], unit: r[2] || "шт", brand: r[3] || "", size: r[4] || "", t: baseText(r) }; });
+      if (isDesk()) { var c = $("bCat"); if (c) c.style.display = "none"; var q = $("q"); if (q) q.placeholder = T("searchPhBase"); renderSug(); }
+    }).catch(function () { baseLoading = false; });
+  }
+  function baseFind(q) {
+    var w = q.toLowerCase().replace(/ё/g, "е").trim().split(/\s+/).filter(Boolean);
+    if (!w.length) return [];
+    var out = [];
+    for (var i = 0; i < BASE.length; i++) { var t = BASE[i].t, ok = true; for (var k = 0; k < w.length; k++) if (t.indexOf(w[k]) < 0) { ok = false; break; } if (ok) out.push(BASE[i]); }
+    return out;
+  }
+  function fromBase(p) { return { name: p.name, vars: [], size: "", qty: null, unit: p.unit, raw: "", known: true, cat: "", ii: -1, pid: p.id, brand: [p.brand, p.size].filter(Boolean).join(" · ") }; }
   var digits = function (p) { return String(p || "").replace(/\D/g, ""); };
   function toast(msg) {
     var t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t);
@@ -100,7 +130,7 @@
         e.preventDefault(); S.hi = ((S.hi || 0) + (e.key === "ArrowDown" ? 1 : -1) + n) % n; paintHi(); return;
       }
       if (isDesk() && e.key === "Escape") { q.value = ""; renderSug(); return; }
-      if (e.key === "Enter") { e.preventDefault(); if (isDesk()) pickK(S.hi || 0); else acceptTop(); }
+      if (e.key === "Enter") { e.preventDefault(); if (isDesk()) { var hi = S.hi || 0; pickK(BASE && hi >= Math.min(baseHits.length, BASE_SHOW) ? 99999 : hi); } else acceptTop(); }
     };
     q.onpaste = function (e) {
       var txt = (e.clipboardData || window.clipboardData).getData("text") || "";
@@ -111,6 +141,8 @@
     $("bSend").onclick = send;
     renderWho(); renderSecs(); renderList(); renderSug(); renderLists();
     if (isDesk() && !S.lines.length) setTimeout(function () { var q = $("q"); if (q) q.focus(); }, 0);
+    if (isDesk() && BASE) { var bc = $("bCat"); if (bc) bc.style.display = "none"; $("q").placeholder = T("searchPhBase"); }
+    loadBase();
   }
   if (DESK.addEventListener) DESK.addEventListener("change", function () { closeSheet(); shell(); });
   // ---------- bo'limlar (qavat, xona…) va «Jami» ----------
@@ -149,7 +181,7 @@
   function totals() {
     var out = [];
     S.lines.forEach(function (l) {
-      var key = (l.known ? "k:" : "f:") + lineLabel(l).toLowerCase() + "|" + (l.unit || "");
+      var key = (l.pid ? "p:" + l.pid : (l.known ? "k:" : "f:") + lineLabel(l).toLowerCase()) + "|" + (l.unit || "");
       var t = out.find(function (x) { return x._k === key; });
       if (t) { t.qty = Math.round(((Number(t.qty) || 0) + (Number(l.qty) || 0)) * 1000) / 1000; t.n++; }
       else out.push(Object.assign({}, l, { _k: key, n: 1, sec: "" }));
@@ -196,7 +228,7 @@
   }
   // kompyuter: jadval qatori — soni shu yerning o'zida yoziladi (12+8+6 ham), Enter — keyingi tovarni yozishga qaytadi
   function lineDesk(l, i, ro) {
-    var sub = [(l.vars || []).filter(Boolean).join(" "), l.size].filter(Boolean).join(" · ");
+    var sub = [(l.vars || []).filter(Boolean).join(" "), l.size, l.brand].filter(Boolean).join(" · ");
     if (ro && l.n > 1) sub += (sub ? " · " : "") + T("fromSecs").replace("{n}", l.n);
     var qv = l.expr && isExpr(l.expr) ? l.expr : l.qty ? fmtQ(l.qty) : "";
     return '<tr class="ln dr' + (l.known ? "" : " unk") + (ro ? " ro" : "") + (S.fresh === l.id ? " fresh" : "") + '" data-id="' + l.id + '"><td class="c-n">' + (i + 1) + "</td>" +
@@ -292,7 +324,7 @@
     l.id = l.id || uid();
     if (l.sec == null) l.sec = S.cur || "";
     if (S.view === "total") S.view = "list";
-    var same = l.known && S.lines.find(function (x) { return x.known && (x.sec || "") === (l.sec || "") && lineLabel(x) === lineLabel(l) && x.unit === l.unit; });
+    var same = l.known && S.lines.find(function (x) { return x.known && (x.sec || "") === (l.sec || "") && (x.pid || "") === (l.pid || "") && lineLabel(x) === lineLabel(l) && x.unit === l.unit; });
     if (same) { same.qty = (Number(same.qty) || 0) + (Number(l.qty) || 0) || null; same.expr = ""; S.fresh = same.id; S.lastId = same.id; }
     else { S.lines.push(l); S.fresh = l.id; S.lastId = l.id; }
     save(); renderList();
@@ -310,8 +342,10 @@
     return { name: name, vars: [], size: "", qty: P.qty, unit: P.unit || "шт", raw: text, known: false, cat: "", ii: -1 };
   }
   function paintHi() { $("sug").querySelectorAll(".fr").forEach(function (r, i) { r.classList.toggle("on", i === S.hi); if (i === S.hi && r.scrollIntoView) r.scrollIntoView({ block: "nearest" }); }); }
+  var baseHits = [];
   function pickK(k) {
     var q = $("q").value; if (q.trim().length < 2) return;
+    if (BASE) { var p = baseHits[k]; takeDesk(p ? fromBase(p) : freeLine(q)); return; }
     var l = k < lastRes.length ? fromResult(lastRes[k], q) : freeLine(q);
     takeDesk(l);
   }
@@ -319,27 +353,49 @@
   function takeDesk(l) {
     var it = l.ii >= 0 ? E.items[l.ii] : null;
     if (it && it.sizes.length && !l.size) { clearInput(); openPicker(l, true); return; }
-    if (l.qty) { addLine(l); clearInput(); $("q").focus(); return; }
+    if (l.qty) { addLine(l); backToSearch(); return; }
     S.pend = l; renderSug();
   }
+  // programmadagidek: qo'shilgandan keyin qidiruv matni belgilangan holda qoladi — ro'yxatdan keyingisini olish yoki yangisini yozish mumkin
+  function backToSearch() { var q = $("q"); if (!q) return; q.focus(); if (BASE) { q.select(); renderSug(); } else clearInput(); }
   function renderPend() {
     var l = S.pend, box = $("sug");
-    box.innerHTML = '<div class="fpend"><b>' + esc(lineLabel(l)) + (l.known ? "" : ' <span class="sub w">' + esc(T("unknown")) + "</span>") + '</b><div class="row" style="margin-top:8px;gap:8px">' +
+    box.innerHTML = '<div class="fpend"><b>' + esc(lineLabel(l)) + (l.known ? "" : ' <span class="sub w">' + esc(T("unknown")) + "</span>") + '</b>' + (l.brand ? '<div class="sub">' + esc(l.brand) + "</div>" : "") + '<div class="row" style="margin-top:8px;gap:8px">' +
       '<span class="mut">' + esc(T("qty")) + ':</span><input class="inp" id="pq" autocomplete="off" placeholder="0" style="width:120px"><span class="mut">' + esc(l.unit || "") + "</span>" +
       '<button class="btn pri" id="pqOk">' + esc(T("add")) + '</button><button class="btn" id="pqNo">' + esc(T("cancel")) + '</button><b class="res" id="pqRes"></b></div>' +
       '<div class="xs mut" style="margin-top:6px">' + esc(T("pendHint")) + "</div></div>";
     var pq = $("pq"), res = $("pqRes");
-    var ok = function () { var v = pq.value.trim(), n = calcQty(v); if (!n) { pq.classList.add("bad"); pq.focus(); return; } l.qty = n; l.expr = isExpr(v) ? v : ""; S.pend = null; addLine(l); clearInput(); $("q").focus(); };
+    var ok = function () { var v = pq.value.trim(), n = calcQty(v); if (!n) { pq.classList.add("bad"); pq.focus(); return; } l.qty = n; l.expr = isExpr(v) ? v : ""; S.pend = null; addLine(l); backToSearch(); };
     var no = function () { S.pend = null; renderSug(); $("q").focus(); };
     pq.oninput = function () { pq.classList.remove("bad"); res.textContent = isExpr(pq.value) ? "= " + fmtQ(calcQty(pq.value)) : ""; };
     pq.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); ok(); } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); no(); } };
     $("pqOk").onclick = ok; $("pqNo").onclick = no;
-    setTimeout(function () { pq.focus(); }, 0);
+    if (l.pid) pq.value = "1";
+    pq.focus(); pq.select();
+  }
+  var BASE_SHOW = 150;
+  function renderSugBase(q, box) {
+    baseHits = baseFind(q);
+    if (S.hi == null || S.hi > baseHits.length) S.hi = 0;
+    var shown = baseHits.slice(0, BASE_SHOW);
+    var html = '<div class="fhd">' + (baseHits.length ? esc(T("found")) + ": " + baseHits.length : esc(T("notFoundBase"))) + (baseHits.length > BASE_SHOW ? " · " + esc(T("showFirst").replace("{n}", BASE_SHOW)) : "") + "</div>";
+    html += shown.map(function (p, i) {
+      var sub = [p.brand, p.size, p.unit].filter(Boolean).join(" · ");
+      return '<div class="fr' + (i === S.hi ? " on" : "") + '" data-k="' + i + '"><b>' + esc(p.name) + '</b><div class="sub">' + esc(sub) + "</div></div>";
+    }).join("");
+    html += '<div class="fr free' + (S.hi === shown.length ? " on" : "") + '" data-k="' + (baseHits.length > BASE_SHOW ? 99999 : shown.length) + '"><b>«' + esc(q.trim()) + '»</b><div class="sub">' + esc(T("keepFreeBase")) + "</div></div>";
+    box.innerHTML = html;
+    box.querySelectorAll(".fr").forEach(function (r, i) {
+      r.onmousedown = function (e) { e.preventDefault(); };
+      r.onmousemove = function () { if (S.hi !== i) { S.hi = i; paintHi(); } };
+      r.onclick = function () { S.hi = i; pickK(i < shown.length ? i : 99999); };
+    });
   }
   function renderSugDesk() {
     var q = $("q").value, box = $("sug");
     if (S.pend) return renderPend();
-    if (q.trim().length < 2) { box.innerHTML = ""; lastRes = []; return; }
+    if (q.trim().length < 2) { box.innerHTML = ""; lastRes = []; baseHits = []; return; }
+    if (BASE) return renderSugBase(q, box);
     var res = E.suggest(q, 12), top = res[0] ? res[0].score : 0;
     lastRes = res.filter(function (r) { return r.score >= 0.55 && r.score >= top - 0.4; }).slice(0, 8);
     if (S.hi == null || S.hi > lastRes.length) S.hi = 0;
@@ -444,6 +500,8 @@
         } else {
           h += '<input class="inp" id="pSize" placeholder="' + esc(T("size")) + " (" + esc(T("otherSize")) + ')" value="' + esc(l.size) + '" style="margin-top:10px">';
         }
+      } else if (l.pid) {
+        h += "<h3>" + esc(l.name) + "</h3>" + (l.brand ? '<div class="d">' + esc(l.brand) + "</div>" : "");
       } else {
         h += '<h3>' + esc(T("unknown")) + "</h3>";
         h += '<input class="inp" id="pText" value="' + esc(l.name) + '" maxlength="200">';
@@ -596,7 +654,7 @@
     S.sending = true; renderSend();
     // bizga — jami (hamma bo'limlar qo'shilgan); bo'limlar faqat ustaning o'zida qoladi
     var payload = { key: S.me ? S.key : "", name: S.who.name.trim(), phone: S.who.phone.trim(), object: S.object.trim(), note: S.note.trim(), lines: totals().map(function (l) {
-      return { name: l.name, vars: (l.vars || []).filter(Boolean).join(" "), size: l.size || "", qty: String(l.qty), unit: l.unit || "", raw: l.raw || "", known: !!l.known, cat: l.cat || "" };
+      return { name: l.name, vars: (l.vars || []).filter(Boolean).join(" "), size: l.size || "", qty: String(l.qty), unit: l.unit || "", raw: l.raw || "", known: !!l.known, cat: l.cat || "", pid: l.pid || "" };
     }) };
     fetch(CFG.url + "/rest/v1/rpc/usta_submit", {
       method: "POST", headers: { "Content-Type": "application/json", apikey: CFG.key, Authorization: "Bearer " + CFG.key },
@@ -639,7 +697,7 @@
       method: "POST", headers: { "Content-Type": "application/json", apikey: CFG.key, Authorization: "Bearer " + CFG.key },
       body: JSON.stringify({ p_key: S.key }),
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (x) {
-      if (x.ok && x.j && x.j.name) { S.me = { name: x.j.name, phone: x.j.phone || "" }; S.keyBad = false; store(K.key, S.key); S.editWho = false; renderWho(); return; }
+      if (x.ok && x.j && x.j.name) { S.me = { name: x.j.name, phone: x.j.phone || "" }; S.keyBad = false; store(K.key, S.key); S.editWho = false; renderWho(); loadBase(); return; }
       if (/usta_key/.test(String((x.j && x.j.message) || ""))) keyLost();
     }).catch(function () { /* internet yo'q — keyin yuborishda tekshiriladi */ if (S.key) { S.me = S.me || null; } });
   }

@@ -68,7 +68,8 @@ begin
       'unit', left(coalesce(e->>'unit', ''), 10),
       'raw', left(coalesce(e->>'raw', ''), 200),
       'known', coalesce(e->>'known', '') = 'true',
-      'cat', left(coalesce(e->>'cat', ''), 20)));
+      'cat', left(coalesce(e->>'cat', ''), 20),
+      'pid', case when coalesce(e->>'pid', '') ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then e->>'pid' else null end));
   end loop;
   if jsonb_array_length(clean) = 0 then raise exception 'usta_lines'; end if;
   insert into public.usta_lists(usta_name, usta_phone, object_text, note, lines, master_id)

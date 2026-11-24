@@ -5464,8 +5464,9 @@ function RequestExcelImport({ products, onClose, onAdd, preset = null }) {
     { id: "code", label: "Код / артикул", kw: ["код", "артикул", "code", "sku"] },
   ];
   // preset — список мастера («От мастеров»): строки уже разобраны, файл не нужен
-  const [rows, setRows] = useState(() => (preset ? [["Наименование", "Количество", "Ед. изм.", "Размер"], ...(preset.lines || []).map((l) => [ustaLineText(l).replace(/\s*\([^)]*\)/g, ""), l.qty, l.unit, ""])] : null));
-  const [map, setMap] = useState(() => (preset ? { name: 0, qty: 1, unit: 2, size: 3 } : {}));
+  // строка мастера, выбранная им из нашей базы (pid), — сразу этот товар; остальные — подбор по названию
+  const [rows, setRows] = useState(() => (preset ? [["Наименование", "Количество", "Ед. изм.", "Размер", "pid"], ...(preset.lines || []).map((l) => [l.pid ? l.name : ustaLineText(l).replace(/\s*\([^)]*\)/g, ""), l.qty, l.unit, "", l.pid || ""])] : null));
+  const [map, setMap] = useState(() => (preset ? { name: 0, qty: 1, unit: 2, size: 3, pid: 4 } : {}));
   const [hasHeader, setHasHeader] = useState(true);
   const [fname, setFname] = useState(() => (preset ? "Список мастера №" + preset.num + (preset.who ? " · " + preset.who : "") : ""));
   const [err, setErr] = useState("");
@@ -5519,7 +5520,10 @@ function RequestExcelImport({ products, onClose, onAdd, preset = null }) {
     const name = String(cell(row, "name") || "").trim();
     if (!name || map.name == null) return null;
     const size = String(cell(row, "size") || "").trim();
-    const cands = matcher(name + (size ? " " + size : ""), cell(row, "code"));
+    let cands = matcher(name + (size ? " " + size : ""), cell(row, "code"));
+    const pid = map.pid != null ? String(cell(row, "pid") || "") : "";
+    const pp = pid ? products.find((x) => x.id === pid) : null;
+    if (pp) cands = [{ p: pp, score: 1 }, ...cands.filter((c) => c.p.id !== pid)];
     const best = cands[0];
     const auto = best && best.score >= MATCH_MIN ? best.p.id : "";
     return { i, name, size, unit: String(cell(row, "unit") || "").trim(), qty: map.qty != null ? num(cell(row, "qty")) || 1 : 1, cands, auto };
