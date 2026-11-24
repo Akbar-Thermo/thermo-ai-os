@@ -13,7 +13,7 @@ button,input,select{font:inherit;color:inherit}
 .tab.on{color:var(--ink);border-bottom-color:var(--accent-2)}
 .tab:hover{color:var(--ink)}
 main{max-width:none;margin:0;padding:20px 24px 60px}
-.cols{display:grid;grid-template-columns:minmax(330px,430px) minmax(0,1fr);gap:20px;align-items:start}
+.cols{display:grid;grid-template-columns:minmax(330px,36%) minmax(0,1fr);gap:20px;align-items:start}
 .out{position:sticky;top:12px;display:flex;flex-direction:column;gap:16px;min-width:0}
 .form{display:flex;flex-direction:column;gap:16px;min-width:0}
 .single{max-width:760px}
