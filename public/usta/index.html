@@ -220,6 +220,8 @@ table.dt tr.ln td{background:var(--panel)}
 table.dt tr.ln.unk td{background:var(--warn-t)}
 table.dt tr.ln .t{display:table-cell;flex:none;min-width:240px}
 table.dt tr.ln .n{width:auto;text-align:left}
+.pvbar{position:sticky;top:0;z-index:40;background:var(--warn-t);color:var(--warn);border-bottom:1px solid color-mix(in srgb,var(--warn) 35%,transparent);text-align:center;font-size:13px;font-weight:650;padding:8px 12px}
+body.desk .pvbar~.dk .dh{top:34px}
 </style></head>
 <body><div id="app"></div>
 <script>window.USTA_CFG = {"url": "https://ettbatawccumoqrrtyql.supabase.co", "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0dGJhdGF3Y2N1bW9xcnJ0eXFsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzNDM0NjYsImV4cCI6MjA5NjkxOTQ2Nn0.mi5bv7nWHcJS6sL_dunlv97PLbddwy5NFId03utv_XE"};</script>
@@ -786,6 +788,7 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     errPhone: "Telefon raqami noto'g'ri", pasteT: "Ro'yxatni joylang", pasteD: "Telegramdagi ro'yxatingizni nusxalab shu yerga joylang — har bir qator alohida tovar bo'ladi.",
     pasteBtn: "Ro'yxatga qo'shish", back: "Orqaga", search: "Qidirish", clear: "Ro'yxatni tozalash", clearQ: "Ro'yxat butunlay o'chirilsinmi?",
     searchPhBase: "Tovar qidirish — nomi yoki kodi bo'yicha, yozishni boshlang…", notFoundBase: "Bazada topilmadi", showFirst: "dastlabki {n} tasi ko'rsatilgan, aniqroq yozing", keepFreeBase: "bazada yo'q — shunday yozib qo'shish",
+    previewBar: "Ko'rish rejimi — usta shu sahifani ko'radi. «Yuborish» bosilsa hech narsa yuborilmaydi.", previewSentT: "Ko'rish rejimi: yuborilmadi", previewSentD: "Usta «Yuborish»ni bossa, bizga shu ro'yxat keladi:",
     colItem: "Tovar", unitCol: "Birlik", pickT: "Tovar tanlash", searchPh: "Tovar qidirish — yozishni boshlang: truba 25, kran 1/2…", found: "Topildi", notFound: "Katalogda topilmadi", keepFree: "katalogda yo'q — shunday yozib qo'shish", manualAdd: "qo'lda qo'shish (katalogda yo'q)", positions: "Pozitsiyalar", phone: "Telefon",
     pendHint: "Enter — qo'shish va keyingisini qidirish · Esc — ro'yxatga qaytish · 12+8+6 kabi hisoblash ham bo'ladi",
     emptyDk: "Ro'yxat bo'sh. Tepada tovarni qidiring (↑ ↓ bilan tanlab, Enter), katalogdan oling yoki matnni joylang.", myLink: "shaxsiy havola", keyBad: "Bu havola eskirgan yoki noto'g'ri. Rahbardan yangi havola so'rang — hozircha ism va telefon bilan yuborish mumkin.",
@@ -812,6 +815,7 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     errPhone: "Неверный номер телефона", pasteT: "Вставьте список", pasteD: "Скопируйте свой список из Telegram и вставьте сюда — каждая строка станет отдельным товаром.",
     pasteBtn: "Добавить в список", back: "Назад", search: "Поиск", clear: "Очистить список", clearQ: "Удалить весь список?",
     searchPhBase: "Поиск товара по названию / коду — начните вводить…", notFoundBase: "Ничего не найдено", showFirst: "показаны первые {n}, уточните запрос", keepFreeBase: "нет в базе — добавить как написано",
+    previewBar: "Режим просмотра — так страницу видит мастер. «Отправить» здесь ничего не отправляет.", previewSentT: "Режим просмотра: не отправлено", previewSentD: "Если мастер нажмёт «Отправить», к нам придёт такой список:",
     colItem: "Товар", unitCol: "Ед.", pickT: "Подбор товаров", searchPh: "Поиск товара — начните вводить: труба 25, кран 1/2…", found: "Найдено", notFound: "В каталоге не найдено", keepFree: "нет в каталоге — добавить как написано", manualAdd: "добавить позицию вручную (нет в каталоге)", positions: "Позиций", phone: "Телефон",
     pendHint: "Enter — добавить и искать дальше · Esc — назад к списку · можно считать: 12+8+6",
     emptyDk: "Список пуст. Найдите товар через поиск выше (↑ ↓ и Enter), возьмите из каталога или вставьте текст.", myLink: "личная ссылка", keyBad: "Эта ссылка устарела или неверна. Попросите новую у руководителя — пока можно отправить с именем и телефоном.",
@@ -826,7 +830,10 @@ if (typeof module !== "undefined") module.exports = ENGINE;
 (function () {
   var CFG = window.USTA_CFG || {};
   var E = ENGINE;
-  var K = { draft: "usta.v1.draft", who: "usta.v1.who", lang: "usta.v1.lang", hist: "usta.v1.hist", key: "usta.v1.key", lists: "usta.v1.lists" };
+  // ?preview=1 — rahbar ustaning sahifasini oldindan ko'radi: hech narsa yuborilmaydi, ma'lumot alohida saqlanadi
+  var PREVIEW = /[?&]preview=1\b/.test(location.search);
+  var KP = PREVIEW ? "usta.pv." : "usta.v1.";
+  var K = { draft: KP + "draft", who: KP + "who", lang: "usta.v1.lang", hist: KP + "hist", key: KP + "key", lists: KP + "lists" };
   var load = function (k, d) { try { var v = JSON.parse(localStorage.getItem(k) || "null"); return v == null ? d : v; } catch (e) { return d; } };
   var store = function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
   var uid = function () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); };
@@ -909,6 +916,7 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     document.title = T("title") + " — Thermo";
     document.body.classList.toggle("desk", isDesk());
     if (isDesk()) $("app").innerHTML =
+      (PREVIEW ? '<div class="pvbar">' + esc(T("previewBar")) + "</div>" : "") +
       '<div class="dk"><header class="dh"><div class="dlogo">THERMO<span>•</span>ENGINEERING</div><div class="dtt">' + esc(T("title")) + '</div>' +
       '<div class="dwho" id="who"></div>' +
       '<div class="lang"><button data-l="uz" class="' + (S.lang === "uz" ? "on" : "") + '">UZ</button><button data-l="ru" class="' + (S.lang === "ru" ? "on" : "") + '">RU</button></div></header>' +
@@ -924,6 +932,7 @@ if (typeof module !== "undefined") module.exports = ENGINE;
       '<div class="row dact"><button class="btn" id="bClear">' + esc(T("clear")) + '</button><button class="btn pri" id="bSend"></button></div>' +
       '</div></div></div>';
     else $("app").innerHTML =
+      (PREVIEW ? '<div class="pvbar">' + esc(T("previewBar")) + "</div>" : "") +
       '<div class="wrap">' +
       '<div class="top"><div class="logo">T</div><div><h1>' + esc(T("title")) + '</h1><div class="s">' + esc(T("sub")) + '</div></div>' +
       '<div class="lang"><button data-l="uz" class="' + (S.lang === "uz" ? "on" : "") + '">UZ</button><button data-l="ru" class="' + (S.lang === "ru" ? "on" : "") + '">RU</button></div></div>' +
@@ -1476,6 +1485,7 @@ if (typeof module !== "undefined") module.exports = ENGINE;
       if (isDesk()) { if (S.view === "total") { S.view = "list"; renderSecs(); renderList(); } var f = document.querySelector('.ln[data-id="' + noQ.id + '"] .qin'); if (f) { f.focus(); return; } }
       openPicker(noQ, false); return;
     }
+    if (PREVIEW) { sent("—", listText("")); return; }
     S.sending = true; renderSend();
     // bizga — jami (hamma bo'limlar qo'shilgan); bo'limlar faqat ustaning o'zida qoladi
     var payload = { key: S.me ? S.key : "", name: S.who.name.trim(), phone: S.who.phone.trim(), object: S.object.trim(), note: S.note.trim(), lines: totals().map(function (l) {
@@ -1500,6 +1510,10 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     }).catch(function () { S.sending = false; renderSend(); toast(T("err")); });
   }
   function sent(num, text) {
+    if (PREVIEW) {
+      sheet('<h3>' + esc(T("previewSentT")) + '</h3><div class="d">' + esc(T("previewSentD")) + '</div><textarea class="inp" readonly style="min-height:220px;font-size:13px">' + esc(text) + '</textarea><div class="acts"><button class="btn pri" id="pvOk">OK</button></div>', function () { $("pvOk").onclick = closeSheet; });
+      return;
+    }
     sheet('<div class="center"><div class="ok-ic">✓</div><h3>' + esc(T("sentT")) + '</h3><div class="d" style="margin:0">' + esc(T("sentD")) + '</div><div class="num">№' + esc(num) + "</div></div>" +
       '<button class="btn pri big" id="sTg">' + esc(T("share")) + '</button><div class="acts"><button class="btn" id="sCopy">' + esc(T("copy")) + '</button><button class="btn" id="sNew">' + esc(T("newList")) + "</button></div>", function () {
       $("sTg").onclick = function () {

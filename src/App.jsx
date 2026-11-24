@@ -9304,6 +9304,7 @@ function MasterUstaCard({ m, toast }) {
           <input className="inp mono" readOnly value={link} onFocus={(e) => e.target.select()} />
           <button className="btn pri" onClick={copy}><Ic n="copy" /> Копировать</button>
           <button className="btn" onClick={share}>Отправить</button>
+          <a className="btn" href={link + (link.includes("?") ? "&" : "?") + "preview=1"} target="_blank" rel="noreferrer" title="Открыть страницу так, как её видит мастер. В этом режиме «Отправить» ничего не отправляет.">Посмотреть как мастер</a>
         </div>
         <div className="row xs mut" style={{ marginTop: 6, gap: 8 }}>
           <span style={{ marginRight: "auto" }}>Мастер открывает ссылку — без логина и пароля. Имя и телефон подставятся сами, списки придут сюда от его имени.</span>

@@ -215,3 +215,5 @@ table.dt tr.ln td{background:var(--panel)}
 table.dt tr.ln.unk td{background:var(--warn-t)}
 table.dt tr.ln .t{display:table-cell;flex:none;min-width:240px}
 table.dt tr.ln .n{width:auto;text-align:left}
+.pvbar{position:sticky;top:0;z-index:40;background:var(--warn-t);color:var(--warn);border-bottom:1px solid color-mix(in srgb,var(--warn) 35%,transparent);text-align:center;font-size:13px;font-weight:650;padding:8px 12px}
+body.desk .pvbar~.dk .dh{top:34px}

@@ -2,7 +2,10 @@
 (function () {
   var CFG = window.USTA_CFG || {};
   var E = ENGINE;
-  var K = { draft: "usta.v1.draft", who: "usta.v1.who", lang: "usta.v1.lang", hist: "usta.v1.hist", key: "usta.v1.key", lists: "usta.v1.lists" };
+  // ?preview=1 — rahbar ustaning sahifasini oldindan ko'radi: hech narsa yuborilmaydi, ma'lumot alohida saqlanadi
+  var PREVIEW = /[?&]preview=1\b/.test(location.search);
+  var KP = PREVIEW ? "usta.pv." : "usta.v1.";
+  var K = { draft: KP + "draft", who: KP + "who", lang: "usta.v1.lang", hist: KP + "hist", key: KP + "key", lists: KP + "lists" };
   var load = function (k, d) { try { var v = JSON.parse(localStorage.getItem(k) || "null"); return v == null ? d : v; } catch (e) { return d; } };
   var store = function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
   var uid = function () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); };
@@ -85,6 +88,7 @@
     document.title = T("title") + " — Thermo";
     document.body.classList.toggle("desk", isDesk());
     if (isDesk()) $("app").innerHTML =
+      (PREVIEW ? '<div class="pvbar">' + esc(T("previewBar")) + "</div>" : "") +
       '<div class="dk"><header class="dh"><div class="dlogo">THERMO<span>•</span>ENGINEERING</div><div class="dtt">' + esc(T("title")) + '</div>' +
       '<div class="dwho" id="who"></div>' +
       '<div class="lang"><button data-l="uz" class="' + (S.lang === "uz" ? "on" : "") + '">UZ</button><button data-l="ru" class="' + (S.lang === "ru" ? "on" : "") + '">RU</button></div></header>' +
@@ -100,6 +104,7 @@
       '<div class="row dact"><button class="btn" id="bClear">' + esc(T("clear")) + '</button><button class="btn pri" id="bSend"></button></div>' +
       '</div></div></div>';
     else $("app").innerHTML =
+      (PREVIEW ? '<div class="pvbar">' + esc(T("previewBar")) + "</div>" : "") +
       '<div class="wrap">' +
       '<div class="top"><div class="logo">T</div><div><h1>' + esc(T("title")) + '</h1><div class="s">' + esc(T("sub")) + '</div></div>' +
       '<div class="lang"><button data-l="uz" class="' + (S.lang === "uz" ? "on" : "") + '">UZ</button><button data-l="ru" class="' + (S.lang === "ru" ? "on" : "") + '">RU</button></div></div>' +
@@ -652,6 +657,7 @@
       if (isDesk()) { if (S.view === "total") { S.view = "list"; renderSecs(); renderList(); } var f = document.querySelector('.ln[data-id="' + noQ.id + '"] .qin'); if (f) { f.focus(); return; } }
       openPicker(noQ, false); return;
     }
+    if (PREVIEW) { sent("—", listText("")); return; }
     S.sending = true; renderSend();
     // bizga — jami (hamma bo'limlar qo'shilgan); bo'limlar faqat ustaning o'zida qoladi
     var payload = { key: S.me ? S.key : "", name: S.who.name.trim(), phone: S.who.phone.trim(), object: S.object.trim(), note: S.note.trim(), lines: totals().map(function (l) {
@@ -676,6 +682,10 @@
     }).catch(function () { S.sending = false; renderSend(); toast(T("err")); });
   }
   function sent(num, text) {
+    if (PREVIEW) {
+      sheet('<h3>' + esc(T("previewSentT")) + '</h3><div class="d">' + esc(T("previewSentD")) + '</div><textarea class="inp" readonly style="min-height:220px;font-size:13px">' + esc(text) + '</textarea><div class="acts"><button class="btn pri" id="pvOk">OK</button></div>', function () { $("pvOk").onclick = closeSheet; });
+      return;
+    }
     sheet('<div class="center"><div class="ok-ic">✓</div><h3>' + esc(T("sentT")) + '</h3><div class="d" style="margin:0">' + esc(T("sentD")) + '</div><div class="num">№' + esc(num) + "</div></div>" +
       '<button class="btn pri big" id="sTg">' + esc(T("share")) + '</button><div class="acts"><button class="btn" id="sCopy">' + esc(T("copy")) + '</button><button class="btn" id="sNew">' + esc(T("newList")) + "</button></div>", function () {
       $("sTg").onclick = function () {
