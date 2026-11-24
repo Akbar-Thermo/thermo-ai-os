@@ -1502,9 +1502,7 @@ table.t tr:hover td{background:var(--hover)}
 /* без «свечения»: у кнопок и полей нет цветных теней — только ровный цвет и тонкая рамка */
 .btn.pri,.te.dark .btn.pri,.btn.pri:hover,.te.dark .btn.pri:hover{box-shadow:none!important;background-image:none!important}
 .tab.on,.tab.on:hover{box-shadow:none!important}
-.inp:focus,.te .inp:focus{box-shadow:none!important;border-color:var(--acc)!important}
-/* маленькие поля-выборы внутри текста (мастер, статус в шапке объекта): без синей рамки при нажатии — как обычный текст */
-.ph select.inp:focus,.ph select.inp:focus-visible{border-color:var(--line2)!important;outline:none!important}
+.inp:focus,.te .inp:focus{box-shadow:0 0 0 1px var(--acc)!important}
 .btn:focus-visible,.tab:focus-visible,.obj-m:focus-visible,.cfm-box .btn:focus{box-shadow:none!important;outline:2px solid var(--acc)!important;outline-offset:1px}
 .btn.pay-btn,.te.dark .btn.pay-btn{box-shadow:none!important}
 /* никаких «таблеток»: шаги, метки, счётчики, переключатели — прямоугольные с мягкими углами */
