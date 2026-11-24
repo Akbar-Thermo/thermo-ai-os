@@ -2524,6 +2524,10 @@ const Badge = ({ c, children }) => {
   const col = String(c || "").startsWith("var(") ? c : BADGE_TONE[String(c || "").toLowerCase()] ? "var(" + BADGE_TONE[String(c).toLowerCase()] + ")" : c;
   return <span className="bdg" style={{ color: col, borderColor: "color-mix(in srgb, " + col + " 35%, transparent)", background: "color-mix(in srgb, " + col + " 9%, transparent)" }}>{children}</span>;
 };
+// недавно открытые объекты (у каждого сотрудника на этом устройстве): Ctrl+K и список «Объекты»
+const recentKey = () => "te:recent:" + ((CURRENT_USER && CURRENT_USER.id) || "");
+const recentGet = () => { try { const a = JSON.parse(localStorage.getItem(recentKey()) || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; } };
+const recentPush = (id) => { if (!id) return; try { localStorage.setItem(recentKey(), JSON.stringify([id, ...recentGet().filter((x) => x !== id)].slice(0, 8))); } catch (e) {} };
 /* ============ КЛАВИАТУРА ============
    Экран регистрирует свои действия (useHotActions): Alt+буква — сразу, все — в «Быстром переходе» (Ctrl+K).
    code — физическая клавиша (KeyN…): работает в любой раскладке (рус/лат). */
@@ -7106,6 +7110,11 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
           onClick={() => { if (pF === "debt") setPF(""); else { setPF("debt"); sortBy("debt", -1); } }}>Должники: {nDebt.length} · {fmt(sumDebt)}</button>}
         {nCi > 0 && <button className={"btn xs objf-ci" + (pF === "cost" ? " on" : "")} title="Объекты, где есть позиции без себестоимости, с себестоимостью выше цены продажи или без поставщика" onClick={() => setPF(pF === "cost" ? "" : "cost")}>⚠ Проверить: {nCi}</button>}
       </div>
+      {!q && !mF && !sF && !pF && (() => { const byId = new Map(objects.map((o) => [o.id, o])); const rec = recentGet().map((id) => byId.get(id)).filter(Boolean).slice(0, 6); return rec.length > 1 ? (
+        <div className="row obj-recent" style={{ gap: 6, margin: "-4px 0 12px", flexWrap: "wrap" }}>
+          <span className="xs mut" style={{ fontWeight: 700 }}><Ic n="history" s={13} /> Недавние:</span>
+          {rec.map((o) => <button key={o.id} type="button" className="btn xs" title={[o.client, o.phone].filter(Boolean).join(" · ")} onClick={() => setOpenId(o.id)}>{o.name}</button>)}
+        </div>) : null; })()}
       {!shown.length ? <div className="card mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? <>Ничего не найдено{(q || mF || sF || pF) && <> · <button type="button" className="btn xs" onClick={() => { setQ(""); setMF(""); setSF(""); setPF(""); }}>Показать все</button></>}</> : "Объектов пока нет — создайте через «Новая заявка»"}</div> : (
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t objt">
@@ -13063,6 +13072,7 @@ function CommandPalette({ tabs, objects, onTab, onObject, onClose }) {
   const has = (t) => { const x = String(t || "").toLowerCase().replace(/ё/g, "е"); return words.every((w) => x.includes(w)); };
   const items = useMemo(() => {
     const out = [];
+    if (!words.length) { const byId = new Map(objects.map((o) => [o.id, o])); recentGet().map((id) => byId.get(id)).filter(Boolean).slice(0, 6).forEach((o) => out.push({ k: "r:" + o.id, label: o.name, hint: [o.client, o.phone].filter(Boolean).join(" · "), grp: "Недавние", run: () => onObject(o.id) })); }
     hotActions().forEach((a) => { if (has(a.label)) out.push({ k: "a:" + a.label, label: a.label, hint: a.keys || "", grp: "Действие", run: a.run }); });
     tabs.forEach((t, i) => { if (has(t.label + " раздел перейти")) out.push({ k: "t:" + t.id, label: t.label, hint: "Alt+" + (i === 9 ? 0 : i + 1), grp: "Раздел", run: () => onTab(t.id) }); });
     if (words.length) {
@@ -13118,6 +13128,9 @@ function KeysHelp({ tabs, onClose }) {
         <Row k="Tab / Shift+Tab" t="Следующее / предыдущее поле" />
         <Row k="Alt+X" t="Калькулятор" />
         <Row k="Alt, Alt" t="Заметки: Alt два раза подряд или левый + правый Alt вместе (Enter — сохранить)" />
+        <Row k="Ctrl, Ctrl" t="При вводе товаров: Ctrl два раза подряд — курсор снова в поиск товара" />
+        <Row k="Alt+P" t="В объекте: оплата клиента" />
+        <Row k="Alt+S" t="В объекте: «Себестоимость подряд»" />
         <Row k="?" t="Эта подсказка" />
         {here.map((a) => <Row key={a.label} k={a.keys} t={a.label + " (на этом экране)"} />)}
       </tbody></table>
@@ -13917,6 +13930,7 @@ function AppInner() {
   // ---- работа с клавиатуры ----
   const [palette, setPalette] = useState(false);
   const [keysHelp, setKeysHelp] = useState(false);
+  useEffect(() => { if (tab === "objects" && openId) recentPush(openId); }, [tab, openId]);
   // открыли любой раздел (меню, Alt+цифра, ссылка на объект…) — окно расчёта закрывается, раздел виден
   useEffect(() => { setHeatOpen(false); }, [tab, tabNonce, openId]);
   const goTab = (id) => {
@@ -14027,6 +14041,7 @@ function AppInner() {
         <button className={"btn xs npanel-btn" + (notesOpen ? " pri" : "")} title="Заметки: Alt два раза подряд (или левый + правый Alt)" onClick={() => { setNotesOpen((v) => !v); if (!finePtr) setHdrPeek(false); }}><Ic n="note" /><span className="hdr-lbl"> Заметки</span></button>
         <button className={"btn xs hdr-chat" + (chatOpen ? " pri" : "")} title="Чат сотрудников" onClick={() => (chatOpen ? setChatOpen(false) : openChat(null))}><Ic n="chat" /><span className="hdr-lbl"> Чат</span>{team.unread.total > 0 && <span className="chat-badge">{team.unread.total}</span>}</button>
         {role !== "driver" && <button className={"btn xs hdr-calc" + (calcOpen ? " pri" : "")} title="Калькулятор (Alt+X) — управление цифровой клавиатурой" onClick={() => { setCalcOpen((v) => !v); if (!finePtr) setHdrPeek(false); }}><Ic n="calc" /><span className="hdr-lbl"> Калькулятор</span></button>}
+        {finePtr && <button className={"btn xs hdr-keys" + (keysHelp ? " pri" : "")} title="Все сочетания клавиш (?)" onClick={() => setKeysHelp(true)}><b style={{ fontSize: 14, lineHeight: 1 }}>?</b><span className="hdr-lbl"> Клавиши</span></button>}
         <button className="btn xs hdr-hide" title="Скрыть панель — будет выезжать, когда мышь у края экрана" onClick={() => { setHdrOffSave(true); setMobileMenuOpen(false); }}>⌃</button>
         <div className="hdr-sec hdr-sec-p" role="presentation">{lang === "uz" ? "Panel" : "Панель"}</div>
         <span className="hdr-side" title="Откуда выезжает панель, когда она скрыта">
