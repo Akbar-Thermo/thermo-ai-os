@@ -737,6 +737,18 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .osb-sp{flex:1}.osb-m{white-space:nowrap}
 .osb .btn.pay-btn,.osb .btn.pay-btn:hover{background:var(--ok)!important;border-color:var(--ok)!important;color:#fff!important}
 @media (max-width:640px){.osb{gap:6px;padding:6px 8px}.osb .bdg,.osb-m:first-of-type{display:none}.osb-n{max-width:40vw}}
+.bnav{position:fixed;left:0;right:0;bottom:0;z-index:66;display:flex;justify-content:space-around;align-items:stretch;padding:4px 4px calc(4px + env(safe-area-inset-bottom,0px));background:color-mix(in srgb,var(--panel) 92%,transparent);-webkit-backdrop-filter:saturate(180%) blur(16px);backdrop-filter:saturate(180%) blur(16px);border-top:1px solid var(--line)}
+.bnav-it{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:52px;border:0;background:transparent;color:var(--mut);font:600 10.5px/1.1 var(--sans);border-radius:10px;cursor:pointer;padding:4px 2px}
+.bnav-it span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bnav-it.on{color:var(--acc)}
+.bnav-it.on::before{content:"";position:absolute;top:0;left:30%;right:30%;height:3px;border-radius:0 0 3px 3px;background:var(--acc)}
+.bnav-it:active{background:var(--acc-tint)}
+.bnav-badge{position:absolute;top:2px;right:calc(50% - 22px)}
+.bnav .tab-n{position:absolute;top:2px;right:calc(50% - 22px)}
+.te.phone .mnav{display:none!important}
+.te.phone .body{padding-bottom:calc(84px + env(safe-area-inset-bottom,0px))!important}
+.te.phone .cq-bar{bottom:calc(66px + env(safe-area-inset-bottom,0px))!important}
+.te.phone .toast,.te.phone .totop,.te.phone .busypill{bottom:calc(74px + env(safe-area-inset-bottom,0px))!important}
 .ci-tag{display:inline-block;margin-left:6px;padding:0 6px;border-radius:6px;font-size:11px;font-weight:800;vertical-align:1px;white-space:nowrap}
 .ci-tag.none{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
 .ci-tag.nosup{background:color-mix(in srgb,#3b82f6 18%,transparent);color:#3b82f6}
@@ -13968,6 +13980,21 @@ function AppInner() {
       {accOpen && <AccSwitch cur={currentUser} onClose={() => setAccOpen(false)} onAdd={() => { setAccOpen(false); addAccount(); }} onLogout={() => { setAccOpen(false); doLogout(); }} />}
       {!finePtr && <button type="button" className={"mnav" + (hdrHidden && !hdrPeek ? " hide-on-scroll" : "")} title="Меню" aria-label="Меню" onClick={() => setHdrPeek(true)}><Ic n="menu" s={22} />{team.unread.total > 0 && <span className="chat-badge mnav-badge">{team.unread.total}</span>}</button>}
       {!finePtr && <div className={"mnav-bg" + (hdrPeek ? " on" : "")} onClick={() => setHdrPeek(false)} />}
+      {/* телефон: нижняя панель — 4 главных раздела под пальцем + «Меню» (все разделы) */}
+      {isPhone() && !finePtr && (() => {
+        const pref = ["objects", "request", "products", "finance", "dash", "delivery", "wh", "suppliers", "masters", "heat", "log"];
+        const ids = pref.filter((id) => allTabs.some((t) => t.id === id)).slice(0, 4);
+        const on = (id) => (id === "heat" && heatWin ? heatOpen : tab === id && !hdrPeek);
+        return <nav className="bnav" aria-label="Главные разделы">
+          {ids.map((id) => <button key={id} type="button" className={"bnav-it" + (on(id) ? " on" : "")} onClick={() => {
+            setHdrPeek(false);
+            if (id === "heat" && heatWin) { toggleHeat(true); return; }
+            if (tab === id) { setOpenId(null); setTabNonce((n) => n + 1); window.scrollTo({ top: 0, behavior: "smooth" }); }
+            setTab(id); if (id !== "objects") setOpenId(null);
+          }}><Ic n={TAB_IC[id] || "dash"} s={20} /><span>{(allTabs.find((t) => t.id === id) || {}).label || id}</span>{id === "usta" && ustaNew > 0 && <span className="tab-n">{ustaNew}</span>}</button>)}
+          <button type="button" className={"bnav-it" + (hdrPeek ? " on" : "")} onClick={() => setHdrPeek((v) => !v)}><Ic n="menu" s={20} /><span>{lang === "uz" ? "Menyu" : "Меню"}</span>{team.unread.total > 0 && <span className="chat-badge bnav-badge">{team.unread.total}</span>}</button>
+        </nav>;
+      })()}
       <div className={"hdr" + (hdrHidden && finePtr && !hdrOff ? " hide-on-scroll" : "") + (hdrPeek ? " peek" : "")} onMouseLeave={hdrLeave} onMouseEnter={hdrEnter}>
         <div className="logo">THERMO<span>•</span>ENGINEERING</div>
         <button type="button" className="hdr-search" title="Поиск по всей программе: объекты, товары, поставщики, мастера, действия (Ctrl+K)" onClick={() => { setPalette(true); setMobileMenuOpen(false); if (!finePtr) setHdrPeek(false); }}><Ic n="search" /><span>{lang === "uz" ? "Qidiruv…" : "Поиск…"}</span><kbd>Ctrl K</kbd></button>
