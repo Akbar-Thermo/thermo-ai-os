@@ -1473,13 +1473,21 @@ table.t tr:hover td{background:var(--hover)}
 .pay-card.off{border-left-color:var(--line2)!important}
 .pay-card .pay-t{color:var(--mut)!important}
 .bot-tile .bot-ic{background:var(--panel2)!important;color:var(--mut)!important}
-/* мастера над списком объектов: без разноцветных кружков; выбранный — синим, как всё выбранное */
-.obj-m-av,.te.dark .obj-m-av{background:var(--panel2)!important;color:var(--mut)!important;border:1px solid var(--line)}
-.obj-m.all .obj-m-av{color:var(--txt)!important}
-.obj-m.on,.te.dark .obj-m.on{background:var(--acc-tint)!important;border-color:var(--acc)!important;color:var(--txt)!important;box-shadow:none!important}
-.obj-m.on .obj-m-av,.te.dark .obj-m.on .obj-m-av{background:var(--acc)!important;color:#fff!important;border-color:var(--acc)}
-.obj-m.on .obj-m-s{opacity:1!important;color:var(--mut)!important}
-.obj-m.on .obj-m-d,.obj-m-d{color:var(--bad)!important}
+/* мастера над списком объектов — строгие текстовые вкладки (как фильтр-вкладки в SAP / Outlook):
+   без кружков, рамок и заливок; выбранный — синяя черта снизу */
+.obj-mbar{border-bottom:1px solid var(--line)}
+.obj-mscroll{gap:2px!important;padding:0 2px!important;margin-bottom:-1px!important}
+.obj-m,.te.dark .obj-m{min-height:0!important;padding:8px 16px 9px!important;gap:0!important;border:0!important;border-bottom:2px solid transparent!important;border-radius:0!important;background:none!important;box-shadow:none!important;color:var(--txt)!important}
+.obj-m:hover{background:var(--hover)!important}
+.obj-m-av{display:none!important}
+.obj-m-t{gap:2px!important}
+.obj-m-n{font-size:var(--fs-sm)!important;font-weight:600!important;color:var(--mut)}
+.obj-m-s{font-size:var(--fs-2xs)!important;font-weight:500!important;color:var(--mut)!important;opacity:1!important}
+.obj-m-d{font-weight:600!important;color:var(--bad)!important}
+.obj-m.on,.te.dark .obj-m.on{border-bottom-color:var(--acc)!important}
+.obj-m.on .obj-m-n{color:var(--txt)!important;font-weight:700!important}
+.obj-m.none .obj-m-n{font-style:italic}
+.obj-mnav{width:28px!important;height:28px!important;margin-top:-14px!important;box-shadow:none!important}
 .btn.pay-btn,.te.dark .btn.pay-btn{background:#2f855a!important;border-color:#2f855a!important;color:#fff!important}
 .btn.pay-btn:hover,.te.dark .btn.pay-btn:hover{background:#276749!important;border-color:#276749!important}
 `;
