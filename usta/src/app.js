@@ -2,23 +2,42 @@
 (function () {
   var CFG = window.USTA_CFG || {};
   var E = ENGINE;
-  var K = { draft: "usta.v1.draft", who: "usta.v1.who", lang: "usta.v1.lang", hist: "usta.v1.hist" };
+  var K = { draft: "usta.v1.draft", who: "usta.v1.who", lang: "usta.v1.lang", hist: "usta.v1.hist", key: "usta.v1.key", lists: "usta.v1.lists" };
   var load = function (k, d) { try { var v = JSON.parse(localStorage.getItem(k) || "null"); return v == null ? d : v; } catch (e) { return d; } };
   var store = function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+  var uid = function () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); };
   var draft = load(K.draft, {});
+  // личная ссылка мастера: /usta/?k=КОД — имя и телефон подставляются сами, список приходит к нам «от его аккаунта»
+  var urlKey = ""; try { urlKey = (new URLSearchParams(location.search).get("k") || "").trim(); } catch (e) {}
   var S = {
     lang: load(K.lang, (navigator.language || "").indexOf("ru") === 0 ? "ru" : "uz"),
     who: load(K.who, { name: "", phone: "" }), editWho: false,
+    key: urlKey || load(K.key, ""), me: null, keyBad: false,
+    listId: draft.listId || uid(),
     object: draft.object || "", note: draft.note || "", lines: Array.isArray(draft.lines) ? draft.lines : [],
-    hist: load(K.hist, []), fresh: null, sending: false,
+    secs: Array.isArray(draft.secs) ? draft.secs : [], cur: draft.cur || "", view: "list",
+    hist: load(K.hist, []), lists: load(K.lists, []), fresh: null, sending: false,
   };
-  if (!S.who.name || !S.who.phone) S.editWho = true;
+  if (!S.key && (!S.who.name || !S.who.phone)) S.editWho = true;
   var T = function (k) { return (I18N[S.lang] || I18N.uz)[k] || k; };
   var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
   var $ = function (id) { return document.getElementById(id); };
-  var uid = function () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); };
   var fmtQ = function (n) { return n == null || n === "" ? "?" : String(Math.round(Number(n) * 1000) / 1000).replace(".", ","); };
-  var save = function () { store(K.draft, { object: S.object, note: S.note, lines: S.lines }); };
+  // черновик + он же в «Мои списки» (несколько списков хранятся в телефоне мастера)
+  var save = function () {
+    store(K.draft, { listId: S.listId, object: S.object, note: S.note, lines: S.lines, secs: S.secs, cur: S.cur });
+    var rest = S.lists.filter(function (x) { return x.id !== S.listId; });
+    if (S.lines.length || S.object.trim()) rest.unshift({ id: S.listId, at: Date.now(), object: S.object, note: S.note, lines: S.lines, secs: S.secs });
+    S.lists = rest.slice(0, 50); store(K.lists, S.lists);
+  };
+  // количество можно считать: «12+8+6», «3*4», «2,5x4», «(2+3)*4»
+  function calcQty(v) {
+    var t = String(v == null ? "" : v).trim().replace(/,/g, ".").replace(/[xх×]/gi, "*").replace(/÷|:/g, "/").replace(/\s+/g, "");
+    if (!t) return 0;
+    if (!/^[\d.+\-*/()]+$/.test(t)) return E.parseQty(v);
+    try { var n = Function('"use strict";return (' + t + ")")(); n = Math.round(Number(n) * 1000) / 1000; return isFinite(n) && n > 0 ? n : 0; } catch (e) { return 0; }
+  }
+  var isExpr = function (v) { return /\d\s*[+\-*/xх×]\s*[\d(]/i.test(String(v || "")); };
   var digits = function (p) { return String(p || "").replace(/\D/g, ""); };
   function toast(msg) {
     var t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t);
@@ -37,9 +56,10 @@
       '<div class="card" id="who"></div>' +
       '<div class="card"><div class="lbl">' + esc(T("object")) + '</div><input class="inp" id="obj" placeholder="' + esc(T("objectPh")) + '" value="' + esc(S.object) + '" maxlength="200"></div>' +
       '<div class="tools"><button class="btn" id="bCat">☰ ' + esc(T("catalog")) + '</button><button class="btn" id="bPaste">⧉ ' + esc(T("paste")) + '</button></div>' +
+      '<div id="secbar"></div>' +
       '<div id="list"></div>' +
       '<div class="card" id="noteBox"><div class="lbl">' + esc(T("note")) + '</div><input class="inp" id="note" placeholder="' + esc(T("notePh")) + '" value="' + esc(S.note) + '" maxlength="1000"></div>' +
-      '<div class="row" style="justify-content:space-between;margin-top:6px"><button class="link" id="bHist" style="margin-left:0">↺ ' + esc(T("history")) + '</button><button class="link" id="bClear">' + esc(T("clear")) + '</button></div>' +
+      '<div class="row" style="justify-content:space-between;margin-top:6px"><button class="link" id="bHist" style="margin-left:0">☰ ' + esc(T("myLists")) + '</button><button class="link" id="bNew">+ ' + esc(T("newList")) + '</button><button class="link" id="bClear">' + esc(T("clear")) + '</button></div>' +
       '</div>' +
       '<div class="dock"><div class="in"><div class="sug" id="sug"></div>' +
       '<div class="compose"><input class="inp" id="q" placeholder="' + esc(T("inputPh")) + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"><button class="btn pri" id="bAdd" aria-label="' + esc(T("add")) + '">+</button></div>' +
@@ -50,7 +70,8 @@
     $("bCat").onclick = function () { openCatalog(); };
     $("bPaste").onclick = openPaste;
     $("bHist").onclick = openHistory;
-    $("bClear").onclick = function () { if (!S.lines.length) return; confirmSheet(T("clearQ"), function () { S.lines = []; save(); renderList(); }); };
+    $("bNew").onclick = newList;
+    $("bClear").onclick = function () { if (!S.lines.length) return; confirmSheet(T("clearQ"), function () { S.lines = []; S.secs = []; S.cur = ""; S.view = "list"; save(); renderSecs(); renderList(); }); };
     var q = $("q");
     q.oninput = renderSug;
     q.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); acceptTop(); } };
@@ -60,17 +81,65 @@
     };
     $("bAdd").onclick = acceptTop;
     $("bSend").onclick = send;
-    renderWho(); renderList(); renderSug();
+    renderWho(); renderSecs(); renderList(); renderSug();
+  }
+  // ---------- bo'limlar (qavat, xona…) va «Jami» ----------
+  function secName(id) { var x = S.secs.find(function (s) { return s.id === id; }); return x ? x.name : T("noSec"); }
+  function renderSecs() {
+    var b = $("secbar"); if (!b) return;
+    var h = '<div class="secbar"><div class="chips">';
+    if (S.secs.length) {
+      h += '<button class="chip' + (!S.cur ? " on" : "") + '" data-sec="">' + esc(T("noSec")) + "</button>";
+      h += S.secs.map(function (x) { return '<button class="chip' + (S.cur === x.id ? " on" : "") + '" data-sec="' + x.id + '">' + esc(x.name) + "</button>"; }).join("");
+    }
+    h += '<button class="chip add" id="bSecAdd">+ ' + esc(T("addSec")) + "</button></div>";
+    if (S.secs.length) h += '<div class="seg"><button class="' + (S.view === "list" ? "on" : "") + '" data-v="list">' + esc(T("viewList")) + '</button><button class="' + (S.view === "total" ? "on" : "") + '" data-v="total">Σ ' + esc(T("viewTotal")) + "</button></div>";
+    b.innerHTML = h + "</div>";
+    b.querySelectorAll("[data-sec]").forEach(function (c) { c.onclick = function () { var id = c.dataset.sec; if (id && S.cur === id) return editSec(id); S.cur = id; S.view = "list"; save(); renderSecs(); renderList(); }; });
+    b.querySelectorAll("[data-v]").forEach(function (c) { c.onclick = function () { S.view = c.dataset.v; renderSecs(); renderList(); }; });
+    $("bSecAdd").onclick = function () { editSec(null); };
+  }
+  function editSec(id) {
+    var x = id ? S.secs.find(function (s) { return s.id === id; }) : null;
+    sheet('<h3>' + esc(x ? T("secEdit") : T("addSec")) + '</h3><div class="d">' + esc(T("secD")) + '</div><input class="inp" id="sN" maxlength="40" placeholder="' + esc(T("secPh")) + '" value="' + esc(x ? x.name : "") + '">' +
+      '<div class="acts">' + (x ? '<button class="btn" id="sDel">' + esc(T("del")) + "</button>" : '<button class="btn" id="sC">' + esc(T("cancel")) + "</button>") + '<button class="btn pri" id="sOk">' + esc(T("save")) + "</button></div>", function () {
+      var n = $("sN"); setTimeout(function () { n.focus(); }, 60);
+      var ok = function () { var v = n.value.trim(); if (!v) return; if (x) x.name = v; else { var s2 = { id: uid(), name: v }; S.secs.push(s2); S.cur = s2.id; } S.view = "list"; save(); closeSheet(); renderSecs(); renderList(); };
+      n.onkeydown = function (e) { if (e.key === "Enter") ok(); };
+      $("sOk").onclick = ok;
+      if ($("sC")) $("sC").onclick = closeSheet;
+      if ($("sDel")) $("sDel").onclick = function () {
+        // bo'lim o'chirilsa, tovarlari yo'qolmaydi — «bo'limsiz»ga o'tadi
+        S.lines.forEach(function (l) { if (l.sec === x.id) l.sec = ""; });
+        S.secs = S.secs.filter(function (s) { return s.id !== x.id; }); if (S.cur === x.id) S.cur = ""; save(); closeSheet(); renderSecs(); renderList();
+      };
+    });
+  }
+  // jami: hamma bo'limlardagi bir xil tovar qo'shiladi (shu ro'yxat bizga yuboriladi)
+  function totals() {
+    var out = [];
+    S.lines.forEach(function (l) {
+      var key = (l.known ? "k:" : "f:") + lineLabel(l).toLowerCase() + "|" + (l.unit || "");
+      var t = out.find(function (x) { return x._k === key; });
+      if (t) { t.qty = Math.round(((Number(t.qty) || 0) + (Number(l.qty) || 0)) * 1000) / 1000; t.n++; }
+      else out.push(Object.assign({}, l, { _k: key, n: 1, sec: "" }));
+    });
+    return out;
   }
 
   function renderWho() {
     var w = $("who");
+    if (S.me) {
+      w.innerHTML = '<div class="who"><div><div class="lbl" style="margin:0">' + esc(T("who")) + '</div><b>' + esc(S.me.name) + '</b> <span class="ph">' + esc(S.me.phone) + '</span></div><span class="tag ok">✓ ' + esc(T("myLink")) + "</span></div>";
+      return;
+    }
+    var warn = S.keyBad ? '<div class="keybad">' + esc(T("keyBad")) + "</div>" : "";
     if (!S.editWho) {
-      w.innerHTML = '<div class="who"><div><div class="lbl" style="margin:0">' + esc(T("who")) + '</div><b>' + esc(S.who.name) + '</b> <span class="ph">' + esc(S.who.phone) + '</span></div><button class="link" id="bWho">' + esc(T("edit")) + '</button></div>';
+      w.innerHTML = warn + '<div class="who"><div><div class="lbl" style="margin:0">' + esc(T("who")) + '</div><b>' + esc(S.who.name) + '</b> <span class="ph">' + esc(S.who.phone) + '</span></div><button class="link" id="bWho">' + esc(T("edit")) + '</button></div>';
       $("bWho").onclick = function () { S.editWho = true; renderWho(); };
       return;
     }
-    w.innerHTML = '<div class="lbl">' + esc(T("who")) + '</div><div class="grid2">' +
+    w.innerHTML = warn + '<div class="lbl">' + esc(T("who")) + '</div><div class="grid2">' +
       '<input class="inp" id="wName" placeholder="' + esc(T("name")) + '" value="' + esc(S.who.name) + '" maxlength="80" autocomplete="name">' +
       '<input class="inp" id="wPhone" type="tel" inputmode="tel" placeholder="+998 90 123 45 67" value="' + esc(S.who.phone) + '" maxlength="30" autocomplete="tel"></div>';
     $("wName").oninput = function (e) { S.who.name = e.target.value; store(K.who, S.who); };
@@ -78,18 +147,41 @@
   }
 
   // ---------- ro'yxat ----------
+  function lineHtml(l, i, ro) {
+    var chips = (l.vars || []).filter(Boolean).map(function (v) { return '<span class="tag">' + esc(v) + '</span>'; }).join("") + (l.size ? '<span class="tag sz">' + esc(l.size) + '</span>' : "");
+    if (!l.known) chips = '<span class="tag w">? ' + esc(T("unknown")) + '</span>';
+    if (ro && l.n > 1) chips += '<span class="tag">' + esc(T("fromSecs").replace("{n}", l.n)) + "</span>";
+    var ex = !ro && l.expr && isExpr(l.expr) ? '<small class="ex">' + esc(l.expr) + "</small>" : "";
+    return '<div class="ln' + (l.known ? "" : " unk") + (ro ? " ro" : "") + (S.fresh === l.id ? " fresh" : "") + '" data-id="' + l.id + '"><div class="n">' + (i + 1) + '</div>' +
+      '<div class="t" data-act="edit"><div class="nm">' + esc(l.name) + '</div><div class="ch">' + chips + '</div></div>' +
+      (ro ? '<div class="qty"><div class="v">' + fmtQ(l.qty) + "<small>" + esc(l.unit || "") + "</small></div></div>"
+          : '<div class="qty' + (l.qty ? "" : " none") + '"><button data-act="minus">−</button><div class="v" data-act="edit">' + fmtQ(l.qty) + '<small>' + esc(l.unit || "") + '</small>' + ex + '</div><button data-act="plus">+</button></div>') + "</div>";
+  }
   function renderList() {
     var L = $("list");
+    if (S.view === "total" && S.lines.length) {
+      var tt = totals();
+      L.innerHTML = '<div class="sechd tot">Σ ' + esc(T("totalD")) + " · " + tt.length + " " + esc(T("items")) + "</div>" + tt.map(function (l, i) { return lineHtml(l, i, true); }).join("");
+      renderSend(); return;
+    }
     if (!S.lines.length) {
       L.innerHTML = '<div class="card empty"><b>' + esc(T("emptyT")) + '</b>' + esc(T("emptyD")) + '</div>';
+    } else if (S.secs.length) {
+      // bo'limlar bo'yicha: har bo'lim sarlavhasi bilan (bosilsa — yangi tovarlar shu bo'limga tushadi)
+      var groups = [{ id: "", name: T("noSec") }].concat(S.secs), html = "", k = 0;
+      groups.forEach(function (g) {
+        var ls = S.lines.filter(function (l) { return (l.sec || "") === g.id; });
+        if (!ls.length && S.cur !== g.id) return;
+        html += '<div class="sechd' + (S.cur === g.id ? " on" : "") + '" data-sec="' + g.id + '">' + esc(g.name) + " <span>" + ls.length + "</span></div>";
+        if (!ls.length) html += '<div class="secempty">' + esc(T("secEmpty")) + "</div>";
+        html += ls.map(function (l) { return lineHtml(l, k++, false); }).join("");
+      });
+      L.innerHTML = html;
+      L.querySelectorAll(".sechd[data-sec]").forEach(function (h) { h.onclick = function () { S.cur = h.dataset.sec; save(); renderSecs(); renderList(); }; });
     } else {
-      L.innerHTML = S.lines.map(function (l, i) {
-        var chips = (l.vars || []).filter(Boolean).map(function (v) { return '<span class="tag">' + esc(v) + '</span>'; }).join("") + (l.size ? '<span class="tag sz">' + esc(l.size) + '</span>' : "");
-        if (!l.known) chips = '<span class="tag w">? ' + esc(T("unknown")) + '</span>';
-        return '<div class="ln' + (l.known ? "" : " unk") + (S.fresh === l.id ? " fresh" : "") + '" data-id="' + l.id + '"><div class="n">' + (i + 1) + '</div>' +
-          '<div class="t" data-act="edit"><div class="nm">' + esc(l.name) + '</div><div class="ch">' + chips + '</div></div>' +
-          '<div class="qty' + (l.qty ? "" : " none") + '"><button data-act="minus">−</button><div class="v" data-act="edit">' + fmtQ(l.qty) + '<small>' + esc(l.unit || "") + '</small></div><button data-act="plus">+</button></div></div>';
-      }).join("");
+      L.innerHTML = S.lines.map(function (l, i) { return lineHtml(l, i, false); }).join("");
+    }
+    if (S.lines.length) {
       L.querySelectorAll(".ln").forEach(function (el) {
         el.onclick = function (e) {
           var act = e.target.closest("[data-act]"); if (!act) return;
@@ -99,6 +191,7 @@
           var st = 1, cur = Number(l.qty) || 0;
           l.qty = a === "plus" ? cur + st : Math.max(0, cur - st);
           if (!l.qty) l.qty = a === "plus" ? 1 : null;
+          l.expr = "";
           save(); renderList();
         };
       });
@@ -108,14 +201,16 @@
   }
   function renderSend() {
     var b = $("bSend"); if (!b) return;
-    var n = S.lines.length;
+    var n = S.secs.length ? totals().length : S.lines.length;
     b.textContent = S.sending ? T("sending") : T("send") + (n ? " · " + n + " " + T("items") : "");
     b.disabled = S.sending;
   }
   function addLine(l) {
     l.id = l.id || uid();
-    var same = l.known && S.lines.find(function (x) { return x.known && lineLabel(x) === lineLabel(l) && x.unit === l.unit; });
-    if (same) { same.qty = (Number(same.qty) || 0) + (Number(l.qty) || 0) || null; S.fresh = same.id; }
+    if (l.sec == null) l.sec = S.cur || "";
+    if (S.view === "total") S.view = "list";
+    var same = l.known && S.lines.find(function (x) { return x.known && (x.sec || "") === (l.sec || "") && lineLabel(x) === lineLabel(l) && x.unit === l.unit; });
+    if (same) { same.qty = (Number(same.qty) || 0) + (Number(l.qty) || 0) || null; same.expr = ""; S.fresh = same.id; }
     else { S.lines.push(l); S.fresh = l.id; }
     save(); renderList();
   }
@@ -173,8 +268,8 @@
     var known = 0;
     rows.forEach(function (row) {
       var r = E.suggest(row, 1)[0];
-      if (r && r.score >= 0.8) { var l = fromResult(r, row); if (l.qty == null) l.qty = null; S.lines.push(Object.assign(l, { id: uid() })); known++; }
-      else S.lines.push(Object.assign(freeLine(row), { id: uid() }));
+      if (r && r.score >= 0.8) { var l = fromResult(r, row); if (l.qty == null) l.qty = null; S.lines.push(Object.assign(l, { id: uid(), sec: S.cur || "" })); known++; }
+      else S.lines.push(Object.assign(freeLine(row), { id: uid(), sec: S.cur || "" }));
     });
     save(); renderList(); clearInput();
     toast(T("pasted").replace("{n}", rows.length).replace("{k}", known));
@@ -190,8 +285,8 @@
     if (onMount) onMount(bg.firstChild);
   }
   function closeSheet() { var b = $("sheetBg"); if (b) b.remove(); document.body.classList.remove("lock"); }
-  function confirmSheet(text, yes) {
-    sheet('<h3>' + esc(text) + '</h3><div class="acts"><button class="btn" id="cNo">' + esc(T("cancel")) + '</button><button class="btn pri" id="cYes">' + esc(T("yes")) + "</button></div>", function () {
+  function confirmSheet(text, yes, yesLabel) {
+    sheet('<h3>' + esc(text) + '</h3><div class="acts"><button class="btn" id="cNo">' + esc(T("cancel")) + '</button><button class="btn pri" id="cYes">' + esc(yesLabel || T("yes")) + "</button></div>", function () {
       $("cNo").onclick = closeSheet; $("cYes").onclick = function () { closeSheet(); yes(); };
     });
   }
@@ -224,7 +319,7 @@
         h += '<div class="sug" id="pSug" style="box-shadow:none;margin-top:8px"></div>';
       }
       var quick = l.unit === "м" ? [10, 20, 50, 100, 200] : [1, 2, 5, 10, 20, 50];
-      h += '<div class="lbl grp">' + esc(T("qty")) + '</div><div class="qbig"><button id="pMinus">−</button><input class="inp" id="pQty" inputmode="decimal" value="' + (l.qty ? fmtQ(l.qty) : "") + '" placeholder="0"><button id="pPlus">+</button><span class="u">' + esc(l.unit) + "</span></div>";
+      h += '<div class="lbl grp">' + esc(T("qty")) + ' <span class="hint">' + esc(T("calcHint")) + '</span></div><div class="qbig"><button id="pMinus">−</button><input class="inp" id="pQty" inputmode="text" autocomplete="off" value="' + esc(l.expr && isExpr(l.expr) ? l.expr : l.qty ? fmtQ(l.qty) : "") + '" placeholder="0"><button id="pPlus">+</button><span class="u">' + esc(l.unit) + '</span></div><div class="calcres" id="pRes"></div>';
       h += '<div class="chips" style="margin-top:8px">' + quick.map(function (n) { return '<button class="chip" data-q="' + n + '">' + n + "</button>"; }).join("") + "</div>";
       h += '<div class="err" id="pErr"></div><div class="acts">' + (isNew ? '<button class="btn" id="pCancel">' + esc(T("cancel")) + "</button>" : '<button class="btn" id="pDel">' + esc(T("del")) + "</button>") + '<button class="btn pri" id="pOk">' + esc(isNew ? T("add") : T("save")) + "</button></div>";
       return h;
@@ -245,18 +340,21 @@
         pt.oninput = function () { l.name = pt.value; paint(); }; paint();
       }
       var qi = $("pQty");
+      var showRes = function () { var r = $("pRes"); if (!r) return; r.textContent = isExpr(qi.value) ? "= " + fmtQ(calcQty(qi.value)) + " " + (l.unit || "") : ""; };
+      qi.oninput = showRes; showRes();
       $("pMinus").onclick = function () { var v = qtyVal() || 0; qi.value = v > 1 ? fmtQ(v - 1) : ""; };
       $("pPlus").onclick = function () { var v = qtyVal() || 0; qi.value = fmtQ(v + 1); };
-      root.querySelectorAll("[data-q]").forEach(function (b) { b.onclick = function () { qi.value = b.dataset.q; }; });
+      root.querySelectorAll("[data-q]").forEach(function (b) { b.onclick = function () { qi.value = b.dataset.q; showRes(); }; });
       qi.onkeydown = function (e) { if (e.key === "Enter") ok(); };
       $("pOk").onclick = ok;
       if ($("pCancel")) $("pCancel").onclick = function () { closeSheet(); $("q").focus(); };
       if ($("pDel")) $("pDel").onclick = function () { S.lines = S.lines.filter(function (x) { return x.id !== l.id; }); save(); closeSheet(); renderList(); };
       if (!it || !sizes.length || l.size) { if (!l.qty) setTimeout(function () { qi.focus(); }, 60); }
     }
-    function qtyVal() { var q = $("pQty"); return q ? E.parseQty(q.value) : l.qty; }
+    function qtyVal() { var q = $("pQty"); return q ? calcQty(q.value) : l.qty; }
     function ok() {
       l.qty = qtyVal();
+      var qv = $("pQty") ? $("pQty").value.trim() : ""; l.expr = isExpr(qv) ? qv : "";
       if (!l.known) { l.name = ($("pText").value || "").trim(); if (l.name.length < 2) return; }
       if (!l.qty) { $("pErr").textContent = T("needQty"); $("pQty").focus(); return; }
       closeSheet();
@@ -300,8 +398,24 @@
       setTimeout(function () { $("pT").focus(); }, 60);
     });
   }
+  function newList() {
+    var go = function () { S.listId = uid(); S.lines = []; S.secs = []; S.cur = ""; S.object = ""; S.note = ""; S.view = "list"; save(); shell(); $("obj").focus(); };
+    if (!S.lines.length) return go();
+    confirmSheet(T("newListQ"), go, T("newList"));
+  }
+  function openList(x) {
+    S.listId = x.id; S.object = x.object || ""; S.note = x.note || ""; S.lines = (x.lines || []).map(function (l) { return Object.assign({}, l); });
+    S.secs = (x.secs || []).slice(); S.cur = ""; S.view = "list"; save(); closeSheet(); shell();
+  }
   function openHistory() {
-    var h = '<h3>' + esc(T("history")) + "</h3>";
+    var h = '<h3>' + esc(T("myLists")) + "</h3>";
+    var drafts = S.lists.filter(function (x) { return x.id !== S.listId; });
+    h += '<div class="lbl grp">' + esc(T("drafts")) + "</div>";
+    if (!drafts.length) h += '<div class="d">' + esc(T("noHistory")) + "</div>";
+    h += drafts.map(function (x) {
+      return '<div class="hist"><div class="t"><b>' + esc(x.object || T("noObject")) + "</b>" + esc(new Date(x.at).toLocaleDateString(S.lang === "ru" ? "ru-RU" : "uz-UZ")) + " · " + (x.lines || []).length + " " + esc(T("items")) + (x.secs && x.secs.length ? " · " + x.secs.length + " " + esc(T("secs")) : "") + '</div><button class="btn sm" data-d="' + x.id + '">' + esc(T("open")) + '</button><button class="btn sm ghost" data-x="' + x.id + '" aria-label="' + esc(T("del")) + '">✕</button></div>';
+    }).join("");
+    h += '<div class="lbl grp">' + esc(T("sentLists")) + "</div>";
     if (!S.hist.length) h += '<div class="d">' + esc(T("noHistory")) + "</div>";
     h += S.hist.map(function (x, i) {
       return '<div class="hist"><div class="t"><b>№' + esc(x.num) + " · " + esc(new Date(x.at).toLocaleDateString(S.lang === "ru" ? "ru-RU" : "uz-UZ")) + '</b>' + esc(x.object || "") + " · " + x.lines.length + " " + esc(T("items")) + '</div><button class="btn sm" data-h="' + i + '">' + esc(T("open")) + "</button></div>";
@@ -309,36 +423,39 @@
     h += '<div class="acts"><button class="btn" id="hC">' + esc(T("back")) + "</button></div>";
     sheet(h, function (root) {
       $("hC").onclick = closeSheet;
+      root.querySelectorAll("[data-d]").forEach(function (b) { b.onclick = function () { save(); var x = S.lists.find(function (y) { return y.id === b.dataset.d; }); if (x) openList(x); }; });
+      root.querySelectorAll("[data-x]").forEach(function (b) { b.onclick = function () { S.lists = S.lists.filter(function (y) { return y.id !== b.dataset.x; }); store(K.lists, S.lists); openHistory(); }; });
+      // yuborilgan ro'yxat — nusxa sifatida yangi ro'yxat bo'lib ochiladi (o'zgartirib, qayta yuborish mumkin)
       root.querySelectorAll("[data-h]").forEach(function (b) {
         b.onclick = function () {
-          var x = S.hist[Number(b.dataset.h)];
-          x.lines.forEach(function (l) { S.lines.push(Object.assign({}, l, { id: uid() })); });
-          if (!S.object && x.object) S.object = x.object;
-          save(); closeSheet(); shell();
+          var x = S.hist[Number(b.dataset.h)]; save();
+          openList({ id: uid(), object: x.object || "", note: "", lines: x.lines.map(function (l) { return Object.assign({}, l, { id: uid() }); }), secs: x.secs || [] });
         };
       });
     });
   }
 
   // ---------- yuborish ----------
+  function whoNow() { return S.me ? S.me : S.who; }
   function listText(num) {
-    var out = [T("txtList") + (num ? " №" + num : "")];
-    out.push(T("txtUsta") + ": " + S.who.name.trim() + ", " + S.who.phone.trim());
+    var w = whoNow(), out = [T("txtList") + (num ? " №" + num : "")];
+    out.push(T("txtUsta") + ": " + String(w.name || "").trim() + (w.phone ? ", " + String(w.phone).trim() : ""));
     if (S.object.trim()) out.push(T("txtObj") + ": " + S.object.trim());
     out.push("");
-    S.lines.forEach(function (l, i) { out.push((i + 1) + ". " + lineLabel(l) + " — " + fmtQ(l.qty) + " " + (l.unit || "")); });
+    totals().forEach(function (l, i) { out.push((i + 1) + ". " + lineLabel(l) + " — " + fmtQ(l.qty) + " " + (l.unit || "")); });
     if (S.note.trim()) { out.push(""); out.push(T("txtNote") + ": " + S.note.trim()); }
     return out.join("\n");
   }
   function send() {
     if (S.sending) return;
     var d = digits(S.who.phone);
-    if (S.who.name.trim().length < 2 || d.length < 9) { S.editWho = true; renderWho(); toast(d.length && d.length < 9 ? T("errPhone") : T("needWho")); (S.who.name.trim().length < 2 ? $("wName") : $("wPhone")).focus(); return; }
+    if (!S.me && (S.who.name.trim().length < 2 || d.length < 9)) { S.editWho = true; renderWho(); toast(d.length && d.length < 9 ? T("errPhone") : T("needWho")); (S.who.name.trim().length < 2 ? $("wName") : $("wPhone")).focus(); return; }
     if (!S.lines.length) { toast(T("needLines")); $("q").focus(); return; }
     var noQ = S.lines.find(function (l) { return !l.qty; });
     if (noQ) { toast(T("needQty")); openPicker(noQ, false); return; }
     S.sending = true; renderSend();
-    var payload = { name: S.who.name.trim(), phone: S.who.phone.trim(), object: S.object.trim(), note: S.note.trim(), lines: S.lines.map(function (l) {
+    // bizga — jami (hamma bo'limlar qo'shilgan); bo'limlar faqat ustaning o'zida qoladi
+    var payload = { key: S.me ? S.key : "", name: S.who.name.trim(), phone: S.who.phone.trim(), object: S.object.trim(), note: S.note.trim(), lines: totals().map(function (l) {
       return { name: l.name, vars: (l.vars || []).filter(Boolean).join(" "), size: l.size || "", qty: String(l.qty), unit: l.unit || "", raw: l.raw || "", known: !!l.known, cat: l.cat || "" };
     }) };
     fetch(CFG.url + "/rest/v1/rpc/usta_submit", {
@@ -346,13 +463,15 @@
       body: JSON.stringify({ p: payload }),
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (x) {
       S.sending = false;
-      if (!x.ok) { var m = String((x.j && x.j.message) || ""); renderSend(); toast(/usta_rate/.test(m) ? T("errRate") : /usta_phone/.test(m) ? T("errPhone") : T("err")); return; }
+      if (!x.ok) { var m = String((x.j && x.j.message) || ""); renderSend(); if (/usta_key/.test(m)) { keyLost(); return; } toast(/usta_rate/.test(m) ? T("errRate") : /usta_phone/.test(m) ? T("errPhone") : T("err")); return; }
       var num = x.j && x.j.num;
       var text = listText(num);
-      S.hist.unshift({ num: num, at: Date.now(), object: S.object.trim(), lines: S.lines.map(function (l) { return Object.assign({}, l); }) });
-      S.hist = S.hist.slice(0, 10); store(K.hist, S.hist);
+      S.hist.unshift({ num: num, at: Date.now(), object: S.object.trim(), lines: S.lines.map(function (l) { return Object.assign({}, l); }), secs: S.secs.slice() });
+      S.hist = S.hist.slice(0, 20); store(K.hist, S.hist);
       S.editWho = false;
-      S.lines = []; S.note = ""; S.object = ""; save();
+      // yuborilgan ro'yxat «saqlanganlar»dan chiqadi (u endi «yuborilganlar»da)
+      S.lists = S.lists.filter(function (y) { return y.id !== S.listId; }); store(K.lists, S.lists);
+      S.listId = uid(); S.lines = []; S.secs = []; S.cur = ""; S.view = "list"; S.note = ""; S.object = ""; save();
       shell();
       sent(num, text);
     }).catch(function () { S.sending = false; renderSend(); toast(T("err")); });
@@ -373,5 +492,17 @@
   }
   function fallbackCopy(t) { var a = document.createElement("textarea"); a.value = t; document.body.appendChild(a); a.select(); try { document.execCommand("copy"); } catch (e) {} a.remove(); }
 
+  function keyLost() { S.me = null; S.keyBad = true; S.key = ""; store(K.key, ""); if (!S.who.name || !S.who.phone) S.editWho = true; renderWho(); toast(T("keyBad")); }
+  function checkKey() {
+    if (!S.key) return;
+    fetch(CFG.url + "/rest/v1/rpc/usta_me", {
+      method: "POST", headers: { "Content-Type": "application/json", apikey: CFG.key, Authorization: "Bearer " + CFG.key },
+      body: JSON.stringify({ p_key: S.key }),
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (x) {
+      if (x.ok && x.j && x.j.name) { S.me = { name: x.j.name, phone: x.j.phone || "" }; S.keyBad = false; store(K.key, S.key); S.editWho = false; renderWho(); return; }
+      if (/usta_key/.test(String((x.j && x.j.message) || ""))) keyLost();
+    }).catch(function () { /* internet yo'q — keyin yuborishda tekshiriladi */ if (S.key) { S.me = S.me || null; } });
+  }
   shell();
+  checkKey();
 })();

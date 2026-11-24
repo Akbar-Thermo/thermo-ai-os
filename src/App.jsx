@@ -5223,7 +5223,7 @@ function UstaListsTab({ data, toast, userName, canDel, onCount, goRequest }) {
           <button className="btn pri" onClick={async () => { try { await navigator.clipboard.writeText(link); toast("Ссылка скопирована — отправьте её мастеру"); } catch (e) {} }}><Ic n="copy" /> Копировать</button>
           <a className="btn" href={link} target="_blank" rel="noreferrer">Открыть</a>
         </div>
-        <div className="xs mut" style={{ marginTop: 6 }}>Мастер вводит имя и телефон один раз. Если телефон есть в разделе «Мастера», список сразу привязывается к нему.</div>
+        <div className="xs mut" style={{ marginTop: 6 }}>Мастер вводит имя и телефон один раз. Если телефон есть в разделе «Мастера», список сразу привязывается к нему. Личную ссылку (без ввода имени, списки приходят от его аккаунта) можно создать в карточке мастера.</div>
       </div>
       {err && <div className="card sect" style={{ borderColor: "var(--bad)", color: "var(--bad)", padding: 10 }}>Не удалось загрузить списки: {err}</div>}
       {rows === null && <div className="mut sm" style={{ padding: 20 }}>Загрузка…</div>}
@@ -9247,6 +9247,89 @@ function MastersTab({ data, reload, toast, openObject, fin = true, canDel = fals
     </div>
   );
 }
+// Личная ссылка мастера на «Список материалов» (/usta/?k=КОД): без логина и пароля, имя и телефон подставляются сами,
+// списки приходят в «От мастеров» уже от его имени. Ключ хранится в usta_keys (supabase/usta/02_usta_keys.sql).
+function ustaNewKey() {
+  const a = "abcdefghjkmnpqrstuvwxyz23456789", b = new Uint8Array(18);
+  (window.crypto || {}).getRandomValues ? window.crypto.getRandomValues(b) : b.forEach((_, i) => { b[i] = Math.floor(Math.random() * 256); });
+  return Array.from(b, (x) => a[x % a.length]).join("");
+}
+function MasterUstaCard({ m, toast }) {
+  const [key, setKey] = useState(undefined); // undefined — загрузка, null — нет ссылки, "" — база не обновлена
+  const [lists, setLists] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [askNew, setAskNew] = useState(false);
+  const load = async () => {
+    const r = await db.from("usta_keys").select().eq("master_id", m.id);
+    if (r.error) { setKey(""); return; }
+    setKey((r.data && r.data[0] && r.data[0].key) || null);
+    const l = await db.from("usta_lists").select().eq("master_id", m.id).order("created_at", { ascending: false });
+    if (!l.error) setLists(l.data || []);
+  };
+  useEffect(() => { load(); }, [m.id]);
+  const link = key ? window.location.origin + "/usta/?k=" + key : "";
+  const make = async () => {
+    setBusy(true);
+    const k = ustaNewKey();
+    if (key) await db.from("usta_keys").delete().eq("master_id", m.id);
+    const r = await db.from("usta_keys").insert([{ master_id: m.id, key: k }]);
+    setBusy(false); setAskNew(false);
+    if (r.error) { toast("Не удалось создать ссылку: " + r.error.message); return; }
+    setKey(k); toast(key ? "Новая ссылка готова — старая больше не работает" : "Ссылка готова — отправьте её мастеру");
+  };
+  const copy = async () => { try { await navigator.clipboard.writeText(link); toast("Ссылка скопирована"); } catch (e) {} };
+  const share = async () => {
+    const text = "Список материалов — Thermo Engineering. Откройте, считайте и отправляйте отсюда:";
+    if (navigator.share) { try { await navigator.share({ title: "Список материалов", text, url: link }); return; } catch (e) { return; } }
+    window.open("https://t.me/share/url?url=" + encodeURIComponent(link) + "&text=" + encodeURIComponent(text), "_blank");
+  };
+  if (key === undefined) return null;
+  return (
+    <div className="card sect" style={{ padding: 14 }}>
+      <div className="row" style={{ gap: 8, marginBottom: 6 }}>
+        <b style={{ marginRight: "auto" }}>Список материалов — личная ссылка</b>
+        {lists.length > 0 && <span className="xs mut">списков от мастера: {lists.length}</span>}
+      </div>
+      {key === "" ? (
+        <div className="sm mut">Личные ссылки появятся после обновления базы (supabase/usta/02_usta_keys.sql). Пока мастер может пользоваться общей ссылкой из раздела «От мастеров».</div>
+      ) : key ? (<>
+        <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
+          <input className="inp mono" readOnly value={link} onFocus={(e) => e.target.select()} />
+          <button className="btn pri" onClick={copy}><Ic n="copy" /> Копировать</button>
+          <button className="btn" onClick={share}>Отправить</button>
+        </div>
+        <div className="row xs mut" style={{ marginTop: 6, gap: 8 }}>
+          <span style={{ marginRight: "auto" }}>Мастер открывает ссылку — без логина и пароля. Имя и телефон подставятся сами, списки придут сюда от его имени.</span>
+          {askNew ? (<>
+            <span style={{ color: "var(--bad)" }}>Старая ссылка перестанет работать.</span>
+            <button className="btn xs dng" disabled={busy} onClick={make}>Сделать новую</button>
+            <button className="btn xs" onClick={() => setAskNew(false)}>Отмена</button>
+          </>) : <button className="btn xs" onClick={() => setAskNew(true)}>Новая ссылка</button>}
+        </div>
+      </>) : (
+        <div className="row" style={{ gap: 10 }}>
+          <span className="sm mut" style={{ marginRight: "auto" }}>Мастер будет считать списки на телефоне (без цен) и отправлять их сюда — без логина и пароля.</span>
+          <button className="btn pri" disabled={busy} onClick={make}>Создать ссылку</button>
+        </div>
+      )}
+      {lists.length > 0 && (
+        <div style={{ marginTop: 10, borderTop: "1px solid var(--line)" }}>
+          {lists.slice(0, 5).map((x) => (
+            <div key={x.id} className="row sm" style={{ gap: 10, padding: "7px 0", borderBottom: "1px solid var(--line)" }}>
+              <b className="mono">№{x.num}</b>
+              <span className="xs mut">{ustaWhen(x.created_at)}</span>
+              <span style={{ marginRight: "auto" }}>{x.object_text || <span className="mut">без объекта</span>}</span>
+              <span className="xs mut">{(x.lines || []).length} поз.</span>
+              {x.status === "done" ? <Badge c="var(--t-ok)">обработан</Badge> : <Badge c="var(--t-bad)">новый</Badge>}
+            </div>
+          ))}
+          {lists.length > 5 && <div className="xs mut" style={{ paddingTop: 6 }}>Все списки — в разделе «От мастеров».</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit, fin = true, canDel = false }) {
   const { objects, finance_ops } = data;
   const st = masterStats(m, objects, finance_ops);
@@ -9289,6 +9372,7 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
         {fin && <KPI l="Долг мастеру" v={st.debtToMaster} c={st.debtToMaster > 0 ? "var(--warn)" : "var(--mut)"} />}
         <KPI l="Долги клиентов (его объекты)" v={st.clientDebt} c={st.clientDebt > 0 ? "var(--bad)" : "var(--mut)"} />
       </div>
+      {fin && <MasterUstaCard m={m} toast={toast} />}
       {st.rows.length > 0 && <div className="sect"><StatusFilter list={st.rows.map((r) => r.o)} value={sF} onPick={setSF} /></div>}
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
         <table className="t">

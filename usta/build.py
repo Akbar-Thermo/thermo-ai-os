@@ -12,7 +12,7 @@ cfg = {"url": env["VITE_SUPABASE_URL"].rstrip("/"), "key": env["VITE_SUPABASE_AN
 html = f'''<!DOCTYPE html>
 <html lang="uz"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#ff1f30"><meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#f5f5f5"><meta name="robots" content="noindex, nofollow">
 <link rel="icon" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <title>Material ro'yxati — Thermo</title><style>{r("style.css")}</style></head>
 <body><div id="app"></div>

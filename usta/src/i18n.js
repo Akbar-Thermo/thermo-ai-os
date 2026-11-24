@@ -15,6 +15,11 @@ var I18N = {
     err: "Yuborib bo'lmadi. Internetni tekshirib, qayta bosing.", errRate: "Juda ko'p ro'yxat yuborildi. Birozdan keyin qayta urinib ko'ring.",
     errPhone: "Telefon raqami noto'g'ri", pasteT: "Ro'yxatni joylang", pasteD: "Telegramdagi ro'yxatingizni nusxalab shu yerga joylang — har bir qator alohida tovar bo'ladi.",
     pasteBtn: "Ro'yxatga qo'shish", back: "Orqaga", search: "Qidirish", clear: "Ro'yxatni tozalash", clearQ: "Ro'yxat butunlay o'chirilsinmi?",
+    myLink: "shaxsiy havola", keyBad: "Bu havola eskirgan yoki noto'g'ri. Rahbardan yangi havola so'rang — hozircha ism va telefon bilan yuborish mumkin.",
+    noSec: "Bo'limsiz", addSec: "Bo'lim", secEdit: "Bo'limni o'zgartirish", secD: "Masalan: 1-qavat, 2-qavat, oshxona, hammom. Yangi tovarlar tanlangan bo'limga tushadi.", secPh: "Bo'lim nomi", secEmpty: "Bu bo'limda hozircha tovar yo'q — pastda yozing", secs: "bo'lim",
+    viewList: "Bo'limlar", viewTotal: "Jami", totalD: "Jami — hamma bo'limlar qo'shildi (shu ro'yxat yuboriladi)", fromSecs: "{n} bo'limdan",
+    calcHint: "hisoblash mumkin: 12+8+6 yoki 3*4", myLists: "Mening ro'yxatlarim", drafts: "Saqlangan (yuborilmagan)", sentLists: "Yuborilganlar", noObject: "Nomsiz ro'yxat",
+    newListQ: "Yangi ro'yxat ochilsinmi? Hozirgisi «Mening ro'yxatlarim»da saqlanib qoladi.",
     yes: "Ha, o'chirish", txtList: "Ro'yxat", txtUsta: "Usta", txtObj: "Obyekt", txtNote: "Izoh", recognized: "tanildi", pasted: "{n} ta qator qo'shildi, {k} tasi tanildi",
   },
   ru: {
@@ -33,6 +38,11 @@ var I18N = {
     err: "Не удалось отправить. Проверьте интернет и нажмите ещё раз.", errRate: "Слишком много списков. Попробуйте чуть позже.",
     errPhone: "Неверный номер телефона", pasteT: "Вставьте список", pasteD: "Скопируйте свой список из Telegram и вставьте сюда — каждая строка станет отдельным товаром.",
     pasteBtn: "Добавить в список", back: "Назад", search: "Поиск", clear: "Очистить список", clearQ: "Удалить весь список?",
+    myLink: "личная ссылка", keyBad: "Эта ссылка устарела или неверна. Попросите новую у руководителя — пока можно отправить с именем и телефоном.",
+    noSec: "Без раздела", addSec: "Раздел", secEdit: "Изменить раздел", secD: "Например: 1 этаж, 2 этаж, кухня, ванная. Новые товары попадают в выбранный раздел.", secPh: "Название раздела", secEmpty: "В этом разделе пока нет товаров — пишите внизу", secs: "разд.",
+    viewList: "По разделам", viewTotal: "Итого", totalD: "Итого — все разделы сложены (отправляется этот список)", fromSecs: "из {n} разд.",
+    calcHint: "можно считать: 12+8+6 или 3*4", myLists: "Мои списки", drafts: "Сохранённые (не отправлены)", sentLists: "Отправленные", noObject: "Список без названия",
+    newListQ: "Начать новый список? Текущий сохранится в «Мои списки».",
     yes: "Да, удалить", txtList: "Список", txtUsta: "Мастер", txtObj: "Объект", txtNote: "Комментарий", recognized: "распознано", pasted: "Добавлено строк: {n}, распознано: {k}",
   },
 };

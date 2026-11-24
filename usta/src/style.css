@@ -1,6 +1,6 @@
-:root{--acc:#ff1f30;--acc-d:#d9101f;--acc-t:#fff0f1;--bg:#eef1ef;--panel:#ffffff;--txt:#1f2629;--mut:#69736f;--line:#dde2df;--warn:#b26a00;--warn-t:#fff6e5;--ok:#1d8a4a;--ok-t:#e9f7ef;--r:14px;
+:root{--acc:#2b6cb0;--acc-d:#2c5282;--acc-t:#e8f0f8;--bg:#f5f5f5;--panel:#ffffff;--txt:#1f1f1f;--mut:#616161;--line:#e0e0e0;--bad:#b33a3a;--warn:#b26a00;--warn-t:#fff6e5;--ok:#1d8a4a;--ok-t:#e9f7ef;--r:14px;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
-@media (prefers-color-scheme:dark){:root{--bg:#121618;--panel:#1b2124;--txt:#e3e8e6;--mut:#8f9a97;--line:#2b3438;--acc-t:#3a1518;--warn:#f0b14a;--warn-t:#33270f;--ok:#4cc17c;--ok-t:#12301f}}
+@media (prefers-color-scheme:dark){:root{--acc:#3d78b8;--acc-d:#2b6cb0;--bg:#1b1b1d;--panel:#242427;--txt:#ececee;--mut:#a1a1aa;--line:#34343a;--acc-t:#1f2c3a;--bad:#e07272;--warn:#f0b14a;--warn-t:#33270f;--ok:#4cc17c;--ok-t:#12301f}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--sans);font-size:16px;line-height:1.35}
 button,input,textarea{font:inherit;color:inherit}
@@ -17,7 +17,7 @@ button{cursor:pointer}
 .lbl{font-size:12.5px;color:var(--mut);margin:0 0 5px;font-weight:600}
 .inp{width:100%;border:1.5px solid var(--line);background:var(--panel);border-radius:11px;padding:11px 12px;font-size:16px;outline:none}
 .inp:focus{border-color:var(--acc)}
-.inp.bad{border-color:var(--acc)}
+.inp.bad{border-color:var(--bad)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 @media (max-width:380px){.grid2{grid-template-columns:1fr}}
 .who{display:flex;align-items:center;gap:10px}
@@ -50,7 +50,7 @@ button{cursor:pointer}
 .qty button{border:0;background:transparent;width:34px;height:38px;font-size:20px;font-weight:600;color:var(--mut)}
 .qty .v{min-width:46px;text-align:center;font-weight:700;font-size:15px;padding:0 2px}
 .qty .v small{display:block;font-size:10.5px;color:var(--mut);font-weight:600;margin-top:-2px}
-.qty.none{border-color:var(--acc)}
+.qty.none{border-color:var(--warn)}
 .dock{position:fixed;left:0;right:0;bottom:0;background:linear-gradient(transparent,var(--bg) 18px);padding:14px 0 calc(10px + env(safe-area-inset-bottom))}
 .dock .in{max-width:640px;margin:0 auto;padding:0 12px}
 .sug{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);margin-bottom:8px;overflow:hidden;box-shadow:0 8px 26px rgba(0,0,0,.12);max-height:46vh;overflow-y:auto;overscroll-behavior:contain}
@@ -62,7 +62,7 @@ button{cursor:pointer}
 .sg .nm em{font-style:normal;color:var(--acc)}
 .sg .q{font-size:13px;color:var(--mut);font-weight:600;flex:none}
 .words{display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line);overflow-x:auto}
-.words button{border:1px solid var(--line);background:var(--bg);border-radius:20px;padding:6px 12px;font-size:14px;white-space:nowrap}
+.words button{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 12px;font-size:14px;white-space:nowrap}
 .compose{display:flex;gap:8px}
 .compose .inp{flex:1;font-size:16px;padding:13px 14px;border-radius:13px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
 .compose .btn{border-radius:13px;width:52px;padding:0;font-size:26px}
@@ -88,7 +88,7 @@ button{cursor:pointer}
 .center{text-align:center}
 .num{font-size:30px;font-weight:800;margin:2px 0 10px}
 .toast{position:fixed;left:50%;top:16px;transform:translateX(-50%);background:var(--txt);color:var(--panel);padding:10px 16px;border-radius:12px;font-weight:600;z-index:50;font-size:14px;max-width:90vw;text-align:center}
-.err{color:var(--acc);font-size:14px;font-weight:600;margin-top:6px}
+.err{color:var(--bad);font-size:14px;font-weight:600;margin-top:6px}
 .hist{border-top:1px solid var(--line);padding:10px 0;display:flex;align-items:center;gap:10px}
 .hist .t{flex:1;font-size:14px}
 .hist .t b{display:block;font-size:15px}
@@ -96,3 +96,25 @@ textarea.inp{min-height:180px;resize:vertical}
 .muted{color:var(--mut);font-size:13px}
 .vis{display:none}
 body.lock{overflow:hidden}
+
+/* bo'limlar, «Jami», hisoblash, shaxsiy havola */
+.secbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px}
+.secbar .chips{flex:1;min-width:0}
+.secbar .chip{padding:7px 11px;font-size:14px}
+.chip.add{border-style:dashed;color:var(--mut)}
+.seg{display:flex;border:1.5px solid var(--line);border-radius:10px;overflow:hidden;flex:none}
+.seg button{border:0;background:var(--panel);padding:7px 11px;font-size:14px;font-weight:700;color:var(--mut)}
+.seg button.on{background:var(--acc);color:#fff}
+.sechd{display:flex;align-items:center;gap:8px;margin:14px 2px 6px;font-weight:800;font-size:14px;text-transform:uppercase;letter-spacing:.03em;color:var(--mut);cursor:pointer}
+.sechd span{font-weight:700;color:var(--mut);opacity:.8}
+.sechd.on{color:var(--acc)}
+.sechd.tot{cursor:default;color:var(--txt);text-transform:none;letter-spacing:0;font-size:14.5px}
+.secempty{color:var(--mut);font-size:13.5px;padding:4px 4px 8px}
+.ln.ro .qty{border-style:dashed}
+.qty .v .ex{display:block;font-size:10px;color:var(--acc);font-weight:600;margin-top:1px;max-width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lbl .hint{font-weight:500;color:var(--mut);opacity:.85;font-size:12px}
+.calcres{margin-top:6px;font-size:18px;font-weight:800;color:var(--acc);min-height:22px}
+.tag.ok{background:var(--ok-t);color:var(--ok);flex:none}
+.keybad{background:var(--warn-t);color:var(--warn);border-radius:10px;padding:8px 10px;font-size:13.5px;font-weight:600;margin-bottom:10px}
+.btn.sm{padding:7px 12px;font-size:14px}
+.btn.ghost{border-color:transparent;color:var(--mut);padding:7px 9px}
