@@ -8010,8 +8010,6 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
           { label: "Excel себестоимость", icon: "sheet", run: openCost, sep: true, title: "Внутренний: себестоимость, цена и прибыль по каждой позиции" },
           { label: "Акт сверки по объекту", icon: "sheet", run: exportObjAkt, hidden: !(fin && objSups.length > 0), title: "Акт сверки с поставщиком только по этому объекту: " + objSups.map((x) => x.name).join(", ") },
         ]} />
-        {/* редкое действие — в «⋯»: сделать объект «перечислением» (клиент платит через банк) */}
-        <DropMenu label="" cls="more" title="Ещё действия" items={[{ label: "Перечисление (оплата через банк)…", icon: "file", hidden: !(perech && !pObj), run: () => setPerechSetup(true), title: "Клиент платит через банк: договор, счета, накладные и долг — в сумах с НДС" }]} />
       </div>
 
       {!isLive(obj) && f.paidIgnored > 0 && (
