@@ -1485,6 +1485,7 @@ table.t tr:hover td{background:var(--hover)}
 .obj-lr-mb{flex:1;min-width:0}
 .obj-lr-mb .obj-mbar{margin:0!important}
 .obj-lr-m > .btn{flex:none}
+.btn.objf-ci.zero{opacity:.55}.btn.objf-ci.zero::before{background:var(--mut)!important}
 @media (max-width:760px){.obj-lr-m{flex-wrap:wrap}.obj-lr-mb{flex-basis:100%}}
 .obj-mscroll{gap:2px!important;padding:0 2px!important;margin-bottom:-1px!important}
 .obj-m,.te.dark .obj-m{min-height:0!important;padding:8px 16px 9px!important;gap:0!important;border:0!important;border-bottom:2px solid transparent!important;border-radius:0!important;background:none!important;box-shadow:none!important;color:var(--txt)!important}
@@ -7212,8 +7213,9 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
           <StatusFilter list={found.filter(mOk).map((r) => r.o)} value={sF} onPick={setSF} />
         </div>
         <div className="obj-lr-row obj-lr-m">
+          {/* «Проверить» — слева и всегда на месте (при 0 — неактивна), чтобы мастера не прыгали */}
+          {fin && <button className={"btn xs objf-ci" + (pF === "cost" ? " on" : "") + (nCi ? "" : " zero")} disabled={!nCi && pF !== "cost"} title={nCi ? "Объекты, где есть позиции без себестоимости, с себестоимостью выше цены продажи или без поставщика" : "Проверять нечего — у всех позиций есть себестоимость и поставщик"} onClick={() => setPF(pF === "cost" ? "" : "cost")}>⚠ Проверить: {nCi}</button>}
           <div className="obj-lr-mb"><MasterBar items={mItems} value={mF} onPick={setMF} /></div>
-        {nCi > 0 && <button className={"btn xs objf-ci" + (pF === "cost" ? " on" : "")} title="Объекты, где есть позиции без себестоимости, с себестоимостью выше цены продажи или без поставщика" onClick={() => setPF(pF === "cost" ? "" : "cost")}>⚠ Проверить: {nCi}</button>}
         </div>
       </div>
       {!shown.length ? <div className="card mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? <>Ничего не найдено{(q || mF || sF || pF) && <> · <button type="button" className="btn xs" onClick={() => { setQ(""); setMF(""); setSF(""); setPF(""); }}>Показать все</button></>}</> : "Объектов пока нет — создайте через «Новая заявка»"}</div> : (
