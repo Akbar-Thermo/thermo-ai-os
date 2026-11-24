@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useRef, useDeferredValue, memo, us
 let XLSX_MOD = null;
 const loadXLSX = async () => XLSX_MOD || (XLSX_MOD = await import("xlsx"));
 import * as dbModule from "./db.js";
+import { createPortal } from "react-dom";
 // «сырой» клиент Supabase (db.js экспортирует его рядом с db) — нужен для постраничной загрузки (.range) и массового удаления (.in)
 const sb = dbModule.supabase || null;
 /* Защита базы (supabase/secure/01_sessions.sql): вход проверяет сервер (te_login), сайт получает токен сессии
@@ -118,8 +119,8 @@ const db = dbWrap(dbModule.db);
 // долг клиента и поставщикам, продажи, прибыль, оплаты клиента, дашборд, бонусы
 const OBJ_STATUSES = [
   { id: "draft", label: "Черновик", c: "var(--t-neutral)" },
-  { id: "approved", label: "Согласовано", c: "var(--t-strong)" },
-  { id: "payment", label: "В процессе", c: "var(--t-info)" },
+  { id: "approved", label: "Согласовано", c: "var(--t-info)" },  // единые цвета статусов: серый → синий → жёлтый (в работе) → зелёный
+  { id: "payment", label: "В процессе", c: "var(--t-warn)" },
   // «Оплачено» ставится сам, когда клиент оплатил 100%; вручную — только при оплате 100%
   { id: "paid", label: "Оплачено", c: "var(--t-ok)" },
 ];
@@ -386,7 +387,7 @@ const CSS = `
    (активная вкладка, главные кнопки, акценты). Цифры — табличные, без моноширинного шрифта. */
 :root{
   --bg:#ebeeec; --panel:#fdfdfc; --panel2:#f4f6f5; --line:#e1e5e2; --line2:#ccd3cf;
-  --txt:#1f2629; --mut:#66706f; --acc:#ff1f30; --acc2:#d6001a; --acc-tint:rgba(255,31,48,.06); --wh-tint:rgba(44,122,82,.07); --acc-ring:rgba(255,31,48,.18);
+  --txt:#1f2629; --mut:#66706f; --acc:#2563eb; --acc2:#1d4ed8; --acc-tint:rgba(37,99,235,.07); --wh-tint:rgba(44,122,82,.07); --acc-ring:rgba(37,99,235,.2); --brand:#ff1f30;
   --ok:#2c7a52; --warn:#99650f; --bad:#b33a3a;
   --t-neutral:#66706f; --t-ok:#2c7a52; --t-warn:#99650f; --t-bad:#b33a3a; --t-info:#2f6a9e; --t-violet:#6a55a3; --t-strong:#1f2629;
   --mono:'JetBrains Mono',ui-monospace,monospace; --sans:'Onest',system-ui,sans-serif;
@@ -403,7 +404,7 @@ const CSS = `
 }
 .te.dark{
   --bg:#121618; --panel:#191e21; --panel2:#20272a; --line:#2a3337; --line2:#364146;
-  --txt:#dfe4e2; --mut:#8d9896; --acc:#ff1f30; --acc2:#ff4553; --acc-tint:rgba(255,31,48,.09); --wh-tint:rgba(61,220,125,.08); --acc-ring:rgba(255,31,48,.26);
+  --txt:#dfe4e2; --mut:#8d9896; --acc:#3b82f6; --acc2:#2563eb; --acc-tint:rgba(59,130,246,.12); --wh-tint:rgba(61,220,125,.08); --acc-ring:rgba(59,130,246,.3); --brand:#ff1f30;
   --ok:#5fb88a; --warn:#d4a24c; --bad:#e07272;
   --t-neutral:#9aa5a3; --t-ok:#5fb88a; --t-warn:#d4a24c; --t-bad:#e07272; --t-info:#6ea9de; --t-violet:#a597de; --t-strong:#dfe4e2;
   --hdr-bg:#101416; --hdr-line:#253035; --hdr-panel2:#1b2327;
@@ -420,14 +421,14 @@ html{scrollbar-width:none;-ms-overflow-style:none}html::-webkit-scrollbar,body::
 .hdr{display:flex;align-items:center;gap:14px;padding:12px 22px;border-bottom:2px solid var(--acc);flex-wrap:wrap;position:sticky;top:0;background:var(--hdr-bg);color:var(--hdr-txt);z-index:50;transition:transform .25s ease}
 @media(max-width:820px){.hdr.hide-on-scroll{transform:translateY(-100%)}}
 .logo{font-weight:800;letter-spacing:.4px;font-size:var(--fs-xl);color:var(--hdr-txt)}
-.logo span{color:var(--acc)}
-.te.dark .logo span{color:var(--acc)}
+.logo span{color:var(--brand,#ff1f30)}
+.te.dark .logo span{color:var(--brand,#ff1f30)}
 .logo small{display:block;font-weight:500;color:var(--hdr-mut);font-size:var(--fs-2xs);letter-spacing:2px;text-transform:uppercase}
 .tabs{display:flex;gap:2px;flex-wrap:wrap;margin-left:auto}
 .tab{position:relative;padding:8px 12px;border-radius:var(--r-sm);border:0;color:var(--hdr-mut);cursor:pointer;font-weight:600;font-size:var(--fs-sm);background:none;font-family:var(--sans)}
 .burger{display:none;align-items:center;justify-content:center;width:38px;height:38px;border-radius:var(--r-sm);border:1px solid var(--hdr-line);background:var(--hdr-panel2);color:var(--hdr-txt);cursor:pointer;font-size:var(--fs-xl);margin-left:auto}
 .tab:hover{color:var(--hdr-txt);background:var(--hdr-panel2)}
-.tab.on{color:#fff;background:var(--acc);box-shadow:0 4px 14px rgba(255,31,48,.28)}
+.tab.on{color:#fff;background:var(--acc);box-shadow:0 4px 14px rgba(37,99,235,.28)}
 @media(max-width:820px){
   .te.fine .tabs{display:none;position:absolute;top:100%;left:0;right:0;flex-direction:column;flex-wrap:nowrap;gap:0;margin:0;background:var(--hdr-bg);border-bottom:2px solid var(--acc);box-shadow:0 16px 30px rgba(0,0,0,.35);padding:6px;z-index:60}
   .te.fine .tabs.open{display:flex}
@@ -523,7 +524,7 @@ h3{font-size:var(--fs-lg);font-weight:650}
 .mono{font-family:var(--sans);font-variant-numeric:tabular-nums}
 .btn{padding:8px 14px;border-radius:var(--r-md);border:1px solid var(--line2);background:var(--panel);color:var(--txt);cursor:pointer;font-weight:600;font-size:var(--fs-sm);font-family:var(--sans);white-space:nowrap;transition:background .12s,border-color .12s,color .12s}
 .btn:hover{border-color:var(--mut);background:var(--panel2)}
-.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff;box-shadow:0 3px 10px rgba(255,31,48,.22)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff;box-shadow:0 3px 10px rgba(37,99,235,.22)}
 .btn.pri:hover{background:var(--acc2);border-color:var(--acc2);color:#fff}
 .btn.dng{color:var(--bad)}
 .btn.dng:hover{border-color:var(--bad)}
@@ -605,7 +606,7 @@ table.t tr:hover td{background:var(--hover)}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line2);border-top-color:var(--acc);border-radius:50%;animation:sp 0.8s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
 @keyframes busybar{0%{left:-35%;width:35%}60%{left:100%;width:35%}100%{left:100%;width:35%}}
-.busybar{position:fixed;top:0;left:0;right:0;height:3px;z-index:5000;overflow:hidden;pointer-events:none;background:rgba(255,31,48,.15)}
+.busybar{position:fixed;top:0;left:0;right:0;height:3px;z-index:5000;overflow:hidden;pointer-events:none;background:rgba(37,99,235,.15)}
 .busybar>i{position:absolute;top:0;height:3px;background:var(--acc);border-radius:2px;animation:busybar 1.1s ease-in-out infinite}
 .busywrap{position:fixed;inset:0;z-index:5000;display:flex;align-items:center;justify-content:center;pointer-events:none;background:rgba(10,12,14,.42);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);animation:busyfade .25s ease-out}
 @keyframes busyfade{from{opacity:0}to{opacity:1}}
@@ -619,14 +620,14 @@ table.t tr:hover td{background:var(--hover)}
 .busyte path{fill:#fff;fill-opacity:0;stroke:#fff;stroke-width:3;stroke-linejoin:round;stroke-dasharray:100;stroke-dashoffset:100;animation:busyDraw 2.2s cubic-bezier(.65,0,.35,1) infinite}
 .busyte path.be{animation-delay:.18s}
 .busyline{position:relative;width:110px;height:3px;margin-top:6px;overflow:hidden;border-radius:2px;background:rgba(255,255,255,.12)}
-.busyline i{position:absolute;top:0;left:0;height:100%;width:45%;background:#ff1f30;border-radius:2px;animation:busySweep 1.1s cubic-bezier(.65,0,.35,1) infinite alternate}
+.busyline i{position:absolute;top:0;left:0;height:100%;width:45%;background:var(--acc);border-radius:2px;animation:busySweep 1.1s cubic-bezier(.65,0,.35,1) infinite alternate}
 @keyframes busyIn{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
 @keyframes busyDraw{0%{stroke-dashoffset:100;fill-opacity:0}40%{stroke-dashoffset:0;fill-opacity:0}55%{fill-opacity:1}80%{stroke-dashoffset:0;fill-opacity:1}100%{stroke-dashoffset:-100;fill-opacity:0}}
 @keyframes busySweep{from{transform:translateX(-10%)}to{transform:translateX(132%)}}
 @media(prefers-reduced-motion:reduce){.busyte path{animation:none;stroke-dashoffset:0;fill-opacity:1}.busyline i{animation-duration:3s}}
-.busycard{display:flex;flex-direction:column;align-items:center;gap:16px;padding:28px 38px 24px;border-radius:var(--r-xl);background:var(--panel);border:1px solid var(--line);box-shadow:0 28px 80px rgba(0,0,0,.4),0 0 0 1px rgba(255,31,48,.08);animation:busypop .28s cubic-bezier(.2,.9,.3,1.2)}
+.busycard{display:flex;flex-direction:column;align-items:center;gap:16px;padding:28px 38px 24px;border-radius:var(--r-xl);background:var(--panel);border:1px solid var(--line);box-shadow:0 28px 80px rgba(0,0,0,.4),0 0 0 1px rgba(37,99,235,.08);animation:busypop .28s cubic-bezier(.2,.9,.3,1.2)}
 .busyring{position:relative;width:84px;height:84px}
-.busyring .r1{position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,transparent 0deg,rgba(255,31,48,.15) 90deg,var(--acc) 330deg,transparent 360deg);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px));mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px));animation:busyspin .9s linear infinite}
+.busyring .r1{position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,transparent 0deg,rgba(37,99,235,.15) 90deg,var(--acc) 330deg,transparent 360deg);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px));mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px));animation:busyspin .9s linear infinite}
 .busyring .r2{position:absolute;inset:11px;border-radius:50%;border:2px dashed var(--line2);animation:busyspinr 3s linear infinite}
 .busyring .logo{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:900;font-size:var(--fs-2xl);letter-spacing:1px;color:var(--txt);animation:busypulse 1.6s ease-in-out infinite}
 .busyring .logo i{display:block;width:26px;height:3px;border-radius:2px;background:var(--acc);margin-top:3px}
@@ -718,6 +719,16 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .acc-av.plus{background:transparent;border:1px dashed var(--mut);color:var(--mut)}
 .acc-o.add{border-top:1px solid var(--line);border-radius:0 0 8px 8px;margin-top:2px;padding-top:8px}
 .acc-o-t{display:flex;flex-direction:column;line-height:1.2;min-width:0}
+.dm{position:relative;display:inline-flex}
+.dm-car{margin-left:6px;font-size:10px;opacity:.7}
+.dm-btn.more{padding-left:10px;padding-right:10px;font-weight:800;letter-spacing:1px}
+.dm-pop{position:fixed;z-index:900;min-width:230px;padding:6px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:0 12px 30px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:1px}
+.dm-it{display:flex;align-items:center;gap:9px;padding:8px 10px;border:0;border-radius:7px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit;font-size:13px;white-space:nowrap}
+.dm-it:hover,.dm-it:focus-visible{background:var(--acc-tint);outline:none}
+.dm-it.dng{color:var(--bad)}.dm-it.dng:hover,.dm-it.dng:focus-visible{background:color-mix(in srgb,var(--bad) 10%,transparent)}
+.dm-noic{width:16px;flex:none}
+.dm-sep{height:1px;background:var(--line);margin:4px 2px}
+@media (max-width:640px){.dm-pop{left:10px!important;right:10px!important;top:auto!important;bottom:calc(10px + env(safe-area-inset-bottom,0px));min-width:0}}
 .ci-tag{display:inline-block;margin-left:6px;padding:0 6px;border-radius:6px;font-size:11px;font-weight:800;vertical-align:1px;white-space:nowrap}
 .ci-tag.none{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
 .ci-tag.nosup{background:color-mix(in srgb,#3b82f6 18%,transparent);color:#3b82f6}
@@ -1082,7 +1093,7 @@ html.phone-boot .body,html.phone-boot .card,html.phone-boot .kpi{animation:none!
 .hdr .btn:hover{border-color:var(--hdr-mut);background:var(--hdr-line);color:#fff}
 .hdr .btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
 .tab{transition:background var(--dur),color var(--dur),box-shadow var(--dur)}
-.tab.on{box-shadow:0 2px 10px rgba(255,31,48,.3)}
+.tab.on{box-shadow:0 2px 10px rgba(37,99,235,.3)}
 /* меню разделов: значок + название, группы. В строке (сверху) группы разделены тонкой чертой, в списке (сбоку, телефон) — подписями */
 .tab{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
 .tab .ic{flex:none;opacity:.65;transition:opacity var(--dur)}
@@ -1120,8 +1131,8 @@ html.phone-boot .body,html.phone-boot .card,html.phone-boot .kpi{animation:none!
 .btn{transition:background var(--dur),border-color var(--dur),color var(--dur),box-shadow var(--dur),transform .1s}
 .btn:hover{border-color:color-mix(in srgb,var(--mut) 55%,var(--line2))}
 .btn:active:not(:disabled){transform:translateY(1px)}
-.btn.pri{box-shadow:0 1px 2px rgba(214,0,26,.25),0 4px 12px -4px rgba(255,31,48,.45)}
-.btn.pri:hover{box-shadow:0 2px 4px rgba(214,0,26,.25),0 8px 18px -6px rgba(255,31,48,.55)}
+.btn.pri{box-shadow:0 1px 2px rgba(29,78,216,.25),0 4px 12px -4px rgba(37,99,235,.45)}
+.btn.pri:hover{box-shadow:0 2px 4px rgba(29,78,216,.25),0 8px 18px -6px rgba(37,99,235,.55)}
 .btn.pri:disabled{box-shadow:none}
 .btn.dng:hover{background:color-mix(in srgb,var(--bad) 8%,transparent)}
 /* поля ввода */
@@ -1195,7 +1206,7 @@ tr.batch-head:hover>td{background:color-mix(in srgb,var(--txt) 4%,var(--panel2))
   --shadow:0 0 0 1px rgba(16,24,40,.015),0 1px 2px rgba(16,24,40,.05),0 2px 6px -2px rgba(16,24,40,.04);
   --shadow-xs:0 1px 2px rgba(16,24,40,.05);
   --shadow-pop:0 0 0 1px rgba(16,24,40,.04),0 4px 10px rgba(16,24,40,.06),0 28px 64px -18px rgba(16,24,40,.30);
-  --acc-ring:rgba(255,31,48,.16);
+  --acc-ring:rgba(37,99,235,.18);
 }
 .te.dark{
   --bg:#0d0f12; --panel:#15171b; --panel2:#1b1e23; --line:#25292f; --line2:#323740;
@@ -1265,8 +1276,8 @@ h3{letter-spacing:-.012em}
 .btn:hover{background:var(--panel2);border-color:color-mix(in srgb,var(--mut) 40%,var(--line2))}
 .te.dark .btn{background:var(--panel2)}
 .te.dark .btn:hover{background:color-mix(in srgb,var(--txt) 7%,var(--panel2))}
-.btn.pri,.te.dark .btn.pri{background:var(--acc) linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,0));border-color:var(--acc2);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 1px 2px rgba(214,0,26,.28)}
-.btn.pri:hover,.te.dark .btn.pri:hover{background:var(--acc2) linear-gradient(180deg,rgba(255,255,255,.1),rgba(255,255,255,0));border-color:var(--acc2);box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 2px 8px -2px rgba(214,0,26,.45)}
+.btn.pri,.te.dark .btn.pri{background:var(--acc) linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,0));border-color:var(--acc2);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 1px 2px rgba(29,78,216,.28)}
+.btn.pri:hover,.te.dark .btn.pri:hover{background:var(--acc2) linear-gradient(180deg,rgba(255,255,255,.1),rgba(255,255,255,0));border-color:var(--acc2);box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 2px 8px -2px rgba(29,78,216,.45)}
 .btn.pri:disabled{box-shadow:none}
 .btn:disabled{box-shadow:none}
 .btn.dng{color:var(--bad)}
@@ -3590,7 +3601,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
         </div>
       )}
       {!pend && (hits.length > 0 || noHits) && (
-        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, boxShadow: "0 16px 44px rgba(0,0,0,.18), 0 0 0 1px rgba(255,31,48,.15)", isolation: "isolate", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, boxShadow: "0 16px 44px rgba(0,0,0,.18), 0 0 0 1px rgba(37,99,235,.15)", isolation: "isolate", overflow: "hidden" }}>
           <div className="xs mut" style={{ padding: "6px 11px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between" }}>
             <span>{noHits ? "Ничего не найдено" : "Найдено: " + hits.length}</span>
             {hits.length > 1 && <span>↑↓ выбор · Enter добавить</span>}
@@ -3801,7 +3812,7 @@ function ProductsTab({ data, reload, toast, pmode = false, setPmode = null, allP
       <div className="row sect ph">
         <h2 style={{ marginRight: "auto" }}>{pmode ? "Товары — перечисление" : "База товаров"} <span className="mut sm">({list.length !== products.length ? list.length + " из " + products.length : products.length})</span></h2>
         {setPmode && <PerechToggle on={pmode} set={(v) => { setSel([]); setPmode(v); }} />}
-        <button className="btn" onClick={() => setImp(true)}>Импорт Excel/CSV</button>
+        <button className="btn" onClick={() => setImp(true)}><Ic n="upload" /> Импорт Excel/CSV</button>
         <button className="btn pri" onClick={() => setEdit({ unit: "шт", status: "active", stock: 0, cost: 0, price: 0, code: String(nextProductCode(products)) })}>+ Товар</button>
       </div>
       <div className="lr-bar">
@@ -4729,10 +4740,10 @@ function SuppliersTab({ data, reload, toast, fin = true, pmode = false, setPmode
             <div className="sm mut">{[cur.contact, cur.phone, "товаров: " + (prodCnt[cur.id] || 0)].filter(Boolean).join(" · ")}
               {(() => { const r = rows.find((x) => x.s.id === cur.id); const di = r && r.di; return di && di.days != null ? <span className="sup-age" style={di.days > SUP_DEBT_DAYS ? { color: "var(--bad)", fontWeight: 800 } : null}> · долг не оплачен {di.days > SUP_DEBT_DAYS ? SUP_DEBT_DAYS + "+" : di.days} дн. (с {dt(di.since)})</span> : null; })()}</div>
           </div>
-          {fin && <button className="btn dng" onClick={() => { setDelErr(""); setDel(cur); }}>Удалить</button>}
-          <button className="btn" onClick={() => setEdit(cur)}>Редактировать</button>
+          <button className="btn" onClick={() => setEdit(cur)}><Ic n="pencil" /> Редактировать</button>
           <button className="btn" onClick={() => history([cur], "История_" + fileSafe(cur.name) + ".xlsx")}><Ic n="download" /> История (Excel)</button>
           <button className="btn pri sup-pay" onClick={() => setPay(cur)}><Ic n="cash" /> Оплата{curSt && curSt.debt > 0 ? " · долг " + fmt(curSt.debt) : ""}</button>
+          <DropMenu label="" cls="more" title="Ещё действия" items={[{ label: "Удалить поставщика", icon: "trash", danger: true, hidden: !fin, run: () => { setDelErr(""); setDel(cur); } }]} />
         </div>
         <AktSverkaModal inline s={cur} objects={objects} ops={finance_ops} whMoves={wh_moves} products={products} toast={toast} reload={reload} canEdit={fin} onClose={() => setOpenId(null)} />
       </> : <>
@@ -7823,13 +7834,13 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
           {statusOptions(obj.status).map((s) => { const off = s.id === "paid" && obj.status !== "paid" && !fullyPaid(obj, finance_ops); return <option key={s.id} value={s.id} disabled={off}>{s.label}{off ? " — после оплаты 100%" : ""}</option>; })}
         </select>
         {perech && !pObj && <button className="btn" onClick={() => setPerechSetup(true)} title="Клиент платит через банк: договор, счета, накладные и долг — в сумах с НДС"><Ic n="file" /> Перечисление</button>}
-        {/* выгрузки Excel — вместе, в одном ряду и всегда в этом порядке */}
-        <div className="xl-group">
-          <button className="btn" onClick={openClient} title={isPerech(obj) ? "Перечисление: в сумах (с НДС, по курсам поставок) или в $ — выбор при скачивании" : "В $ или в сумах — выбор при скачивании"}><Ic n="download" /> Excel клиенту</button>
-          <button className="btn" onClick={exportDelivery}><Ic n="truck" /> Лист доставки</button>
-          <button className="btn" onClick={openCost} title={isPerech(obj) ? "Внутренний: себестоимость, цена и прибыль по каждой позиции — в $ или в сумах" : "Внутренний: себестоимость, цена и прибыль по каждой позиции, в $"}><Ic n="sheet" /> Excel себестоимость</button>
-          {fin && objSups.length > 0 && <button className="btn obj-akt" onClick={exportObjAkt} title={"Акт сверки с поставщиком только по этому объекту: " + objSups.map((x) => x.name).join(", ")}><Ic n="sheet" /> Акт сверки</button>}
-        </div>
+        {/* все выгрузки — в одном меню «Документы», всегда в этом порядке */}
+        <DropMenu label="Документы" icon="file" title="Excel клиенту, лист доставки, себестоимость, акт сверки" items={[
+          { label: "Excel клиенту", icon: "download", run: openClient, title: isPerech(obj) ? "Перечисление: в сумах (с НДС, по курсам поставок) или в $ — выбор при скачивании" : "В $" },
+          { label: "Лист доставки", icon: "truck", run: exportDelivery },
+          { label: "Excel себестоимость", icon: "sheet", run: openCost, sep: true, title: "Внутренний: себестоимость, цена и прибыль по каждой позиции" },
+          { label: "Акт сверки по объекту", icon: "sheet", run: exportObjAkt, hidden: !(fin && objSups.length > 0), title: "Акт сверки с поставщиком только по этому объекту: " + objSups.map((x) => x.name).join(", ") },
+        ]} />
       </div>
 
       {!isLive(obj) && f.paidIgnored > 0 && (
@@ -9094,10 +9105,10 @@ function MasterDetail({ m, data, reload, toast, back, openObject, edit, setEdit,
           <h2>{m.name} {m.status !== "active" && <Badge c="#9a9a9a">неактивен</Badge>}</h2>
           <div className="sm mut">{m.specialty} · {m.phone}{fin ? " · бонус по умолчанию: " + (m.bonus_percent || 0) + "% от валовой" : ""}{m.note ? " · " + m.note : ""}</div>
         </div>
-        {fin && <button className="btn dng" onClick={() => setDelForm(true)}>Удалить</button>}
-        {fin && <button className="btn" onClick={() => setEdit(m)}>Редактировать</button>}
+        {fin && <button className="btn" onClick={() => setEdit(m)}><Ic n="pencil" /> Редактировать</button>}
         {fin && <button className="btn" onClick={() => setAccForm(true)}>+ Начислить бонус</button>}
-        {fin && <button className="btn pri" onClick={() => setPayForm(true)}>Выплатить бонус</button>}
+        {fin && <button className="btn pri" onClick={() => setPayForm(true)}><Ic n="cash" /> Выплатить бонус</button>}
+        {fin && <DropMenu label="" cls="more" title="Ещё действия" items={[{ label: "Удалить мастера", icon: "trash", danger: true, run: () => setDelForm(true) }]} />}
       </div>
       <div className="kpis sect">
         <KPI l="Объектов" v={st.count} />
@@ -9492,7 +9503,7 @@ function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
         <div className="row sect ph ph-obj">
           <button className="btn ph-back" onClick={() => setOpenId(null)}>← Доставка</button>
           <h2 style={{ marginRight: "auto" }}>{obj.name}</h2>
-          <button className="btn" onClick={() => deliverySheetStart(obj, suppliers, toast, () => setDelPick(true))}>📄 Лист доставки</button>
+          <button className="btn" onClick={() => deliverySheetStart(obj, suppliers, toast, () => setDelPick(true))}><Ic n="truck" /> Лист доставки</button>
           {(obj.items || []).some((i) => !i.from_warehouse) && <button className="btn pri" onClick={() => setShip(true)}><Ic n="truck" /> Отгрузить / Доставлено{pending(obj) ? " (" + pending(obj) + ")" : " ✓"}</button>}
         </div>
         <div className="card sect">
@@ -12574,6 +12585,49 @@ function UserForm({ u, users, self, onClose, onSave, data = null, uperms = {}, h
 }
 // логин в меню: рядом стрелка — под логином раскрываются другие аккаунты этого устройства (нажал — переключился);
 // если аккаунт один — вместо стрелки «+» (добавить аккаунт)
+/* Выпадающее меню у кнопки: «Документы ▾», «⋯» (редкие и опасные действия — удалить и т.п.).
+   items: [{ label, icon, run, danger, title, hidden, sep }] — sep: черта перед пунктом. Стрелки ↑↓, Enter, Esc. */
+// окно меню выносится в корень программы (.te): шапки разделов обрезают всё, что выходит за их край
+function DropMenu({ label, icon, items, title = "", cls = "", align = "right" }) {
+  const [open, setOpen] = useState(null); // null — закрыто; { top, left|right } — где показать
+  const ref = useRef(null), pop = useRef(null);
+  const list = (items || []).filter((x) => x && !x.hidden);
+  const toggle = () => {
+    if (open) { setOpen(null); return; }
+    const r = ref.current.getBoundingClientRect();
+    setOpen(align === "left" ? { top: r.bottom + 6, left: r.left } : { top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
+  };
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target) && !(pop.current && pop.current.contains(e.target))) setOpen(null); };
+    const off = () => setOpen(null);
+    document.addEventListener("pointerdown", h, true); window.addEventListener("resize", off); window.addEventListener("scroll", off, true);
+    setTimeout(() => { const b = pop.current && pop.current.querySelector(".dm-it"); if (b) b.focus(); }, 0);
+    return () => { document.removeEventListener("pointerdown", h, true); window.removeEventListener("resize", off); window.removeEventListener("scroll", off, true); };
+  }, [!!open]);
+  if (!list.length) return null;
+  const key = (e) => {
+    const its = [...pop.current.querySelectorAll(".dm-it")], i = its.indexOf(document.activeElement);
+    if (e.key === "Escape") { e.preventDefault(); setOpen(null); ref.current.querySelector(".dm-btn").focus(); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); (its[i + 1] || its[0]).focus(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); (its[i - 1] || its[its.length - 1]).focus(); }
+  };
+  return (
+    <div ref={ref} className={"dm" + (open ? " open" : "")}>
+      <button type="button" className={"btn dm-btn " + cls} aria-haspopup="menu" aria-expanded={!!open} title={title} onClick={toggle}>
+        {icon && <Ic n={icon} />}{label || (!icon ? "⋯" : "")}{label ? <span className="dm-car">▾</span> : null}
+      </button>
+      {open && createPortal(<div ref={pop} className="dm-pop" role="menu" style={open} onKeyDown={key}>
+        {list.map((x, i) => <React.Fragment key={i}>
+          {x.sep && i > 0 && <div className="dm-sep" />}
+          <button type="button" role="menuitem" className={"dm-it" + (x.danger ? " dng" : "")} title={x.title || ""} onClick={() => { setOpen(null); x.run(); }}>
+            {x.icon ? <Ic n={x.icon} /> : <span className="dm-noic" />}<span>{x.label}</span>
+          </button>
+        </React.Fragment>)}
+      </div>, (ref.current && ref.current.closest(".te")) || document.body)}
+    </div>
+  );
+}
 function AccMini({ cur, role, onAdd, inline = false }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
