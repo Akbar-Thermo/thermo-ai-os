@@ -7989,7 +7989,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
           </div>
         </div>
         {/* статус: поле по ширине выбранного слова (не по самому длинному пункту списка) */}
-        <select className="inp obj-st-sel" title="Статус объекта" style={{ width: (String(stById(obj.status).label.replace(" (старый статус)", "")).length * 8.2 + 46) + "px" }} value={obj.status} onChange={(e) => setStatus(e.target.value)}>
+        <select className="inp obj-st-sel" title="Статус объекта" style={{ width: (String(stById(obj.status).label.replace(" (старый статус)", "")).length * (isPhone() ? 9.8 : 8.2) + 46) + "px" }} value={obj.status} onChange={(e) => setStatus(e.target.value)}>
           {statusOptions(obj.status).map((s) => { const off = s.id === "paid" && obj.status !== "paid" && !fullyPaid(obj, finance_ops); return <option key={s.id} value={s.id} disabled={off}>{s.label}{off ? " — после оплаты 100%" : ""}</option>; })}
         </select>
         {/* все выгрузки — в одном меню «Документы», всегда в этом порядке */}
