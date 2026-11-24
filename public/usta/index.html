@@ -124,78 +124,102 @@ body.lock{overflow:hidden}
 .btn.sm{padding:7px 12px;font-size:14px}
 .btn.ghost{border-color:transparent;color:var(--mut);padding:7px 9px}
 
-/* ===== kompyuter (≥900px): programmadagidek — shapka, jadval, o'ng panel ===== */
-body.desk{font-size:14px}
+/* ===== kompyuter (≥900px): programmadagi «Новая заявка → Подбор товаров» kabi ===== */
+body.desk{font-size:14px;letter-spacing:-.003em}
 body.desk .dk{min-height:100vh}
-.dh{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:16px;padding:12px 28px;background:color-mix(in srgb,var(--panel) 85%,transparent);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--line)}
+.dh{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;padding:12px 28px;background:color-mix(in srgb,var(--panel) 85%,transparent);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--line)}
 .dlogo{font-weight:800;letter-spacing:.06em;font-size:14px;white-space:nowrap}
 .dlogo span{color:var(--acc);margin:0 2px}
-.dtt{color:var(--mut);font-weight:600;font-size:14px;padding-left:16px;border-left:1px solid var(--line);margin-right:auto}
-body.desk .lang{border-radius:6px}
+.dtt{color:var(--mut);font-weight:600;font-size:13px;padding-left:14px;border-left:1px solid var(--line);margin-right:auto}
+.dwho{display:flex;align-items:center;gap:8px;font-size:13px}
+.dwho .dwn{font-weight:650}
+.dwho .xs{color:var(--mut)}
+.dwho .link{margin:0;font-size:13px}
+body.desk .lang{border-radius:6px;margin-left:0}
 body.desk .lang button{padding:5px 10px}
-.dg{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:22px;padding:22px 28px 40px;align-items:start}
-.dm{min-width:0}
-body.desk .inp{border-radius:6px;border-width:1px;padding:9px 11px;font-size:14px}
+.dbody{padding:22px 28px 40px}
+.dph{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.dph h2{margin:0 auto 0 0;font-size:22px;font-weight:700}
+body.desk .inp{border-radius:6px;border-width:1px;padding:8px 11px;font-size:14px;height:36px}
 body.desk .inp:focus{border-color:var(--mut)}
-body.desk .btn{border-radius:6px;border-width:1px;padding:8px 13px;font-size:14px}
+body.desk .inp.bad{border-color:var(--bad)}
+body.desk .btn{border-radius:6px;border-width:1px;padding:0 14px;height:36px;font-size:14px;font-weight:600}
 body.desk .btn:active{transform:translateY(1px)}
-body.desk .btn.big{padding:12px;font-size:15px;border-radius:8px;margin-bottom:12px}
-body.desk .btn.sm{padding:6px 10px;font-size:13px}
-body.desk .card{border-radius:8px;padding:14px;margin-bottom:12px}
-body.desk .chip{border-radius:6px;border-width:1px;padding:6px 10px;font-size:13px}
+body.desk .btn:hover{border-color:var(--mut)}
+body.desk .btn.pri:hover{border-color:var(--acc-d);background:var(--acc-d)}
+body.desk .btn.xs{height:auto;padding:4px 9px;font-size:12px}
+body.desk .btn.dng{color:var(--bad)}
+body.desk .btn.dng:hover{border-color:var(--bad)}
+body.desk .btn:disabled{opacity:.45;cursor:default;transform:none}
+body.desk .card{border-radius:8px;padding:16px;margin-bottom:14px;border-color:var(--line);box-shadow:0 1px 2px rgba(16,24,40,.05)}
+.dgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fld{display:flex;flex-direction:column;gap:5px;min-width:0}
+.fld label{font-size:12px;color:var(--mut);font-weight:600}
+.dpickh{margin-bottom:12px}
+.dpickh h3{margin:0 auto 0 0;font-size:16px}
+body.desk .secbar{margin:0 0 10px}
+body.desk .chip{border-radius:6px;border-width:1px;padding:5px 10px;font-size:13px;min-width:0}
 body.desk .chip.on{border-color:var(--mut);background:var(--bg);color:var(--txt)}
 body.desk .seg{border-radius:6px;border-width:1px}
-body.desk .seg button{padding:6px 10px;font-size:13px}
-.dobj{font-size:20px!important;font-weight:700;border-color:transparent!important;background:transparent!important;padding:6px 8px!important;margin:0 0 10px -8px;width:calc(100% + 8px)}
-.dobj:hover{background:var(--panel)!important;border-color:var(--line)!important}
-.dobj:focus{background:var(--panel)!important;border-color:var(--mut)!important}
-.dtools{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
-.dtools #secbar{flex:1;min-width:0}
-.dtools .secbar{margin:0}
-.dtb{display:flex;gap:8px;flex:none}
-.dadd{position:relative;display:flex;gap:8px;margin-bottom:10px}
-.dadd .inp{flex:1;font-size:15px!important;padding:11px 12px!important}
-.dadd .sug{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:15;margin:0;border-radius:8px;max-height:60vh}
-.dtbl{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.dthd,.ln.dr{display:grid;grid-template-columns:38px minmax(0,1fr) 210px 36px;align-items:center;gap:10px}
-.dthd{padding:9px 12px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.045em;color:var(--mut);border-bottom:1px solid var(--line)}
-.dthd .r{text-align:left}
-.ln.dr{margin:0;border:0;border-radius:0;border-bottom:1px solid var(--line);padding:7px 12px;background:transparent}
-.ln.dr:last-child{border-bottom:0}
-.ln.dr:hover{background:rgba(127,127,127,.05)}
-.ln.dr.unk{background:var(--warn-t)}
-.ln.dr.fresh{animation:frd 1.4s ease}
+body.desk .seg button{padding:5px 10px;font-size:13px}
+.dsrch{position:relative;margin-bottom:12px}
+.dsrch .inp{width:100%}
+.dsug{position:absolute;left:0;right:0;top:calc(100% + 3px);z-index:15;margin:0!important;border-radius:8px!important;max-height:430px;box-shadow:0 0 0 1px rgba(16,24,40,.04),0 4px 10px rgba(16,24,40,.06),0 28px 64px -18px rgba(16,24,40,.30)!important}
+.dsrch:not(:focus-within) .dsug{display:none}
+.fhd{padding:8px 12px;font-size:12px;color:var(--mut);border-bottom:1px solid var(--line)}
+.fr{padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--line)}
+.fr:last-child{border-bottom:0}
+.fr b{font-weight:650;font-size:14px}
+.fr .sub{font-size:12px;color:var(--mut);margin-top:2px}
+.fr.on{background:var(--acc-t)}
+.fr.free b{font-weight:500}
+.fpend{padding:12px 14px}
+.fpend .res{color:var(--acc);margin-left:4px}
+.sub{font-size:12px;color:var(--mut);margin-top:2px}
+.sub.w{color:var(--warn)}
+table.dt{width:100%;border-collapse:collapse;font-size:13px}
+table.dt th{background:var(--panel);color:var(--mut);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.045em;text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}
+table.dt td{padding:9px 12px;border-bottom:1px solid color-mix(in srgb,var(--line) 75%,transparent);vertical-align:middle}
+table.dt tbody tr:last-child td{border-bottom:0}
+table.dt tr.ln:hover td{background:rgba(127,127,127,.04)}
+table.dt .c-n{width:44px;color:var(--mut)}
+table.dt .c-q{width:200px}
+table.dt .c-u{width:70px;color:var(--mut)}
+table.dt .c-x{width:52px;text-align:right}
+table.dt td.t{cursor:pointer}
+table.dt td.t .nm{font-weight:600;font-size:14px}
+table.dt tr.ro td.t{cursor:default}
+table.dt tr.unk td{background:var(--warn-t)}
+table.dt tr.ln.fresh td{animation:frd 1.4s ease}
 @keyframes frd{0%{background:var(--acc-t)}100%{background:transparent}}
-.ln.dr .n{text-align:left;width:auto}
-.ln.dr .t{cursor:pointer;display:flex;align-items:center;flex-wrap:wrap;gap:6px}
-.ln.dr .nm{font-size:14px;font-weight:600}
-.ln.dr .ch{margin:0;display:inline-flex}
-.ln.dr .t:hover .nm{text-decoration:underline;text-decoration-color:var(--line)}
-.dq{display:flex;align-items:center;gap:7px}
-.dq span{color:var(--mut);font-size:13px;min-width:22px}
-.dq .res{color:var(--acc);font-weight:700;font-size:13px;white-space:nowrap}
-.qin{width:96px;border:1px solid var(--line);border-radius:6px;padding:7px 9px;font-size:14px;font-weight:700;text-align:right;background:var(--panel);outline:none}
-.qin:focus{border-color:var(--mut)}
-.qin.none{border-color:var(--warn);background:var(--warn-t)}
-.dx{border:0;background:none;color:var(--mut);width:30px;height:30px;border-radius:6px;opacity:.45}
-.ln.dr:hover .dx{opacity:1}
-.dx:hover{background:var(--bg);color:var(--bad)}
-body.desk .sechd{margin:0;padding:10px 12px 6px;border-bottom:1px solid var(--line);background:var(--bg);font-size:12px}
-body.desk .secempty{padding:8px 12px;border-bottom:1px solid var(--line)}
-body.desk .empty{padding:34px 10px}
-.da{position:sticky;top:76px}
-.dl .hist{padding:8px 0}
-.dl .hist .t b{font-size:14px}
-.dl .d{color:var(--mut);font-size:13px;margin:0 0 6px}
-.dl .lbl.grp{margin:10px 0 2px}
-/* oynalar kompyuterda — ekran o'rtasida */
+.dq{display:flex;align-items:center;gap:8px}
+.qin{width:110px!important;font-weight:700}
+.qin.none{border-color:var(--bad)!important}
+.dq .res{color:var(--acc);font-weight:700;white-space:nowrap}
+table.dt tr.sechd td{background:var(--bg);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);cursor:pointer;padding:7px 12px}
+table.dt tr.sechd.on td{color:var(--txt)}
+table.dt tr.sechd span{font-weight:600;opacity:.8;margin-left:4px}
+table.dt tr.secempty td{color:var(--mut);font-size:13px}
+.dtot{font-weight:600;font-size:13px;color:var(--mut);margin:0 0 8px}
+.dempty{border:1px solid var(--line);border-radius:8px;text-align:center;color:var(--mut);padding:30px 16px}
+#list .dt{border:1px solid var(--line);border-radius:8px;border-collapse:separate;border-spacing:0;overflow:hidden}
+.dfoot{margin-top:12px;justify-content:space-between}
+.dcount{font-variant-numeric:tabular-nums}
+.dact{margin-top:16px;justify-content:space-between}
 body.desk .sheet-bg{align-items:center}
 body.desk .sheet{border-radius:10px;max-width:560px;max-height:84vh;padding:20px 22px;animation:none}
 body.desk .sheet .qbig button{width:40px;height:40px;border-radius:6px;font-size:20px}
-body.desk .sheet .qbig input{width:130px;font-size:18px!important}
+body.desk .sheet .qbig input{width:130px;font-size:18px!important;height:40px}
+body.desk .sheet .chip{padding:6px 11px}
+body.desk .hist .btn{height:30px;padding:0 10px}
 body.desk .toast{top:auto;bottom:24px;border-radius:8px}
-@media (min-width:900px) and (max-width:1100px){.dg{grid-template-columns:minmax(0,1fr) 290px;padding:18px 18px 30px;gap:16px}.dh{padding:12px 18px}}
+@media (min-width:900px) and (max-width:1100px){.dbody{padding:18px 18px 30px}.dh{padding:12px 18px}}
 .link.mutl{color:var(--mut);font-weight:500}.link.mutl:hover{color:var(--bad)}
+table.dt tr.ln{display:table-row;border:0;border-radius:0;background:none;padding:0;margin:0;gap:0;animation:none}
+table.dt tr.ln td{background:var(--panel)}
+table.dt tr.ln.unk td{background:var(--warn-t)}
+table.dt tr.ln .t{display:table-cell;flex:none;min-width:240px}
+table.dt tr.ln .n{width:auto;text-align:left}
 </style></head>
 <body><div id="app"></div>
 <script>window.USTA_CFG = {"url": "https://ettbatawccumoqrrtyql.supabase.co", "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0dGJhdGF3Y2N1bW9xcnJ0eXFsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEzNDM0NjYsImV4cCI6MjA5NjkxOTQ2Nn0.mi5bv7nWHcJS6sL_dunlv97PLbddwy5NFId03utv_XE"};</script>
@@ -761,7 +785,9 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     err: "Yuborib bo'lmadi. Internetni tekshirib, qayta bosing.", errRate: "Juda ko'p ro'yxat yuborildi. Birozdan keyin qayta urinib ko'ring.",
     errPhone: "Telefon raqami noto'g'ri", pasteT: "Ro'yxatni joylang", pasteD: "Telegramdagi ro'yxatingizni nusxalab shu yerga joylang — har bir qator alohida tovar bo'ladi.",
     pasteBtn: "Ro'yxatga qo'shish", back: "Orqaga", search: "Qidirish", clear: "Ro'yxatni tozalash", clearQ: "Ro'yxat butunlay o'chirilsinmi?",
-    colItem: "Tovar", emptyDk: "Tepada tovarni yozing va Enter bosing — dastur o'zi topadi, keyin sonini yozasiz (12+8+6 ham bo'ladi) va yana Enter.", myLink: "shaxsiy havola", keyBad: "Bu havola eskirgan yoki noto'g'ri. Rahbardan yangi havola so'rang — hozircha ism va telefon bilan yuborish mumkin.",
+    colItem: "Tovar", unitCol: "Birlik", pickT: "Tovar tanlash", searchPh: "Tovar qidirish — yozishni boshlang: truba 25, kran 1/2…", found: "Topildi", notFound: "Katalogda topilmadi", keepFree: "katalogda yo'q — shunday yozib qo'shish", manualAdd: "qo'lda qo'shish (katalogda yo'q)", positions: "Pozitsiyalar", phone: "Telefon",
+    pendHint: "Enter — qo'shish va keyingisini qidirish · Esc — ro'yxatga qaytish · 12+8+6 kabi hisoblash ham bo'ladi",
+    emptyDk: "Ro'yxat bo'sh. Tepada tovarni qidiring (↑ ↓ bilan tanlab, Enter), katalogdan oling yoki matnni joylang.", myLink: "shaxsiy havola", keyBad: "Bu havola eskirgan yoki noto'g'ri. Rahbardan yangi havola so'rang — hozircha ism va telefon bilan yuborish mumkin.",
     noSec: "Bo'limsiz", addSec: "Bo'lim", secEdit: "Bo'limni o'zgartirish", secD: "Masalan: 1-qavat, 2-qavat, oshxona, hammom. Yangi tovarlar tanlangan bo'limga tushadi.", secPh: "Bo'lim nomi", secEmpty: "Bu bo'limda hozircha tovar yo'q — pastda yozing", secs: "bo'lim",
     viewList: "Bo'limlar", viewTotal: "Jami", totalD: "Jami — hamma bo'limlar qo'shildi (shu ro'yxat yuboriladi)", fromSecs: "{n} bo'limdan",
     calcHint: "hisoblash mumkin: 12+8+6 yoki 3*4", myLists: "Mening ro'yxatlarim", drafts: "Saqlangan (yuborilmagan)", sentLists: "Yuborilganlar", noObject: "Nomsiz ro'yxat",
@@ -784,7 +810,9 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     err: "Не удалось отправить. Проверьте интернет и нажмите ещё раз.", errRate: "Слишком много списков. Попробуйте чуть позже.",
     errPhone: "Неверный номер телефона", pasteT: "Вставьте список", pasteD: "Скопируйте свой список из Telegram и вставьте сюда — каждая строка станет отдельным товаром.",
     pasteBtn: "Добавить в список", back: "Назад", search: "Поиск", clear: "Очистить список", clearQ: "Удалить весь список?",
-    colItem: "Товар", emptyDk: "Напишите товар сверху и нажмите Enter — программа найдёт его, затем впишите количество (можно 12+8+6) и снова Enter.", myLink: "личная ссылка", keyBad: "Эта ссылка устарела или неверна. Попросите новую у руководителя — пока можно отправить с именем и телефоном.",
+    colItem: "Товар", unitCol: "Ед.", pickT: "Подбор товаров", searchPh: "Поиск товара — начните вводить: труба 25, кран 1/2…", found: "Найдено", notFound: "В каталоге не найдено", keepFree: "нет в каталоге — добавить как написано", manualAdd: "добавить позицию вручную (нет в каталоге)", positions: "Позиций", phone: "Телефон",
+    pendHint: "Enter — добавить и искать дальше · Esc — назад к списку · можно считать: 12+8+6",
+    emptyDk: "Список пуст. Найдите товар через поиск выше (↑ ↓ и Enter), возьмите из каталога или вставьте текст.", myLink: "личная ссылка", keyBad: "Эта ссылка устарела или неверна. Попросите новую у руководителя — пока можно отправить с именем и телефоном.",
     noSec: "Без раздела", addSec: "Раздел", secEdit: "Изменить раздел", secD: "Например: 1 этаж, 2 этаж, кухня, ванная. Новые товары попадают в выбранный раздел.", secPh: "Название раздела", secEmpty: "В этом разделе пока нет товаров — пишите внизу", secs: "разд.",
     viewList: "По разделам", viewTotal: "Итого", totalD: "Итого — все разделы сложены (отправляется этот список)", fromSecs: "из {n} разд.",
     calcHint: "можно считать: 12+8+6 или 3*4", myLists: "Мои списки", drafts: "Сохранённые (не отправлены)", sentLists: "Отправленные", noObject: "Список без названия",
@@ -849,19 +877,19 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     document.body.classList.toggle("desk", isDesk());
     if (isDesk()) $("app").innerHTML =
       '<div class="dk"><header class="dh"><div class="dlogo">THERMO<span>•</span>ENGINEERING</div><div class="dtt">' + esc(T("title")) + '</div>' +
+      '<div class="dwho" id="who"></div>' +
       '<div class="lang"><button data-l="uz" class="' + (S.lang === "uz" ? "on" : "") + '">UZ</button><button data-l="ru" class="' + (S.lang === "ru" ? "on" : "") + '">RU</button></div></header>' +
-      '<div class="dg"><main class="dm">' +
-      '<input class="inp dobj" id="obj" placeholder="' + esc(T("objectPh")) + '" value="' + esc(S.object) + '" maxlength="200" aria-label="' + esc(T("object")) + '">' +
-      '<div class="dtools"><div id="secbar"></div><div class="dtb"><button class="btn sm" id="bCat">☰ ' + esc(T("catalog")) + '</button><button class="btn sm" id="bPaste">⧉ ' + esc(T("paste")) + '</button></div></div>' +
-      '<div class="dadd"><input class="inp" id="q" placeholder="' + esc(T("inputPh")) + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><button class="btn pri" id="bAdd">+ ' + esc(T("add")) + '</button><div class="sug" id="sug"></div></div>' +
-      '<div class="dtbl"><div class="dthd"><span>№</span><span>' + esc(T("colItem")) + '</span><span class="r">' + esc(T("qty")) + '</span><span></span></div><div id="list"></div></div>' +
-      '</main><aside class="da">' +
-      '<div class="card" id="who"></div>' +
-      '<div class="card"><div class="lbl">' + esc(T("note")) + '</div><input class="inp" id="note" placeholder="' + esc(T("notePh")) + '" value="' + esc(S.note) + '" maxlength="1000"></div>' +
-      '<button class="btn pri big" id="bSend"></button>' +
-      '<div class="card dl"><div class="row" style="margin-bottom:6px"><b style="flex:1">' + esc(T("myLists")) + '</b><button class="btn sm" id="bNew">+ ' + esc(T("newList")) + '</button></div><div id="dlists"></div>' +
-      '<button class="link mutl" id="bClear" style="margin:8px 0 0">' + esc(T("clear")) + '</button></div>' +
-      '</aside></div></div>';
+      '<div class="dbody">' +
+      '<div class="dph"><h2>' + esc(T("title")) + '</h2><button class="btn" id="bHist">☰ ' + esc(T("myLists")) + '</button><button class="btn" id="bNew">+ ' + esc(T("newList")) + '</button></div>' +
+      '<div class="card dobjc"><div id="whoCard"></div><div class="dgrid"><div class="fld"><label for="obj">' + esc(T("object")) + '</label><input class="inp" id="obj" placeholder="' + esc(T("objectPh")) + '" value="' + esc(S.object) + '" maxlength="200"></div>' +
+      '<div class="fld"><label for="note">' + esc(T("note")) + '</label><input class="inp" id="note" placeholder="' + esc(T("notePh")) + '" value="' + esc(S.note) + '" maxlength="1000"></div></div></div>' +
+      '<div class="card dpick"><div class="row dpickh"><h3>' + esc(T("pickT")) + '</h3><button class="btn" id="bCat">☰ ' + esc(T("catalog")) + '</button><button class="btn" id="bPaste">⧉ ' + esc(T("paste")) + '</button></div>' +
+      '<div id="secbar"></div>' +
+      '<div class="dsrch"><input class="inp" id="q" placeholder="' + esc(T("searchPh")) + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><div class="sug dsug" id="sug"></div></div>' +
+      '<div id="list"></div>' +
+      '<div class="row dfoot"><button class="btn xs" id="bManual">+ ' + esc(T("manualAdd")) + '</button><b class="dcount" id="dcount"></b></div>' +
+      '<div class="row dact"><button class="btn" id="bClear">' + esc(T("clear")) + '</button><button class="btn pri" id="bSend"></button></div>' +
+      '</div></div></div>';
     else $("app").innerHTML =
       '<div class="wrap">' +
       '<div class="top"><div class="logo">T</div><div><h1>' + esc(T("title")) + '</h1><div class="s">' + esc(T("sub")) + '</div></div>' +
@@ -886,13 +914,22 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     $("bNew").onclick = newList;
     $("bClear").onclick = function () { if (!S.lines.length) return; confirmSheet(T("clearQ"), function () { S.lines = []; S.secs = []; S.cur = ""; S.view = "list"; save(); renderSecs(); renderList(); }); };
     var q = $("q");
-    q.oninput = renderSug;
-    q.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); acceptTop(); } };
+    q.oninput = function () { S.hi = 0; S.pend = null; renderSug(); };
+    q.onfocus = function () { if (isDesk()) renderSug(); };
+    q.onkeydown = function (e) {
+      if (isDesk() && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+        var n = $("sug").querySelectorAll(".fr").length; if (!n) return;
+        e.preventDefault(); S.hi = ((S.hi || 0) + (e.key === "ArrowDown" ? 1 : -1) + n) % n; paintHi(); return;
+      }
+      if (isDesk() && e.key === "Escape") { q.value = ""; renderSug(); return; }
+      if (e.key === "Enter") { e.preventDefault(); if (isDesk()) pickK(S.hi || 0); else acceptTop(); }
+    };
     q.onpaste = function (e) {
       var txt = (e.clipboardData || window.clipboardData).getData("text") || "";
       if (/\n/.test(txt.trim())) { e.preventDefault(); addMany(txt); }
     };
-    $("bAdd").onclick = acceptTop;
+    if ($("bAdd")) $("bAdd").onclick = acceptTop;
+    if ($("bManual")) $("bManual").onclick = function () { openPicker({ name: "", vars: [], size: "", qty: null, unit: "шт", raw: "", known: false, cat: "", ii: -1 }, true); };
     $("bSend").onclick = send;
     renderWho(); renderSecs(); renderList(); renderSug(); renderLists();
     if (isDesk() && !S.lines.length) setTimeout(function () { var q = $("q"); if (q) q.focus(); }, 0);
@@ -944,6 +981,12 @@ if (typeof module !== "undefined") module.exports = ENGINE;
 
   function renderWho() {
     var w = $("who");
+    if (isDesk()) {
+      var wc = $("whoCard"); wc.innerHTML = "";
+      if (S.me) { w.innerHTML = '<span class="dwn">' + esc(S.me.name) + '</span><span class="tag ok">✓ ' + esc(T("myLink")) + "</span>"; return; }
+      if (!S.editWho) { w.innerHTML = '<span class="dwn">' + esc(S.who.name) + '</span><span class="xs">' + esc(S.who.phone) + '</span><button class="link" id="bWho">' + esc(T("edit")) + "</button>"; $("bWho").onclick = function () { S.editWho = true; renderWho(); }; if (S.keyBad) wc.innerHTML = '<div class="keybad">' + esc(T("keyBad")) + "</div>"; return; }
+      w.innerHTML = ""; w = wc;
+    }
     if (S.me) {
       w.innerHTML = '<div class="who"><div><div class="lbl" style="margin:0">' + esc(T("who")) + '</div><b>' + esc(S.me.name) + '</b> <span class="ph">' + esc(S.me.phone) + '</span></div><span class="tag ok">✓ ' + esc(T("myLink")) + "</span></div>";
       return;
@@ -954,9 +997,9 @@ if (typeof module !== "undefined") module.exports = ENGINE;
       $("bWho").onclick = function () { S.editWho = true; renderWho(); };
       return;
     }
-    w.innerHTML = warn + '<div class="lbl">' + esc(T("who")) + '</div><div class="grid2">' +
-      '<input class="inp" id="wName" placeholder="' + esc(T("name")) + '" value="' + esc(S.who.name) + '" maxlength="80" autocomplete="name">' +
-      '<input class="inp" id="wPhone" type="tel" inputmode="tel" placeholder="+998 90 123 45 67" value="' + esc(S.who.phone) + '" maxlength="30" autocomplete="tel"></div>';
+    w.innerHTML = warn + (isDesk() ? '<div class="dgrid" style="margin-bottom:12px"><div class="fld"><label>' + esc(T("name")) + "</label>" : '<div class="lbl">' + esc(T("who")) + '</div><div class="grid2">') +
+      '<input class="inp" id="wName" placeholder="' + esc(T("name")) + '" value="' + esc(S.who.name) + '" maxlength="80" autocomplete="name">' + (isDesk() ? '</div><div class="fld"><label>' + esc(T("phone")) + "</label>" : "") +
+      '<input class="inp" id="wPhone" type="tel" inputmode="tel" placeholder="+998 90 123 45 67" value="' + esc(S.who.phone) + '" maxlength="30" autocomplete="tel"></div>' + (isDesk() ? "</div>" : "");
     $("wName").oninput = function (e) { S.who.name = e.target.value; store(K.who, S.who); };
     $("wPhone").oninput = function (e) { S.who.phone = e.target.value; store(K.who, S.who); };
   }
@@ -975,15 +1018,18 @@ if (typeof module !== "undefined") module.exports = ENGINE;
   }
   // kompyuter: jadval qatori — soni shu yerning o'zida yoziladi (12+8+6 ham), Enter — keyingi tovarni yozishga qaytadi
   function lineDesk(l, i, ro) {
-    var chips = (l.vars || []).filter(Boolean).map(function (v) { return '<span class="tag">' + esc(v) + '</span>'; }).join("") + (l.size ? '<span class="tag sz">' + esc(l.size) + '</span>' : "");
-    if (!l.known) chips = '<span class="tag w">? ' + esc(T("unknown")) + '</span>';
-    if (ro && l.n > 1) chips += '<span class="tag">' + esc(T("fromSecs").replace("{n}", l.n)) + "</span>";
+    var sub = [(l.vars || []).filter(Boolean).join(" "), l.size].filter(Boolean).join(" · ");
+    if (ro && l.n > 1) sub += (sub ? " · " : "") + T("fromSecs").replace("{n}", l.n);
     var qv = l.expr && isExpr(l.expr) ? l.expr : l.qty ? fmtQ(l.qty) : "";
-    return '<div class="ln dr' + (l.known ? "" : " unk") + (ro ? " ro" : "") + (S.fresh === l.id ? " fresh" : "") + '" data-id="' + l.id + '"><div class="n">' + (i + 1) + "</div>" +
-      '<div class="t" data-act="edit" title="' + esc(T("edit")) + '"><span class="nm">' + esc(l.name) + '</span> <span class="ch">' + chips + "</span></div>" +
-      (ro ? '<div class="dq"><b>' + fmtQ(l.qty) + "</b> <span>" + esc(l.unit || "") + "</span></div><div></div>"
-          : '<div class="dq"><input class="qin' + (l.qty ? "" : " none") + '" value="' + esc(qv) + '" placeholder="0" autocomplete="off" aria-label="' + esc(T("qty")) + '"><span>' + esc(l.unit || "") + '</span><small class="res">' + (l.expr && isExpr(l.expr) ? "= " + fmtQ(l.qty) : "") + "</small></div>" +
-            '<button class="dx" data-act="del" title="' + esc(T("del")) + '" aria-label="' + esc(T("del")) + '">✕</button>') + "</div>";
+    return '<tr class="ln dr' + (l.known ? "" : " unk") + (ro ? " ro" : "") + (S.fresh === l.id ? " fresh" : "") + '" data-id="' + l.id + '"><td class="c-n">' + (i + 1) + "</td>" +
+      '<td class="t"' + (ro ? "" : ' data-act="edit" title="' + esc(T("edit")) + '"') + '><div class="nm">' + esc(l.name) + "</div>" + (sub ? '<div class="sub">' + esc(sub) + "</div>" : "") + (l.known ? "" : '<div class="sub w">' + esc(T("unknown")) + "</div>") + "</td>" +
+      (ro ? '<td class="c-q"><b>' + fmtQ(l.qty) + "</b></td>"
+          : '<td class="c-q"><div class="dq"><input class="inp qin' + (l.qty ? "" : " none") + '" value="' + esc(qv) + '" placeholder="0" autocomplete="off" aria-label="' + esc(T("qty")) + '"><small class="res">' + (l.expr && isExpr(l.expr) ? "= " + fmtQ(l.qty) : "") + "</small></div></td>") +
+      '<td class="c-u">' + esc(l.unit || "") + "</td>" +
+      '<td class="c-x">' + (ro ? "" : '<button class="btn xs dng" data-act="del" title="' + esc(T("del")) + '" aria-label="' + esc(T("del")) + '">✕</button>') + "</td></tr>";
+  }
+  function deskTable(body) {
+    return '<table class="t dt"><thead><tr><th class="c-n">№</th><th>' + esc(T("colItem")) + '</th><th class="c-q">' + esc(T("qty")) + '</th><th class="c-u">' + esc(T("unitCol")) + '</th><th class="c-x"></th></tr></thead><tbody>' + body + "</tbody></table>";
   }
   function bindQtyInputs(L) {
     L.querySelectorAll(".qin").forEach(function (inp) {
@@ -1010,25 +1056,32 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     var L = $("list");
     if (S.view === "total" && S.lines.length) {
       var tt = totals();
-      L.innerHTML = '<div class="sechd tot">Σ ' + esc(T("totalD")) + " · " + tt.length + " " + esc(T("items")) + "</div>" + tt.map(function (l, i) { return lineHtml(l, i, true); }).join("");
+      var rows = tt.map(function (l, i) { return lineHtml(l, i, true); }).join("");
+      L.innerHTML = isDesk() ? '<div class="dtot">Σ ' + esc(T("totalD")) + "</div>" + deskTable(rows) : '<div class="sechd tot">Σ ' + esc(T("totalD")) + " · " + tt.length + " " + esc(T("items")) + "</div>" + rows;
       renderSend(); return;
     }
     if (!S.lines.length) {
-      L.innerHTML = '<div class="card empty"><b>' + esc(T("emptyT")) + '</b>' + esc(T(isDesk() ? "emptyDk" : "emptyD")) + '</div>';
+      L.innerHTML = isDesk() ? '<div class="dempty">' + esc(T("emptyDk")) + "</div>" : '<div class="card empty"><b>' + esc(T("emptyT")) + '</b>' + esc(T("emptyD")) + '</div>';
     } else if (S.secs.length) {
       // bo'limlar bo'yicha: har bo'lim sarlavhasi bilan (bosilsa — yangi tovarlar shu bo'limga tushadi)
       var groups = [{ id: "", name: T("noSec") }].concat(S.secs), html = "", k = 0;
       groups.forEach(function (g) {
         var ls = S.lines.filter(function (l) { return (l.sec || "") === g.id; });
         if (!ls.length && S.cur !== g.id) return;
+        if (isDesk()) {
+          html += '<tr class="sechd' + (S.cur === g.id ? " on" : "") + '" data-sec="' + g.id + '"><td colspan="5">' + esc(g.name) + " <span>" + ls.length + "</span></td></tr>";
+          if (!ls.length) html += '<tr class="secempty"><td colspan="5">' + esc(T("secEmpty")) + "</td></tr>";
+        } else {
         html += '<div class="sechd' + (S.cur === g.id ? " on" : "") + '" data-sec="' + g.id + '">' + esc(g.name) + " <span>" + ls.length + "</span></div>";
         if (!ls.length) html += '<div class="secempty">' + esc(T("secEmpty")) + "</div>";
+        }
         html += ls.map(function (l) { return lineHtml(l, k++, false); }).join("");
       });
-      L.innerHTML = html;
+      L.innerHTML = isDesk() ? deskTable(html) : html;
       L.querySelectorAll(".sechd[data-sec]").forEach(function (h) { h.onclick = function () { S.cur = h.dataset.sec; save(); renderSecs(); renderList(); }; });
     } else {
-      L.innerHTML = S.lines.map(function (l, i) { return lineHtml(l, i, false); }).join("");
+      var all = S.lines.map(function (l, i) { return lineHtml(l, i, false); }).join("");
+      L.innerHTML = isDesk() ? deskTable(all) : all;
     }
     if (S.lines.length) {
       L.querySelectorAll(".ln").forEach(function (el) {
@@ -1053,8 +1106,9 @@ if (typeof module !== "undefined") module.exports = ENGINE;
   function renderSend() {
     var b = $("bSend"); if (!b) return;
     var n = S.secs.length ? totals().length : S.lines.length;
-    b.textContent = S.sending ? T("sending") : T("send") + (n ? " · " + n + " " + T("items") : "");
-    b.disabled = S.sending;
+    var c = $("dcount"); if (c) c.textContent = T("positions") + ": " + n;
+    b.textContent = S.sending ? T("sending") : isDesk() ? T("send") + " ✓" : T("send") + (n ? " · " + n + " " + T("items") : "");
+    b.disabled = S.sending || (isDesk() && !S.lines.length);
   }
   function addLine(l) {
     l.id = l.id || uid();
@@ -1077,7 +1131,55 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     if (P.qty != null) { var n2 = name.replace(/[\s,;:-]*\d+([.,]\d+)?\s*(ta|та|dona|дона|шт|штук|sht|m|м|метр|metr|комп|компл|kompl)\.?\s*$/i, "").trim(); if (n2.length >= 2) name = n2; }
     return { name: name, vars: [], size: "", qty: P.qty, unit: P.unit || "шт", raw: text, known: false, cat: "", ii: -1 };
   }
+  function paintHi() { $("sug").querySelectorAll(".fr").forEach(function (r, i) { r.classList.toggle("on", i === S.hi); if (i === S.hi && r.scrollIntoView) r.scrollIntoView({ block: "nearest" }); }); }
+  function pickK(k) {
+    var q = $("q").value; if (q.trim().length < 2) return;
+    var l = k < lastRes.length ? fromResult(lastRes[k], q) : freeLine(q);
+    takeDesk(l);
+  }
+  // kompyuterda — programmadagi «Подбор товаров» kabi: tanlangan tovar uchun shu joyda «Miqdori: [ ] [Qo'shish] [Bekor]»
+  function takeDesk(l) {
+    var it = l.ii >= 0 ? E.items[l.ii] : null;
+    if (it && it.sizes.length && !l.size) { clearInput(); openPicker(l, true); return; }
+    if (l.qty) { addLine(l); clearInput(); $("q").focus(); return; }
+    S.pend = l; renderSug();
+  }
+  function renderPend() {
+    var l = S.pend, box = $("sug");
+    box.innerHTML = '<div class="fpend"><b>' + esc(lineLabel(l)) + (l.known ? "" : ' <span class="sub w">' + esc(T("unknown")) + "</span>") + '</b><div class="row" style="margin-top:8px;gap:8px">' +
+      '<span class="mut">' + esc(T("qty")) + ':</span><input class="inp" id="pq" autocomplete="off" placeholder="0" style="width:120px"><span class="mut">' + esc(l.unit || "") + "</span>" +
+      '<button class="btn pri" id="pqOk">' + esc(T("add")) + '</button><button class="btn" id="pqNo">' + esc(T("cancel")) + '</button><b class="res" id="pqRes"></b></div>' +
+      '<div class="xs mut" style="margin-top:6px">' + esc(T("pendHint")) + "</div></div>";
+    var pq = $("pq"), res = $("pqRes");
+    var ok = function () { var v = pq.value.trim(), n = calcQty(v); if (!n) { pq.classList.add("bad"); pq.focus(); return; } l.qty = n; l.expr = isExpr(v) ? v : ""; S.pend = null; addLine(l); clearInput(); $("q").focus(); };
+    var no = function () { S.pend = null; renderSug(); $("q").focus(); };
+    pq.oninput = function () { pq.classList.remove("bad"); res.textContent = isExpr(pq.value) ? "= " + fmtQ(calcQty(pq.value)) : ""; };
+    pq.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); ok(); } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); no(); } };
+    $("pqOk").onclick = ok; $("pqNo").onclick = no;
+    setTimeout(function () { pq.focus(); }, 0);
+  }
+  function renderSugDesk() {
+    var q = $("q").value, box = $("sug");
+    if (S.pend) return renderPend();
+    if (q.trim().length < 2) { box.innerHTML = ""; lastRes = []; return; }
+    var res = E.suggest(q, 12), top = res[0] ? res[0].score : 0;
+    lastRes = res.filter(function (r) { return r.score >= 0.55 && r.score >= top - 0.4; }).slice(0, 8);
+    if (S.hi == null || S.hi > lastRes.length) S.hi = 0;
+    var html = '<div class="fhd">' + (lastRes.length ? esc(T("found")) + ": " + lastRes.length : esc(T("notFound"))) + "</div>";
+    html += lastRes.map(function (r, i) {
+      var l = fromResult(r, q), sub = [l.vars.filter(Boolean).join(" "), l.size, l.qty != null ? fmtQ(l.qty) + " " + l.unit : l.unit].filter(Boolean).join(" · ");
+      return '<div class="fr' + (i === S.hi ? " on" : "") + '" data-k="' + i + '"><b>' + esc(l.name) + '</b><div class="sub">' + esc(sub) + "</div></div>";
+    }).join("");
+    html += '<div class="fr free' + (S.hi === lastRes.length ? " on" : "") + '" data-k="' + lastRes.length + '"><b>«' + esc(q.trim()) + '»</b><div class="sub">' + esc(T("keepFree")) + "</div></div>";
+    box.innerHTML = html;
+    box.querySelectorAll(".fr").forEach(function (r) {
+      r.onmousedown = function (e) { e.preventDefault(); };
+      r.onmousemove = function () { var k = Number(r.dataset.k); if (S.hi !== k) { S.hi = k; paintHi(); } };
+      r.onclick = function () { pickK(Number(r.dataset.k)); };
+    });
+  }
   function renderSug() {
+    if (isDesk()) return renderSugDesk();
     var q = $("q").value, box = $("sug");
     if (q.trim().length < 2) { box.innerHTML = ""; lastRes = []; return; }
     var res = E.suggest(q, 8), top = res[0] ? res[0].score : 0;
@@ -1101,15 +1203,11 @@ if (typeof module !== "undefined") module.exports = ENGINE;
     fb.onmousedown = function (e) { e.preventDefault(); };
     fb.onclick = function () { take(freeLine(q)); };
   }
-  function clearInput() { var q = $("q"); q.value = ""; renderSug(); }
+  function clearInput() { var q = $("q"); q.value = ""; S.hi = 0; renderSug(); }
   function take(l) {
     var it = l.ii >= 0 ? E.items[l.ii] : null;
     var needPick = (it && it.sizes.length && !l.size) || !l.qty;
     clearInput();
-    if (isDesk() && !(it && it.sizes.length && !l.size) && !l.qty) {
-      // kompyuterda: tovar darhol jadvalga tushadi, kursor uning «soni» katagida
-      addLine(l); var f = document.querySelector('.ln[data-id="' + (S.lastId || "") + '"] .qin'); if (f) f.focus(); return;
-    }
     if (needPick) openPicker(l, true); else { addLine(l); $("q").focus(); }
   }
   function acceptTop() {

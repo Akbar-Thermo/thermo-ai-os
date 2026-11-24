@@ -55,19 +55,19 @@
     document.body.classList.toggle("desk", isDesk());
     if (isDesk()) $("app").innerHTML =
       '<div class="dk"><header class="dh"><div class="dlogo">THERMO<span>•</span>ENGINEERING</div><div class="dtt">' + esc(T("title")) + '</div>' +
+      '<div class="dwho" id="who"></div>' +
       '<div class="lang"><button data-l="uz" class="' + (S.lang === "uz" ? "on" : "") + '">UZ</button><button data-l="ru" class="' + (S.lang === "ru" ? "on" : "") + '">RU</button></div></header>' +
-      '<div class="dg"><main class="dm">' +
-      '<input class="inp dobj" id="obj" placeholder="' + esc(T("objectPh")) + '" value="' + esc(S.object) + '" maxlength="200" aria-label="' + esc(T("object")) + '">' +
-      '<div class="dtools"><div id="secbar"></div><div class="dtb"><button class="btn sm" id="bCat">☰ ' + esc(T("catalog")) + '</button><button class="btn sm" id="bPaste">⧉ ' + esc(T("paste")) + '</button></div></div>' +
-      '<div class="dadd"><input class="inp" id="q" placeholder="' + esc(T("inputPh")) + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><button class="btn pri" id="bAdd">+ ' + esc(T("add")) + '</button><div class="sug" id="sug"></div></div>' +
-      '<div class="dtbl"><div class="dthd"><span>№</span><span>' + esc(T("colItem")) + '</span><span class="r">' + esc(T("qty")) + '</span><span></span></div><div id="list"></div></div>' +
-      '</main><aside class="da">' +
-      '<div class="card" id="who"></div>' +
-      '<div class="card"><div class="lbl">' + esc(T("note")) + '</div><input class="inp" id="note" placeholder="' + esc(T("notePh")) + '" value="' + esc(S.note) + '" maxlength="1000"></div>' +
-      '<button class="btn pri big" id="bSend"></button>' +
-      '<div class="card dl"><div class="row" style="margin-bottom:6px"><b style="flex:1">' + esc(T("myLists")) + '</b><button class="btn sm" id="bNew">+ ' + esc(T("newList")) + '</button></div><div id="dlists"></div>' +
-      '<button class="link mutl" id="bClear" style="margin:8px 0 0">' + esc(T("clear")) + '</button></div>' +
-      '</aside></div></div>';
+      '<div class="dbody">' +
+      '<div class="dph"><h2>' + esc(T("title")) + '</h2><button class="btn" id="bHist">☰ ' + esc(T("myLists")) + '</button><button class="btn" id="bNew">+ ' + esc(T("newList")) + '</button></div>' +
+      '<div class="card dobjc"><div id="whoCard"></div><div class="dgrid"><div class="fld"><label for="obj">' + esc(T("object")) + '</label><input class="inp" id="obj" placeholder="' + esc(T("objectPh")) + '" value="' + esc(S.object) + '" maxlength="200"></div>' +
+      '<div class="fld"><label for="note">' + esc(T("note")) + '</label><input class="inp" id="note" placeholder="' + esc(T("notePh")) + '" value="' + esc(S.note) + '" maxlength="1000"></div></div></div>' +
+      '<div class="card dpick"><div class="row dpickh"><h3>' + esc(T("pickT")) + '</h3><button class="btn" id="bCat">☰ ' + esc(T("catalog")) + '</button><button class="btn" id="bPaste">⧉ ' + esc(T("paste")) + '</button></div>' +
+      '<div id="secbar"></div>' +
+      '<div class="dsrch"><input class="inp" id="q" placeholder="' + esc(T("searchPh")) + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><div class="sug dsug" id="sug"></div></div>' +
+      '<div id="list"></div>' +
+      '<div class="row dfoot"><button class="btn xs" id="bManual">+ ' + esc(T("manualAdd")) + '</button><b class="dcount" id="dcount"></b></div>' +
+      '<div class="row dact"><button class="btn" id="bClear">' + esc(T("clear")) + '</button><button class="btn pri" id="bSend"></button></div>' +
+      '</div></div></div>';
     else $("app").innerHTML =
       '<div class="wrap">' +
       '<div class="top"><div class="logo">T</div><div><h1>' + esc(T("title")) + '</h1><div class="s">' + esc(T("sub")) + '</div></div>' +
@@ -92,13 +92,22 @@
     $("bNew").onclick = newList;
     $("bClear").onclick = function () { if (!S.lines.length) return; confirmSheet(T("clearQ"), function () { S.lines = []; S.secs = []; S.cur = ""; S.view = "list"; save(); renderSecs(); renderList(); }); };
     var q = $("q");
-    q.oninput = renderSug;
-    q.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); acceptTop(); } };
+    q.oninput = function () { S.hi = 0; S.pend = null; renderSug(); };
+    q.onfocus = function () { if (isDesk()) renderSug(); };
+    q.onkeydown = function (e) {
+      if (isDesk() && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+        var n = $("sug").querySelectorAll(".fr").length; if (!n) return;
+        e.preventDefault(); S.hi = ((S.hi || 0) + (e.key === "ArrowDown" ? 1 : -1) + n) % n; paintHi(); return;
+      }
+      if (isDesk() && e.key === "Escape") { q.value = ""; renderSug(); return; }
+      if (e.key === "Enter") { e.preventDefault(); if (isDesk()) pickK(S.hi || 0); else acceptTop(); }
+    };
     q.onpaste = function (e) {
       var txt = (e.clipboardData || window.clipboardData).getData("text") || "";
       if (/\n/.test(txt.trim())) { e.preventDefault(); addMany(txt); }
     };
-    $("bAdd").onclick = acceptTop;
+    if ($("bAdd")) $("bAdd").onclick = acceptTop;
+    if ($("bManual")) $("bManual").onclick = function () { openPicker({ name: "", vars: [], size: "", qty: null, unit: "шт", raw: "", known: false, cat: "", ii: -1 }, true); };
     $("bSend").onclick = send;
     renderWho(); renderSecs(); renderList(); renderSug(); renderLists();
     if (isDesk() && !S.lines.length) setTimeout(function () { var q = $("q"); if (q) q.focus(); }, 0);
@@ -150,6 +159,12 @@
 
   function renderWho() {
     var w = $("who");
+    if (isDesk()) {
+      var wc = $("whoCard"); wc.innerHTML = "";
+      if (S.me) { w.innerHTML = '<span class="dwn">' + esc(S.me.name) + '</span><span class="tag ok">✓ ' + esc(T("myLink")) + "</span>"; return; }
+      if (!S.editWho) { w.innerHTML = '<span class="dwn">' + esc(S.who.name) + '</span><span class="xs">' + esc(S.who.phone) + '</span><button class="link" id="bWho">' + esc(T("edit")) + "</button>"; $("bWho").onclick = function () { S.editWho = true; renderWho(); }; if (S.keyBad) wc.innerHTML = '<div class="keybad">' + esc(T("keyBad")) + "</div>"; return; }
+      w.innerHTML = ""; w = wc;
+    }
     if (S.me) {
       w.innerHTML = '<div class="who"><div><div class="lbl" style="margin:0">' + esc(T("who")) + '</div><b>' + esc(S.me.name) + '</b> <span class="ph">' + esc(S.me.phone) + '</span></div><span class="tag ok">✓ ' + esc(T("myLink")) + "</span></div>";
       return;
@@ -160,9 +175,9 @@
       $("bWho").onclick = function () { S.editWho = true; renderWho(); };
       return;
     }
-    w.innerHTML = warn + '<div class="lbl">' + esc(T("who")) + '</div><div class="grid2">' +
-      '<input class="inp" id="wName" placeholder="' + esc(T("name")) + '" value="' + esc(S.who.name) + '" maxlength="80" autocomplete="name">' +
-      '<input class="inp" id="wPhone" type="tel" inputmode="tel" placeholder="+998 90 123 45 67" value="' + esc(S.who.phone) + '" maxlength="30" autocomplete="tel"></div>';
+    w.innerHTML = warn + (isDesk() ? '<div class="dgrid" style="margin-bottom:12px"><div class="fld"><label>' + esc(T("name")) + "</label>" : '<div class="lbl">' + esc(T("who")) + '</div><div class="grid2">') +
+      '<input class="inp" id="wName" placeholder="' + esc(T("name")) + '" value="' + esc(S.who.name) + '" maxlength="80" autocomplete="name">' + (isDesk() ? '</div><div class="fld"><label>' + esc(T("phone")) + "</label>" : "") +
+      '<input class="inp" id="wPhone" type="tel" inputmode="tel" placeholder="+998 90 123 45 67" value="' + esc(S.who.phone) + '" maxlength="30" autocomplete="tel"></div>' + (isDesk() ? "</div>" : "");
     $("wName").oninput = function (e) { S.who.name = e.target.value; store(K.who, S.who); };
     $("wPhone").oninput = function (e) { S.who.phone = e.target.value; store(K.who, S.who); };
   }
@@ -181,15 +196,18 @@
   }
   // kompyuter: jadval qatori — soni shu yerning o'zida yoziladi (12+8+6 ham), Enter — keyingi tovarni yozishga qaytadi
   function lineDesk(l, i, ro) {
-    var chips = (l.vars || []).filter(Boolean).map(function (v) { return '<span class="tag">' + esc(v) + '</span>'; }).join("") + (l.size ? '<span class="tag sz">' + esc(l.size) + '</span>' : "");
-    if (!l.known) chips = '<span class="tag w">? ' + esc(T("unknown")) + '</span>';
-    if (ro && l.n > 1) chips += '<span class="tag">' + esc(T("fromSecs").replace("{n}", l.n)) + "</span>";
+    var sub = [(l.vars || []).filter(Boolean).join(" "), l.size].filter(Boolean).join(" · ");
+    if (ro && l.n > 1) sub += (sub ? " · " : "") + T("fromSecs").replace("{n}", l.n);
     var qv = l.expr && isExpr(l.expr) ? l.expr : l.qty ? fmtQ(l.qty) : "";
-    return '<div class="ln dr' + (l.known ? "" : " unk") + (ro ? " ro" : "") + (S.fresh === l.id ? " fresh" : "") + '" data-id="' + l.id + '"><div class="n">' + (i + 1) + "</div>" +
-      '<div class="t" data-act="edit" title="' + esc(T("edit")) + '"><span class="nm">' + esc(l.name) + '</span> <span class="ch">' + chips + "</span></div>" +
-      (ro ? '<div class="dq"><b>' + fmtQ(l.qty) + "</b> <span>" + esc(l.unit || "") + "</span></div><div></div>"
-          : '<div class="dq"><input class="qin' + (l.qty ? "" : " none") + '" value="' + esc(qv) + '" placeholder="0" autocomplete="off" aria-label="' + esc(T("qty")) + '"><span>' + esc(l.unit || "") + '</span><small class="res">' + (l.expr && isExpr(l.expr) ? "= " + fmtQ(l.qty) : "") + "</small></div>" +
-            '<button class="dx" data-act="del" title="' + esc(T("del")) + '" aria-label="' + esc(T("del")) + '">✕</button>') + "</div>";
+    return '<tr class="ln dr' + (l.known ? "" : " unk") + (ro ? " ro" : "") + (S.fresh === l.id ? " fresh" : "") + '" data-id="' + l.id + '"><td class="c-n">' + (i + 1) + "</td>" +
+      '<td class="t"' + (ro ? "" : ' data-act="edit" title="' + esc(T("edit")) + '"') + '><div class="nm">' + esc(l.name) + "</div>" + (sub ? '<div class="sub">' + esc(sub) + "</div>" : "") + (l.known ? "" : '<div class="sub w">' + esc(T("unknown")) + "</div>") + "</td>" +
+      (ro ? '<td class="c-q"><b>' + fmtQ(l.qty) + "</b></td>"
+          : '<td class="c-q"><div class="dq"><input class="inp qin' + (l.qty ? "" : " none") + '" value="' + esc(qv) + '" placeholder="0" autocomplete="off" aria-label="' + esc(T("qty")) + '"><small class="res">' + (l.expr && isExpr(l.expr) ? "= " + fmtQ(l.qty) : "") + "</small></div></td>") +
+      '<td class="c-u">' + esc(l.unit || "") + "</td>" +
+      '<td class="c-x">' + (ro ? "" : '<button class="btn xs dng" data-act="del" title="' + esc(T("del")) + '" aria-label="' + esc(T("del")) + '">✕</button>') + "</td></tr>";
+  }
+  function deskTable(body) {
+    return '<table class="t dt"><thead><tr><th class="c-n">№</th><th>' + esc(T("colItem")) + '</th><th class="c-q">' + esc(T("qty")) + '</th><th class="c-u">' + esc(T("unitCol")) + '</th><th class="c-x"></th></tr></thead><tbody>' + body + "</tbody></table>";
   }
   function bindQtyInputs(L) {
     L.querySelectorAll(".qin").forEach(function (inp) {
@@ -216,25 +234,32 @@
     var L = $("list");
     if (S.view === "total" && S.lines.length) {
       var tt = totals();
-      L.innerHTML = '<div class="sechd tot">Σ ' + esc(T("totalD")) + " · " + tt.length + " " + esc(T("items")) + "</div>" + tt.map(function (l, i) { return lineHtml(l, i, true); }).join("");
+      var rows = tt.map(function (l, i) { return lineHtml(l, i, true); }).join("");
+      L.innerHTML = isDesk() ? '<div class="dtot">Σ ' + esc(T("totalD")) + "</div>" + deskTable(rows) : '<div class="sechd tot">Σ ' + esc(T("totalD")) + " · " + tt.length + " " + esc(T("items")) + "</div>" + rows;
       renderSend(); return;
     }
     if (!S.lines.length) {
-      L.innerHTML = '<div class="card empty"><b>' + esc(T("emptyT")) + '</b>' + esc(T(isDesk() ? "emptyDk" : "emptyD")) + '</div>';
+      L.innerHTML = isDesk() ? '<div class="dempty">' + esc(T("emptyDk")) + "</div>" : '<div class="card empty"><b>' + esc(T("emptyT")) + '</b>' + esc(T("emptyD")) + '</div>';
     } else if (S.secs.length) {
       // bo'limlar bo'yicha: har bo'lim sarlavhasi bilan (bosilsa — yangi tovarlar shu bo'limga tushadi)
       var groups = [{ id: "", name: T("noSec") }].concat(S.secs), html = "", k = 0;
       groups.forEach(function (g) {
         var ls = S.lines.filter(function (l) { return (l.sec || "") === g.id; });
         if (!ls.length && S.cur !== g.id) return;
+        if (isDesk()) {
+          html += '<tr class="sechd' + (S.cur === g.id ? " on" : "") + '" data-sec="' + g.id + '"><td colspan="5">' + esc(g.name) + " <span>" + ls.length + "</span></td></tr>";
+          if (!ls.length) html += '<tr class="secempty"><td colspan="5">' + esc(T("secEmpty")) + "</td></tr>";
+        } else {
         html += '<div class="sechd' + (S.cur === g.id ? " on" : "") + '" data-sec="' + g.id + '">' + esc(g.name) + " <span>" + ls.length + "</span></div>";
         if (!ls.length) html += '<div class="secempty">' + esc(T("secEmpty")) + "</div>";
+        }
         html += ls.map(function (l) { return lineHtml(l, k++, false); }).join("");
       });
-      L.innerHTML = html;
+      L.innerHTML = isDesk() ? deskTable(html) : html;
       L.querySelectorAll(".sechd[data-sec]").forEach(function (h) { h.onclick = function () { S.cur = h.dataset.sec; save(); renderSecs(); renderList(); }; });
     } else {
-      L.innerHTML = S.lines.map(function (l, i) { return lineHtml(l, i, false); }).join("");
+      var all = S.lines.map(function (l, i) { return lineHtml(l, i, false); }).join("");
+      L.innerHTML = isDesk() ? deskTable(all) : all;
     }
     if (S.lines.length) {
       L.querySelectorAll(".ln").forEach(function (el) {
@@ -259,8 +284,9 @@
   function renderSend() {
     var b = $("bSend"); if (!b) return;
     var n = S.secs.length ? totals().length : S.lines.length;
-    b.textContent = S.sending ? T("sending") : T("send") + (n ? " · " + n + " " + T("items") : "");
-    b.disabled = S.sending;
+    var c = $("dcount"); if (c) c.textContent = T("positions") + ": " + n;
+    b.textContent = S.sending ? T("sending") : isDesk() ? T("send") + " ✓" : T("send") + (n ? " · " + n + " " + T("items") : "");
+    b.disabled = S.sending || (isDesk() && !S.lines.length);
   }
   function addLine(l) {
     l.id = l.id || uid();
@@ -283,7 +309,55 @@
     if (P.qty != null) { var n2 = name.replace(/[\s,;:-]*\d+([.,]\d+)?\s*(ta|та|dona|дона|шт|штук|sht|m|м|метр|metr|комп|компл|kompl)\.?\s*$/i, "").trim(); if (n2.length >= 2) name = n2; }
     return { name: name, vars: [], size: "", qty: P.qty, unit: P.unit || "шт", raw: text, known: false, cat: "", ii: -1 };
   }
+  function paintHi() { $("sug").querySelectorAll(".fr").forEach(function (r, i) { r.classList.toggle("on", i === S.hi); if (i === S.hi && r.scrollIntoView) r.scrollIntoView({ block: "nearest" }); }); }
+  function pickK(k) {
+    var q = $("q").value; if (q.trim().length < 2) return;
+    var l = k < lastRes.length ? fromResult(lastRes[k], q) : freeLine(q);
+    takeDesk(l);
+  }
+  // kompyuterda — programmadagi «Подбор товаров» kabi: tanlangan tovar uchun shu joyda «Miqdori: [ ] [Qo'shish] [Bekor]»
+  function takeDesk(l) {
+    var it = l.ii >= 0 ? E.items[l.ii] : null;
+    if (it && it.sizes.length && !l.size) { clearInput(); openPicker(l, true); return; }
+    if (l.qty) { addLine(l); clearInput(); $("q").focus(); return; }
+    S.pend = l; renderSug();
+  }
+  function renderPend() {
+    var l = S.pend, box = $("sug");
+    box.innerHTML = '<div class="fpend"><b>' + esc(lineLabel(l)) + (l.known ? "" : ' <span class="sub w">' + esc(T("unknown")) + "</span>") + '</b><div class="row" style="margin-top:8px;gap:8px">' +
+      '<span class="mut">' + esc(T("qty")) + ':</span><input class="inp" id="pq" autocomplete="off" placeholder="0" style="width:120px"><span class="mut">' + esc(l.unit || "") + "</span>" +
+      '<button class="btn pri" id="pqOk">' + esc(T("add")) + '</button><button class="btn" id="pqNo">' + esc(T("cancel")) + '</button><b class="res" id="pqRes"></b></div>' +
+      '<div class="xs mut" style="margin-top:6px">' + esc(T("pendHint")) + "</div></div>";
+    var pq = $("pq"), res = $("pqRes");
+    var ok = function () { var v = pq.value.trim(), n = calcQty(v); if (!n) { pq.classList.add("bad"); pq.focus(); return; } l.qty = n; l.expr = isExpr(v) ? v : ""; S.pend = null; addLine(l); clearInput(); $("q").focus(); };
+    var no = function () { S.pend = null; renderSug(); $("q").focus(); };
+    pq.oninput = function () { pq.classList.remove("bad"); res.textContent = isExpr(pq.value) ? "= " + fmtQ(calcQty(pq.value)) : ""; };
+    pq.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); ok(); } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); no(); } };
+    $("pqOk").onclick = ok; $("pqNo").onclick = no;
+    setTimeout(function () { pq.focus(); }, 0);
+  }
+  function renderSugDesk() {
+    var q = $("q").value, box = $("sug");
+    if (S.pend) return renderPend();
+    if (q.trim().length < 2) { box.innerHTML = ""; lastRes = []; return; }
+    var res = E.suggest(q, 12), top = res[0] ? res[0].score : 0;
+    lastRes = res.filter(function (r) { return r.score >= 0.55 && r.score >= top - 0.4; }).slice(0, 8);
+    if (S.hi == null || S.hi > lastRes.length) S.hi = 0;
+    var html = '<div class="fhd">' + (lastRes.length ? esc(T("found")) + ": " + lastRes.length : esc(T("notFound"))) + "</div>";
+    html += lastRes.map(function (r, i) {
+      var l = fromResult(r, q), sub = [l.vars.filter(Boolean).join(" "), l.size, l.qty != null ? fmtQ(l.qty) + " " + l.unit : l.unit].filter(Boolean).join(" · ");
+      return '<div class="fr' + (i === S.hi ? " on" : "") + '" data-k="' + i + '"><b>' + esc(l.name) + '</b><div class="sub">' + esc(sub) + "</div></div>";
+    }).join("");
+    html += '<div class="fr free' + (S.hi === lastRes.length ? " on" : "") + '" data-k="' + lastRes.length + '"><b>«' + esc(q.trim()) + '»</b><div class="sub">' + esc(T("keepFree")) + "</div></div>";
+    box.innerHTML = html;
+    box.querySelectorAll(".fr").forEach(function (r) {
+      r.onmousedown = function (e) { e.preventDefault(); };
+      r.onmousemove = function () { var k = Number(r.dataset.k); if (S.hi !== k) { S.hi = k; paintHi(); } };
+      r.onclick = function () { pickK(Number(r.dataset.k)); };
+    });
+  }
   function renderSug() {
+    if (isDesk()) return renderSugDesk();
     var q = $("q").value, box = $("sug");
     if (q.trim().length < 2) { box.innerHTML = ""; lastRes = []; return; }
     var res = E.suggest(q, 8), top = res[0] ? res[0].score : 0;
@@ -307,15 +381,11 @@
     fb.onmousedown = function (e) { e.preventDefault(); };
     fb.onclick = function () { take(freeLine(q)); };
   }
-  function clearInput() { var q = $("q"); q.value = ""; renderSug(); }
+  function clearInput() { var q = $("q"); q.value = ""; S.hi = 0; renderSug(); }
   function take(l) {
     var it = l.ii >= 0 ? E.items[l.ii] : null;
     var needPick = (it && it.sizes.length && !l.size) || !l.qty;
     clearInput();
-    if (isDesk() && !(it && it.sizes.length && !l.size) && !l.qty) {
-      // kompyuterda: tovar darhol jadvalga tushadi, kursor uning «soni» katagida
-      addLine(l); var f = document.querySelector('.ln[data-id="' + (S.lastId || "") + '"] .qin'); if (f) f.focus(); return;
-    }
     if (needPick) openPicker(l, true); else { addLine(l); $("q").focus(); }
   }
   function acceptTop() {
