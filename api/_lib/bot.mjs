@@ -74,7 +74,10 @@ const QTY_RE = /^\s*(ta|та|шт|dona|дона|kg|кг|metr|метр|м\b|m\b|l
 // сумма из сообщения: число (с разделителями тысяч), «k/ming/mln», валюта рядом ($, sum, so'm…)
 export function findAmount(text) {
   // ссылки не читаем: «https://promo.click.uz/2HUz/…» — не сумма
-  const s = low(text).replace(/(?:https?:\/\/|www\.)\S+|\S+\.(?:uz|com|ru|org|net|me|io)(?:\/\S*)?/g, " ");
+  const s = low(text).replace(/(?:https?:\/\/|www\.)\S+|\S+\.(?:uz|com|ru|org|net|me|io)(?:\/\S*)?/g, " ")
+    // номер карты «5614 6816 2508 3039» / «5614681600000000» — не сумма (раньше читался как 5,6 квадриллиона сум
+    // или как «6 816 сум» из его середины); 16 цифр подряд или четыре группы по 4
+    .replace(/(?<!\d)\d{4}(?:[   -]?\d{4}){3}(?!\d)/g, " ");
   // множитель и валюта — только целым словом («karta» — не «k», «summa» — не «sum»)
   const re = new RegExp("(\\$\\s*)?(\\d{1,3}(?:[ \\u00a0\\u202f.,]\\d{3})+(?:[.,]\\d{1,2})?|\\d+(?:[.,]\\d+)?)(?:\\s*" + MUL_RE + "(?![\\p{L}]))?(?:\\s*" + CUR_RE + "(?![\\p{L}]))?", "giu");
   const cands = [];
@@ -99,8 +102,12 @@ export function findAmount(text) {
   if (!cands.length) return null;
   const marked = cands.filter((c) => c.marked);
   const pick = (marked.length ? marked : cands).reduce((a, b) => (b.v > a.v ? b : a));
-  return { v: pick.v, cur: pick.cur || (/\$|usd|dollar|доллар/.test(s) ? "usd" : pick.v >= 1000 ? "uzs" : "usd") };
+  const cur = pick.cur || (/\$|usd|dollar|доллар/.test(s) ? "usd" : pick.v >= 1000 ? "uzs" : "usd");
+  return amountSane(pick.v, cur) ? { v: pick.v, cur } : null;
 }
+// сумма, которой в расходах/приходах не бывает (номер телефона, счёта, ИНН…) — не записываем
+export const AMOUNT_MAX = { uzs: 10e9, usd: 1e6 };
+export const amountSane = (v, cur) => Number(v) > 0 && Number(v) < (cur === "usd" ? AMOUNT_MAX.usd : AMOUNT_MAX.uzs);
 export function findRate(text) {
   const m = /(?:kurs|курс)\s*[:=]?\s*(\d[\d\s.,]*)/i.exec(low(text));
   if (!m) return 0;
@@ -1708,9 +1715,9 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
   async function aiMoney(text, m) {
     const j = await ai.json({ system: ["Extract one money operation from a short message of a company's expense chat in Uzbekistan (Uzbek Latin/Cyrillic or Russian).",
       "Reply with JSON only: {\"ok\":true,\"amount\":number,\"currency\":\"uzs\"|\"usd\",\"direction\":\"out\"|\"in\",\"category\":\"<exact name from a list>\",\"method\":\"cash\"|\"card\"|\"transfer\"} or {\"ok\":false} when there is no clear amount of money.",
-      "Words: ming/минг/тысяча = 1000, mln/million/миллион = 1 000 000, yarim = 0.5, so'm/сум = UZS, $/dollar = USD; a number ≥ 1000 without currency is UZS. direction in only for money received (prixod, kirim, tushdi, keldi, qarz qaytardi).",
+      "Words: ming/минг/тысяча = 1000, mln/million/миллион = 1 000 000, yarim = 0.5, so'm/сум = UZS, $/dollar = USD; a number ≥ 1000 without currency is UZS. A 16-digit bank card number (e.g. 5614 6816 2508 3039), phone or account number is never the amount. direction in only for money received (prixod, kirim, tushdi, keldi, qarz qaytardi).",
       "Expense categories: " + expCats().join(" | "), "Income categories: " + incCats().join(" | ")].join("\n"), text: slashText(text), meter: m && m.fn });
-    if (!j || !j.ok || !(Number(j.amount) > 0)) return null;
+    if (!j || !j.ok || !amountSane(j.amount, j.currency === "usd" ? "usd" : "uzs")) return null;
     const dir = j.direction === "in" ? "i" : "e", list = dir === "i" ? incCats() : expCats();
     let c = list.indexOf(String(j.category || "")); if (c < 0) c = guessCat(text, dir);
     return { v: Math.round(Number(j.amount) * 100) / 100, cur: j.currency === "usd" ? "usd" : "uzs", dir, method: j.method === "card" || j.method === "transfer" ? j.method : "cash", cat: c, rate: findRate(text), ai: true };

@@ -5,7 +5,7 @@
 import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 // второй аргумент — точка входа (по умолчанию бот «tg»; «smeta» — отдельный бот смет)
@@ -18,7 +18,7 @@ export const useState = f, useEffect = f, useRef = f, useMemo = f, useLayoutEffe
 export const createContext = () => ({ Provider: f, Consumer: f });
 export const memo = (x) => x, forwardRef = (x) => x, lazy = (x) => x;
 export const Fragment = "f", StrictMode = "s", Suspense = "u";
-export const createElement = f, cloneElement = f, isValidElement = () => false, Children = {};
+export const createElement = f, cloneElement = f, isValidElement = () => false, Children = {}, createPortal = f, flushSync = (fn) => fn && fn();
 export const jsx = f, jsxs = f;
 export class Component { constructor(p) { this.props = p; } }
 export class PureComponent extends Component {}
@@ -32,7 +32,9 @@ await build({
   external: ["node:*", "xlsx"],
   alias: { react: stub, "react/jsx-runtime": stub, "react-dom": stub, "react-dom/client": stub, "@supabase/supabase-js": resolve(root, "scripts/nightly/supabase-stub.js") },
   define: { "import.meta.env.VITE_SUPABASE_URL": '"http://localhost"', "import.meta.env.VITE_SUPABASE_ANON_KEY": '"x"', "process.env.NODE_ENV": '"production"' },
-  plugins: [{ name: "core-from-source", setup(b) { b.onResolve({ filter: /\/core\.mjs$/ }, () => ({ path: resolve(root, "scripts/bot/core-entry.js") })); } }],
+  plugins: [{ name: "core-from-source", setup(b) { b.onResolve({ filter: /\/core\.mjs$/ }, () => ({ path: resolve(root, "scripts/bot/core-entry.js") })); } },
+    // «import("./isitish.html?raw")» (как в Vite) — файл как текст
+    { name: "vite-raw", setup(b) { b.onResolve({ filter: /\?raw$/ }, (a) => ({ path: resolve(a.resolveDir, a.path.replace(/\?raw$/, "")), namespace: "raw" })); b.onLoad({ filter: /.*/, namespace: "raw" }, (a) => ({ contents: readFileSync(a.path, "utf8"), loader: "text" })); } }],
   banner: { js: "// Thermo Telegram-бот (функция Supabase «tg») — собрано scripts/bot/build-edge.mjs, не править вручную\n" },
 });
 console.log("edge: " + out + " (core: " + coreFile.replace(root + "/", "") + " → из src/App.jsx)");
