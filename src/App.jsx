@@ -710,7 +710,7 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .acc-me-n{font-weight:700;font-size:13px}
 .acc-tg{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--mut);cursor:pointer;padding:0;font-weight:800;font-size:15px;line-height:1;transition:transform .15s}
 .acc-tg:hover{color:var(--text,inherit);border-color:var(--acc)}
-.acc-mini.open .acc-tg{transform:rotate(180deg);color:var(--acc);border-color:var(--acc)}
+.acc-mini.open .acc-tg{transform:rotate(180deg);color:var(--txt);border-color:var(--mut)}
 .acc-drop{position:absolute;top:calc(100% + 6px);right:0;z-index:80;min-width:220px;padding:6px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:0 10px 28px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:2px}
 .acc-mini.inline .acc-drop,.te.side .acc-drop{position:static;box-shadow:none;margin-top:6px;min-width:0}
 .acc-o{display:flex;align-items:center;gap:8px;padding:6px 8px;border:0;border-radius:8px;background:transparent;color:inherit;text-align:left;cursor:pointer;width:100%}
@@ -1503,11 +1503,15 @@ table.t tr:hover td{background:var(--hover)}
 .btn.pri,.te.dark .btn.pri,.btn.pri:hover,.te.dark .btn.pri:hover{box-shadow:none!important;background-image:none!important}
 .tab.on,.tab.on:hover{box-shadow:none!important}
 /* одна толщина синей рамки везде: 1px (у поля — сама граница, без второй «обводки») */
-.inp:focus,.te .inp:focus,select.inp:focus{box-shadow:none!important;border-color:var(--acc)!important;outline:none!important}
+/* ОДНО правило для всего: нажатое / открытое / выбранное с клавиатуры (поле, список, кнопка, меню) —
+   рамка чуть темнее серым. Синей рамки при нажатии нет нигде; синий — только у главных кнопок и выбранного раздела */
+.inp:focus,.te .inp:focus,select.inp:focus,textarea.inp:focus,.te .obj-q .inp:focus{box-shadow:none!important;border-color:var(--mut)!important;outline:none!important}
+.btn:focus-visible,.tab:focus-visible,.obj-m:focus-visible,.mark-dot:focus-visible,.cfm-box .btn:focus,.dm-btn[aria-expanded="true"],.acc-tg[aria-expanded="true"]{box-shadow:none!important;outline:none!important;border-color:var(--mut)!important}
+.btn.pri:focus-visible,.cfm-box .btn.pri:focus{border-color:var(--acc2)!important}
 /* поля-выборы при нажатии «проседают» так же, как кнопки («Документы» и т.п.) */
 select.inp{transition:transform .08s,border-color .12s}
 select.inp:active:not(:disabled){transform:translateY(1px)}
-.btn:focus-visible,.tab:focus-visible,.obj-m:focus-visible,.cfm-box .btn:focus{box-shadow:none!important;outline:1px solid var(--acc)!important;outline-offset:1px}
+
 .btn.pay-btn,.te.dark .btn.pay-btn{box-shadow:none!important}
 /* никаких «таблеток»: шаги, метки, счётчики, переключатели — прямоугольные с мягкими углами */
 .step,.bdg,.perm-chip,.npanel-cnt,.chat-day span,.seg,.seg button,.seg .btn,.st-filter,.st-filter button,.hdr-side,.hdr-side button,.tab,.obj-lr .btn,.btn.xs{border-radius:var(--r-md)!important}
