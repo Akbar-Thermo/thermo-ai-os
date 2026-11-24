@@ -1475,7 +1475,9 @@ table.t tr:hover td{background:var(--hover)}
 .bot-tile .bot-ic{background:var(--panel2)!important;color:var(--mut)!important}
 /* мастера над списком объектов — строгие текстовые вкладки (как фильтр-вкладки в SAP / Outlook):
    без кружков, рамок и заливок; выбранный — синяя черта снизу */
-.obj-mbar{border-bottom:1px solid var(--line)}
+.obj-mbar{border-bottom:0}
+.obj-lr-m{flex-basis:100%;min-width:0;margin:4px -2px -6px;padding-top:6px;border-top:1px solid var(--line)}
+.obj-lr-m .obj-mbar{margin:0!important}
 .obj-mscroll{gap:2px!important;padding:0 2px!important;margin-bottom:-1px!important}
 .obj-m,.te.dark .obj-m{min-height:0!important;padding:8px 16px 9px!important;gap:0!important;border:0!important;border-bottom:2px solid transparent!important;border-radius:0!important;background:none!important;box-shadow:none!important;color:var(--txt)!important}
 .obj-m:hover{background:var(--hover)!important}
@@ -7186,8 +7188,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         }}><Ic n="download" /> Excel: долги</button>}
         <button className="btn pri" onClick={goRequest}>+ Новая заявка</button>
       </div>
-      <MasterBar items={mItems} value={mF} onPick={setMF} />
-      <div className="lr-bar">
+      <div className="lr-bar obj-lr">
       <div className="obj-find">
         <div className="obj-q">
           <span className="obj-q-ic"><Ic n="search" /></span>
@@ -7201,12 +7202,14 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         {nDebt.length > 0 && <button className={"btn xs objf-debt" + (pF === "debt" ? " on" : "")} title="Только объекты с долгом клиента — больше долг выше; под суммой — когда клиент платил последний раз"
           onClick={() => { if (pF === "debt") setPF(""); else { setPF("debt"); sortBy("debt", -1); } }}>Должники: {nDebt.length} · {fmt(sumDebt)}</button>}
         {nCi > 0 && <button className={"btn xs objf-ci" + (pF === "cost" ? " on" : "")} title="Объекты, где есть позиции без себестоимости, с себестоимостью выше цены продажи или без поставщика" onClick={() => setPF(pF === "cost" ? "" : "cost")}>⚠ Проверить: {nCi}</button>}
-      </div>
+        {/* сначала поиск, под ним — мастера (в одном блоке фильтров) */}
+        <div className="obj-lr-m"><MasterBar items={mItems} value={mF} onPick={setMF} /></div>
       {!q && !mF && !sF && !pF && (() => { const byId = new Map(objects.map((o) => [o.id, o])); const rec = recentGet().map((id) => byId.get(id)).filter(Boolean).slice(0, 6); return rec.length > 1 ? (
-        <div className="row obj-recent" style={{ gap: 6, margin: "10px 0 12px", flexWrap: "wrap" }}>
+        <div className="row obj-recent" style={{ gap: 6, margin: "2px 0 0", flexBasis: "100%", flexWrap: "wrap" }}>
           <span className="xs mut" style={{ fontWeight: 700 }}><Ic n="history" s={13} /> Недавние:</span>
           {rec.map((o) => <button key={o.id} type="button" className="btn xs" title={[o.client, o.phone].filter(Boolean).join(" · ")} onClick={() => setOpenId(o.id)}>{o.name}</button>)}
         </div>) : null; })()}
+      </div>
       {!shown.length ? <div className="card mut" style={{ textAlign: "center", padding: 30 }}>{objects.length ? <>Ничего не найдено{(q || mF || sF || pF) && <> · <button type="button" className="btn xs" onClick={() => { setQ(""); setMF(""); setSF(""); setPF(""); }}>Показать все</button></>}</> : "Объектов пока нет — создайте через «Новая заявка»"}</div> : (
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table className="t objt">
