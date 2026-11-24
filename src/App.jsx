@@ -1460,14 +1460,48 @@ const cleanUuids = (obj) => {
   return out;
 };
 let CURRENT_USER = null;
+/* ---- «↩ Отменить» в Журнале.
+   db.js сообщает о каждом изменении в базе (до / после). Изменения за последние секунды перед записью в журнал
+   сохраняются рядом с ней скрытой записью te_undo: для полей — было/стало, для позиций объекта — только изменённые
+   позиции. Если в действии участвовали склад, заявки или настройки — снимок не пишется (отменить частично опасно). ---- */
+const UNDO_ACT = "te_undo", UNDONE = "te_undone";
+let UNDO_BUF = [];
+if (dbModule.setChangeHook) dbModule.setChangeHook((c) => { UNDO_BUF.push({ ...c, t: Date.now() }); if (UNDO_BUF.length > 60) UNDO_BUF.shift(); });
+const jEq = (x, y) => JSON.stringify(x === undefined ? null : x) === JSON.stringify(y === undefined ? null : y);
+function itemsDiff(b, a) {
+  b = Array.isArray(b) ? b : []; a = Array.isArray(a) ? a : [];
+  if ([...b, ...a].some((x) => !x || !x.id)) return null;
+  const bm = new Map(b.map((x, i) => [x.id, [x, i]])), am = new Map(a.map((x, i) => [x.id, [x, i]])), out = [];
+  new Set([...bm.keys(), ...am.keys()]).forEach((id) => { const B = bm.get(id), A = am.get(id); if (!jEq(B && B[0], A && A[0])) out.push({ id, b: B ? B[0] : null, a: A ? A[0] : null, i: B ? B[1] : -1 }); });
+  return out;
+}
+const undoLabelOf = (t, r) => (r && (r.name || (t === "finance_ops" ? ((OP_TYPES.find((x) => x.id === r.type) || {}).label || r.type || "операция") + " " + fmt2(r.amount) : ""))) || "";
+function undoSnapOf(buf) {
+  if (!buf.length || buf.some((c) => c.untracked)) return null;
+  const ch = [];
+  buf.forEach((c) => {
+    if (c.op === "insert") { (c.after || []).forEach((r) => r && r.id && ch.push({ t: c.table, op: "insert", id: r.id, label: undoLabelOf(c.table, r) })); return; }
+    (c.after || []).forEach((a) => {
+      const b = (c.before || []).find((x) => x.id === a.id); if (!b) return;
+      const f = [];
+      (c.keys || []).filter((k) => k !== "updated_at").forEach((k) => {
+        if (jEq(b[k], a[k])) return;
+        if (k === "items" && c.table === "objects") { const d = itemsDiff(b.items, a.items); if (d) { if (d.length) f.push({ k, d }); return; } }
+        f.push({ k, b: b[k] === undefined ? null : b[k], a: a[k] === undefined ? null : a[k] });
+      });
+      if (f.length) ch.push({ t: c.table, op: "update", id: a.id, label: undoLabelOf(c.table, a), f });
+    });
+  });
+  return ch.length ? ch : null;
+}
 async function logAction(action, entity, detail) {
   try {
-    await db.from("audit_log").insert({
-      action, entity: entity || "", detail: detail || "",
-      user_name: CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username) : "—",
-      role: CURRENT_USER ? CURRENT_USER.role : "—",
-      ts: new Date().toISOString(),
-    });
+    const now = Date.now(), buf = UNDO_BUF.filter((c) => now - c.t < 10000); UNDO_BUF = [];
+    const ts = new Date().toISOString(), who = { user_name: CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username) : "—", role: CURRENT_USER ? CURRENT_USER.role : "—" };
+    const rows = [{ action, entity: entity || "", detail: detail || "", ...who, ts }];
+    const ch = undoSnapOf(buf);
+    if (ch) { const j = JSON.stringify({ v: 1, ts, action, ch }); if (j.length < 250000) rows.push({ action: UNDO_ACT, entity: "undo:" + ts, detail: j, ...who, ts }); }
+    await db.from("audit_log").insert(rows);
   } catch (e) { console.error("log", e); }
 }
 /* ---- Восстановление удалённого из «Журнала».
@@ -1477,9 +1511,10 @@ async function logAction(action, entity, detail) {
    после восстановления пишется te_restored (повторно восстановить нельзя). Аккаунты и заметки не снимаются:
    в снимке были бы пароли и личные заметки, а журнал видят и другие. ---- */
 const TRASH_ACT = "te_trash", TRASH_DONE = "te_restored";
-const LOG_HIDDEN = new Set([TRASH_ACT, TRASH_DONE, "te_tg"]); // te_tg — отметка бота «сообщение уже внесено»
+const LOG_HIDDEN = new Set([TRASH_ACT, TRASH_DONE, "te_tg", "te_undo", "te_undone"]); // te_tg — отметка бота «сообщение уже внесено»
 const logWho = () => ({ user_name: CURRENT_USER ? (CURRENT_USER.name || CURRENT_USER.username) : "—", role: CURRENT_USER ? CURRENT_USER.role : "—" });
 async function logDeleted(action, entity, detail, snap) {
+  UNDO_BUF = []; // удаление восстанавливается своим снимком (te_trash), а не «Отменить»
   const ts = new Date().toISOString();
   try {
     const r = await db.from("audit_log").insert([
@@ -11917,14 +11952,16 @@ function NoteForm({ n, mine, canDel = false, onClose, onSave, onDelete, onHide, 
 function LogTab({ data, reload, toast, onBackup }) {
   const audit_all = data.audit_log;
   // скрытые служебные записи (снимки удалённого) — не показываются, по ним работает «↩ Восстановить»
-  const { audit_log, trashOf, restored } = useMemo(() => {
-    const vis = [], trash = new Map(), done = new Set();
+  const { audit_log, trashOf, restored, undoOf, undone } = useMemo(() => {
+    const vis = [], trash = new Map(), done = new Set(), und = new Map(), undDone = new Set();
     audit_all.forEach((l) => {
       if (l.action === TRASH_ACT) { try { const sn = JSON.parse(l.detail); trash.set(Date.parse(sn.ts) + "|" + sn.action, sn); } catch (e) {} }
       else if (l.action === TRASH_DONE) done.add(String(l.entity || "").replace(/^trash:/, ""));
+      else if (l.action === UNDO_ACT) { try { const sn = JSON.parse(l.detail); und.set(Date.parse(sn.ts) + "|" + sn.action, sn); } catch (e) {} }
+      else if (l.action === UNDONE) undDone.add(String(l.entity || "").replace(/^undo:/, ""));
       else if (!LOG_HIDDEN.has(l.action)) vis.push(l);
     });
-    return { audit_log: vis, trashOf: (l) => trash.get(Date.parse(l.ts) + "|" + l.action) || null, restored: done };
+    return { audit_log: vis, trashOf: (l) => trash.get(Date.parse(l.ts) + "|" + l.action) || null, restored: done, undoOf: (l) => und.get(Date.parse(l.ts) + "|" + l.action) || null, undone: undDone };
   }, [audit_all]);
   const [rBusy, setRBusy] = useState("");
   const [onlyDel, setOnlyDel] = useState(false);
@@ -11949,6 +11986,49 @@ function LogTab({ data, reload, toast, onBackup }) {
     await reload("all");
     setRBusy("");
     if (toast) toast(r.error ? "Восстановлено не всё (" + r.n + "): " + r.error : "Восстановлено: " + (sn.label || l.action) + (r.skip ? " · уже было в базе: " + r.skip : ""));
+  };
+  // «↩ Отменить»: вернуть поля / позиции объекта как было до действия; добавленное (оплата, расход…) — удалить
+  const UT = { objects: "Объект", finance_ops: "Операция", products: "Товар", suppliers: "Поставщик", masters: "Мастер" };
+  const FL = { items: "позиции", status: "статус", price: "цена", cost: "себестоимость", name: "название", amount: "сумма", supplier_id: "поставщик", client: "клиент", phone: "телефон", note: "примечание", master_id: "мастер", stock: "остаток", op_date: "дата", voided: "отмена операции" };
+  const undoText = (sn) => sn.ch.map((c) => (UT[c.t] || c.t) + (c.label ? " «" + c.label + "»" : "") + ": " + (c.op === "insert" ? "будет удалено (добавлено этим действием)" : c.f.map((x) => x.k === "items" ? "позиции (" + x.d.length + ")" : FL[x.k] || x.k).join(", ") + " — вернётся как было")).join("\n");
+  const doUndo = async (l, sn) => {
+    if (!(await askConfirm({ title: "Отменить действие?", text: "«" + l.action + "» от " + new Date(l.ts).toLocaleString("ru-RU") + " (" + (l.user_name || "—") + ")\n\n" + undoText(sn), ok: "Отменить" }))) return;
+    setRBusy("u:" + sn.ts);
+    try {
+      // 1) читаем, что сейчас в базе, и готовим правки; смотрим, меняли ли это после
+      const plan = [], conf = [];
+      for (const c of sn.ch) {
+        const r = await db.from(c.t).select().eq("id", c.id); const cur = (r.data || [])[0];
+        if (c.op === "insert") { if (cur) plan.push({ c, del: cur }); continue; }
+        if (!cur) { conf.push((UT[c.t] || c.t) + " «" + c.label + "» уже удалён"); continue; }
+        const patch = {};
+        c.f.forEach((x) => {
+          if (x.k === "items") {
+            const it = Array.isArray(cur.items) ? cur.items.slice() : [];
+            x.d.forEach((d) => {
+              const j = it.findIndex((y) => y && y.id === d.id);
+              if (d.a ? j < 0 || !jEq(it[j], d.a) : j >= 0) conf.push((c.label || "объект") + ": позицию «" + ((d.a || d.b || {}).name || "—") + "» уже меняли после");
+              if (!d.b) { if (j >= 0) it.splice(j, 1); } else if (j >= 0) it[j] = d.b; else it.splice(Math.min(Math.max(0, d.i), it.length), 0, d.b);
+            });
+            patch.items = it;
+          } else { if (!jEq(cur[x.k], x.a)) conf.push((c.label || UT[c.t]) + ": «" + (FL[x.k] || x.k) + "» уже меняли после"); patch[x.k] = x.b; }
+        });
+        plan.push({ c, patch });
+      }
+      if (conf.length && !(await askConfirm({ title: "После этого действия данные уже меняли", text: conf.slice(0, 12).join("\n") + "\n\nВсё равно вернуть как было до действия? Более поздние изменения в этих полях пропадут.", ok: "Да, вернуть" }))) { setRBusy(""); return; }
+      // 2) записываем
+      let err = "";
+      for (const p of plan) if (p.patch) { const r = await db.from(p.c.t).update(p.patch).eq("id", p.c.id); if (r.error) err = r.error.message; }
+      const dels = plan.filter((p) => p.del);
+      for (const p of dels) { const r = await db.from(p.c.t).delete().eq("id", p.c.id); if (r.error) err = r.error.message; }
+      const det = "из записи журнала от " + new Date(l.ts).toLocaleString("ru-RU") + " (" + (l.user_name || "—") + ")";
+      if (dels.length) { const rows = {}; dels.forEach((p) => { (rows[p.c.t] = rows[p.c.t] || []).push(p.del); }); await logDeleted("Отменено: " + l.action, l.entity || "", det + " · удалено добавленное: " + dels.length, { label: l.action, rows }); }
+      else await logAction("Отменено: " + l.action, l.entity || "", det);
+      await db.from("audit_log").insert({ action: UNDONE, entity: "undo:" + sn.ts, detail: "", ...logWho(), ts: new Date().toISOString() });
+      await reload("all");
+      if (toast) toast(err ? "Отменено не всё: " + err : "Отменено: " + l.action);
+    } catch (e) { if (toast) toast("Не удалось отменить: " + (e.message || e)); }
+    setRBusy("");
   };
   useEffect(() => { if (reload) reload(["audit_log"]); }, []); // журнал подгружается при открытии вкладки
   const [q, setQ] = useState("");
@@ -12000,7 +12080,9 @@ function LogTab({ data, reload, toast, onBackup }) {
                 <td><Badge c={l.role === "boss" ? "#ff707b" : "#fff"}>{l.role === "boss" ? "Рук." : l.role === "manager" ? "Менедж." : l.role === "driver" ? "Доставщ." : l.role === "designer" ? "Проект." : "—"}</Badge></td>
                 <td className="sm">{l.action}{(() => {
                   const sn = trashOf(l);
-                  if (!sn) return null;
+                  if (!sn) { const u = undoOf(l); if (!u) return null;
+                    if (undone.has(u.ts)) return <div className="xs" style={{ color: "var(--mut)", marginTop: 3 }}>✓ отменено</div>;
+                    return <div style={{ marginTop: 4 }}><button className="btn xs log-undo" disabled={!!rBusy} title={"Вернуть как было до этого действия:\n" + undoText(u)} onClick={() => doUndo(l, u)}>{rBusy === "u:" + u.ts ? "Отменяю…" : "↩ Отменить"}</button></div>; }
                   if (restored.has(sn.ts)) return <div className="xs" style={{ color: "var(--ok)", marginTop: 3 }}>✓ восстановлено</div>;
                   return <div style={{ marginTop: 4 }}><button className="btn xs log-restore" disabled={!!rBusy} title={"Вернуть: " + (sn.label || "") + "\n" + snapSize(sn)} onClick={() => doRestore(l, sn)}>{rBusy === sn.ts ? "Восстанавливаю…" : "↩ Восстановить"}</button></div>;
                 })()}</td>

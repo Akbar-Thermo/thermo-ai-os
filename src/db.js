@@ -38,6 +38,16 @@ const supabase = createClient(
   { global: { fetch: teFetch } }
 );
 
+// «↩ Отменить» в Журнале: программа подписывается на изменения в базе (что было до и что стало).
+// update по этим таблицам — сначала читаем строки «до»; insert — запоминаем вставленное; остальное — помечается
+// как «не отменяется автоматически» (склад, заявки, настройки — у них есть связанные изменения).
+let CHANGE_HOOK = null;
+export const setChangeHook = (f) => { CHANGE_HOOK = f; };
+const UNDO_TABLES = new Set(["objects", "finance_ops", "products", "suppliers", "masters"]);
+const NO_HOOK = new Set(["audit_log"]);
+// массовые правки (импорт, перенумерация): больше 25 изменений за 5 секунд — «до» не читаем (не замедляем), такое не отменяется
+let RECENT = [];
+const bulk = () => { const now = Date.now(); RECENT = RECENT.filter((t) => now - t < 5000); RECENT.push(now); return RECENT.length > 25; };
 class Query {
   constructor(table) { this.table = table; this.op = "select"; this.rows = null; this.patch = null; this.filters = []; this.ord = null; }
   select() { this.op = "select"; return this; }
@@ -55,6 +65,12 @@ class Query {
     return q;
   }
   async _exec() {
+    const hook = CHANGE_HOOK && this.op !== "select" && !NO_HOOK.has(this.table) ? CHANGE_HOOK : null;
+    const undoable = hook && UNDO_TABLES.has(this.table) && (this.op === "insert" || (this.op === "update" && this.filters.length)) && !bulk();
+    let before = null;
+    if (undoable && this.op === "update") {
+      try { const r = await this._apply(supabase.from(this.table).select("*")); before = r.data || null; } catch (e) { before = null; }
+    }
     let q;
     if (this.op === "select") {
       q = this._apply(supabase.from(this.table).select("*"));
@@ -67,6 +83,13 @@ class Query {
     }
     const { data, error } = await q;
     if (error) console.error("[db]", this.table, error.message);
+    if (hook && !error) {
+      try {
+        if (undoable && this.op === "update" && before) hook({ table: this.table, op: "update", keys: Object.keys(this.patch || {}), before, after: data || [] });
+        else if (undoable && this.op === "insert") hook({ table: this.table, op: "insert", after: data || [] });
+        else hook({ table: this.table, op: this.op, untracked: true });
+      } catch (e) {}
+    }
     return { data: data || [], error };
   }
   then(res, rej) { return this._exec().then(res, rej); }
