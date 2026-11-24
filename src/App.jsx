@@ -722,7 +722,7 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .dm{position:relative;display:inline-flex}
 .dm-car{margin-left:6px;font-size:10px;opacity:.7}
 .dm-btn.more{padding-left:10px;padding-right:10px;font-weight:800;letter-spacing:1px}
-.dm-pop{position:fixed;z-index:900;min-width:230px;padding:6px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:0 12px 30px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:1px}
+.dm-pop{position:fixed;z-index:900;border-radius:var(--r-xl)!important;min-width:230px;padding:6px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:0 12px 30px rgba(0,0,0,.25);display:flex;flex-direction:column;gap:1px}
 .dm-it{display:flex;align-items:center;gap:9px;padding:8px 10px;border:0;border-radius:7px;background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit;font-size:13px;white-space:nowrap}
 .dm-it:hover,.dm-it:focus-visible{background:var(--acc-tint);outline:none}
 .dm-it.dng{color:var(--bad)}.dm-it.dng:hover,.dm-it.dng:focus-visible{background:color-mix(in srgb,var(--bad) 10%,transparent)}
@@ -1502,8 +1502,12 @@ table.t tr:hover td{background:var(--hover)}
 /* без «свечения»: у кнопок и полей нет цветных теней — только ровный цвет и тонкая рамка */
 .btn.pri,.te.dark .btn.pri,.btn.pri:hover,.te.dark .btn.pri:hover{box-shadow:none!important;background-image:none!important}
 .tab.on,.tab.on:hover{box-shadow:none!important}
-.inp:focus,.te .inp:focus{box-shadow:0 0 0 1px var(--acc)!important}
-.btn:focus-visible,.tab:focus-visible,.obj-m:focus-visible,.cfm-box .btn:focus{box-shadow:none!important;outline:2px solid var(--acc)!important;outline-offset:1px}
+/* одна толщина синей рамки везде: 1px (у поля — сама граница, без второй «обводки») */
+.inp:focus,.te .inp:focus,select.inp:focus{box-shadow:none!important;border-color:var(--acc)!important;outline:none!important}
+/* поля-выборы при нажатии «проседают» так же, как кнопки («Документы» и т.п.) */
+select.inp{transition:transform .08s,border-color .12s}
+select.inp:active:not(:disabled){transform:translateY(1px)}
+.btn:focus-visible,.tab:focus-visible,.obj-m:focus-visible,.cfm-box .btn:focus{box-shadow:none!important;outline:1px solid var(--acc)!important;outline-offset:1px}
 .btn.pay-btn,.te.dark .btn.pay-btn{box-shadow:none!important}
 /* никаких «таблеток»: шаги, метки, счётчики, переключатели — прямоугольные с мягкими углами */
 .step,.bdg,.perm-chip,.npanel-cnt,.chat-day span,.seg,.seg button,.seg .btn,.st-filter,.st-filter button,.hdr-side,.hdr-side button,.tab,.obj-lr .btn,.btn.xs{border-radius:var(--r-md)!important}
@@ -2772,7 +2776,7 @@ function ClientInput({ value, objects, onChange, onPick, onEnter, phoneMode = fa
           else if (e.key === "Enter") { e.preventDefault(); if (open && act >= 0 && hits[act]) pick(hits[act]); else { setOpen(false); onEnter && onEnter(e.target); } }
         }} />
       {open && hits.length > 0 && !(hits.length === 1 && same(hits[0])) && (
-        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, boxShadow: "0 16px 44px rgba(0,0,0,.18)", overflow: "hidden", maxHeight: 300, overflowY: "auto" }}>
+        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--line)", borderRadius: "var(--r-xl)", zIndex: 1000, boxShadow: "0 16px 44px rgba(0,0,0,.18)", overflow: "hidden", maxHeight: 300, overflowY: "auto" }}>
           <div className="xs mut" style={{ padding: "6px 11px", borderBottom: "1px solid var(--line)" }}>Клиенты из прошлых объектов</div>
           {hits.map((c, i) => (
             <div key={c.k} className="clk pick-row" data-on={i === act ? "1" : undefined} style={{ padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === act ? "var(--acc-tint)" : "var(--panel)" }}
@@ -2814,7 +2818,7 @@ function MasterPicker({ masters, value, onChange, onAdd }) {
           else if (e.key === "Enter") { e.preventDefault(); const r = act >= 0 ? rows[act] : hits.length === 1 && typed ? rows[0] : null; if (r) pick(r); else setOpen(false); }
         }} />
       {open && (
-        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, boxShadow: "0 16px 44px rgba(0,0,0,.18)", overflow: "hidden", maxHeight: 320, overflowY: "auto" }}>
+        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--line)", borderRadius: "var(--r-xl)", zIndex: 1000, boxShadow: "0 16px 44px rgba(0,0,0,.18)", overflow: "hidden", maxHeight: 320, overflowY: "auto" }}>
           <div className="xs mut" style={{ padding: "6px 11px", borderBottom: "1px solid var(--line)" }}>{hits.length ? "Мастера" : "Не найдено"}</div>
           {rows.map((r, i) => (
             <div key={r.add ? "__add" : r.m.id} className="clk pick-row" data-on={i === act ? "1" : undefined} style={{ padding: "7px 11px", borderBottom: "1px solid var(--line)", backgroundColor: i === act || (!r.add && r.m.id === value) ? "var(--acc-tint)" : "var(--panel)" }}
@@ -3205,8 +3209,9 @@ function SelectPopupHost() {
   })();
   const width = Math.min(vw - 16, Math.max(r.width, 200, Math.ceil(textW * 1.1) + 60));
   const left = Math.min(Math.max(8, r.left), vw - width - 8);
-  const style = { position: "fixed", left, width, zIndex: 3000, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8,
-    boxShadow: "0 16px 44px rgba(0,0,0,.25)", overflow: "hidden", display: "flex", flexDirection: "column",
+  // как меню «Документы»: та же тонкая нейтральная рамка, углы и тень — все выпадающие списки одинаковые
+  const style = { position: "fixed", left, width, zIndex: 3000, backgroundColor: "var(--panel)", border: "1px solid var(--line)", borderRadius: "var(--r-xl)",
+    boxShadow: "0 12px 30px rgba(0,0,0,.25)", overflow: "hidden", display: "flex", flexDirection: "column",
     ...(up ? { bottom: vh - r.top + 4, maxHeight: Math.min(maxH, r.top - 8) } : { top: r.bottom + 4, maxHeight: Math.min(maxH, Math.max(160, below)) }) };
   let lastGroup = null;
   return (
@@ -3721,7 +3726,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
         </label>}
       </div>
       {pend && (
-        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1001, boxShadow: "0 16px 44px rgba(0,0,0,.18)", padding: "12px 14px" }}>
+        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--line)", borderRadius: "var(--r-xl)", zIndex: 1001, boxShadow: "0 16px 44px rgba(0,0,0,.18)", padding: "12px 14px" }}>
           <div className="sm" style={{ fontWeight: 700, marginBottom: 8 }}>{pend.name}</div>
           <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
             <span className="sm mut" style={{ whiteSpace: "nowrap" }}>Количество:</span>
@@ -3736,7 +3741,7 @@ function ProductPicker({ products, onPick, placeholder, suppliers = [], closeOnP
         </div>
       )}
       {!pend && (hits.length > 0 || noHits) && (
-        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--acc)", borderRadius: 8, zIndex: 1000, boxShadow: "0 16px 44px rgba(0,0,0,.18), 0 0 0 1px rgba(37,99,235,.15)", isolation: "isolate", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, backgroundColor: "var(--panel)", border: "1px solid var(--line)", borderRadius: "var(--r-xl)", zIndex: 1000, boxShadow: "0 16px 44px rgba(0,0,0,.18), 0 0 0 1px rgba(37,99,235,.15)", isolation: "isolate", overflow: "hidden" }}>
           <div className="xs mut" style={{ padding: "6px 11px", borderBottom: "1px solid var(--line)", display: "flex", justifyContent: "space-between" }}>
             <span>{noHits ? "Ничего не найдено" : "Найдено: " + hits.length}</span>
             {hits.length > 1 && <span>↑↓ выбор · Enter добавить</span>}
