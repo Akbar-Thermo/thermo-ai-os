@@ -1499,13 +1499,6 @@ table.t tr:hover td{background:var(--hover)}
 .obj-m.on .obj-m-n{color:var(--txt)!important;font-weight:700!important}
 .obj-m.none .obj-m-n{font-style:italic}
 .obj-mnav{width:28px!important;height:28px!important;margin-top:-14px!important;box-shadow:none!important}
-/* без «свечения»: у кнопок и полей нет цветных теней — только ровный цвет и тонкая рамка */
-.btn.pri,.te.dark .btn.pri,.btn.pri:hover,.te.dark .btn.pri:hover{box-shadow:none!important;background-image:none!important}
-.tab.on,.tab.on:hover{box-shadow:none!important}
-.inp:focus,.te .inp:focus{box-shadow:0 0 0 1px var(--acc)!important}
-.btn:focus-visible,.tab:focus-visible,.obj-m:focus-visible,.cfm-box .btn:focus{box-shadow:none!important;outline:2px solid var(--acc)!important;outline-offset:1px}
-.btn.pay-btn,.te.dark .btn.pay-btn{box-shadow:none!important}
-.ci-tag.perech::before{background:var(--mut)}
 .btn.pay-btn,.te.dark .btn.pay-btn{background:#2f855a!important;border-color:#2f855a!important;color:#fff!important}
 .btn.pay-btn:hover,.te.dark .btn.pay-btn:hover{background:#276749!important;border-color:#276749!important}
 `;
@@ -7103,8 +7096,7 @@ function PerechPanel({ obj, data, reload, toast, onPay }) {
 function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = true, perech = true, pmode = false, setPmode = null }) {
   const [objMarks, toggleObjMark] = useObjMarks();
   const { finance_ops, suppliers } = data;
-  // все объекты одним списком; перечисление — с пометкой у названия (переключатель «Перечисление» здесь убран)
-  const objects = useMemo(() => data.objects || [], [data.objects]);
+  const objects = useMemo(() => (data.objects || []).filter((o) => isPerech(o) === pmode), [data.objects, pmode]);
   const [delObj, setDelObj] = useState(null);
   const [delBusy, setDelBusy] = useState(false);
   const [editO, setEditO] = useState(null);
@@ -7197,10 +7189,11 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
   return (
     <div>
       <div className="row sect ph">
-        <h2 style={{ marginRight: "auto" }}>Объекты <span className="mut sm">({shown.length !== objects.length ? shown.length + " из " + objects.length : objects.length})</span></h2>
+        <h2 style={{ marginRight: "auto" }}>{pmode ? "Объекты — перечисление" : "Объекты"} <span className="mut sm">({shown.length !== objects.length ? shown.length + " из " + objects.length : objects.length})</span></h2>
+        {setPmode && <PerechToggle on={pmode} set={setPmode} />}
         {fin && <button className="btn obj-debts-x" title={mF ? "Excel: долги клиентов по объектам выбранного мастера" : "Excel: долги клиентов по всем мастерам"} onClick={() => {
           const it = mItems.find((x) => x.key === mF);
-          const r = downloadMasterDebts(sortedRows, mF ? (it && it.name) || "—" : "", false);
+          const r = downloadMasterDebts(sortedRows, mF ? (it && it.name) || "—" : "", pmode);
           toast(r === "xlsx" ? "Excel с долгами скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
         }}><Ic n="download" /> Excel: долги</button>}
         <button className="btn pri" onClick={goRequest}>+ Новая заявка</button>
@@ -7240,7 +7233,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
                 <tr key={o.id} className="clk" onClick={() => setOpenId(o.id)}>
                   <td className="objt-name"><div className="row" style={{ gap: 8, flexWrap: "nowrap", alignItems: "flex-start" }}>
                     <span onClick={(e) => e.stopPropagation()} style={{ paddingTop: 2 }} title="Пометка для себя — видна только вам на этом устройстве"><MarkDot value={objMarks[o.id] || ""} onClick={() => toggleObjMark(o.id)} /></span>
-                    <div style={{ minWidth: 0 }}><div style={{ fontWeight: 700 }}>{o.name}{pc && <span className="ci-tag perech" title="Перечисление: клиент платит через банк">перечисление</span>}{fin && ci0 > 0 && <span className="ci-tag none" title="Позиций без себестоимости">нет себест.: {ci0}</span>}{fin && ci1 > 0 && <span className="ci-tag over" title="Позиций с себестоимостью выше цены продажи">&gt; цены: {ci1}</span>}{fin && ci2 > 0 && <span className="ci-tag nosup" title="Позиций без поставщика">нет пост.: {ci2}</span>}</div>{o.address && <div className="xs mut">{o.address}</div>}</div>
+                    <div style={{ minWidth: 0 }}><div style={{ fontWeight: 700 }}>{o.name}{fin && ci0 > 0 && <span className="ci-tag none" title="Позиций без себестоимости">нет себест.: {ci0}</span>}{fin && ci1 > 0 && <span className="ci-tag over" title="Позиций с себестоимостью выше цены продажи">&gt; цены: {ci1}</span>}{fin && ci2 > 0 && <span className="ci-tag nosup" title="Позиций без поставщика">нет пост.: {ci2}</span>}</div>{o.address && <div className="xs mut">{o.address}</div>}</div>
                   </div></td>
                   <td className="objt-cl"><div>{o.client || "—"}</div>{o.phone && <div className="xs mut mono">{o.phone}</div>}</td>
                   <td className="objt-ms sm">{o.master || masterName[o.master_id] || <span className="mut">—</span>}{o.manager && <div className="xs mut">{o.manager}</div>}</td>
