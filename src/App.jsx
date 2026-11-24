@@ -7212,8 +7212,6 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
         </div>
         <div className="obj-lr-row obj-lr-m">
           <div className="obj-lr-mb"><MasterBar items={mItems} value={mF} onPick={setMF} /></div>
-        {nDebt.length > 0 && <button className={"btn xs objf-debt" + (pF === "debt" ? " on" : "")} title="Только объекты с долгом клиента — больше долг выше; под суммой — когда клиент платил последний раз"
-          onClick={() => { if (pF === "debt") setPF(""); else { setPF("debt"); sortBy("debt", -1); } }}>Должники: {nDebt.length} · {fmt(sumDebt)}</button>}
         {nCi > 0 && <button className={"btn xs objf-ci" + (pF === "cost" ? " on" : "")} title="Объекты, где есть позиции без себестоимости, с себестоимостью выше цены продажи или без поставщика" onClick={() => setPF(pF === "cost" ? "" : "cost")}>⚠ Проверить: {nCi}</button>}
         </div>
       </div>
