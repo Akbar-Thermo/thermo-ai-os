@@ -10,7 +10,7 @@ for line in open(os.path.join(ROOT, ".env.txt"), encoding="utf-8"):
     if m: env[m.group(1)] = m.group(2)
 cfg = {"url": env["VITE_SUPABASE_URL"].rstrip("/"), "key": env["VITE_SUPABASE_ANON_KEY"]}
 html = f'''<!DOCTYPE html>
-<html lang="uz"><head><meta charset="utf-8">
+<html lang="uz"><head><meta charset="utf-8"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&display=swap" media="(min-width: 900px)">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f5f5f5"><meta name="robots" content="noindex, nofollow">
 <link rel="icon" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">

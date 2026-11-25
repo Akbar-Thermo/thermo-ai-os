@@ -63,7 +63,7 @@
     }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
       baseLoading = false;
       if (!Array.isArray(j) || !j.length) return;
-      BASE = j.map(function (r) { return { id: r[0], name: r[1], unit: r[2] || "шт", brand: r[3] || "", size: r[4] || "", t: baseText(r) }; });
+      BASE = j.map(function (r) { return { id: r[0], name: r[1], unit: r[2] || "шт", brand: r[3] || "", size: r[4] || "", code: r[6] || "", t: baseText(r) }; });
       if (isDesk()) { var c = $("bCat"); if (c) c.style.display = "none"; var q = $("q"); if (q) q.placeholder = T("searchPhBase"); renderSug(); }
     }).catch(function () { baseLoading = false; });
   }
@@ -74,7 +74,7 @@
     for (var i = 0; i < BASE.length; i++) { var t = BASE[i].t, ok = true; for (var k = 0; k < w.length; k++) if (t.indexOf(w[k]) < 0) { ok = false; break; } if (ok) out.push(BASE[i]); }
     return out;
   }
-  function fromBase(p) { return { name: p.name, vars: [], size: "", qty: null, unit: p.unit, raw: "", known: true, cat: "", ii: -1, pid: p.id, brand: [p.brand, p.size].filter(Boolean).join(" · ") }; }
+  function fromBase(p) { return { name: p.name, vars: [], size: "", qty: null, unit: p.unit, raw: "", known: true, cat: "", ii: -1, pid: p.id, brand: [p.code, p.brand, p.size].filter(Boolean).join(" · ") }; }
   var digits = function (p) { return String(p || "").replace(/\D/g, ""); };
   function toast(msg) {
     var t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t);
@@ -128,15 +128,24 @@
     $("bNew").onclick = newList;
     $("bClear").onclick = function () { if (!S.lines.length) return; confirmSheet(T("clearQ"), function () { S.lines = []; S.secs = []; S.cur = ""; S.view = "list"; save(); renderSecs(); renderList(); }); };
     var q = $("q");
-    q.oninput = function () { S.hi = 0; S.pend = null; renderSug(); };
+    q.oninput = function () { S.hi = BASE ? -1 : 0; S.pend = null; renderSug(); };
     q.onfocus = function () { if (isDesk()) renderSug(); };
     q.onkeydown = function (e) {
+      if (isDesk() && BASE) {
+        if (e.key === "ArrowDown") { e.preventDefault(); moveBaseHi(1); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); moveBaseHi(-1); }
+        else if (e.key === "PageDown") { e.preventDefault(); moveBaseHi(7); }
+        else if (e.key === "PageUp") { e.preventDefault(); moveBaseHi(-7); }
+        else if (e.key === "Enter") { e.preventDefault(); if (S.hi != null && S.hi >= 0 && baseHits[S.hi]) pickK(S.hi); }
+        else if (e.key === "Escape") { e.preventDefault(); q.value = ""; S.hi = -1; renderSug(); }
+        return;
+      }
       if (isDesk() && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
         var n = $("sug").querySelectorAll(".fr").length; if (!n) return;
         e.preventDefault(); S.hi = ((S.hi || 0) + (e.key === "ArrowDown" ? 1 : -1) + n) % n; paintHi(); return;
       }
       if (isDesk() && e.key === "Escape") { q.value = ""; renderSug(); return; }
-      if (e.key === "Enter") { e.preventDefault(); if (isDesk()) { var hi = S.hi || 0; pickK(BASE && hi >= Math.min(baseHits.length, BASE_SHOW) ? 99999 : hi); } else acceptTop(); }
+      if (e.key === "Enter") { e.preventDefault(); if (isDesk()) pickK(S.hi || 0); else acceptTop(); }
     };
     q.onpaste = function (e) {
       var txt = (e.clipboardData || window.clipboardData).getData("text") || "";
@@ -351,7 +360,7 @@
   var baseHits = [];
   function pickK(k) {
     var q = $("q").value; if (q.trim().length < 2) return;
-    if (BASE) { var p = baseHits[k]; takeDesk(p ? fromBase(p) : freeLine(q)); return; }
+    if (BASE) { var p = baseHits[k]; if (p) takeDesk(fromBase(p)); return; }
     var l = k < lastRes.length ? fromResult(lastRes[k], q) : freeLine(q);
     takeDesk(l);
   }
@@ -366,36 +375,57 @@
   function backToSearch() { var q = $("q"); if (!q) return; q.focus(); if (BASE) { q.select(); renderSug(); } else clearInput(); }
   function renderPend() {
     var l = S.pend, box = $("sug");
-    box.innerHTML = '<div class="fpend"><b>' + esc(lineLabel(l)) + (l.known ? "" : ' <span class="sub w">' + esc(T("unknown")) + "</span>") + '</b>' + (l.brand ? '<div class="sub">' + esc(l.brand) + "</div>" : "") + '<div class="row" style="margin-top:8px;gap:8px">' +
-      '<span class="mut">' + esc(T("qty")) + ':</span><input class="inp" id="pq" autocomplete="off" placeholder="0" style="width:120px"><span class="mut">' + esc(l.unit || "") + "</span>" +
+    box.dataset.q = "";
+    box.innerHTML = '<div class="fpend"><div class="pnm">' + esc(lineLabel(l)) + (l.known ? "" : ' <span class="sub w">' + esc(T("unknown")) + "</span>") + "</div>" +
+      '<div class="row" style="gap:8px;flex-wrap:nowrap"><span class="pl">' + esc(T("qtyColon")) + '</span><input class="inp" id="pq" autocomplete="off" placeholder="0" style="width:120px;font-weight:700;font-size:15px"><span class="pl">' + esc(l.unit || "шт") + "</span>" +
       '<button class="btn pri" id="pqOk">' + esc(T("add")) + '</button><button class="btn" id="pqNo">' + esc(T("cancel")) + '</button><b class="res" id="pqRes"></b></div>' +
-      '<div class="xs mut" style="margin-top:6px">' + esc(T("pendHint")) + "</div></div>";
+      '<div class="ph2">' + esc(T("pendHint")) + "</div></div>";
     var pq = $("pq"), res = $("pqRes");
     var ok = function () { var v = pq.value.trim(), n = calcQty(v); if (!n) { pq.classList.add("bad"); pq.focus(); return; } l.qty = n; l.expr = isExpr(v) ? v : ""; S.pend = null; addLine(l); backToSearch(); };
-    var no = function () { S.pend = null; renderSug(); $("q").focus(); };
-    pq.oninput = function () { pq.classList.remove("bad"); res.textContent = isExpr(pq.value) ? "= " + fmtQ(calcQty(pq.value)) : ""; };
+    var no = function () { S.pend = null; backToSearch(); };
+    var okb = $("pqOk");
+    pq.oninput = function () { pq.classList.remove("bad"); res.textContent = isExpr(pq.value) ? "= " + fmtQ(calcQty(pq.value)) : ""; okb.disabled = !(calcQty(pq.value) > 0); };
     pq.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); ok(); } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); no(); } };
     $("pqOk").onclick = ok; $("pqNo").onclick = no;
-    if (l.pid) pq.value = "1";
+    pq.value = "1";
     pq.focus(); pq.select();
   }
-  var BASE_SHOW = 150;
+  // ---- programmadagi ProductPicker'ning aynan nusxasi (narxsiz): hamma topilganlar, qator 68px, 2 qatorli nom,
+  // ostida «kod · brend · o'lcham · birlik»; ↑↓ (aylanib), PageUp/PageDown ±7, Enter — faqat tanlangan qator, Esc — tozalash
+  var ROW = 68, BOX_H = 420, baseTop = 0;
+  function paintBaseRows() {
+    var inner = $("sug").querySelector(".pinner"); if (!inner) return;
+    var start = Math.max(0, Math.floor(baseTop / ROW) - 8), end = Math.min(baseHits.length, Math.ceil((baseTop + BOX_H) / ROW) + 8), h = "";
+    for (var i = start; i < end; i++) {
+      var p = baseHits[i], sub = [p.code, p.brand, p.size].filter(Boolean).join(" · ");
+      h += '<div class="prow' + (i === S.hi ? " on" : "") + '" data-k="' + i + '" style="top:' + i * ROW + 'px" title="' + esc(p.name) + '"><div class="pick-name">' + esc(p.name) + '</div><div class="psub">' + esc(sub ? sub + " · " + p.unit : p.unit) + "</div></div>";
+    }
+    inner.innerHTML = h;
+  }
   function renderSugBase(q, box) {
+    var prev = box.querySelector(".plist"), keep = prev && box.dataset.q === q;
     baseHits = baseFind(q);
-    if (S.hi == null || S.hi > baseHits.length) S.hi = 0;
-    var shown = baseHits.slice(0, BASE_SHOW);
-    var html = '<div class="fhd">' + (baseHits.length ? esc(T("found")) + ": " + baseHits.length : esc(T("notFoundBase"))) + (baseHits.length > BASE_SHOW ? " · " + esc(T("showFirst").replace("{n}", BASE_SHOW)) : "") + "</div>";
-    html += shown.map(function (p, i) {
-      var sub = [p.brand, p.size, p.unit].filter(Boolean).join(" · ");
-      return '<div class="fr' + (i === S.hi ? " on" : "") + '" data-k="' + i + '"><b>' + esc(p.name) + '</b><div class="sub">' + esc(sub) + "</div></div>";
-    }).join("");
-    html += '<div class="fr free' + (S.hi === shown.length ? " on" : "") + '" data-k="' + (baseHits.length > BASE_SHOW ? 99999 : shown.length) + '"><b>«' + esc(q.trim()) + '»</b><div class="sub">' + esc(T("keepFreeBase")) + "</div></div>";
-    box.innerHTML = html;
-    box.querySelectorAll(".fr").forEach(function (r, i) {
-      r.onmousedown = function (e) { e.preventDefault(); };
-      r.onmousemove = function () { if (S.hi !== i) { S.hi = i; paintHi(); } };
-      r.onclick = function () { S.hi = i; pickK(i < shown.length ? i : 99999); };
-    });
+    if (!keep) { baseTop = 0; if (S.hi == null || S.hi >= baseHits.length) S.hi = -1; }
+    box.dataset.q = q;
+    if (!baseHits.length) { box.innerHTML = '<div class="phd"><span>' + esc(T("notFoundBase")) + "</span></div>"; return; }
+    box.innerHTML = '<div class="phd"><span>' + esc(T("found")) + ": " + baseHits.length + "</span>" + (baseHits.length > 1 ? "<span>" + esc(T("pickHint")) + "</span>" : "") + "</div>" +
+      '<div class="plist" style="max-height:' + BOX_H + 'px"><div class="pinner" style="height:' + baseHits.length * ROW + 'px"></div></div>';
+    var list = box.querySelector(".plist");
+    list.scrollTop = keep ? baseTop : 0;
+    list.onscroll = function () { baseTop = list.scrollTop; paintBaseRows(); };
+    var inner = box.querySelector(".pinner");
+    inner.onmousedown = function (e) { e.preventDefault(); };
+    inner.onclick = function (e) { var r = e.target.closest(".prow"); if (r) { S.hi = Number(r.dataset.k); pickK(S.hi); } };
+    paintBaseRows();
+  }
+  function moveBaseHi(d) {
+    var n = baseHits.length; if (!n) return;
+    var i = S.hi == null ? -1 : S.hi;
+    if (d === 1) i = i + 1 >= n ? 0 : i + 1; else if (d === -1) i = i <= 0 ? n - 1 : i - 1; else if (d === 7) i = Math.min(i + 7, n - 1); else i = Math.max(i - 7, 0);
+    S.hi = i;
+    var list = $("sug").querySelector(".plist");
+    if (list) { var y = i * ROW; if (y < list.scrollTop) list.scrollTop = y; else if (y + ROW > list.scrollTop + list.clientHeight) list.scrollTop = y + ROW - list.clientHeight; baseTop = list.scrollTop; }
+    paintBaseRows();
   }
   function renderSugDesk() {
     var q = $("q").value, box = $("sug");
