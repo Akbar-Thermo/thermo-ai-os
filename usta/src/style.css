@@ -257,3 +257,7 @@ body.desk .fpend{padding:12px 14px}
 .bfl{max-height:300px;overflow:auto;overscroll-behavior:contain}
 .sup-act{justify-content:space-between;margin-top:6px;gap:6px}
 .dsrch .sup-filter{width:210px}
+table.dt tr.man td.t{cursor:default}
+table.dt .mnm{width:100%}
+table.dt .mnm.none{border-color:var(--bad)}
+table.dt .mun{width:64px}

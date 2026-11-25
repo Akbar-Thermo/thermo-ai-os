@@ -174,7 +174,14 @@
       if (/\n/.test(txt.trim())) { e.preventDefault(); addMany(txt); }
     };
     if ($("bAdd")) $("bAdd").onclick = acceptTop;
-    if ($("bManual")) $("bManual").onclick = function () { openPicker({ name: "", vars: [], size: "", qty: null, unit: "шт", raw: "", known: false, cat: "", ii: -1 }, true); };
+    if ($("bManual")) $("bManual").onclick = function () {
+      if (!isDesk()) return openPicker({ name: "", vars: [], size: "", qty: null, unit: "шт", raw: "", known: false, cat: "", ii: -1 }, true);
+      // programmadagidek: jadval boshiga bo'sh qator — nomi, miqdori (1), birligi shu yerning o'zida yoziladi
+      var l = { id: uid(), name: "", vars: [], size: "", qty: 1, unit: "шт", raw: "", known: false, manual: true, cat: "", ii: -1, sec: S.cur || "" };
+      if (S.view === "total") S.view = "list";
+      S.lines.unshift(l); save(); renderSecs(); renderList();
+      var f = document.querySelector('.ln[data-id="' + l.id + '"] .mnm'); if (f) f.focus();
+    };
     $("bSend").onclick = send;
     renderWho(); renderSecs(); renderList(); renderSug(); renderLists();
     if (isDesk() && !S.lines.length) setTimeout(function () { var q = $("q"); if (q) q.focus(); }, 0);
@@ -269,8 +276,13 @@
     var sub = [(l.vars || []).filter(Boolean).join(" "), l.size, l.brand].filter(Boolean).join(" · ");
     if (ro && l.n > 1) sub += (sub ? " · " : "") + T("fromSecs").replace("{n}", l.n);
     var qv = l.expr && isExpr(l.expr) ? l.expr : l.qty ? fmtQ(l.qty) : "";
-    return '<tr class="ln dr' + (l.known ? "" : " unk") + (ro ? " ro" : "") + (S.fresh === l.id ? " fresh" : "") + '" data-id="' + l.id + '"><td class="c-n">' + (i + 1) + "</td>" +
-      '<td class="t"' + (ro ? "" : ' data-act="edit" title="' + esc(T("edit")) + '"') + '><div class="nm">' + esc(l.name) + "</div>" + (sub ? '<div class="sub">' + esc(sub) + "</div>" : "") + (l.known ? "" : '<div class="sub w">' + esc(T("unknown")) + "</div>") + "</td>" +
+    if (l.manual && !ro) return '<tr class="ln dr man' + (S.fresh === l.id ? " fresh" : "") + '" data-id="' + l.id + '"><td class="c-n">' + (i + 1) + "</td>" +
+      '<td class="t"><input class="inp mnm' + (l.name.trim() ? "" : " none") + '" placeholder="' + esc(T("manualPh")) + '" value="' + esc(l.name) + '" maxlength="200" autocomplete="off"><div class="sub">' + esc(T("manualMark")) + "</div></td>" +
+      '<td class="c-q"><div class="dq"><input class="inp qin' + (l.qty ? "" : " none") + '" value="' + esc(qv) + '" placeholder="0" autocomplete="off" aria-label="' + esc(T("qty")) + '"><small class="res">' + (l.expr && isExpr(l.expr) ? "= " + fmtQ(l.qty) : "") + "</small></div></td>" +
+      '<td class="c-u"><input class="inp mun" value="' + esc(l.unit || "") + '" maxlength="10" autocomplete="off" aria-label="' + esc(T("unitCol")) + '"></td>' +
+      '<td class="c-x"><button class="btn xs dng" data-act="del" title="' + esc(T("del")) + '" aria-label="' + esc(T("del")) + '">✕</button></td></tr>';
+    return '<tr class="ln dr' + (l.known || l.manual ? "" : " unk") + (ro ? " ro" : "") + (S.fresh === l.id ? " fresh" : "") + '" data-id="' + l.id + '"><td class="c-n">' + (i + 1) + "</td>" +
+      '<td class="t"' + (ro ? "" : ' data-act="edit" title="' + esc(T("edit")) + '"') + '><div class="nm">' + esc(l.name) + "</div>" + (sub ? '<div class="sub">' + esc(sub) + "</div>" : "") + (l.known ? "" : l.manual ? '<div class="sub">' + esc(T("manualMark")) + "</div>" : '<div class="sub w">' + esc(T("unknown")) + "</div>") + "</td>" +
       (ro ? '<td class="c-q"><b>' + fmtQ(l.qty) + "</b></td>"
           : '<td class="c-q"><div class="dq"><input class="inp qin' + (l.qty ? "" : " none") + '" value="' + esc(qv) + '" placeholder="0" autocomplete="off" aria-label="' + esc(T("qty")) + '"><small class="res">' + (l.expr && isExpr(l.expr) ? "= " + fmtQ(l.qty) : "") + "</small></div></td>") +
       '<td class="c-u">' + esc(l.unit || "") + "</td>" +
@@ -279,7 +291,18 @@
   function deskTable(body) {
     return '<table class="t dt"><thead><tr><th class="c-n">№</th><th>' + esc(T("colItem")) + '</th><th class="c-q">' + esc(T("qty")) + '</th><th class="c-u">' + esc(T("unitCol")) + '</th><th class="c-x"></th></tr></thead><tbody>' + body + "</tbody></table>";
   }
+  function bindManual(L) {
+    L.querySelectorAll("tr.man").forEach(function (row) {
+      var l = S.lines.find(function (x) { return x.id === row.dataset.id; }); if (!l) return;
+      var nm = row.querySelector(".mnm"), un = row.querySelector(".mun");
+      nm.oninput = function () { l.name = nm.value; nm.classList.toggle("none", !nm.value.trim()); save(); };
+      un.oninput = function () { l.unit = un.value.trim(); save(); };
+      nm.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); var q = row.querySelector(".qin"); q.focus(); q.select(); } };
+      un.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); $("q").focus(); } };
+    });
+  }
   function bindQtyInputs(L) {
+    bindManual(L);
     L.querySelectorAll(".qin").forEach(function (inp) {
       var row = inp.closest(".ln"), res = row.querySelector(".res");
       var l = function () { return S.lines.find(function (x) { return x.id === row.dataset.id; }); };
@@ -781,6 +804,8 @@
     var d = digits(S.who.phone);
     if (!S.me && (S.who.name.trim().length < 2 || d.length < 9)) { S.editWho = true; renderWho(); toast(d.length && d.length < 9 ? T("errPhone") : T("needWho")); (S.who.name.trim().length < 2 ? $("wName") : $("wPhone")).focus(); return; }
     if (!S.lines.length) { toast(T("needLines")); $("q").focus(); return; }
+    var noName = S.lines.find(function (l) { return l.manual && !String(l.name || "").trim(); });
+    if (noName && isDesk()) { toast(T("needName")); if (S.view === "total") { S.view = "list"; renderSecs(); renderList(); } var nf = document.querySelector('.ln[data-id="' + noName.id + '"] .mnm'); if (nf) nf.focus(); return; }
     var noQ = S.lines.find(function (l) { return !l.qty; });
     if (noQ) {
       toast(T("needQty"));
