@@ -5,7 +5,7 @@
   // ?preview=1 — rahbar ustaning sahifasini oldindan ko'radi: hech narsa yuborilmaydi, ma'lumot alohida saqlanadi
   var PREVIEW = /[?&]preview=1\b/.test(location.search);
   var KP = PREVIEW ? "usta.pv." : "usta.v1.";
-  var K = { draft: KP + "draft", who: KP + "who", lang: "usta.v1.lang", hist: KP + "hist", key: KP + "key", lists: KP + "lists" };
+  var K = { draft: KP + "draft", who: KP + "who", lang: "usta.v1.lang", hist: KP + "hist", key: KP + "key", lists: KP + "lists", sf: KP + "sf" };
   var load = function (k, d) { try { var v = JSON.parse(localStorage.getItem(k) || "null"); return v == null ? d : v; } catch (e) { return d; } };
   var store = function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
   var uid = function () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); };
@@ -21,6 +21,7 @@
     object: draft.object || "", note: draft.note || "", lines: Array.isArray(draft.lines) ? draft.lines : [],
     secs: Array.isArray(draft.secs) ? draft.secs : [], cur: draft.cur || "", view: "list",
     hist: load(K.hist, []), lists: load(K.lists, []), fresh: null, sending: false,
+    sfs: (load(K.sf, {}).sfs || []), sbr: (load(K.sf, {}).sbr || {}),
   };
   if (!S.key && (!S.who.name || !S.who.phone)) S.editWho = true;
   var T = function (k) { return (I18N[S.lang] || I18N.uz)[k] || k; };
@@ -47,11 +48,16 @@
   var isDesk = function () { return !!DESK.matches; };
   // ---------- tovarlar bazasi (programmadagi «Товары», narxsiz) — faqat kompyuterda va shaxsiy havola bilan ----------
   // qidiruv programmadagidek: hamma so'zlar istalgan tartibda nomda/kodda/qo'shimcha nomlarda bo'lsa topiladi; lotincha ham («truba 25»)
-  var BASE = null, baseLoading = false;
+  var BASE = null, baseLoading = false, SUPS = [], SUPN = {}, SUPC = {}, SUPB = {};
+  // postavshik filtri (programmadagidek): belgilangan postavshiklar va ularning ichida brendlar
+  var KB_RU = "йцукенгшщзхъфывапролджэячсмитьбюё", KB_EN = "qwertyuiop[]asdfghjkl;'zxcvbnm,.`";
+  function kbConv(str, from, to) { return String(str || "").toLowerCase().split("").map(function (c) { var i = from.indexOf(c); return i >= 0 ? to[i] : c; }).join(""); }
+  function kbVariants(q) { var t = String(q || "").trim().toLowerCase(); if (!t) return []; var a = [t, kbConv(t, KB_RU, KB_EN), kbConv(t, KB_EN, KB_RU)]; return a.filter(function (x, i) { return a.indexOf(x) === i; }); }
+  function brandOf(b, sup) { b = String(b || "").trim(); return b && b.toLowerCase() !== String(sup || "").trim().toLowerCase() ? b : ""; }
   var TR_MAP = { а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "j", з: "z", и: "i", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "x", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ъ: "", ы: "i", ь: "", э: "e", ю: "yu", я: "ya", ў: "o‘", қ: "q", ғ: "g‘", ҳ: "h" };
   function translit(t) { return t.replace(/[а-яёўқғҳ]/g, function (c) { return TR_MAP[c] != null ? TR_MAP[c] : c; }); }
-  function baseText(r) {
-    var t = [r[1], r[5], r[4], r[3]].filter(Boolean).join(" ").toLowerCase().replace(/ё/g, "е");
+  function baseText(r, supName) {
+    var t = [r[1], r[5], r[6], r[4], r[3], supName].filter(Boolean).join(" ").toLowerCase().replace(/ё/g, "е");
     return t + " " + t.replace(/[\s\-_."']+/g, "") + (/[а-яё]/.test(t) ? " " + translit(t) : "");
   }
   function loadBase() {
@@ -62,19 +68,35 @@
       body: JSON.stringify({ p_key: S.key }),
     }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
       baseLoading = false;
-      if (!Array.isArray(j) || !j.length) return;
-      BASE = j.map(function (r) { return { id: r[0], name: r[1], unit: r[2] || "шт", brand: r[3] || "", size: r[4] || "", code: r[6] || "", t: baseText(r) }; });
-      if (isDesk()) { var c = $("bCat"); if (c) c.style.display = "none"; var q = $("q"); if (q) q.placeholder = T("searchPhBase"); renderSug(); }
+      var rows = Array.isArray(j) ? j : j && Array.isArray(j.p) ? j.p : null;
+      if (!rows || !rows.length) return;
+      SUPS = j && Array.isArray(j.s) ? j.s.map(function (x) { return { id: x[0], name: x[1] }; }) : [];
+      SUPN = {}; SUPS.forEach(function (x) { SUPN[x.id] = x.name; });
+      BASE = rows.map(function (r) { var sup = r[7] || ""; return { id: r[0], name: r[1], unit: r[2] || "шт", brand: r[3] || "", size: r[4] || "", code: r[6] || "", sup: sup, t: baseText(r, SUPN[sup]) }; });
+      SUPC = {}; var bm = {};
+      BASE.forEach(function (p) { if (!p.sup) return; SUPC[p.sup] = (SUPC[p.sup] || 0) + 1; var x = (bm[p.sup] = bm[p.sup] || {}); var b = String(p.brand || "").trim(); x[b] = (x[b] || 0) + 1; });
+      SUPB = {}; Object.keys(bm).forEach(function (id) { SUPB[id] = Object.keys(bm[id]).map(function (b) { return { b: b, n: bm[id][b] }; }).sort(function (a, c) { return c.n - a.n || a.b.localeCompare(c.b); }); });
+      // postavshiklar — lotincha nomi bo'yicha alifbo tartibida (programmadagidek)
+      SUPS.sort(function (a, b) { return translit(a.name.toLowerCase()).localeCompare(translit(b.name.toLowerCase()), "en", { numeric: true, sensitivity: "base" }); });
+      S.sfs = S.sfs.filter(function (id) { return SUPN[id]; });
+      if (isDesk()) { var c = $("bCat"); if (c) c.style.display = "none"; renderSupF(); renderSug(); }
     }).catch(function () { baseLoading = false; });
   }
   function baseFind(q) {
     var w = q.toLowerCase().replace(/ё/g, "е").trim().split(/\s+/).filter(Boolean);
-    if (!w.length) return [];
+    var sf = S.sfs.length > 0;
+    if (!w.length && !sf) return [];
+    var sfSet = {}; S.sfs.forEach(function (id) { sfSet[id] = 1; });
     var out = [];
-    for (var i = 0; i < BASE.length; i++) { var t = BASE[i].t, ok = true; for (var k = 0; k < w.length; k++) if (t.indexOf(w[k]) < 0) { ok = false; break; } if (ok) out.push(BASE[i]); }
+    for (var i = 0; i < BASE.length; i++) {
+      var p = BASE[i];
+      if (sf && !sfSet[p.sup]) continue;
+      var bf = S.sbr[p.sup]; if (bf && bf.length && bf.indexOf(String(p.brand || "").trim()) < 0) continue;
+      var t = p.t, ok = true; for (var k = 0; k < w.length; k++) if (t.indexOf(w[k]) < 0) { ok = false; break; } if (ok) out.push(p);
+    }
     return out;
   }
-  function fromBase(p) { return { name: p.name, vars: [], size: "", qty: null, unit: p.unit, raw: "", known: true, cat: "", ii: -1, pid: p.id, brand: [p.code, p.brand, p.size].filter(Boolean).join(" · ") }; }
+  function fromBase(p) { return { name: p.name, vars: [], size: "", qty: null, unit: p.unit, raw: "", known: true, cat: "", ii: -1, pid: p.id, brand: [p.code, brandOf(p.brand, SUPN[p.sup]), SUPN[p.sup]].filter(Boolean).join(" · ") }; }
   var digits = function (p) { return String(p || "").replace(/\D/g, ""); };
   function toast(msg) {
     var t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t);
@@ -98,7 +120,7 @@
       '<div class="fld"><label for="note">' + esc(T("note")) + '</label><input class="inp" id="note" placeholder="' + esc(T("notePh")) + '" value="' + esc(S.note) + '" maxlength="1000"></div></div></div>' +
       '<div class="card dpick"><div class="row dpickh"><h3>' + esc(T("pickT")) + '</h3><button class="btn" id="bCat">☰ ' + esc(T("catalog")) + '</button><button class="btn" id="bPaste">⧉ ' + esc(T("paste")) + '</button></div>' +
       '<div id="secbar"></div>' +
-      '<div class="dsrch"><input class="inp" id="q" placeholder="' + esc(T("searchPh")) + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><div class="sug dsug" id="sug"></div></div>' +
+      '<div class="dsrch"><div class="srow"><div id="supf" class="supf"></div><input class="inp" id="q" placeholder="' + esc(T("searchPh")) + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></div><div class="sug dsug" id="sug"></div></div>' +
       '<div id="list"></div>' +
       '<div class="row dfoot"><button class="btn xs" id="bManual">+ ' + esc(T("manualAdd")) + '</button><b class="dcount" id="dcount"></b></div>' +
       '<div class="row dact"><button class="btn" id="bClear">' + esc(T("clear")) + '</button><button class="btn pri" id="bSend"></button></div>' +
@@ -156,7 +178,8 @@
     $("bSend").onclick = send;
     renderWho(); renderSecs(); renderList(); renderSug(); renderLists();
     if (isDesk() && !S.lines.length) setTimeout(function () { var q = $("q"); if (q) q.focus(); }, 0);
-    if (isDesk() && BASE) { var bc = $("bCat"); if (bc) bc.style.display = "none"; $("q").placeholder = T("searchPhBase"); }
+    if (isDesk() && BASE) { var bc = $("bCat"); if (bc) bc.style.display = "none"; }
+    renderSupF();
     loadBase();
   }
   if (DESK.addEventListener) DESK.addEventListener("change", function () { closeSheet(); shell(); });
@@ -397,11 +420,88 @@
     var inner = $("sug").querySelector(".pinner"); if (!inner) return;
     var start = Math.max(0, Math.floor(baseTop / ROW) - 8), end = Math.min(baseHits.length, Math.ceil((baseTop + BOX_H) / ROW) + 8), h = "";
     for (var i = start; i < end; i++) {
-      var p = baseHits[i], sub = [p.code, p.brand, p.size].filter(Boolean).join(" · ");
+      var p = baseHits[i], sub = [p.code, brandOf(p.brand, SUPN[p.sup]), SUPN[p.sup]].filter(Boolean).join(" · ");
       h += '<div class="prow' + (i === S.hi ? " on" : "") + '" data-k="' + i + '" style="top:' + i * ROW + 'px" title="' + esc(p.name) + '"><div class="pick-name">' + esc(p.name) + '</div><div class="psub">' + esc(sub ? sub + " · " + p.unit : p.unit) + "</div></div>";
     }
     inner.innerHTML = h;
   }
+  var SF = { open: false, q: "", act: -1, hov: null, bAct: -1 };
+  function saveSF() { store(K.sf, { sfs: S.sfs, sbr: S.sbr }); }
+  function supLabel() {
+    if (!S.sfs.length) return T("allSups");
+    if (S.sfs.length === 1) { var id = S.sfs[0], br = S.sbr[id]; return (SUPN[id] || "1") + (br && br.length ? " · " + (br.length === 1 ? (br[0] || T("noBrand")) : T("nBrands").replace("{n}", br.length)) : ""); }
+    return T("nSups").replace("{n}", S.sfs.length);
+  }
+  function supList() {
+    var qv = kbVariants(SF.q), sel = {}; S.sfs.forEach(function (id) { sel[id] = 1; });
+    return SUPS.filter(function (x) { if (!qv.length) return true; var n = x.name.toLowerCase().replace(/ё/g, "е"), nl = translit(n); return qv.some(function (v) { return n.indexOf(v) >= 0 || nl.indexOf(v) >= 0; }); });
+  }
+  function renderSupF() {
+    var w = $("supf"); if (!w) return;
+    if (!BASE || !SUPS.length) { w.innerHTML = ""; w.style.display = "none"; $("q").placeholder = BASE ? T("searchPhBase") : T("searchPh"); return; }
+    w.style.display = "";
+    $("q").placeholder = S.sfs.length ? (S.sfs.length === 1 ? T("searchInSup") : T("searchInSups")) : T("searchPhBase");
+    var h = '<button type="button" class="inp sup-filter' + (S.sfs.length ? " on" : "") + '" id="supBtn" title="' + esc(T("supTitle")) + '"><span>' + esc(supLabel()) + '</span><span class="mut">▾</span></button>';
+    if (SF.open) {
+      var list = supList(), hs = SF.hov && list.some(function (x) { return x.id === SF.hov; }) ? SF.hov : null, brands = hs ? SUPB[hs] || [] : [];
+      h += '<div class="sup-pop"><input class="inp" id="supQ" autocomplete="off" placeholder="' + esc(T("supQPh")) + '" value="' + esc(SF.q) + '"><div class="sup-list">' +
+        list.map(function (x, i) {
+          var on = S.sfs.indexOf(x.id) >= 0, nb = (S.sbr[x.id] || []).length;
+          return '<label class="pick-sup' + (hs === x.id || SF.act === i ? " hov" : "") + (on ? " sel" : "") + '" data-i="' + i + '" data-id="' + x.id + '"><input type="checkbox"' + (on ? " checked" : "") + '><span class="sn">' + esc(x.name) + (nb ? '<span class="sb"> · ' + esc(T("brandsN").replace("{n}", nb)) + "</span>" : "") + '</span><span class="xs mut">' + (SUPC[x.id] || 0) + "</span>" + ((SUPB[x.id] || []).length > 1 ? '<span class="xs mut">›</span>' : "") + "</label>";
+        }).join("") + (list.length ? "" : '<div class="xs mut" style="padding:8px 6px">' + esc(T("notFoundBase")) + "</div>") + "</div>";
+      if (hs && brands.length > 1) {
+        h += '<div class="brand-fly"><div class="bfh">' + esc(T("brandsOf")) + " · " + esc(SUPN[hs]) + '</div><div class="bfl">' + brands.map(function (r, i) {
+          var on = !!(S.sbr[hs] && S.sbr[hs].indexOf(r.b) >= 0);
+          return '<label class="pick-sup' + (SF.bAct === i ? " hov" : "") + (on ? " sel" : "") + '" data-b="' + i + '"><input type="checkbox"' + (on ? " checked" : "") + '><span class="sn">' + esc(r.b || T("noBrand")) + '</span><span class="xs mut">' + r.n + "</span></label>";
+        }).join("") + "</div>" + (S.sbr[hs] && S.sbr[hs].length ? '<button type="button" class="btn xs" id="bfAll" style="margin-top:6px">' + esc(T("allBrands")) + "</button>" : "") + "</div>";
+      }
+      h += '<div class="row sup-act"><button type="button" class="btn xs" id="supReset"' + (S.sfs.length ? "" : " disabled") + ">" + esc(T("reset")) + '</button><button type="button" class="btn xs pri" id="supDone">' + esc(T("done")) + "</button></div></div>";
+    }
+    w.innerHTML = h;
+    $("supBtn").onclick = function () { SF.open = !SF.open; SF.q = ""; SF.act = -1; SF.bAct = -1; renderSupF(); if (SF.open) $("supQ").focus(); };
+    if (!SF.open) return;
+    var qi = $("supQ"), list2 = supList();
+    var changed = function () { saveSF(); S.hi = -1; var q = $("q"); renderSug(); };
+    var toggleSup = function (id) {
+      var i = S.sfs.indexOf(id); if (i >= 0) { S.sfs.splice(i, 1); delete S.sbr[id]; } else S.sfs.push(id);
+      SF.q = ""; SF.act = -1; SF.bAct = -1; changed(); renderSupF(); $("supQ").focus();
+    };
+    var toggleBrand = function (sid, b) {
+      var cur = (S.sbr[sid] || []).slice(), k = cur.indexOf(b); if (k >= 0) cur.splice(k, 1); else cur.push(b);
+      if (cur.length) S.sbr[sid] = cur; else delete S.sbr[sid];
+      if (S.sfs.indexOf(sid) < 0) S.sfs.push(sid);
+      changed(); renderSupF(); $("supQ").focus();
+    };
+    var done = function () { SF.open = false; SF.bAct = -1; renderSupF(); var q = $("q"); q.focus(); renderSug(); };
+    w.querySelectorAll("[data-id]").forEach(function (l) {
+      l.onmouseenter = function () { if (SF.hov !== l.dataset.id || SF.bAct >= 0) { SF.hov = l.dataset.id; SF.act = Number(l.dataset.i); SF.bAct = -1; renderSupF(); $("supQ").focus(); } };
+      l.onclick = function (e) { e.preventDefault(); toggleSup(l.dataset.id); };
+    });
+    w.querySelectorAll("[data-b]").forEach(function (l) {
+      var hs = SF.hov;
+      l.onmouseenter = function () { if (SF.bAct !== Number(l.dataset.b)) { SF.bAct = Number(l.dataset.b); w.querySelectorAll("[data-b]").forEach(function (x) { x.classList.toggle("hov", x === l); }); } };
+      l.onclick = function (e) { e.preventDefault(); toggleBrand(hs, SUPB[hs][Number(l.dataset.b)].b); };
+    });
+    if ($("bfAll")) $("bfAll").onclick = function () { delete S.sbr[SF.hov]; changed(); renderSupF(); };
+    $("supReset").onclick = function () { S.sfs = []; S.sbr = {}; changed(); renderSupF(); };
+    $("supDone").onclick = done;
+    qi.oninput = function () { SF.q = qi.value; SF.act = SF.q.trim() ? 0 : -1; SF.hov = null; var l3 = supList(); if (SF.act === 0 && l3[0]) SF.hov = l3[0].id; SF.bAct = -1; renderSupF(); var n = $("supQ"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); };
+    qi.onkeydown = function (e) {
+      var hs = SF.hov && list2.some(function (x) { return x.id === SF.hov; }) ? SF.hov : null, brands = hs ? SUPB[hs] || [] : [], inBr = SF.bAct >= 0 && hs && brands.length;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault(); var d = e.key === "ArrowDown" ? 1 : -1;
+        if (inBr) SF.bAct = (SF.bAct + d + brands.length) % brands.length;
+        else if (list2.length) { SF.act = SF.act < 0 ? (d > 0 ? 0 : list2.length - 1) : (SF.act + d + list2.length) % list2.length; SF.hov = list2[SF.act].id; }
+        renderSupF(); $("supQ").focus(); scrollAct();
+      } else if (e.key === "ArrowRight" && hs && brands.length > 1) { e.preventDefault(); SF.bAct = 0; renderSupF(); $("supQ").focus(); }
+      else if (e.key === "ArrowLeft" && SF.bAct >= 0) { e.preventDefault(); SF.bAct = -1; renderSupF(); $("supQ").focus(); }
+      else if ((e.key === "Enter" || (e.key === " " && !SF.q)) && (inBr || SF.act >= 0)) { e.preventDefault(); e.stopPropagation(); if (inBr) toggleBrand(hs, brands[SF.bAct].b); else if (list2[SF.act]) toggleSup(list2[SF.act].id); }
+      else if (e.key === "Enter" && !SF.q.trim()) { e.preventDefault(); done(); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(); }
+    };
+    function scrollAct() { w.querySelectorAll(".pick-sup.hov").forEach(function (el) { if (el.scrollIntoView) el.scrollIntoView({ block: "nearest" }); }); }
+  }
+  document.addEventListener("mousedown", function (e) { if (SF.open && !e.target.closest("#supf")) { SF.open = false; renderSupF(); } });
   function renderSugBase(q, box) {
     var prev = box.querySelector(".plist"), keep = prev && box.dataset.q === q;
     baseHits = baseFind(q);
@@ -430,8 +530,8 @@
   function renderSugDesk() {
     var q = $("q").value, box = $("sug");
     if (S.pend) return renderPend();
+    if (BASE && (q.trim().length >= 2 || S.sfs.length)) return renderSugBase(q, box);
     if (q.trim().length < 2) { box.innerHTML = ""; lastRes = []; baseHits = []; return; }
-    if (BASE) return renderSugBase(q, box);
     var res = E.suggest(q, 12), top = res[0] ? res[0].score : 0;
     lastRes = res.filter(function (r) { return r.score >= 0.55 && r.score >= top - 0.4; }).slice(0, 8);
     if (S.hi == null || S.hi > lastRes.length) S.hi = 0;
