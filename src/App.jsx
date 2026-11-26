@@ -844,6 +844,9 @@ body.fw-busy iframe{pointer-events:none}
 .dayrep-kv span{color:var(--mut)}
 .dayrep-kv b{font-variant-numeric:tabular-nums}
 .dayrep-t td{vertical-align:top}
+table.dayrep-t th.num{text-align:right;width:150px}
+table.dayrep-t td.num{width:150px}
+table.dayrep-t.ops th:first-child{width:110px}
 .dayrep-t.ops{min-width:860px}
 .dayrep-t.ops td:nth-child(4){min-width:240px}
 .dayrep-t.by{min-width:520px}
