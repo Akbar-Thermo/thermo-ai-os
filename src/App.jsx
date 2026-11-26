@@ -14233,28 +14233,46 @@ function AppInner() {
   // мышь (компьютер) — панель выезжает от края; на телефоне — кнопки 📝 🧮 ☰
   const finePtr = useMemo(() => { try { return window.matchMedia("(hover: hover) and (pointer: fine)").matches; } catch (e) { return true; } }, []);
   const peekT = useRef(null);
+  const hdrRef = useRef(null);
+  const peekRef = useRef(false);
+  peekRef.current = hdrPeek;
+  // Скрытая панель (мышь): открывается у края экрана, закрывается, когда мышь ушла из места, где панель стоит открытой.
+  // Место считается по размеру панели, а не по тому, что сейчас под мышью: панель выезжает 0,45 с, и раньше,
+  // если мышь чуть отходила от края, пока панель ещё ехала, она закрывалась и снова открывалась — «дрожала».
+  // Плюс запас 24px и задержка 300 мс на закрытие: случайный выход за край её не закрывает.
+  const HDR_PAD = 24, HDR_CLOSE_MS = 300;
+  const hdrZone = (x, y, pad = HDR_PAD) => {
+    const el = hdrRef.current; if (!el) return false;
+    const vw = document.documentElement.clientWidth || window.innerWidth; // без полосы прокрутки
+    if (hdrSide === "r") return x >= vw - el.offsetWidth - pad;
+    if (hdrSide === "l") return x <= el.offsetWidth + pad;
+    return y <= el.offsetHeight + pad;
+  };
+  const hdrStay = () => { clearTimeout(peekT.current); peekT.current = null; };
+  const hdrCloseSoon = () => { if (!peekT.current) peekT.current = setTimeout(() => { peekT.current = null; setHdrPeek(false); }, HDR_CLOSE_MS); };
   useEffect(() => {
     if (!hdrOff || !finePtr) return;
     const mv = (e) => {
       // программа-приложение без полосы заголовка: верхний край — вся высота этой бывшей полосы
       let topEdge = 6;
       try { const o = navigator.windowControlsOverlay; if (o && o.visible) topEdge = Math.max(6, o.getTitlebarAreaRect().height); } catch (x) {}
-      const edge = hdrSide === "r" ? e.clientX >= window.innerWidth - 6 : hdrSide === "l" ? e.clientX <= 6 : e.clientY <= topEdge;
-      const inside = e.target && e.target.closest && e.target.closest(".hdr");
-      if (edge || inside) { clearTimeout(peekT.current); peekT.current = null; if (edge) setHdrPeek(true); }
-      else setHdrPeek(false); // мышь ушла с панели — закрывается сразу
+      // правый край — от края страницы (без полосы прокрутки Windows) и сама полоса прокрутки
+      const vw = document.documentElement.clientWidth || window.innerWidth;
+      const edge = hdrSide === "r" ? e.clientX >= Math.min(vw, window.innerWidth) - 6 : hdrSide === "l" ? e.clientX <= 6 : e.clientY <= topEdge;
+      if (edge) { hdrStay(); setHdrPeek(true); return; }
+      if (!peekRef.current) return;
+      if (hdrZone(e.clientX, e.clientY)) hdrStay(); else hdrCloseSoon();
     };
     document.addEventListener("mousemove", mv);
-    return () => document.removeEventListener("mousemove", mv);
+    return () => { document.removeEventListener("mousemove", mv); hdrStay(); };
   }, [hdrOff, hdrSide, finePtr]);
-  // мышь ушла с панели (в т.ч. в окно «Расчёта отопления», откуда движения мыши сюда не доходят) — закрыть
-  const hdrLeave = () => { if (hdrOff && finePtr) { clearTimeout(peekT.current); peekT.current = null; setHdrPeek(false); } };
-  const hdrEnter = () => { clearTimeout(peekT.current); peekT.current = null; };
+  // мышь ушла с панели (в т.ч. в окно «Расчёта отопления», откуда движения мыши сюда не доходят) — закрыть чуть погодя;
+  // если мышь осталась рядом с панелью, следующее движение отменит закрытие
+  const hdrLeave = (e) => { if (hdrOff && finePtr && !hdrZone(e.clientX, e.clientY, 0)) hdrCloseSoon(); };
+  const hdrEnter = () => hdrStay();
   // телефон: провести пальцем справа налево в любом месте экрана — открыть меню (оно выезжает справа);
   // меню открыто — провести слева направо или тапнуть мимо — закрыть.
   // Не мешает прокрутке таблиц вбок и полям ввода: жест, начатый на них, меню не трогает.
-  const peekRef = useRef(false);
-  peekRef.current = hdrPeek;
   useEffect(() => {
     if (finePtr) return;
     let x0 = 0, y0 = 0, t0 = 0, on = false;
@@ -14548,7 +14566,7 @@ function AppInner() {
           <button type="button" className={"bnav-it" + (hdrPeek ? " on" : "")} onClick={() => setHdrPeek((v) => !v)}><Ic n="menu" s={20} /><span>{lang === "uz" ? "Menyu" : "Меню"}</span>{team.unread.total > 0 && <span className="chat-badge bnav-badge">{team.unread.total}</span>}</button>
         </nav>;
       })()}
-      <div className={"hdr" + (hdrHidden && finePtr && !hdrOff ? " hide-on-scroll" : "") + (hdrPeek ? " peek" : "")} onMouseLeave={hdrLeave} onMouseEnter={hdrEnter}>
+      <div ref={hdrRef} className={"hdr" + (hdrHidden && finePtr && !hdrOff ? " hide-on-scroll" : "") + (hdrPeek ? " peek" : "")} onMouseLeave={hdrLeave} onMouseEnter={hdrEnter}>
         <div className="logo">THERMO<span>•</span>ENGINEERING</div>
         <button type="button" className="hdr-search" title="Поиск по всей программе: объекты, товары, поставщики, мастера, действия (Ctrl+K)" onClick={() => { setPalette(true); setMobileMenuOpen(false); if (!finePtr) setHdrPeek(false); }}><Ic n="search" /><span>{lang === "uz" ? "Qidiruv…" : "Поиск…"}</span><kbd>Ctrl K</kbd></button>
         <div className="row hdr-user" style={{ gap: 8 }}>
