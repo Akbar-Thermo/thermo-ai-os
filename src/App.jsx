@@ -12181,20 +12181,20 @@ function reportOps({ from, to, objects = [], ops = [], suppliers = [], whMoves =
   const sup = [], cli = [];
   if (money) suppliers.forEach((s) => {
     const d = aktData(s, objects, ops, whMoves);
-    d.batches.forEach((g) => { const day = drDay10(g.date); if (inR(day)) sup.push({ date: day, ord: 0, who: s.name, op: "Получено", what: String(g.obj_id).startsWith("wh:") ? "на Склад Thermo" : g.obj_name + " · поставка №" + g.no, n: g.items.length, a: round2(g.sum), items: g.items.map((it) => ({ name: it.name, qty: it.qty, unit: it.unit, pr: it.cost })), obj: String(g.obj_id).startsWith("wh:") ? null : g.obj_id }); });
-    d.returns.forEach((o) => { const day = drDay10(o.op_date || o.created_at); if (inR(day)) sup.push({ date: day, ord: 1, who: s.name, op: "Возврат поставщику", what: [(o.product_name || "—") + (o.qty ? " × " + fmt(o.qty) + (o.unit ? " " + o.unit : "") : ""), o.reason].filter(Boolean).join(" · "), r: round2(o.cost_amount || 0), obj: o.object_id || null }); });
-    d.payments.forEach((o) => { const day = drDay10(o.op_date || o.created_at); if (inR(day)) sup.push({ date: day, ord: 2, who: s.name, op: "Оплата", what: [payText(o), o.note].filter(Boolean).join(" · "), p: round2(o.amount || 0) }); });
+    d.batches.forEach((g) => { const day = drDay10(g.date); if (inR(day)) sup.push({ date: day, ord: 0, who: s.name, op: "Получено", objName: String(g.obj_id).startsWith("wh:") ? "Склад Thermo" : g.obj_name, no: g.no, what: String(g.obj_id).startsWith("wh:") ? "на Склад Thermo" : g.obj_name + " · поставка №" + g.no, n: g.items.length, a: round2(g.sum), items: g.items.map((it) => ({ name: it.name, qty: it.qty, unit: it.unit, pr: it.cost })), obj: String(g.obj_id).startsWith("wh:") ? null : g.obj_id }); });
+    d.returns.forEach((o) => { const day = drDay10(o.op_date || o.created_at); if (inR(day)) sup.push({ date: day, ord: 1, who: s.name, op: "Возврат поставщику", raw: o, objName: o.object_id ? ((objects.find((x) => x.id === o.object_id) || {}).name || "") : "", what: [(o.product_name || "—") + (o.qty ? " × " + fmt(o.qty) + (o.unit ? " " + o.unit : "") : ""), o.reason].filter(Boolean).join(" · "), r: round2(o.cost_amount || 0), obj: o.object_id || null }); });
+    d.payments.forEach((o) => { const day = drDay10(o.op_date || o.created_at); if (inR(day)) sup.push({ date: day, ord: 2, who: s.name, op: "Оплата", raw: o, what: [payText(o), o.note].filter(Boolean).join(" · "), p: round2(o.amount || 0) }); });
   });
   objects.forEach((ob) => {
     if (!isLive(ob)) return;
     const who = ob.name + (ob.client && !String(ob.name || "").includes(ob.client) ? " (" + ob.client + ")" : "");
     objBatches(ob).forEach((b) => {
       const day = drDay10(b.date); if (!inR(day)) return;
-      cli.push({ date: day, ord: 0, who, op: "Отдано", what: "поставка №" + b.no, n: b.items.length, a: round2(b.items.reduce((s, i) => s + (Number(i.qty) || 0) * (Number(i.price) || 0), 0)), items: b.items.map((it) => ({ name: it.name, qty: it.qty, unit: it.unit, pr: it.price })), obj: ob.id });
+      cli.push({ date: day, ord: 0, who, op: "Отдано", objName: ob.name, client: ob.client || "", no: b.no, what: "поставка №" + b.no, n: b.items.length, a: round2(b.items.reduce((s, i) => s + (Number(i.qty) || 0) * (Number(i.price) || 0), 0)), items: b.items.map((it) => ({ name: it.name, qty: it.qty, unit: it.unit, pr: it.price })), obj: ob.id });
     });
     const o = opsOf(ops, ob.id).filter((x) => !x.voided);
-    o.filter((x) => x.type === "return").forEach((x) => { const day = drDay10(x.op_date || x.created_at); if (inR(day)) cli.push({ date: day, ord: 1, who, op: "Возврат от клиента", what: [(x.product_name || "—") + (x.qty ? " × " + fmt(x.qty) + (x.unit ? " " + x.unit : "") : ""), x.reason].filter(Boolean).join(" · "), r: round2(x.amount || 0), obj: ob.id }); });
-    if (payLive(ob)) o.filter((x) => x.type === "client_payment").forEach((x) => { const day = drDay10(x.op_date || x.created_at); if (inR(day)) cli.push({ date: day, ord: 2, who, op: isRefund(x) ? "Возврат денег клиенту" : "Оплата", what: [payText(x), x.note].filter(Boolean).join(" · "), p: round2(x.amount || 0), obj: ob.id }); });
+    o.filter((x) => x.type === "return").forEach((x) => { const day = drDay10(x.op_date || x.created_at); if (inR(day)) cli.push({ date: day, ord: 1, who, op: "Возврат от клиента", raw: x, what: [(x.product_name || "—") + (x.qty ? " × " + fmt(x.qty) + (x.unit ? " " + x.unit : "") : ""), x.reason].filter(Boolean).join(" · "), r: round2(x.amount || 0), obj: ob.id }); });
+    if (payLive(ob)) o.filter((x) => x.type === "client_payment").forEach((x) => { const day = drDay10(x.op_date || x.created_at); if (inR(day)) cli.push({ date: day, ord: 2, who, op: isRefund(x) ? "Возврат денег клиенту" : "Оплата", raw: x, what: [payText(x), x.note].filter(Boolean).join(" · "), p: round2(x.amount || 0), obj: ob.id }); });
   });
   const sort = (l) => l.sort((a, b) => a.date.localeCompare(b.date) || a.ord - b.ord || String(a.who).localeCompare(String(b.who), "ru"));
   const tot = (l) => ({ a: round2(l.reduce((s, x) => s + (x.a || 0), 0)), r: round2(l.reduce((s, x) => s + (x.r || 0), 0)), p: round2(l.reduce((s, x) => s + (x.p || 0), 0)) });
@@ -12202,32 +12202,71 @@ function reportOps({ from, to, objects = [], ops = [], suppliers = [], whMoves =
   const byWho = (l) => { const m = new Map(); l.forEach((x) => { const g = m.get(x.who) || { who: x.who, a: 0, r: 0, p: 0, obj: x.obj }; g.a = round2(g.a + (x.a || 0)); g.r = round2(g.r + (x.r || 0)); g.p = round2(g.p + (x.p || 0)); m.set(x.who, g); }); return [...m.values()].sort((a, b) => b.a + b.p - (a.a + a.p)); };
   return { sup: sort(sup), cli: sort(cli), supT: tot(sup), cliT: tot(cli), supBy: byWho(sup), cliBy: byWho(cli) };
 }
-// лист Excel: операции по порядку дат (с товарами поставки), затем итог по каждому
+// лист Excel — как накладные: каждая поставка — накладная (№, наименование, кол-во, ед., цена, сумма, итог),
+// возвраты и оплаты — такими же блоками (в один день у одного поставщика/клиента — одним блоком); всё по порядку дат.
+// В конце — итог за период и таблица по каждому поставщику / клиенту
 function reportSheet(kind, list, by, T, from, to) {
   const S = kind === "sup";
-  const L = S ? { title: "РАСЧЁТЫ С ПОСТАВЩИКАМИ", who: "Поставщик", a: "Получено, $", r: "Возврат, $", p: "Оплачено, $", note: "суммы в $ по себестоимости" }
-    : { title: "РАСЧЁТЫ С КЛИЕНТАМИ", who: "Объект (клиент)", a: "Отдано, $", r: "Возврат, $", p: "Оплачено, $", note: "суммы в $ по цене продажи" };
+  const L = S ? { title: "РАСЧЁТЫ С ПОСТАВЩИКАМИ", who: "Поставщик", a: "Получено товара", r: "Возвращено поставщикам", p: "Оплачено поставщикам", note: "суммы в $ по себестоимости", got: "НАКЛАДНАЯ (получено от поставщика)", ret: "ВОЗВРАТ ПОСТАВЩИКУ", pay: "ОПЛАТА ПОСТАВЩИКУ" }
+    : { title: "РАСЧЁТЫ С КЛИЕНТАМИ", who: "Объект (клиент)", a: "Отдано товара", r: "Возвраты от клиентов", p: "Оплатили клиенты", note: "суммы в $ по цене продажи", got: "НАКЛАДНАЯ (отдано клиенту)", ret: "ВОЗВРАТ ОТ КЛИЕНТА", pay: "ОПЛАТА ОТ КЛИЕНТА" };
   const rows = [
     { k: "title", v: [L.title + " · " + (from === to ? dt(from) : dt(from) + " — " + dt(to))] },
     { k: "info", v: ["Thermo Engineering · составлено " + new Date().toLocaleDateString("ru-RU") + " · " + L.note] },
     { k: "blank" },
-    { k: "head", v: ["№", "Дата", L.who, "Операция", "Описание", L.a, L.r, L.p] },
   ];
-  list.forEach((e, i) => {
-    rows.push({ k: "row", v: [i + 1, dt(e.date), e.who, e.op, e.what + (e.n ? " · " + e.n + " поз." : ""), e.a || "", e.r || "", e.p || ""], red: !!e.r });
-    (e.items || []).forEach((it) => rows.push({ k: "row", v: ["", "", "", "", "    • " + it.name + " — " + fmt(it.qty) + " " + (it.unit || "") + " × " + fmt2(it.pr) + " = " + fmt2((Number(it.qty) || 0) * (Number(it.pr) || 0)), "", "", ""] }));
+  const HEAD = ["№", "Наименование", "Кол-во", "Ед.", "Цена, $", "Сумма, $"];
+  // возвраты и оплаты одного дня у одного поставщика/клиента — один блок
+  const blocks = [];
+  list.forEach((e) => {
+    const last = blocks[blocks.length - 1];
+    if (e.ord > 0 && last && last.ord === e.ord && last.date === e.date && last.who === e.who) last.list.push(e);
+    else blocks.push({ ord: e.ord, date: e.date, who: e.who, list: [e] });
   });
-  if (!list.length) rows.push({ k: "info", v: ["За этот период операций нет"] });
-  rows.push({ k: "sum", v: ["", "", "", "", "Итого за период", T.a, T.r, T.p] });
+  blocks.forEach((g) => {
+    const e0 = g.list[0];
+    if (g.ord === 0) {
+      rows.push({ k: "section", v: [L.got + " · " + dt(g.date)] });
+      rows.push({ k: "info", v: [S ? "Поставщик: " + e0.who + " · Объект: " + e0.objName + (e0.objName === "Склад Thermo" ? "" : " · поставка №" + e0.no)
+        : "Объект: " + e0.objName + (e0.client && !String(e0.objName).includes(e0.client) ? " · Клиент: " + e0.client : "") + " · поставка №" + e0.no] });
+      rows.push({ k: "head", v: HEAD });
+      let sub = 0;
+      (e0.items || []).forEach((it, i) => { const sm = round2((Number(it.qty) || 0) * (Number(it.pr) || 0)); sub += sm; rows.push({ k: "row", v: [i + 1, it.name, Number(it.qty) || 0, it.unit || "шт", round2(it.pr), sm] }); });
+      rows.push({ k: "total", v: ["Итого по накладной:", round2(sub)] });
+    } else if (g.ord === 1) {
+      rows.push({ k: "section", v: [L.ret + " · " + dt(g.date)], red: true });
+      rows.push({ k: "info", v: [(S ? "Поставщик: " : "Объект: ") + g.who + (S && e0.objName ? " · с объекта: " + e0.objName : "")] });
+      rows.push({ k: "head", v: HEAD });
+      let sub = 0;
+      g.list.forEach((e, i) => { const o = e.raw || {}, q = Number(o.qty) || 0, sm = round2(e.r || 0); sub += sm; rows.push({ k: "row", v: [i + 1, o.product_name || "—", q || "", o.unit || "", q ? round2(sm / q) : "", sm], red: true }); });
+      rows.push({ k: "total", v: ["Итого возврат:", -round2(sub)], red: true });
+    } else {
+      rows.push({ k: "section", v: [L.pay + " · " + dt(g.date)] });
+      rows.push({ k: "info", v: [(S ? "Поставщик: " : "Объект: ") + g.who] });
+      rows.push({ k: "head", v: ["№", "Способ оплаты", "Сумма в валюте", "Курс", "", "Сумма, $"], merge: [[3, 4]] });
+      let sub = 0;
+      g.list.forEach((e, k) => {
+        const o = e.raw || {}, i = payInfo(o), usd = round2(e.p || 0), uzs = i.cur === "uzs"; sub += usd;
+        const lbl = (i.id ? i.label + (uzs ? (/сум/i.test(i.label) ? "" : " (сум)") : payMethod(i.id).cur === null ? " ($)" : "") : "Оплата") + (isRefund(o) ? " — возврат денег клиенту" : "") + (o.note ? " · " + o.note : "");
+        rows.push({ k: "row", v: [k + 1, lbl, uzs ? (i.uzs ? fmt(i.uzs) + " сум" : "") : fmt2(usd) + " $", uzs ? (i.rate ? fmt(i.rate) : "") : "", "", usd], merge: [[3, 4]] });
+      });
+      rows.push({ k: "total", v: ["Итого оплачено:", round2(sub)] });
+    }
+    rows.push({ k: "blank" });
+  });
+  if (!list.length) { rows.push({ k: "info", v: ["За этот период операций нет"] }); rows.push({ k: "blank" }); }
+  // итог за период
+  rows.push({ k: "section", v: ["ИТОГО ЗА ПЕРИОД"] });
+  rows.push({ k: "ftotal", v: [L.a + ":", T.a] });
+  rows.push({ k: "ftotal", v: [L.r + ":", T.r ? -T.r : 0], red: !!T.r });
+  rows.push({ k: "ftotal", v: [L.p + ":", T.p] });
   if (by.length) {
     rows.push({ k: "blank" });
-    rows.push({ k: "section", v: ["ИТОГО ПО КАЖДОМУ " + (S ? "ПОСТАВЩИКУ" : "КЛИЕНТУ")] });
-    rows.push({ k: "head", v: ["№", "", L.who, "", "", L.a, L.r, L.p] });
-    by.forEach((g, i) => rows.push({ k: "row", v: [i + 1, "", g.who, "", "", g.a || "", g.r || "", g.p || ""] }));
-    rows.push({ k: "sum", v: ["", "", "Итого", "", "", T.a, T.r, T.p] });
+    rows.push({ k: "section", v: ["ПО КАЖДОМУ " + (S ? "ПОСТАВЩИКУ" : "КЛИЕНТУ")] });
+    rows.push({ k: "head", v: ["№", L.who, S ? "Получено, $" : "Отдано, $", "", "Возврат, $", "Оплачено, $"], merge: [[2, 3]] });
+    by.forEach((g, i) => rows.push({ k: "row", v: [i + 1, g.who, g.a ? fmt2(g.a) : "", "", g.r || "", g.p || ""], merge: [[2, 3]] }));
+    rows.push({ k: "sum", v: ["", "Итого", fmt2(T.a), "", T.r, T.p], merge: [[2, 3]] });
   }
-  const cols = [5, 11, 30, 20, 60, 13, 13, 13], types = ["c", "c", "t", "t", "t", "m", "m", "m"];
-  return { name: S ? "Поставщики" : "Клиенты", rows, cols: fitTextCols(rows, cols, types), types };
+  return { name: S ? "Поставщики" : "Клиенты", rows, cols: fitTextCols(rows, CLIENT_XL_COLS, CLIENT_XL_TYPES), types: CLIENT_XL_TYPES };
 }
 function ReportView({ data, money, onObject, toast }) {
   const today = drNow().day;
