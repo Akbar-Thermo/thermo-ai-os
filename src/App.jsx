@@ -4523,42 +4523,81 @@ function AktEditModal({ ed, s, onClose, onDone }) {
 /* Данные акта сверки поставщика: получено (по поставкам), возвраты, оплаты, баланс. Без React — нужно и для «Истории (Excel)». */
 // строки акта сверки с поставщиком (Excel): общий для «Поставщиков» и для объекта (там — только по этому объекту)
 // onlyReceived (акт по объекту): только накладные полученных товаров, по порядку поставок; без возвратов, оплат и долга
+// акт сверки с поставщиком в Excel — в том же виде, что «Excel клиенту» (утверждено руководителем 11.2026):
+// всё по датам — поставка (накладная: №, наименование, кол-во, ед., цена, сумма, «Итого по поставке») → возвраты → оплаты
+// (в один день — в этом порядке), внизу итоговый блок без рамок. onlyReceived — только поставки (акт по одному объекту)
 function aktExcelRows(s, d, objTitle, onlyReceived = false) {
-  const { batches: allBatches, returns, payments, totalReceived, totalReturns, totalPaid, balance } = d;
-    const rows = [
-      { k: "title", v: ["АКТ СВЕРКИ: " + s.name + (objTitle ? " · объект «" + objTitle + "»" : "")] },
-      { k: "info", v: ["Thermo Engineering · составлен " + new Date().toLocaleDateString("ru-RU") + " · суммы в $ по себестоимости"] },
-      { k: "blank" },
-      { k: "section", v: [(onlyReceived ? "" : "1. ") + "ПОЛУЧЕНО ТОВАРОВ"] },
-      { k: "head", v: ["№", "Наименование", "Кол-во", "Ед.", "Себест.", "Сумма"] },
-    ];
-    const batches = onlyReceived ? [...allBatches].sort((a, b) => (a.no - b.no) || String(a.date || "").localeCompare(String(b.date || ""))) : allBatches;
-    // каждая накладная: позиции с 1, под ней — сумма накладной
-    batches.forEach((g) => {
-      rows.push({ k: "section", v: [g.obj_name + (String(g.obj_id).startsWith("wh:") ? "" : " · Поставка №" + g.no) + " от " + dt(g.date)] });
-      g.items.forEach((it, i) => rows.push({ k: "row", v: [i + 1, it.name, Number(it.qty) || 0, it.unit || "", Number(it.cost) || 0, round2((it.qty || 0) * (it.cost || 0))] }));
-      rows.push({ k: "sum", v: ["", "Сумма накладной", "", "", "", round2(g.sum)] });
+  const { batches, returns, payments, totalReceived, totalReturns, totalPaid, balance } = d;
+  const rows = [
+    { k: "title", v: ["АКТ СВЕРКИ: " + s.name + (objTitle ? " · объект «" + objTitle + "»" : "")] },
+    { k: "section", v: ["Поставщик: " + s.name + (s.phone ? " · тел. " + s.phone : "")] },
+    { k: "section", v: ["Дата: " + new Date().toLocaleDateString("ru-RU") + " · суммы в $ по себестоимости"] },
+    { k: "blank" },
+  ];
+  const tot = (label, v, red) => rows.push({ k: "total", v: [label, v], red });
+  const HEAD = ["№", "Наименование", "Кол-во", "Ед.", "Цена", "Сумма"];
+  const opDay = (o) => String(o.op_date || o.created_at || "").slice(0, 10);
+  const byDay = (list) => {
+    const g = [];
+    list.slice().sort((a, b) => opDay(a).localeCompare(opDay(b))).forEach((o) => {
+      const last = g[g.length - 1];
+      if (last && last.day === opDay(o)) last.ops.push(o); else g.push({ day: opDay(o), ops: [o] });
     });
-    if (!batches.length) rows.push({ k: "info", v: ["Поступлений нет"] });
-    rows.push({ k: "total", v: ["Итого получено", round2(totalReceived)] }, { k: "blank" });
-    if (onlyReceived) { rows.push({ k: "blank" }, { k: "info", v: ["Thermo Engineering: ____________________          " + s.name + ": ____________________"] }); return rows; }
-    rows.push({ k: "section", v: ["2. ВОЗВРАТЫ ПОСТАВЩИКУ"] });
-    if (returns.length) {
-      rows.push({ k: "head", v: ["№", "Наименование · дата", "Кол-во", "Ед.", "Себест.", "Сумма"] });
-      returns.forEach((o, i) => rows.push({ k: "row", v: [i + 1, (o.product_name || "—") + " · " + dt(o.op_date || o.created_at), Number(o.qty) || 0, o.unit || "", o.qty ? round2((o.cost_amount || 0) / o.qty) : "", round2(o.cost_amount || 0)] }));
-    } else rows.push({ k: "info", v: ["Возвратов нет"] });
-    rows.push({ k: "total", v: ["Итого возвраты", round2(totalReturns)] }, { k: "blank" });
-    rows.push({ k: "section", v: ["3. ОПЛАТЫ"] });
-    if (payments.length) {
-      rows.push({ k: "head", v: ["№", "Дата · способ оплаты · комментарий", "", "", "", "Сумма"] });
-      [...payments].sort((a, b) => String(a.op_date || a.created_at).localeCompare(String(b.op_date || b.created_at)))
-        .forEach((o, i) => rows.push({ k: "row", v: [i + 1, [dt(o.op_date || o.created_at), payText(o), o.note].filter(Boolean).join(" · "), "", "", "", round2(o.amount || 0)] }));
-    } else rows.push({ k: "info", v: ["Оплат нет"] });
-    rows.push({ k: "total", v: ["Итого оплачено", round2(totalPaid)] }, { k: "blank" });
-    rows.push({ k: "total", v: ["Получено − возвраты − оплаты", round2(balance)] });
-    rows.push({ k: "section", v: [balance > 0 ? "Долг Thermo Engineering перед " + s.name + ": " + fmt2(balance) + " $" : balance < 0 ? "Аванс (переплата) " + s.name + ": " + fmt2(-balance) + " $" : "Задолженности нет"] });
-    rows.push({ k: "blank" }, { k: "blank" });
-    rows.push({ k: "info", v: ["Thermo Engineering: ____________________          " + s.name + ": ____________________"] });
+    return g;
+  };
+  const ev = [];
+  batches.forEach((g) => ev.push({ day: String(g.date || "").slice(0, 10), kind: 0, g }));
+  if (!onlyReceived) {
+    byDay(returns).forEach((g) => ev.push({ ...g, kind: 1 }));
+    byDay(payments).forEach((g) => ev.push({ ...g, kind: 2 }));
+  }
+  ev.sort((a, b) => a.day.localeCompare(b.day) || a.kind - b.kind || (a.g && b.g ? String(a.g.obj_name).localeCompare(String(b.g.obj_name)) || a.g.no - b.g.no : 0));
+  ev.forEach((e) => {
+    if (e.kind === 0) {
+      const g = e.g, wh = String(g.obj_id).startsWith("wh:");
+      rows.push({ k: "section", v: [(wh ? "ПРИХОД НА СКЛАД THERMO" : "ПОСТАВКА №" + g.no) + " от " + dt(g.date) + (wh || objTitle ? "" : " · объект «" + g.obj_name + "»")] });
+      rows.push({ k: "head", v: HEAD });
+      let sub = 0;
+      g.items.forEach((it, i) => { const sm = round2((Number(it.qty) || 0) * (Number(it.cost) || 0)); sub += sm; rows.push({ k: "row", v: [i + 1, it.name, Number(it.qty) || 0, it.unit || "", round2(it.cost), sm] }); });
+      tot(wh ? "Итого приход :" : "Итого по поставке №" + g.no, round2(sub));
+      rows.push({ k: "blank" });
+    } else if (e.kind === 1) {
+      rows.push({ k: "section", v: ["Дата: " + dt(e.day)], red: true });
+      rows.push({ k: "blank" });
+      rows.push({ k: "section", v: ["ВОЗВРАТЫ ПОСТАВЩИКУ"], red: true });
+      rows.push({ k: "head", v: HEAD });
+      let sub = 0;
+      e.ops.forEach((o, k) => { const amt = round2(o.cost_amount || 0), q = Number(o.qty) || 0; sub += amt; rows.push({ k: "row", v: [k + 1, o.product_name || "—", q || "", o.unit || "", q ? round2(amt / q) : "", amt], red: true }); });
+      tot("Итого возвратов :", -round2(sub), true);
+      rows.push({ k: "blank" });
+    } else {
+      rows.push({ k: "section", v: ["Дата: " + dt(e.day)] });
+      rows.push({ k: "blank" });
+      rows.push({ k: "section", v: ["ОПЛАТЫ"] });
+      rows.push({ k: "head", v: ["№", "Способ оплаты", "Кол-во", "Курс", "", "Сумма"], merge: [[3, 4]] });
+      let sub = 0;
+      e.ops.forEach((o, k) => {
+        const i = payInfo(o), usd = round2(o.amount || 0), uzs = i.cur === "uzs"; sub += usd;
+        const label = (i.id ? (payMethod(i.id).cur === null ? i.label + (uzs ? " сум" : " $") : i.label) : "Оплата") + (o.note ? " · " + o.note : "");
+        rows.push({ k: "row", v: [k + 1, label, uzs ? (i.uzs ? fmt(i.uzs) : "") : usd, uzs ? (i.rate ? fmt(i.rate) : "") : 1, "", usd], merge: [[3, 4]] });
+      });
+      tot("Итого оплачено :", round2(sub));
+      rows.push({ k: "blank" });
+    }
+  });
+  if (!ev.length) rows.push({ k: "info", v: ["Операций нет"] }, { k: "blank" });
+  // итоговый блок — как у клиента: без рамок, подпись по центру, сумма справа
+  const ftot = (label, v, red) => rows.push({ k: "ftotal", v: [label, v], red });
+  ftot("Сумма полученного товара:", round2(totalReceived));
+  if (!onlyReceived) {
+    if (totalReturns) ftot("Возвраты:", -round2(totalReturns), true);
+    ftot("Оплачено:", round2(totalPaid));
+    if (balance > 0.004) ftot("Долг Thermo Engineering :", round2(balance), true);
+    else if (balance < -0.004) ftot("Аванс (переплата) :", round2(-balance));
+    else ftot("Баланс :", 0);
+  }
+  rows.push({ k: "blank" }, { k: "blank" });
+  rows.push({ k: "info", v: ["Thermo Engineering: ____________________          " + s.name + ": ____________________"] });
   return rows;
 }
 function aktData(s, objects, ops, whMoves) {
