@@ -2171,32 +2171,63 @@ function downloadDeliverySheet(obj, suppliers, only = null) {
   const safeName = String(obj.name || "object").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
   return downloadStyledXLSX("Доставка_" + safeName + (only ? "_поставка" + only : "") + ".xlsx", "Доставка", rows, [6, 66, 10, 8, 15], ["c", "t", "n", "c", "c"]);
 }
-// «Объекты → Excel: долги» (по просьбе руководителя, 11.2026): два листа — «С долгом» и «Оплачено».
-// В каждом — объекты «В процессе» / «Оплачено» (и старые рабочие статусы), у которых есть отданный товар или оплата:
-// себестоимость отданного товара, сумма продажи, оплачено, остаток долга. Учитываются фильтры списка (мастер, статус, поиск)
+// «Объекты → Excel: долги» (по просьбе руководителя, 11.2026) — видят только аккаунты DEBTS_XL_USERS.
+// Лист на каждого мастера (и «Без мастера»), в начале — «Сводка» по мастерам. В листе мастера объекты «В процессе» /
+// «Оплачено» (и старые рабочие статусы), у которых есть товар или оплата: сначала с долгом, ниже — оплаченные.
+// Колонки: себестоимость отданного товара, сумма продажи, оплачено, остаток долга, прибыль (чистая: продажа − себест. −
+// доп. расходы − бонус мастеру). Учитываются фильтры списка (мастер, статус, поиск)
+const DEBTS_XL_USERS = ["15a69146-5067-4288-8764-27e4b1dd6456", "3b2e6d57-f963-4554-8cb1-67db480eab1c"]; // Saidakmal, Jamoliddin_0040
+const DEBTS_XL_NAMES = ["saidakmal", "jamoliddin_0040"];
+const canDebtsXl = (u) => !!u && (DEBTS_XL_USERS.includes(u.id) || DEBTS_XL_NAMES.includes(String(u.username || "").toLowerCase()));
 function downloadMasterDebts(list, masterLabel, perech = false) {
   const live = list.filter((r) => isLive(r.o) && (Math.abs(r.f.saleNet) > 0.004 || Math.abs(r.f.paidClient) > 0.004));
-  const debt = live.filter((r) => r.debt > 0.004).sort((a, b) => b.debt - a.debt);
-  const paid = live.filter((r) => r.debt <= 0.004).sort((a, b) => String(a.o.name || "").localeCompare(String(b.o.name || ""), "ru"));
-  const sheet = (name, title, list2, isDebt) => {
-    const t = { c: 0, s: 0, p: 0, d: 0, u: 0 };
-    list2.forEach((r) => { t.c += r.f.costNet; t.s += r.f.saleNet; t.p += r.f.paidClient; t.d += r.debt; if (r.pc && r.pc.debt > 0) t.u += r.pc.debt; });
-    const head = ["№", "Объект", "Клиент", "Мастер", "Статус", "Себестоимость, $", "Сумма продажи, $", "Оплачено, $", isDebt ? "Остаток долга, $" : "Остаток, $"].concat(perech && isDebt ? ["Долг, сум"] : []);
+  const by = new Map();
+  live.forEach((r) => { const g = by.get(r.mk) || { name: r.mn || "Без мастера", rows: [] }; g.rows.push(r); by.set(r.mk, g); });
+  const groups = [...by.values()].sort((a, b) => (a.name === "Без мастера") - (b.name === "Без мастера") || a.name.localeCompare(b.name, "ru"));
+  const T = (rows) => { const t = { n: rows.length, d: 0, c: 0, s: 0, p: 0, debt: 0, pr: 0, u: 0 }; rows.forEach((r) => { if (r.debt > 0.004) { t.d++; t.debt += r.debt; } t.c += r.f.costNet; t.s += r.f.saleNet; t.p += r.f.paidClient; t.pr += r.f.net; if (r.pc && r.pc.debt > 0) t.u += r.pc.debt; }); return t; };
+  const P = perech ? 1 : 0;
+  const cols = [5, 34, 22, 13, 15, 15, 14, 15, 14].concat(P ? [14] : []), types = ["c", "t", "t", "t", "m", "m", "m", "m", "m"].concat(P ? ["m"] : []);
+  const opt = { green: [6, 8], red: [7].concat(P ? [9] : []) };
+  const head = ["№", "Объект", "Клиент", "Статус", "Себестоимость, $", "Сумма продажи, $", "Оплачено, $", "Остаток долга, $", "Прибыль, $"].concat(P ? ["Долг, сум"] : []);
+  const objRow = (r, i) => ({ k: "row", v: [i + 1, r.o.name || "", r.o.client || "", stById(r.o.status).label.replace(" (старый статус)", ""),
+    round2(r.f.costNet), round2(r.f.saleNet), round2(r.f.paidClient), Math.abs(r.debt) > 0.004 ? round2(r.debt) : "", round2(r.f.net)].concat(P ? [r.pc && r.pc.debt > 0 ? Math.round(r.pc.debt) : ""] : []) });
+  const sumRow = (label, t, debt) => ({ k: "sum", merge: [[0, 3]], v: [label, "", "", "", round2(t.c), round2(t.s), round2(t.p), debt ? round2(debt) : "", round2(t.pr)].concat(P ? [t.u ? Math.round(t.u) : ""] : []) });
+  const sheets = groups.map((g) => {
+    const debtors = g.rows.filter((r) => r.debt > 0.004).sort((a, b) => b.debt - a.debt);
+    const paid = g.rows.filter((r) => r.debt <= 0.004).sort((a, b) => String(a.o.name || "").localeCompare(String(b.o.name || ""), "ru"));
+    const t = T(g.rows), td = T(debtors), tp = T(paid);
     const rows = [
-      { k: "title", v: [title + (masterLabel ? " — мастер " + masterLabel : "") + (perech ? " (перечисление)" : "")] },
-      { k: "info", v: ["На " + dt(today()) + " · объектов: " + list2.length + " · себестоимость: " + fmt2(t.c) + " $ · продажа: " + fmt2(t.s) + " $ · оплачено: " + fmt2(t.p) + " $" + (isDebt ? " · долг: " + fmt2(t.d) + " $" : "")] },
+      { k: "title", v: ["МАСТЕР: " + g.name + (perech ? " (перечисление)" : "")] },
+      { k: "info", v: ["На " + dt(today()) + " · объектов: " + t.n + " (с долгом: " + t.d + ") · продажа: " + fmt2(t.s) + " $ · оплачено: " + fmt2(t.p) + " $ · долг: " + fmt2(t.debt) + " $ · прибыль: " + fmt2(t.pr) + " $"] },
       { k: "blank" },
-      { k: "head", v: head },
+      { k: "section", v: ["С ДОЛГОМ — " + debtors.length], red: debtors.length > 0 },
     ];
-    list2.forEach((r, i) => rows.push({ k: "row", v: [i + 1, r.o.name || "", r.o.client || "", r.mn || "—", stById(r.o.status).label.replace(" (старый статус)", ""),
-      round2(r.f.costNet), round2(r.f.saleNet), round2(r.f.paidClient), round2(r.debt)].concat(perech && isDebt ? [r.pc && r.pc.debt > 0 ? Math.round(r.pc.debt) : ""] : []) }));
-    if (!list2.length) rows.push({ k: "info", v: [isDebt ? "Объектов с долгом нет" : "Оплаченных объектов нет"] });
-    else rows.push({ k: "sum", merge: [[0, 4]], v: ["Итого", "", "", "", "", round2(t.c), round2(t.s), round2(t.p), round2(t.d)].concat(perech && isDebt ? [t.u ? Math.round(t.u) : ""] : []) });
-    if (!isDebt && list2.some((r) => r.debt < -0.004)) { rows.push({ k: "blank" }); rows.push({ k: "info", v: ["Минус в «Остаток» — клиент переплатил (аванс)."] }); }
-    const cols = [5, 34, 22, 18, 13, 15, 15, 14, 15].concat(perech && isDebt ? [14] : []), types = ["c", "t", "t", "t", "t", "m", "m", "m", "m"].concat(perech && isDebt ? ["m"] : []);
-    return { name, rows, cols: fitTextCols(rows, cols, types), types, opt: { green: [7], red: isDebt ? [8].concat(perech ? [9] : []) : [] } };
-  };
-  const sheets = [sheet("С долгом", "ОБЪЕКТЫ С ДОЛГОМ", debt, true), sheet("Оплачено", "ОПЛАЧЕННЫЕ ОБЪЕКТЫ", paid, false)];
+    if (debtors.length) { rows.push({ k: "head", v: head }); debtors.forEach((r, i) => rows.push(objRow(r, i))); rows.push(sumRow("Итого с долгом", td, td.debt)); }
+    else rows.push({ k: "info", v: ["Долгов нет"] });
+    rows.push({ k: "blank" });
+    rows.push({ k: "section", v: ["ОПЛАЧЕНО — " + paid.length] });
+    if (paid.length) { rows.push({ k: "head", v: head }); paid.forEach((r, i) => rows.push(objRow(r, i))); rows.push(sumRow("Итого оплачено", tp, paid.reduce((a, r) => a + r.debt, 0))); }
+    else rows.push({ k: "info", v: ["Оплаченных объектов нет"] });
+    rows.push({ k: "blank" });
+    rows.push(sumRow("Всего по мастеру", t, t.debt));
+    if (paid.some((r) => r.debt < -0.004)) rows.push({ k: "info", v: ["Минус в «Остаток долга» — клиент переплатил (аванс)."] });
+    return { name: g.name, rows, cols: fitTextCols(rows, cols, types), types, opt };
+  });
+  if (groups.length > 1) {
+    const all = T(live);
+    const sh = ["№", "Мастер", "Объектов", "С долгом", "Себестоимость, $", "Сумма продажи, $", "Оплачено, $", "Долг, $", "Прибыль, $"];
+    const rows = [
+      { k: "title", v: ["ДОЛГИ И ПРИБЫЛЬ ПО МАСТЕРАМ" + (perech ? " (перечисление)" : "")] },
+      { k: "info", v: ["На " + dt(today()) + " · объекты «В процессе» и «Оплачено» · у каждого мастера — свой лист"] },
+      { k: "blank" },
+      { k: "head", v: sh },
+    ];
+    groups.map((g) => ({ g, t: T(g.rows) })).sort((a, b) => b.t.debt - a.t.debt).forEach(({ g, t }, i) => rows.push({ k: "row", v: [i + 1, g.name, String(t.n), String(t.d), round2(t.c), round2(t.s), round2(t.p), round2(t.debt), round2(t.pr)] }));
+    rows.push({ k: "sum", merge: [[0, 1]], v: ["Итого", "", String(all.n), String(all.d), round2(all.c), round2(all.s), round2(all.p), round2(all.debt), round2(all.pr)] });
+    const st = ["c", "t", "c", "c", "m", "m", "m", "m", "m"];
+    sheets.unshift({ name: "Сводка", rows, cols: fitTextCols(rows, [5, 30, 11, 11, 15, 15, 14, 14, 14], st), types: st, opt: { green: [6, 8], red: [7] } });
+  }
+  if (!sheets.length) sheets.push({ name: "Долги", rows: [{ k: "title", v: ["ДОЛГИ И ПРИБЫЛЬ"] }, { k: "info", v: ["Объектов «В процессе» / «Оплачено» нет"] }], cols: [60], types: ["t"] });
   const nm = String(masterLabel || "все_мастера").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
   try { downloadBlob("Долги_" + nm + "_" + today() + ".xlsx", styledXlsxBook(sheets)); return "xlsx"; } catch (e) { console.error(e); return false; }
 }
@@ -7129,7 +7160,7 @@ function PerechPanel({ obj, data, reload, toast, onPay }) {
   );
 }
 
-function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = true, perech = true, pmode = false, setPmode = null }) {
+function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = true, perech = true, pmode = false, setPmode = null, debtsXl = false }) {
   const [objMarks, toggleObjMark] = useObjMarks();
   const { finance_ops, suppliers } = data;
   const objects = useMemo(() => (data.objects || []).filter((o) => isPerech(o) === pmode), [data.objects, pmode]);
@@ -7227,7 +7258,7 @@ function ObjectsTab({ data, reload, toast, openId, setOpenId, goRequest, fin = t
       <div className="row sect ph">
         <h2 style={{ marginRight: "auto" }}>{pmode ? "Объекты — перечисление" : "Объекты"} <span className="mut sm">({shown.length !== objects.length ? shown.length + " из " + objects.length : objects.length})</span></h2>
         {setPmode && <PerechToggle on={pmode} set={setPmode} />}
-        {fin && <button className="btn obj-debts-x" title="Excel: лист «С долгом» и лист «Оплачено» — себестоимость, продажа, оплачено и остаток долга по каждому объекту (с учётом выбранного мастера и фильтров)" onClick={() => {
+        {debtsXl && <button className="btn obj-debts-x" title="Excel: лист на каждого мастера (сначала объекты с долгом, ниже оплаченные) — себестоимость, продажа, оплачено, остаток долга, прибыль; в начале — сводка по мастерам. С учётом выбранного мастера и фильтров" onClick={() => {
           const it = mItems.find((x) => x.key === mF);
           const r = downloadMasterDebts(sortedRows, mF ? (it && it.name) || "—" : "", pmode);
           toast(r === "xlsx" ? "Excel с долгами скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
@@ -14622,7 +14653,7 @@ function AppInner() {
         {keysHelp && <KeysHelp tabs={allTabs} onClose={() => setKeysHelp(false)} />}
         {bnavCfg && <BnavCfg tabs={allTabs} value={bnavOwn} onClose={() => setBnavCfg(false)} onSave={(v) => { setBnavOwn(v); try { localStorage.setItem("te:bnav", JSON.stringify(v)); } catch (e) {} setBnavCfg(false); }} />}
         {cloudChange && <CloudChange user={currentUser} toast={toast} onClose={() => setCloudChange(false)} />}
-        {tab === "objects" && <ObjectsTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} goRequest={() => setTab("request")} fin={!!acc.perms.fin} pmode={pmode} setPmode={setPmode} />}
+        {tab === "objects" && <ObjectsTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} goRequest={() => setTab("request")} fin={!!acc.perms.fin} pmode={pmode} setPmode={setPmode} debtsXl={canDebtsXl(currentUser)} />}
         {tab === "request" && <RequestTabs data={pWorld} pmode={pmode} setPmode={setPmode} reload={reload} toast={toast} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "products" && <ProductsTab data={pWorld} allProducts={data.products} pmode={pmode} setPmode={setPmode} reload={reload} toast={toast} />}
         {tab === "suppliers" && <SuppliersTab data={{ ...pWorld, products: data.products }} pmode={pmode} setPmode={setPmode} reload={reload} toast={toast} fin={!!acc.perms.fin} />}
