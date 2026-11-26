@@ -151,7 +151,7 @@ const OBJECT_OP_TYPES = ["client_payment", "return", "discount", "expense"];
 const MASTER_ONLY_OPS = ["bonus", "bonus_payment"];
 const ROLES = [
   { id: "manager", label: "Менеджер", tabs: ["request", "objects", "products", "wh", "suppliers", "masters", "finance", "heat"] },
-  { id: "boss", label: "Руководитель", tabs: ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "heat", "bots", "admin"] },
+  { id: "boss", label: "Руководитель", tabs: ["dash", "report", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "heat", "bots", "admin"] },
   // доставщик: только объекты для доставки (без цен) и Склад Thermo (без цен)
   { id: "driver", label: "Доставщик", tabs: ["delivery", "wh"] },
   // проектировщик: только «Расчёт отопления»; облачный пароль не спрашивается
@@ -224,8 +224,8 @@ async function cloudSet(uid, hash) {
   const r = row ? await db.from("requests").update({ lines }).eq("id", row.id) : await db.from("requests").insert({ mode: CLOUD_MODE, source: "config", lines });
   return !r.error;
 }
-const TAB_NAMES = { notes: "Заметки", usta: "От мастеров", heat: "Расчёт отопления", dash: "Дашборд", request: "Новая заявка", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", delivery: "Доставка", admin: "Аккаунты", bots: "Боты" };
-const GRANT_TABS = ["dash", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "delivery", "heat"];
+const TAB_NAMES = { report: "Отчёт", notes: "Заметки", usta: "От мастеров", heat: "Расчёт отопления", dash: "Дашборд", request: "Новая заявка", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", delivery: "Доставка", admin: "Аккаунты", bots: "Боты" };
+const GRANT_TABS = ["dash", "report", "request", "objects", "products", "wh", "suppliers", "masters", "finance", "log", "delivery", "heat"];
 const PERMS = [
   { id: "fin", label: "Себестоимость, прибыль, все финансовые операции" },
   { id: "del", label: "Удаление: объекты с оплатами, операции, мастера" },
@@ -263,7 +263,9 @@ function accessOf(u, roles, uperms) {
   const tabs1 = r.base !== "boss" && perms.accounts && !tabs0.includes("admin") ? [...tabs0, "bots", "admin"] : tabs0;
   // «От мастеров» — у всех, кто делает заявки (сразу после «Новая заявка»)
   const tabs2 = tabs1.includes("request") && !tabs1.includes("usta") ? tabs1.flatMap((t) => (t === "request" ? ["request", "usta"] : [t])) : tabs1;
-  const tabs = tabs2.filter((t) => t !== "notes"); // «Заметки» — не раздел, а окно как калькулятор (кнопка в шапке, Alt+Z)
+  // «Отчёт» — у всех, кому открыт «Журнал» (отчёт собирается из журнала)
+  const tabs3 = tabs2.includes("log") && !tabs2.includes("report") ? [...tabs2, "report"] : tabs2;
+  const tabs = tabs3.filter((t) => t !== "notes"); // «Заметки» — не раздел, а окно как калькулятор (кнопка в шапке, Alt+Z)
   return { id: r.id, label: r.label, base: r.base, tabs, perms };
 }
 let ROLE_LIST = ROLES; // для подписей ролей вне компонентов (журнал)
@@ -12136,10 +12138,10 @@ function NoteForm({ n, mine, canDel = false, onClose, onSave, onDelete, onHide, 
   );
 }
 /* ============ ЖУРНАЛ ДЕЙСТВИЙ ============ */
-/* ---- «Отчёт за день»: что было в программе за день — по журналу действий, деньгам и спискам от мастеров.
-   Каждый день в DAYREP_AT (09:30) у тех, кому открыт «Журнал», окно открывается само — отчёт за вчера, один раз в день
-   (открыли программу позже — откроется при входе). В «Журнале» — кнопка «Отчёт за день» (любой день).
-   Суммы — только с правом «Финансы». Сборка — dayReport() (чистая функция), окно — DayReportWin. ---- */
+/* ---- Раздел «Отчёт»: что было в программе за день / неделю / месяц / свои даты — по журналу действий,
+   деньгам и спискам от мастеров. Каждый день в DAYREP_AT (09:30) у тех, кому открыт «Отчёт», само открывается окно —
+   отчёт за вчера, один раз в день (открыли программу позже — откроется при входе).
+   Суммы — только с правом «Финансы». Сборка — dayReport() (чистая функция), вид — ReportView. ---- */
 const DAYREP_AT = "09:30";
 const DR_TZ = "Asia/Tashkent";
 const drDay = (ts) => new Date(ts).toLocaleDateString("sv-SE", { timeZone: DR_TZ });
@@ -12152,20 +12154,33 @@ const drNum = (s) => { const v = Number(String(s || "").replace(/\s/g, "").repla
 const drEnt = (x) => { const s = String(x.entity || ""); const i = s.indexOf(":"); return i < 0 ? s : s.slice(i + 1); };
 const drWho = (x) => String(x.user_name || "—").replace(/^Telegram:\s*/, "").trim() || "—";
 const drRe = (re, s) => (re.exec(String(s || "")) || [])[1];
-function dayReport({ day, logs = [], ops = [], objects = [], suppliers = [], usta = [], ustaNew = 0, money = true }) {
-  const ev = logs.filter((x) => x && x.action && !DR_SKIP.test(x.action) && drDay(x.ts || x.created_at) === day);
+function dayReport({ from, to, logs = [], ops = [], objects = [], suppliers = [], usta = [], ustaNew = 0, money = true }) {
+  const inR = (d) => d >= from && d <= to;
+  const ev = logs.filter((x) => x && x.action && !DR_SKIP.test(x.action) && inR(drDay(x.ts || x.created_at)));
   const used = new Set();
   const take = (re, f = () => true) => ev.filter((x) => !used.has(x) && re.test(x.action) && f(x)).map((x) => { used.add(x); return x; });
   const isObj = (x) => /^object:/.test(x.entity || "");
   const objByName = new Map(objects.map((o) => [o.name, o.id]));
   const objN = new Map(objects.map((o) => [o.id, o.name || "—"])), supN = new Map(suppliers.map((s) => [s.id, s.name || "—"]));
   const sumBy = (rows, key, val) => { const m = new Map(); rows.forEach((x) => { const k = key(x); m.set(k, (m.get(k) || 0) + val(x)); }); return [...m.entries()]; };
-  const R = { day, money: null, blocks: [], who: [], warn: [] };
+  const R = { from, to, money: null, blocks: [], who: [], warn: [], byDay: null };
   const block = (id, title, rows, total) => { if (rows.length) R.blocks.push({ id, title, rows, total: total == null ? rows.length : total }); };
   const objRow = (name, note) => ({ name, note: note || "", obj: objByName.get(name) || null });
 
   // деньги — из операций (как в «Финансах»); те же действия журнала дальше не повторяются
-  const dOps = ops.filter((x) => !x.voided && String(x.op_date || x.created_at || "").slice(0, 10) === day);
+  const opD = (x) => String(x.op_date || x.created_at || "").slice(0, 10);
+  const dOps = ops.filter((x) => !x.voided && inR(opD(x)));
+  // неделя / месяц / период — ещё и строка на каждый день
+  if (from !== to) {
+    const days = []; for (let d = from; d <= to && days.length < 400; d = drAdd(d, 1)) days.push(d);
+    const IN = ["client_payment", "company_income"], OUT = ["supplier_payment", "expense", "bonus_payment", "company_expense"];
+    R.byDay = days.map((d) => {
+      const o = dOps.filter((x) => opD(x) === d), e = ev.filter((x) => drDay(x.ts || x.created_at) === d);
+      const s = (types) => round2(o.filter((x) => types.includes(x.type)).reduce((a, x) => a + (Number(x.amount) || 0), 0));
+      const n = (re) => e.filter((x) => re.test(x.action)).length;
+      return { d, inn: s(IN), out: s(OUT), n: e.length, fresh: n(/^(Заявка сохранена|Создан объект)/), pst: n(/^Новая поставка/), dlv: n(/^(Товар отгружен|Отгрузка со склада)/) };
+    });
+  }
   if (money) {
     const s = (t) => round2(dOps.filter((x) => x.type === t).reduce((a, x) => a + (Number(x.amount) || 0), 0));
     const inn = [["от клиентов", s("client_payment")], ["приход компании", s("company_income")]];
@@ -12208,7 +12223,7 @@ function dayReport({ day, logs = [], ops = [], objects = [], suppliers = [], ust
   block("other", "Прочее", grp(take(/./)));
 
   R.who = sumBy(ev, drWho, () => 1).sort((a, b) => b[1] - a[1]);
-  const bad = logs.filter((x) => x && x.action === "Неверный облачный пароль" && drDay(x.ts || x.created_at) === day);
+  const bad = logs.filter((x) => x && x.action === "Неверный облачный пароль" && inR(drDay(x.ts || x.created_at)));
   if (bad.length) R.warn.push("Неверный пароль: " + bad.length + " раз (" + [...new Set(bad.map(drWho))].join(", ") + ")");
   // скидки правят часто (удалить и ввести заново) — не тревога; деньги, объекты, база — да
   const undo = ev.filter((x) => /^(Удалена операция: (?!Скидка)|Отменено: Оплата|Удалён объект|Удалены товары|Удалён (сотрудник|аккаунт|поставщик)|База очищена|База восстановлена)/.test(x.action));
@@ -12217,13 +12232,13 @@ function dayReport({ day, logs = [], ops = [], objects = [], suppliers = [], ust
   R.empty = !ev.length && !R.money && !usta.length;
   return R;
 }
-// журнал и списки мастеров за день читаются из базы (в программе журнал подгружается только в «Журнале»)
-async function loadDayReport(day) {
-  const from = new Date(day + "T00:00:00+05:00").toISOString(), to = new Date(drAdd(day, 1) + "T00:00:00+05:00").toISOString();
+// журнал и списки мастеров за период читаются из базы (в программе журнал подгружается только в «Журнале»)
+async function loadReport(from, to) {
+  const t0 = new Date(from + "T00:00:00+05:00").toISOString(), t1 = new Date(drAdd(to, 1) + "T00:00:00+05:00").toISOString();
   let logs = [];
   if (sb) {
-    for (let p = 0; p < 50; p++) {
-      const r = await sb.from("audit_log").select("action,entity,detail,user_name,ts").gte("ts", from).lt("ts", to).not("action", "like", "te\\_%").order("ts", { ascending: true }).range(p * 1000, p * 1000 + 999);
+    for (let p = 0; p < 100; p++) {
+      const r = await sb.from("audit_log").select("action,entity,detail,user_name,ts").gte("ts", t0).lt("ts", t1).not("action", "like", "te\\_%").order("ts", { ascending: true }).range(p * 1000, p * 1000 + 999);
       if (r.error) throw new Error(r.error.message);
       logs = logs.concat(r.data || []);
       if (!r.data || r.data.length < 1000) break;
@@ -12233,45 +12248,94 @@ async function loadDayReport(day) {
   try {
     const r = await db.from("usta_lists").select();
     const all = r.error ? [] : r.data || [];
-    usta = all.filter((u) => drDay(u.created_at) === day).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+    usta = all.filter((u) => { const d = drDay(u.created_at); return d >= from && d <= to; }).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
     ustaNew = all.filter((u) => u.status === "new").length;
   } catch (e) {}
   return { logs, usta, ustaNew };
 }
-function DayReportWin({ data, money, day: day0, auto, onClose, onObject }) {
+// период: день / неделя (пн–вс) / месяц / свои даты
+const DR_MON = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+const drMonStart = (d) => drAdd(d, -((new Date(d + "T12:00:00Z").getUTCDay() + 6) % 7));
+const drMonth = (d, n = 0) => { const y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7)) - 1 + n; const yy = y + Math.floor(m / 12), mm = ((m % 12) + 12) % 12; return yy + "-" + String(mm + 1).padStart(2, "0") + "-01"; };
+function drRange(p) {
+  if (p.mode === "week") { const f = drMonStart(p.d); return [f, drAdd(f, 6)]; }
+  if (p.mode === "month") { const f = drMonth(p.d); return [f, drAdd(drMonth(p.d, 1), -1)]; }
+  if (p.mode === "range") return p.f <= p.t ? [p.f, p.t] : [p.t, p.f];
+  return [p.d, p.d];
+}
+function drShift(p, k) {
+  if (p.mode === "week") return { ...p, d: drAdd(p.d, 7 * k) };
+  if (p.mode === "month") return { ...p, d: drMonth(p.d, k) };
+  if (p.mode === "range") { const [f, t] = drRange(p); const n = Math.round((Date.parse(t) - Date.parse(f)) / 864e5) + 1; return { ...p, f: drAdd(f, n * k), t: drAdd(t, n * k) }; }
+  return { ...p, d: drAdd(p.d, k) };
+}
+function drTitle(p, today) {
+  const [f, t] = drRange(p);
+  if (p.mode === "day") return dt(f) + " · " + DR_WD[new Date(f + "T12:00:00Z").getUTCDay()] + (f === today ? " · сегодня" : f === drAdd(today, -1) ? " · вчера" : "");
+  if (p.mode === "month") return DR_MON[Number(f.slice(5, 7)) - 1] + " " + f.slice(0, 4) + (t >= today && f <= today ? " · текущий месяц" : "");
+  return dt(f) + " — " + dt(t) + (p.mode === "week" && f <= today && t >= today ? " · эта неделя" : "");
+}
+function ReportView({ data, money, onObject, init, page }) {
   const today = drNow().day;
-  const [day, setDay] = useState(day0 || drAdd(today, -1));
+  const [p, setP] = useState(() => ({ mode: "day", d: today, f: drAdd(today, -6), t: today, ...(init || {}) }));
+  const [from, to] = drRange(p);
   const [src, setSrc] = useState(null);
   const [err, setErr] = useState("");
   const [open, setOpen] = useState({});
+  const [nonce, setNonce] = useState(0);
   useEffect(() => {
-    let alive = true; setSrc(null); setErr("");
-    loadDayReport(day).then((s) => { if (alive) setSrc(s); }).catch((e) => { if (alive) setErr(String(e.message || e)); });
+    let alive = true; setSrc(null); setErr(""); setOpen({});
+    loadReport(from, to).then((s) => { if (alive) setSrc(s); }).catch((e) => { if (alive) setErr(String(e.message || e)); });
     return () => { alive = false; };
-  }, [day]);
-  const rep = useMemo(() => (src ? dayReport({ day, ...src, ops: data.finance_ops || [], objects: data.objects || [], suppliers: data.suppliers || [], money }) : null), [src, day, data.finance_ops, data.objects, data.suppliers, money]);
-  const rel = day === today ? "сегодня" : day === drAdd(today, -1) ? "вчера" : "";
+  }, [from, to, nonce]);
+  const rep = useMemo(() => (src ? dayReport({ from, to, ...src, ops: data.finance_ops || [], objects: data.objects || [], suppliers: data.suppliers || [], money }) : null), [src, from, to, data.finance_ops, data.objects, data.suppliers, money]);
+  const setMode = (mode) => setP({ ...p, mode, ...(mode === "range" ? { f: from, t: to } : { d: mode === p.mode ? p.d : from <= today && today <= to ? today : from }) });
   const N = 8;
+  const ctl = (
+    <div className="row dayrep-nav" style={{ gap: 8, flexWrap: "wrap" }}>
+      <div className="seg">{[["day", "День"], ["week", "Неделя"], ["month", "Месяц"], ["range", "Период"]].map(([m, l]) => <button key={m} type="button" className={p.mode === m ? "on" : ""} onClick={() => setMode(m)}>{l}</button>)}</div>
+      <button className="btn xs" title="Назад" onClick={() => setP(drShift(p, -1))}><Ic n="chevL" /></button>
+      {p.mode === "month" ? <input className="inp" type="month" data-phone-nofocus style={{ width: 170 }} value={p.d.slice(0, 7)} max={today.slice(0, 7)} onChange={(e) => e.target.value && setP({ ...p, d: e.target.value + "-01" })} />
+        : p.mode === "range" ? <><input className="inp" type="date" data-phone-nofocus style={{ width: 150 }} value={p.f} max={today} onChange={(e) => e.target.value && setP({ ...p, f: e.target.value })} /><span className="mut">—</span><input className="inp" type="date" data-phone-nofocus style={{ width: 150 }} value={p.t} max={today} onChange={(e) => e.target.value && setP({ ...p, t: e.target.value })} /></>
+        : <input className="inp" type="date" data-phone-nofocus style={{ width: 150 }} value={p.mode === "week" ? from : p.d} max={today} onChange={(e) => e.target.value && setP({ ...p, d: e.target.value })} />}
+      <button className="btn xs" title="Вперёд" disabled={to >= today} onClick={() => setP(drShift(p, 1))}><Ic n="chevR" /></button>
+      {p.mode === "day" && p.d !== today && <button className="btn xs" onClick={() => setP({ ...p, d: today })}>Сегодня</button>}
+      {p.mode === "day" && p.d !== drAdd(today, -1) && <button className="btn xs" onClick={() => setP({ ...p, d: drAdd(today, -1) })}>Вчера</button>}
+      <span className="sm"><b>{drTitle(p, today)}</b></span>
+      <span style={{ marginLeft: "auto" }} />
+      {rep && <span className="xs mut">действий в журнале: {rep.count}</span>}
+      {page && <button className="btn xs" title="Загрузить заново" onClick={() => setNonce(nonce + 1)}>Обновить</button>}
+    </div>
+  );
+  const usd2 = (v) => (v ? fmt2(v) : "—");
   return (
-    <Modal title={(auto ? "Доброе утро — " : "") + "Отчёт за день"} onClose={onClose} w={1180} cls="dayrep">
-      <div className="row dayrep-nav" style={{ gap: 8, marginBottom: 14 }}>
-        <button className="btn xs" title="Предыдущий день" onClick={() => setDay(drAdd(day, -1))}><Ic n="chevL" /></button>
-        <input className="inp" type="date" data-phone-nofocus style={{ width: 160 }} value={day} max={today} onChange={(e) => e.target.value && setDay(e.target.value)} />
-        <button className="btn xs" title="Следующий день" disabled={day >= today} onClick={() => setDay(drAdd(day, 1))}><Ic n="chevR" /></button>
-        <span className="sm"><b>{dt(day)}</b> · {DR_WD[new Date(day + "T12:00:00Z").getUTCDay()]}{rel ? " · " + rel : ""}</span>
-        {rep && <span className="xs mut" style={{ marginLeft: "auto" }}>действий в журнале: {rep.count}</span>}
-      </div>
+    <>
+      {page ? <div className="row sect ph" style={{ gap: 12, flexWrap: "wrap" }}><h2 style={{ marginRight: 8 }}>Отчёт</h2>{ctl}</div> : <div style={{ marginBottom: 14 }}>{ctl}</div>}
       {err ? <div className="sm" style={{ color: "var(--bad)" }}>Не удалось загрузить: {err}</div>
-        : !rep ? <div className="sm mut">Загрузка…</div>
-        : rep.empty ? <div className="card sect sm mut" style={{ textAlign: "center", padding: 28 }}>За этот день в программе ничего не делали.</div>
+        : !rep ? <div className="sm mut" style={{ padding: 12 }}>Загрузка…</div>
+        : rep.empty ? <div className="card sect sm mut" style={{ textAlign: "center", padding: 28 }}>За этот {p.mode === "day" ? "день" : "период"} в программе ничего не делали.</div>
         : <>
           {rep.money && <div className="kpis" style={{ marginBottom: 14 }}>
             <div className="kpi"><div className="l">Приход</div><div className="v" style={{ color: "var(--ok)" }}>{fmt2(rep.money.inn)} $</div><div className="xs mut kpi-sub">{rep.money.innParts.map(([n, v]) => n + " " + fmt2(v)).join(" · ") || "—"}</div></div>
             <div className="kpi"><div className="l">Расход</div><div className="v">{fmt2(rep.money.out)} $</div><div className="xs mut kpi-sub">{rep.money.outParts.map(([n, v]) => n + " " + fmt2(v)).join(" · ") || "—"}</div></div>
-            <div className="kpi"><div className="l">Итог дня</div><div className="v" style={{ color: rep.money.net < 0 ? "var(--bad)" : "var(--ok)" }}>{rep.money.net < 0 ? "−" : "+"}{fmt2(Math.abs(rep.money.net))} $</div><div className="xs mut kpi-sub">приход минус расход</div></div>
+            <div className="kpi"><div className="l">Итог {p.mode === "day" ? "дня" : "периода"}</div><div className="v" style={{ color: rep.money.net < 0 ? "var(--bad)" : "var(--ok)" }}>{rep.money.net < 0 ? "−" : "+"}{fmt2(Math.abs(rep.money.net))} $</div><div className="xs mut kpi-sub">приход минус расход</div></div>
           </div>}
           {rep.warn.length > 0 && <div className="card sect dayrep-warn" style={{ marginBottom: 14, padding: "10px 14px" }}>
             {rep.warn.map((w, i) => <div key={i} className="sm"><span className="dot" style={{ background: "var(--warn)" }} /> {w}</div>)}
+          </div>}
+          {rep.byDay && <div className="card dayrep-days" style={{ marginBottom: 14, padding: 0, overflow: "auto" }}>
+            <table className="t"><thead><tr><th>День</th>{money && <><th className="num">Приход, $</th><th className="num">Расход, $</th><th className="num">Итог, $</th></>}<th className="num">Новые объекты</th><th className="num">Поставки</th><th className="num">Отгрузки</th><th className="num">Действий</th></tr></thead>
+              <tbody>{rep.byDay.filter((r) => r.d <= today).slice().reverse().map((r) => {
+                const wd = new Date(r.d + "T12:00:00Z").getUTCDay(), net = round2(r.inn - r.out);
+                return (
+                  <tr key={r.d} className="clk" title="Открыть этот день" onClick={() => setP({ ...p, mode: "day", d: r.d })} style={{ opacity: r.n || r.inn || r.out ? 1 : 0.55 }}>
+                    <td className="sm" style={{ whiteSpace: "nowrap" }}><b>{dt(r.d)}</b> <span className="mut">{["вс", "пн", "вт", "ср", "чт", "пт", "сб"][wd]}</span></td>
+                    {money && <><td className="num sm" style={{ color: r.inn ? "var(--ok)" : "" }}>{usd2(r.inn)}</td><td className="num sm">{usd2(r.out)}</td><td className="num sm" style={{ color: net < 0 ? "var(--bad)" : "" }}>{net ? (net < 0 ? "−" : "+") + fmt2(Math.abs(net)) : "—"}</td></>}
+                    <td className="num sm">{r.fresh || "—"}</td><td className="num sm">{r.pst || "—"}</td><td className="num sm">{r.dlv || "—"}</td><td className="num sm mut">{r.n || "—"}</td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
           </div>}
           <div className="dayrep-grid">
             {rep.blocks.map((b) => {
@@ -12296,9 +12360,21 @@ function DayReportWin({ data, money, day: day0, auto, onClose, onObject }) {
             </div>}
           </div>
         </>}
-      <div className="row" style={{ justifyContent: "space-between", marginTop: 14 }}>
-        <span className="xs mut">Каждый день в {DAYREP_AT} отчёт за вчера открывается сам · подробности — в «Журнале»</span>
-        <button className="btn pri" onClick={onClose}>Закрыть</button>
+    </>
+  );
+}
+// раздел «Отчёт»
+function ReportTab({ data, money, onObject }) {
+  return <div className="dayrep"><ReportView data={data} money={money} onObject={onObject} page /></div>;
+}
+// окно, которое само открывается в 09:30 (отчёт за вчера)
+function DayReportWin({ data, money, day, auto, onClose, onObject, onSection }) {
+  return (
+    <Modal title={(auto ? "Доброе утро — " : "") + "Отчёт за вчера"} onClose={onClose} w={1180} cls="dayrep">
+      <ReportView data={data} money={money} onObject={onObject} init={{ mode: "day", d: day }} />
+      <div className="row" style={{ justifyContent: "space-between", marginTop: 14, gap: 8, flexWrap: "wrap" }}>
+        <span className="xs mut">Каждый день в {DAYREP_AT} отчёт за вчера открывается сам · неделя, месяц и любые дни — в разделе «Отчёт»</span>
+        <span className="row" style={{ gap: 8 }}>{onSection && <button className="btn" onClick={onSection}>Открыть раздел «Отчёт»</button>}<button className="btn pri" onClick={onClose}>Закрыть</button></span>
       </div>
     </Modal>
   );
@@ -12407,7 +12483,7 @@ function LogTab({ data, reload, toast, onBackup, onReport }) {
     <div>
       <div className="row sect ph">
         <h2 style={{ marginRight: "auto" }}>Журнал действий <span className="mut sm">({audit_log.length})</span></h2>
-        {onReport && <button className="btn log-report" title="Что было в программе за день: деньги, объекты, поставки, доставка, мастера, кто что сделал" onClick={onReport}><Ic n="clipboard" /> Отчёт за день</button>}
+        {onReport && <button className="btn log-report" title="Раздел «Отчёт»: что было за день, неделю, месяц — деньги, объекты, поставки, доставка, мастера, кто что сделал" onClick={onReport}><Ic n="clipboard" /> Отчёт</button>}
         {onBackup && <button className="btn" title="Бэкап и восстановление базы" onClick={onBackup}><Ic n="save" /> Бэкап</button>}
         <button className={"btn log-onlydel" + (onlyDel ? " pri" : "")} title="Показать только удалённое, что можно восстановить" onClick={() => setOnlyDel(!onlyDel)}>↩ Удалённое{nDel ? " (" + nDel + ")" : ""}</button>
         <input className="inp" style={{ maxWidth: 220 }} placeholder="Поиск по журналу…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -14363,8 +14439,8 @@ function AppInner() {
     tick(); const t = setInterval(tick, 60000);
     return () => { alive = false; clearInterval(t); };
   }, [hasUsta]);
-  // «Отчёт за день»: в 09:30 (или при первом входе позже) — отчёт за вчера, один раз в день у каждого, кому открыт «Журнал»
-  const hasRep = !!currentUser && roleTabs.includes("log");
+  // «Отчёт»: в 09:30 (или при первом входе позже) — окно с отчётом за вчера, один раз в день у каждого, кому открыт раздел
+  const hasRep = !!currentUser && roleTabs.includes("report");
   const [dayRep, setDayRep] = useState(null);
   useEffect(() => {
     if (!hasRep) { setDayRep(null); return; }
@@ -14380,18 +14456,18 @@ function AppInner() {
     tick(); const t = setInterval(tick, 30000);
     return () => clearInterval(t);
   }, [hasRep, currentUser ? currentUser.id : ""]);
-  const TAB_LABELS_RU = { usta: "От мастеров", heat: "Расчёт отопления", delivery: "Доставка", request: "Новая заявка", dash: "Дашборд", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", bots: "Боты", admin: "Аккаунты" , notes: "Заметки" };
-  const TAB_LABELS_UZ = { usta: "Ustalardan", heat: "Isitish hisobi", delivery: "Yetkazish", request: "Yangi ariza", dash: "Boshqaruv", objects: "Ob'ektlar", products: "Tovarlar", wh: "Ombor Thermo", suppliers: "Ta'minotchilar", masters: "Ustalar", finance: "Moliya", log: "Jurnal", bots: "Botlar", admin: "Hisoblar" , notes: "Eslatmalar" };
+  const TAB_LABELS_RU = { report: "Отчёт", usta: "От мастеров", heat: "Расчёт отопления", delivery: "Доставка", request: "Новая заявка", dash: "Дашборд", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", bots: "Боты", admin: "Аккаунты" , notes: "Заметки" };
+  const TAB_LABELS_UZ = { report: "Hisobot", usta: "Ustalardan", heat: "Isitish hisobi", delivery: "Yetkazish", request: "Yangi ariza", dash: "Boshqaruv", objects: "Ob'ektlar", products: "Tovarlar", wh: "Ombor Thermo", suppliers: "Ta'minotchilar", masters: "Ustalar", finance: "Moliya", log: "Jurnal", bots: "Botlar", admin: "Hisoblar" , notes: "Eslatmalar" };
   const TAB_LABELS = lang === "uz" ? TAB_LABELS_UZ : TAB_LABELS_RU;
   // меню разделов: всегда в одном порядке, по группам (у каждого — только его разделы)
   const TAB_GROUPS = [
-    { ru: "", uz: "", tabs: ["dash"] },
+    { ru: "", uz: "", tabs: ["dash", "report"] },
     { ru: "Продажи", uz: "Sotuv", tabs: ["request", "usta", "objects", "delivery", "heat"] },
     { ru: "Склад и закупки", uz: "Ombor va xarid", tabs: ["products", "wh", "suppliers"] },
     { ru: "Мастера и деньги", uz: "Ustalar va pul", tabs: ["masters", "finance"] },
     { ru: "Управление", uz: "Boshqaruv", tabs: ["log", "bots", "admin"] },
   ];
-  const TAB_IC = { dash: "dash", request: "plusSq", usta: "inbox", objects: "folder", delivery: "truck", heat: "flame", products: "package", wh: "warehouse", suppliers: "factory", masters: "wrench", finance: "cash", log: "history", bots: "bot", admin: "users" };
+  const TAB_IC = { report: "clipboard", dash: "dash", request: "plusSq", usta: "inbox", objects: "folder", delivery: "truck", heat: "flame", products: "package", wh: "warehouse", suppliers: "factory", masters: "wrench", finance: "cash", log: "history", bots: "bot", admin: "users" };
   const known = new Set(TAB_GROUPS.flatMap((g) => g.tabs));
   // «Расчёт отопления» — пункт меню в «Продажах», но открывается окном на весь экран (раздел остаётся на месте)
   const inMenu = (id) => roleTabs.includes(id) || (id === "heat" && heatWin);
@@ -14559,7 +14635,8 @@ function AppInner() {
         {tab === "masters" && <MastersTab data={data} reload={reload} toast={toast} fin={true} canDel={!!acc.perms.del} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "wh" && <WarehouseTab data={cashWorld} reload={reload} toast={toast} readOnly={role === "driver"} openObject={(id) => { if (role === "driver") { setTab("delivery"); setOpenId(id); } else { setOpenId(id); setTab("objects"); } }} />}
         {tab === "delivery" && <DeliveryTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} />}
-        {tab === "log" && <LogTab data={data} reload={reload} toast={toast} onBackup={acc.perms.backup ? () => setBackupOpen(true) : null} onReport={() => setDayRep({ day: drAdd(drNow().day, -1) })} />}
+        {tab === "log" && <LogTab data={data} reload={reload} toast={toast} onBackup={acc.perms.backup ? () => setBackupOpen(true) : null} onReport={roleTabs.includes("report") ? () => goTab("report") : null} />}
+        {tab === "report" && <ReportTab data={data} money={!!acc.perms.fin} onObject={roleTabs.includes("objects") ? (id) => { setOpenId(id); setTab("objects"); } : null} />}
         {tab === "bots" && <BotsTab data={data} reload={reload} toast={toast} isBoss={role === "boss"} goTab={goTab} />}
         {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} isBoss={role === "boss"} seen={team.seen} onChat={openChat} />}
         {tab === "usta" && <UstaListsTab data={data} toast={toast} userName={currentUser.name || currentUser.username} canDel={!!acc.perms.del} onCount={setUstaNew} goRequest={() => { setOpenId(null); setTab("request"); }} />}
@@ -14577,7 +14654,7 @@ function AppInner() {
       }} />}
       {heatWin && heatMounted && currentUser && <HeatWin lang={lang} userName={currentUser.name || currentUser.username} open={heatOpen} onClose={() => setHeatOpen(false)} />}
       {calcOpen && <Calculator onClose={() => setCalcOpen(false)} />}
-      {dayRep && hasRep && <DayReportWin data={data} money={!!acc.perms.fin} day={dayRep.day} auto={dayRep.auto} onClose={() => setDayRep(null)} onObject={roleTabs.includes("objects") ? (id) => { setDayRep(null); setOpenId(id); setTab("objects"); } : null} />}
+      {dayRep && hasRep && <DayReportWin data={data} money={!!acc.perms.fin} day={dayRep.day} auto={dayRep.auto} onClose={() => setDayRep(null)} onSection={() => { setDayRep(null); goTab("report"); }} onObject={roleTabs.includes("objects") ? (id) => { setDayRep(null); setOpenId(id); setTab("objects"); } : null} />}
       {chatOpen && currentUser && <ChatWin team={team} data={data} me={currentUser} start={chatStart} toast={toast} onClose={() => setChatOpen(false)} />}
       {notesOpen && currentUser && <NotesPanel data={data} reload={reload} toast={toast} user={currentUser} boss={role === "boss"} onClose={() => setNotesOpen(false)} />}
       <ConfirmHost />
