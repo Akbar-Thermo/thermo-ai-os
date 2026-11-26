@@ -12700,16 +12700,16 @@ function TelegramCard({ data, reload, toast, users = [], roles = [], uperms = {}
   };
   // отчёты: ежедневный (касса + кирим-чиқим) и в последний день месяца (долги); кому — галочки (по умолчанию все с полными правами)
   const rep0 = cfg.report || {};
-  const rk0 = rep0.risk || {};
-  const [rp, setRp] = useState(() => ({ dOn: !(rep0.daily && rep0.daily.on === false), dT: (rep0.daily && rep0.daily.time) || "21:30", dAi: !(rep0.daily && rep0.daily.ai === false), bOn: !(rep0.debts && rep0.debts.on === false), bT: (rep0.debts && rep0.debts.time) || "10:00", bD: String((rep0.debts && rep0.debts.days) || 14),
+  const rk0 = rep0.risk || {}, mo0 = rep0.morning || {};
+  const [rp, setRp] = useState(() => ({ mOn: mo0.on !== false, mT: mo0.time || "09:30", dOn: !(rep0.daily && rep0.daily.on === false), dT: (rep0.daily && rep0.daily.time) || "21:30", dAi: !(rep0.daily && rep0.daily.ai === false), bOn: !(rep0.debts && rep0.debts.on === false), bT: (rep0.debts && rep0.debts.time) || "10:00", bD: String((rep0.debts && rep0.debts.days) || 14),
     rOn: rk0.on !== false, rDow: String(Number(rk0.dow) >= 0 && Number(rk0.dow) <= 6 && rk0.dow !== "" && rk0.dow != null ? Number(rk0.dow) : 1), rT: rk0.time || "09:00", to: Array.isArray(rep0.to) ? rep0.to : null }));
   const linked = people.filter((u) => tgOf(u.id));
   const toSet = new Set(rp.to || linked.filter((u) => TG_FULL(accOf(u))).map((u) => u.id));
   const saveRep = async () => {
-    const report = { daily: { on: rp.dOn, time: rp.dT || "21:30", ai: rp.dAi }, debts: { on: rp.bOn, time: rp.bT || "10:00", days: Math.max(1, parseInt(rp.bD, 10) || 14) }, risk: { on: rp.rOn, dow: Number(rp.rDow) || 0, time: rp.rT || "09:00" }, to: rp.to };
+    const report = { morning: { on: rp.mOn, time: rp.mT || "09:30" }, daily: { on: rp.dOn, time: rp.dT || "21:30", ai: rp.dAi }, debts: { on: rp.bOn, time: rp.bT || "10:00", days: Math.max(1, parseInt(rp.bD, 10) || 14) }, risk: { on: rp.rOn, dow: Number(rp.rDow) || 0, time: rp.rT || "09:00" }, to: rp.to };
     setBusy(true); const ok = await saveCfg({ report }); setBusy(false);
     if (!ok) return;
-    await logAction("Telegram: отчёты", "telegram", (rp.dOn ? "ежедневно " + report.daily.time : "без ежедневного") + " · " + (rp.bOn ? "долги в конце месяца " + report.debts.time + " (> " + report.debts.days + " дн.)" : "без долгов"));
+    await logAction("Telegram: отчёты", "telegram", (rp.mOn ? "утром " + report.morning.time + " — что было вчера" : "без утреннего") + " · " + (rp.dOn ? "ежедневно " + report.daily.time : "без ежедневного") + " · " + (rp.bOn ? "долги в конце месяца " + report.debts.time + " (> " + report.debts.days + " дн.)" : "без долгов"));
     await reload(["requests"]); toast("Отчёты сохранены");
   };
   const Row = ({ g, on }) => (
@@ -12761,7 +12761,8 @@ function TelegramCard({ data, reload, toast, users = [], roles = [], uperms = {}
       })}
       <H>Отчёты в личный чат</H>
       <div className="tg-rep" style={{ borderTop: "1px solid var(--line)", paddingTop: 8 }}>
-        <label className="row clk sm" style={{ gap: 8 }}><input type="checkbox" checked={rp.dOn} onChange={(e) => setRp({ ...rp, dOn: e.target.checked })} /> Каждый день — касса и приход/расход за день, в <input className="inp tg-dt" type="time" style={{ width: 120 }} value={rp.dT} onChange={(e) => setRp({ ...rp, dT: e.target.value })} /></label>
+        <label className="row clk sm" style={{ gap: 8 }}><input type="checkbox" className="tg-mon" checked={rp.mOn} onChange={(e) => setRp({ ...rp, mOn: e.target.checked })} /> Каждое утро — что было вчера: деньги, объекты, поставки, доставка, мастера, кто что сделал, в <input className="inp tg-mt" type="time" style={{ width: 120 }} value={rp.mT} onChange={(e) => setRp({ ...rp, mT: e.target.value })} /></label>
+        <label className="row clk sm" style={{ gap: 8, marginTop: 6 }}><input type="checkbox" checked={rp.dOn} onChange={(e) => setRp({ ...rp, dOn: e.target.checked })} /> Каждый день — касса и приход/расход за день, в <input className="inp tg-dt" type="time" style={{ width: 120 }} value={rp.dT} onChange={(e) => setRp({ ...rp, dT: e.target.value })} /></label>
         <label className="row clk sm" style={{ gap: 8, marginTop: 6, paddingLeft: 24 }}><input type="checkbox" className="tg-dai" checked={rp.dAi} onChange={(e) => setRp({ ...rp, dAi: e.target.checked })} /> с коротким комментарием ИИ</label>
         <label className="row clk sm" style={{ gap: 8, marginTop: 6 }}><input type="checkbox" className="tg-ron" checked={rp.rOn} onChange={(e) => setRp({ ...rp, rOn: e.target.checked })} /> Раз в неделю — контроль: ниже себестоимости, не доставлено 7+ дней, низкая маржа, долги без оплаты 30+ дней —
           <select className="inp tg-rdow" style={{ width: 130 }} value={rp.rDow} onChange={(e) => setRp({ ...rp, rDow: e.target.value })}>{["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"].map((d, i) => <option key={i} value={String(i)}>{d}</option>)}</select>
