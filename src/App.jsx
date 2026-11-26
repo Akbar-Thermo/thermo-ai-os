@@ -4651,49 +4651,6 @@ function supplierDebtInfo(s, objects, ops, whMoves) {
   return { days, since, monthPurch, monthPaid };
 }
 const SUP_DEBT_DAYS = 30; // долг старше — красным «30+ дн.»
-/* «История (Excel)»: все расчёты с поставщиком по датам — поставки (с товарами), возвраты, оплаты и долг после каждой операции */
-function supplierHistorySheet(s, objects, ops, whMoves) {
-  const d = aktData(s, objects, ops, whMoves);
-  const day = (x) => String(x || "").slice(0, 10);
-  const ev = [];
-  d.batches.forEach((g) => ev.push({ date: day(g.date), ord: 0, op: "Поставка", what: g.obj_name + (String(g.obj_id).startsWith("wh:") ? "" : " · Поставка №" + g.no) + " · " + g.items.length + " поз.", got: round2(g.sum), items: g.items }));
-  d.returns.forEach((o) => ev.push({ date: day(o.op_date || o.created_at), ord: 1, op: "Возврат поставщику", what: [(o.product_name || "—") + (o.qty ? " × " + fmt(o.qty) + (o.unit ? " " + o.unit : "") : ""), o.reason, o.note].filter(Boolean).join(" · "), ret: round2(o.cost_amount || 0) }));
-  d.payments.forEach((o) => ev.push({ date: day(o.op_date || o.created_at), ord: 2, op: "Оплата", what: [payText(o), o.note, o.user].filter(Boolean).join(" · "), paid: round2(o.amount || 0) }));
-  ev.sort((a, b) => a.date.localeCompare(b.date) || a.ord - b.ord);
-  const rows = [
-    { k: "title", v: ["ИСТОРИЯ РАСЧЁТОВ: " + s.name] },
-    { k: "info", v: ["Thermo Engineering · составлено " + new Date().toLocaleDateString("ru-RU") + " · суммы в $ по себестоимости" + (s.phone ? " · тел. " + s.phone : "")] },
-    { k: "blank" },
-    { k: "head", v: ["№", "Дата", "Операция", "Описание", "Получено, $", "Возврат, $", "Оплата, $", "Долг после, $"] },
-  ];
-  let bal = 0, n = 1;
-  ev.forEach((e) => {
-    bal = round2(bal + (e.got || 0) - (e.ret || 0) - (e.paid || 0));
-    rows.push({ k: "row", v: [n++, e.date ? dt(e.date) : "", e.op, e.what, e.got || "", e.ret || "", e.paid || "", bal] });
-    (e.items || []).forEach((it) => rows.push({ k: "row", v: ["", "", "", "    • " + it.name + " — " + fmt(it.qty) + " " + (it.unit || "") + " × " + fmt2(it.cost) + " = " + fmt2((it.qty || 0) * (it.cost || 0)), "", "", "", ""] }));
-  });
-  if (!ev.length) rows.push({ k: "info", v: ["Операций нет"] });
-  rows.push({ k: "sum", v: ["", "", "", "Итого", round2(d.totalReceived), round2(d.totalReturns), round2(d.totalPaid), round2(d.balance)] });
-  rows.push({ k: "blank" });
-  rows.push({ k: "section", v: [d.balance > 0 ? "Долг Thermo Engineering перед " + s.name + ": " + fmt2(d.balance) + " $" : d.balance < 0 ? "Аванс (переплата) " + s.name + ": " + fmt2(-d.balance) + " $" : "Задолженности нет"] });
-  const cols = [5, 11, 18, 60, 13, 13, 13, 14], types = ["c", "c", "t", "t", "m", "m", "m", "m"];
-  return { name: s.name, rows, cols: fitTextCols(rows, cols, types), types, d, n: ev.length };
-}
-// один поставщик — один лист; список — «Сводка» + лист на каждого поставщика с движением
-function downloadSupplierHistory(list, objects, ops, whMoves, fileName) {
-  const sheets = list.map((s) => supplierHistorySheet(s, objects, ops, whMoves)).filter((sh, i, a) => a.length === 1 || sh.n);
-  if (!sheets.length) return "empty";
-  if (sheets.length > 1) {
-    const rows = [{ k: "title", v: ["РАСЧЁТЫ С ПОСТАВЩИКАМИ — СВОДКА"] }, { k: "info", v: ["Thermo Engineering · составлено " + new Date().toLocaleDateString("ru-RU") + " · суммы в $"] }, { k: "blank" },
-      { k: "head", v: ["№", "Поставщик", "Получено, $", "Возвраты, $", "Оплачено, $", "Долг, $"] }];
-    const t = { r: 0, ret: 0, p: 0, b: 0 };
-    sheets.forEach((sh, i) => { const d = sh.d; t.r += d.totalReceived; t.ret += d.totalReturns; t.p += d.totalPaid; t.b += d.balance; rows.push({ k: "row", v: [i + 1, sh.name, round2(d.totalReceived), round2(d.totalReturns), round2(d.totalPaid), round2(d.balance)] }); });
-    rows.push({ k: "sum", v: ["", "Итого", round2(t.r), round2(t.ret), round2(t.p), round2(t.b)] });
-    const cols = [5, 34, 14, 14, 14, 14], types = ["c", "t", "m", "m", "m", "m"];
-    sheets.unshift({ name: "Сводка", rows, cols: fitTextCols(rows, cols, types), types });
-  }
-  try { downloadBlob(fileName, styledXlsxBook(sheets.map(({ name, rows, cols, types }) => ({ name, rows, cols, types })))); return "xlsx"; } catch (e) { console.error(e); return false; }
-}
 function AktSverkaModal({ s, objects, ops, whMoves, products, onClose, toast, reload = null, canEdit = false, inline = false }) {
   const [ed, setEd] = useState(null); // правка строки: { kind: "item" | "ret" | "pay", it | o }
   // дата накладной (поставки): у всех позиций этой поставки объекта; номера поставок выстраиваются по датам.
@@ -4895,10 +4852,6 @@ function SuppliersTab({ data, reload, toast, fin = true, pmode = false, setPmode
       { label: "поставщик «" + s.name + "»" + (ids.length ? " и его привязка к " + ids.length + " товарам" : ""), rows: { suppliers: [s] }, after: ids.length ? [{ t: "setmany", table: "products", ids, set: { supplier_id: s.id } }] : [] });
     setDelBusy(false); setDel(null); setOpenId(null); await reload("all"); toast("Поставщик удалён");
   };
-  const history = (list, name) => {
-    const r = downloadSupplierHistory(list, objects, finance_ops, wh_moves, name);
-    toast(r === "xlsx" ? "История расчётов скачана" : r === "empty" ? "Операций с поставщиками нет" : "Скачивание заблокировано браузером");
-  };
   const cur = openId ? suppliers.find((x) => x.id === openId) : null;
   const curSt = cur ? supplierStats(cur, objects, finance_ops, wh_moves) : null;
 
@@ -4913,7 +4866,6 @@ function SuppliersTab({ data, reload, toast, fin = true, pmode = false, setPmode
               {(() => { const r = rows.find((x) => x.s.id === cur.id); const di = r && r.di; return di && di.days != null ? <span className="sup-age" style={di.days > SUP_DEBT_DAYS ? { color: "var(--bad)", fontWeight: 800 } : null}> · долг не оплачен {di.days > SUP_DEBT_DAYS ? SUP_DEBT_DAYS + "+" : di.days} дн. (с {dt(di.since)})</span> : null; })()}</div>
           </div>
           <button className="btn" onClick={() => setEdit(cur)}><Ic n="pencil" /> Редактировать</button>
-          <button className="btn" onClick={() => history([cur], "История_" + fileSafe(cur.name) + ".xlsx")}><Ic n="download" /> История (Excel)</button>
           <button className="btn pri sup-pay" onClick={() => setPay(cur)}><Ic n="cash" /> Оплата{curSt && curSt.debt > 0 ? " · долг " + fmt(curSt.debt) : ""}</button>
           <DropMenu label="" cls="more" title="Ещё действия" items={[{ label: "Удалить поставщика", icon: "trash", danger: true, hidden: !fin, run: () => { setDelErr(""); setDel(cur); } }]} />
         </div>
@@ -4923,7 +4875,6 @@ function SuppliersTab({ data, reload, toast, fin = true, pmode = false, setPmode
         <h2 style={{ marginRight: "auto" }}>{pmode ? "Поставщики — перечисление" : "Поставщики"} <span className="mut sm">({suppliers.length})</span></h2>
         {setPmode && <PerechToggle on={pmode} set={(v) => { setOpenId(null); setPmode(v); }} />}
         <input className="inp" style={{ maxWidth: 220 }} placeholder="Поиск поставщика…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <button className="btn" title="Все расчёты со всеми поставщиками: сводка + лист на каждого" onClick={() => history(shown.map((x) => x.s), "История_поставщики_" + today() + ".xlsx")}><Ic n="download" /> История (Excel)</button>
         <button className="btn pri" onClick={() => setEdit({ status: "active" })}>+ Поставщик</button>
       </div>
       {(() => {
