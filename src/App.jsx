@@ -2173,7 +2173,8 @@ function downloadDeliverySheet(obj, suppliers, only = null) {
 }
 // «Объекты → Excel: долги» (по просьбе руководителя, 11.2026) — видят только аккаунты DEBTS_XL_USERS.
 // Лист на каждого мастера (и «Без мастера»), в начале — «Сводка» по мастерам. В листе мастера объекты «В процессе» /
-// «Оплачено» (и старые рабочие статусы), у которых есть товар или оплата: сначала с долгом, ниже — оплаченные.
+// «Оплачено» (и старые рабочие статусы), у которых есть товар или оплата: сначала с долгом, ниже — оплаченные;
+// в каждой части — по дате начала объекта (раньше начатые — выше).
 // Колонки: себестоимость отданного товара, сумма продажи, оплачено, остаток долга, прибыль (чистая: продажа − себест. −
 // доп. расходы − бонус мастеру). Учитываются фильтры списка (мастер, статус, поиск)
 const DEBTS_XL_USERS = ["15a69146-5067-4288-8764-27e4b1dd6456", "3b2e6d57-f963-4554-8cb1-67db480eab1c"]; // Saidakmal, Jamoliddin_0040
@@ -2186,15 +2187,18 @@ function downloadMasterDebts(list, masterLabel, perech = false) {
   const groups = [...by.values()].sort((a, b) => (a.name === "Без мастера") - (b.name === "Без мастера") || a.name.localeCompare(b.name, "ru"));
   const T = (rows) => { const t = { n: rows.length, d: 0, c: 0, s: 0, p: 0, debt: 0, pr: 0, u: 0 }; rows.forEach((r) => { if (r.debt > 0.004) { t.d++; t.debt += r.debt; } t.c += r.f.costNet; t.s += r.f.saleNet; t.p += r.f.paidClient; t.pr += r.f.net; if (r.pc && r.pc.debt > 0) t.u += r.pc.debt; }); return t; };
   const P = perech ? 1 : 0;
-  const cols = [5, 34, 22, 13, 15, 15, 14, 15, 14].concat(P ? [14] : []), types = ["c", "t", "t", "t", "m", "m", "m", "m", "m"].concat(P ? ["m"] : []);
+  // дата начала объекта: что раньше — создание объекта или первая поставка; по ней объекты стоят по порядку
+  const startOf = (o) => { let d = String(o.created_at || "").slice(0, 10); (o.items || []).forEach((i) => { const b = String(i.batch_date || "").slice(0, 10); if (b && (!d || b < d)) d = b; }); return d; };
+  const byStart = (a, b) => startOf(a.o).localeCompare(startOf(b.o)) || String(a.o.name || "").localeCompare(String(b.o.name || ""), "ru");
+  const cols = [5, 12, 34, 22, 15, 15, 14, 15, 14].concat(P ? [14] : []), types = ["c", "c", "t", "t", "m", "m", "m", "m", "m"].concat(P ? ["m"] : []);
   const opt = { green: [6, 8], red: [7].concat(P ? [9] : []) };
-  const head = ["№", "Объект", "Клиент", "Статус", "Себестоимость, $", "Сумма продажи, $", "Оплачено, $", "Остаток долга, $", "Прибыль, $"].concat(P ? ["Долг, сум"] : []);
-  const objRow = (r, i) => ({ k: "row", v: [i + 1, r.o.name || "", r.o.client || "", stById(r.o.status).label.replace(" (старый статус)", ""),
+  const head = ["№", "Дата начала", "Объект", "Клиент", "Себестоимость, $", "Сумма продажи, $", "Оплачено, $", "Остаток долга, $", "Прибыль, $"].concat(P ? ["Долг, сум"] : []);
+  const objRow = (r, i) => ({ k: "row", v: [i + 1, startOf(r.o) ? dt(startOf(r.o)) : "", r.o.name || "", r.o.client || "",
     round2(r.f.costNet), round2(r.f.saleNet), round2(r.f.paidClient), Math.abs(r.debt) > 0.004 ? round2(r.debt) : "", round2(r.f.net)].concat(P ? [r.pc && r.pc.debt > 0 ? Math.round(r.pc.debt) : ""] : []) });
   const sumRow = (label, t, debt) => ({ k: "sum", merge: [[0, 3]], v: [label, "", "", "", round2(t.c), round2(t.s), round2(t.p), debt ? round2(debt) : "", round2(t.pr)].concat(P ? [t.u ? Math.round(t.u) : ""] : []) });
   const sheets = groups.map((g) => {
-    const debtors = g.rows.filter((r) => r.debt > 0.004).sort((a, b) => b.debt - a.debt);
-    const paid = g.rows.filter((r) => r.debt <= 0.004).sort((a, b) => String(a.o.name || "").localeCompare(String(b.o.name || ""), "ru"));
+    const debtors = g.rows.filter((r) => r.debt > 0.004).sort(byStart);
+    const paid = g.rows.filter((r) => r.debt <= 0.004).sort(byStart);
     const t = T(g.rows), td = T(debtors), tp = T(paid);
     const rows = [
       { k: "title", v: ["МАСТЕР: " + g.name + (perech ? " (перечисление)" : "")] },
