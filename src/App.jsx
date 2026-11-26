@@ -232,8 +232,11 @@ const PERMS = [
   { id: "salary", label: "Зарплата сотрудников" },
   { id: "backup", label: "Бэкап базы и Excel-архив" },
   { id: "accounts", label: "Аккаунты: создавать и менять (кроме руководителей)" },
+  // «как руководитель» при любой роли: аккаунты руководителей, свои права, настройки ботов, очистка базы, все заметки.
+  // В базе такой аккаунт тоже считается руководителем (te_session_role). Дать или снять может только руководитель.
+  { id: "boss", label: "Как руководитель: всё, что может руководитель (роль остаётся своей)" },
 ];
-const ALL_PERMS = { fin: true, del: true, salary: true, backup: true, accounts: true };
+const ALL_PERMS = { fin: true, del: true, salary: true, backup: true, accounts: true, boss: true };
 const rolesCfgRow = (data) => ((data && data.requests) || []).find((x) => x.mode === ROLE_CFG_MODE) || null;
 function allRoles(data) {
   const row = rolesCfgRow(data);
@@ -257,7 +260,10 @@ function accessOf(u, roles, uperms) {
   const own = r.base !== "boss" && u && uperms && uperms[u.id];
   const t0 = own && Array.isArray(own.tabs) ? own.tabs.filter((t) => GRANT_TABS.includes(t)) : r.tabs;
   const tabs0 = r.base === "boss" ? r.tabs : (t0.length ? t0 : r.base === "driver" ? ["delivery"] : r.base === "designer" ? ["heat"] : ["objects"]);
-  const perms = r.base === "boss" ? ALL_PERMS : (own ? own.perms || {} : r.perms || {});
+  // «как руководитель» — только своя галочка аккаунта (не роли), как и в базе
+  const full = r.base !== "boss" && !!(own && own.perms && own.perms.boss);
+  const perms0 = r.base === "boss" || full ? ALL_PERMS : (own ? own.perms || {} : r.perms || {});
+  const perms = perms0.boss && !(r.base === "boss" || full) ? { ...perms0, boss: false } : perms0;
   // «Аккаунты»: руководителю — всегда; другим — если дано право управлять аккаунтами
   // «Боты» — тем же, кому «Аккаунты» (настройки доступа к ботам были там)
   const tabs1 = r.base !== "boss" && perms.accounts && !tabs0.includes("admin") ? [...tabs0, "bots", "admin"] : tabs0;
@@ -266,7 +272,7 @@ function accessOf(u, roles, uperms) {
   // «Отчёт» — у всех, кому открыт «Журнал» (отчёт собирается из журнала)
   const tabs3 = tabs2.includes("log") && !tabs2.includes("report") ? [...tabs2, "report"] : tabs2;
   const tabs = tabs3.filter((t) => t !== "notes"); // «Заметки» — не раздел, а окно как калькулятор (кнопка в шапке, Alt+Z)
-  return { id: r.id, label: r.label, base: r.base, tabs, perms };
+  return { id: r.id, label: r.label, base: r.base, tabs, perms, boss: r.base === "boss" || full };
 }
 let ROLE_LIST = ROLES; // для подписей ролей вне компонентов (журнал)
 const roleLabel = (r) => (ROLE_LIST.find((x) => x.id === r) || ROLES.find((x) => x.id === r) || {}).label || "—";
@@ -12772,7 +12778,7 @@ function OstatkaCard({ data, reload, toast }) {
 /* Telegram-бот: группы, где он вносит расходы (бота добавили — группа появилась — «Разрешить»);
    аккаунт, под которым бот входит в программу; кто из сотрудников подключён (одноразовая ссылка — бот сам
    привязывает Telegram к аккаунту; в личном чате бот отвечает по правам аккаунта); отчёты по расписанию. */
-const TG_FULL = (a) => !!a && (a.base === "boss" || PERMS.every((p) => a.perms && a.perms[p.id]));
+const TG_FULL = (a) => !!a && (a.base === "boss" || a.boss || PERMS.every((p) => p.id === "boss" || (a.perms && a.perms[p.id])));
 // Бот поставщиков: группа каждого поставщика (оттуда — накладные и прайсы) и группа расходов (туда — накладные с объектом);
 // «Объект выбирает»: если бот не уверен, чья накладная, — карточки выбора объекта уходят этим людям в личный чат бота
 function ZakazCard({ data, reload, toast, users = [] }) {
@@ -13099,7 +13105,7 @@ function UserForm({ u, users, self, onClose, onSave, data = null, uperms = {}, h
             {GRANT_TABS.map((t) => <label key={t} className="clk sm"><input type="checkbox" disabled={permsLocked} checked={own.tabs.includes(t)} onChange={() => updOwn((r) => { r.tabs = r.tabs.includes(t) ? r.tabs.filter((x) => x !== t) : GRANT_TABS.filter((x) => x === t || r.tabs.includes(x)); return r; })} /> {TAB_NAMES[t]}</label>)}
           </div>
           {cur.base !== "driver" && cur.base !== "designer" && <div className="perm-grid" style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
-            {PERMS.map((p) => <label key={p.id} className="clk sm" style={{ gridColumn: "1/-1" }}><input type="checkbox" disabled={permsLocked} checked={!!own.perms[p.id]} onChange={() => updOwn((r) => { r.perms[p.id] = !r.perms[p.id]; return r; })} /> {p.label}</label>)}
+            {PERMS.map((p) => <label key={p.id} className="clk sm" style={{ gridColumn: "1/-1" }}><input type="checkbox" disabled={permsLocked || (p.id === "boss" && !isBoss)} title={p.id === "boss" && !isBoss ? "Даёт только руководитель" : ""} checked={!!own.perms[p.id]} onChange={() => updOwn((r) => { r.perms[p.id] = !r.perms[p.id]; return r; })} /> {p.label}</label>)}
           </div>}
         </>}
       </div>
@@ -13754,7 +13760,7 @@ function AppInner() {
   const rolesList = useMemo(() => allRoles(data), [data.requests]);
   ROLE_LIST = rolesList;
   const userPerms = useMemo(() => userPermsOf(data), [data.requests]);
-  const acc = currentUser ? accessOf(currentUser, rolesList, userPerms) : { base: "boss", label: "", tabs: ROLES[1].tabs, perms: ALL_PERMS };
+  const acc = currentUser ? accessOf(currentUser, rolesList, userPerms) : { base: "boss", label: "", tabs: ROLES[1].tabs, perms: ALL_PERMS, boss: true };
   const role = acc.base;
   // проектировщик, у которого только «Расчёт отопления», входит без облачного пароля (дадут другие разделы — пароль спросится)
   // аккаунт Claude (ИИ вносит данные сам) — тоже без облачного пароля
@@ -14585,8 +14591,8 @@ function AppInner() {
         {tab === "delivery" && <DeliveryTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} />}
         {tab === "log" && <LogTab data={data} reload={reload} toast={toast} onBackup={acc.perms.backup ? () => setBackupOpen(true) : null} onReport={roleTabs.includes("report") ? () => goTab("report") : null} />}
         {tab === "report" && <ReportTab data={data} money={!!acc.perms.fin} toast={toast} onObject={roleTabs.includes("objects") ? (id) => { setOpenId(id); setTab("objects"); } : null} />}
-        {tab === "bots" && <BotsTab data={data} reload={reload} toast={toast} isBoss={role === "boss"} goTab={goTab} />}
-        {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} isBoss={role === "boss"} seen={team.seen} onChat={openChat} />}
+        {tab === "bots" && <BotsTab data={data} reload={reload} toast={toast} isBoss={!!acc.boss} goTab={goTab} />}
+        {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} isBoss={!!acc.boss} seen={team.seen} onChat={openChat} />}
         {tab === "usta" && <UstaListsTab data={data} toast={toast} userName={currentUser.name || currentUser.username} canDel={!!acc.perms.del} onCount={setUstaNew} goRequest={() => { setOpenId(null); setTab("request"); }} />}
         {tab === "heat" && <HeatCalcTab lang={lang} userName={currentUser.name || currentUser.username} />}
         {tab === "finance" && <FinanceTab data={data} reload={reload} toast={toast} boss={!!acc.perms.salary} />}
@@ -14597,13 +14603,13 @@ function AppInner() {
         try { await restoreFromSupabase(dump); } catch (e) { await reload("all"); throw e; }
         await logAction("База восстановлена из бэкапа", "", "из текста"); await reload("all"); setBackupOpen(false); setOpenId(null); toast("База восстановлена");
       }} onWipe={() => { setBackupOpen(false); setWipeOpen(true); }} />}
-      {wipeOpen && role === "boss" && <WipeModal data={data} reload={reload} onClose={() => setWipeOpen(false)} onDone={async () => {
+      {wipeOpen && acc.boss && <WipeModal data={data} reload={reload} onClose={() => setWipeOpen(false)} onDone={async () => {
         await reload("all"); setWipeOpen(false); setOpenId(null); toast("База очищена. Товары, поставщики и мастера сохранены.");
       }} />}
       {heatWin && heatMounted && currentUser && <HeatWin lang={lang} userName={currentUser.name || currentUser.username} open={heatOpen} onClose={() => setHeatOpen(false)} />}
       {calcOpen && <Calculator onClose={() => setCalcOpen(false)} />}
       {chatOpen && currentUser && <ChatWin team={team} data={data} me={currentUser} start={chatStart} toast={toast} onClose={() => setChatOpen(false)} />}
-      {notesOpen && currentUser && <NotesPanel data={data} reload={reload} toast={toast} user={currentUser} boss={role === "boss"} onClose={() => setNotesOpen(false)} />}
+      {notesOpen && currentUser && <NotesPanel data={data} reload={reload} toast={toast} user={currentUser} boss={!!acc.boss} onClose={() => setNotesOpen(false)} />}
       <ConfirmHost />
       <SheetPickHost />
       <SelectPopupHost />
