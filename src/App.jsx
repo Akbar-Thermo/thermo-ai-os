@@ -12139,10 +12139,8 @@ function NoteForm({ n, mine, canDel = false, onClose, onSave, onDelete, onHide, 
 }
 /* ============ ЖУРНАЛ ДЕЙСТВИЙ ============ */
 /* ---- Раздел «Отчёт»: что было в программе за день / неделю / месяц / свои даты — по журналу действий,
-   деньгам и спискам от мастеров. Каждый день в DAYREP_AT (09:30) у тех, кому открыт «Отчёт», само открывается окно —
-   отчёт за вчера, один раз в день (открыли программу позже — откроется при входе).
+   деньгам и спискам от мастеров. Открывается только вручную (окно «отчёт за вчера» в 09:30 убрано по просьбе руководителя).
    Суммы — только с правом «Финансы». Сборка — dayReport() (чистая функция), вид — ReportView. ---- */
-const DAYREP_AT = "09:30";
 const DR_TZ = "Asia/Tashkent";
 const drDay = (ts) => new Date(ts).toLocaleDateString("sv-SE", { timeZone: DR_TZ });
 const drNow = () => { const d = new Date(); return { day: d.toLocaleDateString("sv-SE", { timeZone: DR_TZ }), hm: d.toLocaleTimeString("sv-SE", { timeZone: DR_TZ, hour: "2-digit", minute: "2-digit" }) }; };
@@ -12366,18 +12364,6 @@ function ReportView({ data, money, onObject, init, page }) {
 // раздел «Отчёт»
 function ReportTab({ data, money, onObject }) {
   return <div className="dayrep"><ReportView data={data} money={money} onObject={onObject} page /></div>;
-}
-// окно, которое само открывается в 09:30 (отчёт за вчера)
-function DayReportWin({ data, money, day, auto, onClose, onObject, onSection }) {
-  return (
-    <Modal title={(auto ? "Доброе утро — " : "") + "Отчёт за вчера"} onClose={onClose} w={1180} cls="dayrep">
-      <ReportView data={data} money={money} onObject={onObject} init={{ mode: "day", d: day }} />
-      <div className="row" style={{ justifyContent: "space-between", marginTop: 14, gap: 8, flexWrap: "wrap" }}>
-        <span className="xs mut">Каждый день в {DAYREP_AT} отчёт за вчера открывается сам · неделя, месяц и любые дни — в разделе «Отчёт»</span>
-        <span className="row" style={{ gap: 8 }}>{onSection && <button className="btn" onClick={onSection}>Открыть раздел «Отчёт»</button>}<button className="btn pri" onClick={onClose}>Закрыть</button></span>
-      </div>
-    </Modal>
-  );
 }
 function LogTab({ data, reload, toast, onBackup, onReport }) {
   const audit_all = data.audit_log;
@@ -14439,23 +14425,6 @@ function AppInner() {
     tick(); const t = setInterval(tick, 60000);
     return () => { alive = false; clearInterval(t); };
   }, [hasUsta]);
-  // «Отчёт»: в 09:30 (или при первом входе позже) — окно с отчётом за вчера, один раз в день у каждого, кому открыт раздел
-  const hasRep = !!currentUser && roleTabs.includes("report");
-  const [dayRep, setDayRep] = useState(null);
-  useEffect(() => {
-    if (!hasRep) { setDayRep(null); return; }
-    const key = "te:dayrep:" + currentUser.id;
-    const tick = () => {
-      const n = drNow();
-      if (n.hm < DAYREP_AT) return;
-      let seen = ""; try { seen = localStorage.getItem(key) || ""; } catch (e) {}
-      if (seen === n.day) return;
-      try { localStorage.setItem(key, n.day); } catch (e) {}
-      setDayRep({ day: drAdd(n.day, -1), auto: true });
-    };
-    tick(); const t = setInterval(tick, 30000);
-    return () => clearInterval(t);
-  }, [hasRep, currentUser ? currentUser.id : ""]);
   const TAB_LABELS_RU = { report: "Отчёт", usta: "От мастеров", heat: "Расчёт отопления", delivery: "Доставка", request: "Новая заявка", dash: "Дашборд", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", bots: "Боты", admin: "Аккаунты" , notes: "Заметки" };
   const TAB_LABELS_UZ = { report: "Hisobot", usta: "Ustalardan", heat: "Isitish hisobi", delivery: "Yetkazish", request: "Yangi ariza", dash: "Boshqaruv", objects: "Ob'ektlar", products: "Tovarlar", wh: "Ombor Thermo", suppliers: "Ta'minotchilar", masters: "Ustalar", finance: "Moliya", log: "Jurnal", bots: "Botlar", admin: "Hisoblar" , notes: "Eslatmalar" };
   const TAB_LABELS = lang === "uz" ? TAB_LABELS_UZ : TAB_LABELS_RU;
@@ -14654,7 +14623,6 @@ function AppInner() {
       }} />}
       {heatWin && heatMounted && currentUser && <HeatWin lang={lang} userName={currentUser.name || currentUser.username} open={heatOpen} onClose={() => setHeatOpen(false)} />}
       {calcOpen && <Calculator onClose={() => setCalcOpen(false)} />}
-      {dayRep && hasRep && <DayReportWin data={data} money={!!acc.perms.fin} day={dayRep.day} auto={dayRep.auto} onClose={() => setDayRep(null)} onSection={() => { setDayRep(null); goTab("report"); }} onObject={roleTabs.includes("objects") ? (id) => { setDayRep(null); setOpenId(id); setTab("objects"); } : null} />}
       {chatOpen && currentUser && <ChatWin team={team} data={data} me={currentUser} start={chatStart} toast={toast} onClose={() => setChatOpen(false)} />}
       {notesOpen && currentUser && <NotesPanel data={data} reload={reload} toast={toast} user={currentUser} boss={role === "boss"} onClose={() => setNotesOpen(false)} />}
       <ConfirmHost />
