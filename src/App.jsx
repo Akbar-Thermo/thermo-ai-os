@@ -840,7 +840,6 @@ body.fw-busy iframe{pointer-events:none}
 .dayrep-n{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;border-radius:var(--r-pill);background:var(--panel2);border:1px solid var(--line);font-size:var(--fs-xs);font-weight:700;color:var(--mut);align-self:center}
 .dayrep-kpis{margin-bottom:12px}
 .dayrep-hint{margin:-2px 0 6px}
-.dayrep-who .dayrep-r>:first-child{white-space:normal}
 .dayrep-card{padding:12px 14px;min-width:0}
 .dayrep-h{display:flex;align-items:center;gap:8px;margin-bottom:6px}
 .dayrep-h b{margin-right:auto;font-size:var(--fs-sm)}
@@ -12172,7 +12171,7 @@ function dayReport({ from, to, logs = [], ops = [], objects = [], suppliers = []
   const objByName = new Map(objects.map((o) => [o.name, o.id]));
   const objN = new Map(objects.map((o) => [o.id, o.name || "—"])), supN = new Map(suppliers.map((s) => [s.id, s.name || "—"]));
   const sumBy = (rows, key, val) => { const m = new Map(); rows.forEach((x) => { const k = key(x); m.set(k, (m.get(k) || 0) + val(x)); }); return [...m.entries()]; };
-  const R = { from, to, money: null, blocks: [], who: [], warn: [], byDay: null };
+  const R = { from, to, money: null, blocks: [], warn: [], byDay: null };
   const block = (id, title, rows, total, hint) => { if (rows.length) R.blocks.push({ id, title, rows, total: total == null ? rows.length : total, hint: hint || "" }); };
   const objRow = (name, note) => ({ name, note: note || "", obj: objByName.get(name) || null });
 
@@ -12214,27 +12213,22 @@ function dayReport({ from, to, logs = [], ops = [], objects = [], suppliers = []
   const cnt = (rows) => sumBy(rows, drEnt, (x) => Number(drRe(/позиций:\s*(\d+)/, x.detail)) || 0);
   block("add", "Добавлены позиции", cnt(take(/^Добавлены позиции/, isObj)).map(([n, k]) => objRow(n, k ? k + " поз." : "")), null, "в уже существующие поставки");
   block("dlv", "Отгружено клиентам", cnt(take(/^(Товар отгружен|Отгрузка со склада)/, isObj)).map(([n, k]) => objRow(n, k ? k + " поз." : "")));
-  block("paid", "Оплачены полностью", [...new Set(take(/^Статус объекта: Оплачено/, isObj).map(drEnt))].map((n) => ({ ...objRow(n), ok: true })));
+  // «Оплачены полностью», «Правки в объектах», «Склад и закупки», «Сотрудники», «Другие действия» — убраны по просьбе руководителя (11.2026)
+  take(/^Статус объекта: Оплачено/, isObj);
   block("ret", "Возвраты товара", take(/^Возврат товара/, isObj).map((x) => { const sm = drRe(/сумма:\s*([\d\s.,]+)/, x.detail); return objRow(drEnt(x), money && sm ? fmt2(drNum(sm)) + " $" : ""); }));
   const disc = take(/^Скидка/, isObj);
   if (money) block("disc", "Скидки", disc.map((x) => objRow(drEnt(x), drNum(x.detail) ? fmt2(drNum(x.detail)) + " $" : "")));
   const st = new Map(); take(/^Статус объекта: /, isObj).forEach((x) => st.set(drEnt(x), x.action.replace(/^Статус объекта:\s*/, ""))); // последний статус за день
   block("st", "Сменился статус", [...st.entries()].map(([n, s]) => objRow(n, "→ " + s)), null, "последний статус за период");
   block("del", "Удалено", take(/^(Удалён объект|Удалена поставка)/, isObj).map((x) => ({ ...objRow(drEnt(x), (/поставка/.test(x.action) ? x.action.replace(/^Удалена\s*/, "") : "объект") + " · " + drWho(x)), bad: true })));
-  block("edit", "Правки в объектах", sumBy(take(/./, isObj), drEnt, () => 1).sort((a, b) => b[1] - a[1]).map(([n, k]) => objRow(n, "правок: " + k)), null, "цены, количество, замена позиций, себестоимость");
+  take(/./, isObj);
 
   // мастера (списки со страницы /usta)
   if (usta.length || ustaNew) R.blocks.push({ id: "usta", title: "От мастеров", total: usta.length, foot: "Не разобрано: " + ustaNew,
     rows: usta.map((u) => ({ name: u.usta_name || "—", note: [u.object_text, (Array.isArray(u.lines) ? u.lines.length : 0) + " поз."].filter(Boolean).join(" · ") })) });
-  const grp = (rows) => sumBy(rows, (x) => x.action, () => 1).sort((a, b) => b[1] - a[1]).map(([a, k]) => ({ name: a, note: k > 1 ? "× " + k : "" }));
-  block("sup", "Поставщики", [...new Map(take(/поставщик/i).map((x) => [x.action + drEnt(x), { name: drEnt(x) || "—", note: x.action.replace(/\s*поставщик[а-я]*/i, "") }])).values()]);
-  block("wh", "Склад", grp(take(/^(Склад|Возврат поставщику со склада)/)));
-  block("prod", "База товаров", grp(take(/товар|Себестоимость|ИКПУ|Коды товаров/i)));
-  block("mst", "Мастера", [...new Map(take(/мастер/i).map((x) => [x.action + drEnt(x), { name: drEnt(x) || "—", note: x.action }])).values()]);
-  block("other", "Другие действия", grp(take(/./)));
 
-  const short = (a) => a.replace(/:.*$/, "").replace(/\s*\(.*\)$/, "");
-  R.who = sumBy(ev, drWho, () => 1).sort((a, b) => b[1] - a[1]).map(([n, k]) => [n, k, sumBy(ev.filter((x) => drWho(x) === n), (x) => short(x.action), () => 1).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([a, c]) => a.toLowerCase() + " " + c).join(" · ")]);
+  block("mst", "Мастера", [...new Map(take(/мастер/i).map((x) => [x.action + drEnt(x), { name: drEnt(x) || "—", note: x.action }])).values()]);
+
   // коротко — главные цифры периода
   R.sum = [["Новые объекты", fresh.length ? new Set(fresh.map(drEnt)).size : 0], ["Поставки", pst.length], ["Отгружено объектам", (R.blocks.find((b) => b.id === "dlv") || {}).total || 0],
     ["Оплатили клиенты", (R.blocks.find((b) => b.id === "cl") || {}).total || 0], ["Списки от мастеров", usta.length]];
@@ -12326,10 +12320,7 @@ function ReportView({ data, money, onObject, init, page }) {
     ["money", "Деньги", ["cl", "sp"]],
     ["days", "По дням", []],
     ["obj", "Объекты", ["new", "pst", "add", "dlv", "paid", "ret", "disc", "st", "del", "edit"]],
-    ["buy", "Склад и закупки", ["sup", "wh", "prod"]],
     ["mst", "Мастера", ["usta", "mst"]],
-    ["team", "Сотрудники", []],
-    ["other", "Прочее", ["other"]],
   ];
   const Card = ({ b }) => {
     const all = !!open[b.id], rows = all ? b.rows : b.rows.slice(0, N);
@@ -12386,15 +12377,6 @@ function ReportView({ data, money, onObject, init, page }) {
             })}</tbody>
           </table>
         </div>
-      </Sec>;
-    }
-    if (id === "team") {
-      if (!rep.who.length && !cards.length) return null;
-      return <Sec key={id} n={++num} title={title} sub="кто сколько сделал и что чаще всего">
-        <div className="card dayrep-card dayrep-who">
-          {rep.who.map(([n, k, top]) => <div key={n} className="dayrep-r sm"><span><b>{n}</b> <span className="mut">— {top}</span></span><span className="mono">действий: {k}</span></div>)}
-        </div>
-        {cards.length > 0 && <div className="dayrep-grid" style={{ marginTop: 12 }}>{cards.map((b) => <Card key={b.id} b={b} />)}</div>}
       </Sec>;
     }
     if (!cards.length) return null;
