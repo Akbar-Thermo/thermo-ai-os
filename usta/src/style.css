@@ -261,3 +261,23 @@ table.dt tr.man td.t{cursor:default}
 table.dt .mnm{width:100%}
 table.dt .mnm.none{border-color:var(--bad)}
 table.dt .mun{width:64px}
+
+/* tartib: sarlavha qatorida bo'limlar; pastda bitta qator — qo'lda qo'shish, tozalash … pozitsiyalar, Yuborish */
+.dsp{flex:1}
+.dpickh{gap:10px;flex-wrap:nowrap;align-items:center}
+.dpickh h3{margin:0;flex:none}
+.dpickh #secbar{flex:1;min-width:0;display:flex;justify-content:flex-end}
+.dpickh .secbar{margin:0!important;justify-content:flex-end;flex-wrap:wrap}
+.dpickh .secbar .chips{flex:none;justify-content:flex-end}
+.dfoot{gap:10px;align-items:center;flex-wrap:nowrap}
+.dfoot .dcount{white-space:nowrap}
+body.desk .btn.ghost{border-color:transparent;background:transparent;color:var(--mut)}
+body.desk .btn.ghost:hover{color:var(--bad);border-color:transparent}
+table.dt tr.sechd{display:table-row}
+table.dt tr.sechd td{display:table-cell}
+table.dt tr.sechd td span{display:inline}
+/* telefon */
+.top .tt{flex:1;min-width:0}
+.top .tt .s{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top #bHist{flex:none;padding:7px 11px;font-size:17px;line-height:1}
+.mfoot{justify-content:space-between;margin-top:6px}

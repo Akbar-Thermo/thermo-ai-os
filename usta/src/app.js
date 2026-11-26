@@ -79,7 +79,7 @@
       // postavshiklar — lotincha nomi bo'yicha alifbo tartibida (programmadagidek)
       SUPS.sort(function (a, b) { return translit(a.name.toLowerCase()).localeCompare(translit(b.name.toLowerCase()), "en", { numeric: true, sensitivity: "base" }); });
       S.sfs = S.sfs.filter(function (id) { return SUPN[id]; });
-      if (isDesk()) { var c = $("bCat"); if (c) c.style.display = "none"; renderSupF(); renderSug(); }
+      if (isDesk()) { ["bCat", "bPaste"].forEach(function (id) { var c = $(id); if (c) c.style.display = "none"; }); renderSupF(); renderSug(); renderList(); }
     }).catch(function () { baseLoading = false; });
   }
   function baseFind(q) {
@@ -111,24 +111,24 @@
     document.body.classList.toggle("desk", isDesk());
     if (isDesk()) $("app").innerHTML =
       (PREVIEW ? '<div class="pvbar">' + esc(T("previewBar")) + "</div>" : "") +
-      '<div class="dk"><header class="dh"><div class="dlogo">THERMO<span>•</span>ENGINEERING</div><div class="dtt">' + esc(T("title")) + '</div>' +
+      '<div class="dk"><header class="dh"><div class="dlogo">THERMO<span>•</span>ENGINEERING</div><div class="dsp"></div>' +
       '<div class="dwho" id="who"></div>' +
       '<div class="lang"><button data-l="uz" class="' + (S.lang === "uz" ? "on" : "") + '">UZ</button><button data-l="ru" class="' + (S.lang === "ru" ? "on" : "") + '">RU</button></div></header>' +
       '<div class="dbody">' +
       '<div class="dph"><h2>' + esc(T("title")) + '</h2><button class="btn" id="bHist">☰ ' + esc(T("myLists")) + '</button><button class="btn" id="bNew">+ ' + esc(T("newList")) + '</button></div>' +
       '<div class="card dobjc"><div id="whoCard"></div><div class="dgrid"><div class="fld"><label for="obj">' + esc(T("object")) + '</label><input class="inp" id="obj" placeholder="' + esc(T("objectPh")) + '" value="' + esc(S.object) + '" maxlength="200"></div>' +
       '<div class="fld"><label for="note">' + esc(T("note")) + '</label><input class="inp" id="note" placeholder="' + esc(T("notePh")) + '" value="' + esc(S.note) + '" maxlength="1000"></div></div></div>' +
-      '<div class="card dpick"><div class="row dpickh"><h3>' + esc(T("pickT")) + '</h3><button class="btn" id="bCat">☰ ' + esc(T("catalog")) + '</button><button class="btn" id="bPaste">⧉ ' + esc(T("paste")) + '</button></div>' +
-      '<div id="secbar"></div>' +
+      // bo'limlar — kartochka sarlavhasining o'zida (alohida qator olmaydi); katalog/matn — faqat bazasiz (umumiy havola) holatda
+      '<div class="card dpick"><div class="row dpickh"><h3>' + esc(T("pickT")) + '</h3><div id="secbar"></div><button class="btn" id="bCat">☰ ' + esc(T("catalog")) + '</button><button class="btn" id="bPaste">⧉ ' + esc(T("paste")) + '</button></div>' +
       '<div class="dsrch"><div class="srow"><div id="supf" class="supf"></div><input class="inp" id="q" placeholder="' + esc(T("searchPh")) + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></div><div class="sug dsug" id="sug"></div></div>' +
       '<div id="list"></div>' +
-      '<div class="row dfoot"><button class="btn xs" id="bManual">+ ' + esc(T("manualAdd")) + '</button><b class="dcount" id="dcount"></b></div>' +
-      '<div class="row dact"><button class="btn" id="bClear">' + esc(T("clear")) + '</button><button class="btn pri" id="bSend"></button></div>' +
+      '<div class="row dfoot"><button class="btn xs" id="bManual">+ ' + esc(T("manualAdd")) + '</button><button class="btn xs ghost" id="bClear">' + esc(T("clearShort")) + '</button><span class="dsp"></span><b class="dcount" id="dcount"></b><button class="btn pri" id="bSend"></button></div>' +
       '</div></div></div>';
     else $("app").innerHTML =
       (PREVIEW ? '<div class="pvbar">' + esc(T("previewBar")) + "</div>" : "") +
       '<div class="wrap">' +
-      '<div class="top"><div class="logo">T</div><div><h1>' + esc(T("title")) + '</h1><div class="s">' + esc(T("sub")) + '</div></div>' +
+      '<div class="top"><div class="logo">T</div><div class="tt"><h1>' + esc(T("title")) + '</h1><div class="s" id="sub">' + esc(T("sub")) + '</div></div>' +
+      '<button class="btn sm" id="bHist" aria-label="' + esc(T("myLists")) + '">☰</button>' +
       '<div class="lang"><button data-l="uz" class="' + (S.lang === "uz" ? "on" : "") + '">UZ</button><button data-l="ru" class="' + (S.lang === "ru" ? "on" : "") + '">RU</button></div></div>' +
       '<div class="card" id="who"></div>' +
       '<div class="card"><div class="lbl">' + esc(T("object")) + '</div><input class="inp" id="obj" placeholder="' + esc(T("objectPh")) + '" value="' + esc(S.object) + '" maxlength="200"></div>' +
@@ -136,7 +136,7 @@
       '<div id="secbar"></div>' +
       '<div id="list"></div>' +
       '<div class="card" id="noteBox"><div class="lbl">' + esc(T("note")) + '</div><input class="inp" id="note" placeholder="' + esc(T("notePh")) + '" value="' + esc(S.note) + '" maxlength="1000"></div>' +
-      '<div class="row" style="justify-content:space-between;margin-top:6px"><button class="link" id="bHist" style="margin-left:0">☰ ' + esc(T("myLists")) + '</button><button class="link" id="bNew">+ ' + esc(T("newList")) + '</button><button class="link" id="bClear">' + esc(T("clear")) + '</button></div>' +
+      '<div class="row mfoot"><button class="link" id="bNew" style="margin-left:0">+ ' + esc(T("newList")) + '</button><button class="link mutl" id="bClear">' + esc(T("clear")) + '</button></div>' +
       '</div>' +
       '<div class="dock"><div class="in"><div class="sug" id="sug"></div>' +
       '<div class="compose"><input class="inp" id="q" placeholder="' + esc(T("inputPh")) + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"><button class="btn pri" id="bAdd" aria-label="' + esc(T("add")) + '">+</button></div>' +
@@ -185,7 +185,7 @@
     $("bSend").onclick = send;
     renderWho(); renderSecs(); renderList(); renderSug(); renderLists();
     if (isDesk() && !S.lines.length) setTimeout(function () { var q = $("q"); if (q) q.focus(); }, 0);
-    if (isDesk() && BASE) { var bc = $("bCat"); if (bc) bc.style.display = "none"; }
+    if (isDesk() && BASE) ["bCat", "bPaste"].forEach(function (id) { var c = $(id); if (c) c.style.display = "none"; });
     renderSupF();
     loadBase();
   }
@@ -196,7 +196,7 @@
     var b = $("secbar"); if (!b) return;
     var h = '<div class="secbar"><div class="chips">';
     if (S.secs.length) {
-      h += '<button class="chip' + (!S.cur ? " on" : "") + '" data-sec="">' + esc(T("noSec")) + "</button>";
+      if (!S.cur || S.lines.some(function (l) { return !l.sec; })) h += '<button class="chip' + (!S.cur ? " on" : "") + '" data-sec="">' + esc(T("noSec")) + "</button>";
       h += S.secs.map(function (x) { return '<button class="chip' + (S.cur === x.id ? " on" : "") + '" data-sec="' + x.id + '">' + esc(x.name) + "</button>"; }).join("");
     }
     h += '<button class="chip add" id="bSecAdd">+ ' + esc(T("addSec")) + "</button></div>";
@@ -236,9 +236,14 @@
 
   function renderWho() {
     var w = $("who");
+    if (!isDesk()) {
+      var sb = $("sub"); if (sb) sb.textContent = S.me ? S.me.name : T("sub");
+      w.style.display = S.me ? "none" : "";
+      if (S.me) { w.innerHTML = ""; return; }
+    }
     if (isDesk()) {
       var wc = $("whoCard"); wc.innerHTML = "";
-      if (S.me) { w.innerHTML = '<span class="dwn">' + esc(S.me.name) + '</span><span class="tag ok">✓ ' + esc(T("myLink")) + "</span>"; return; }
+      if (S.me) { w.innerHTML = '<span class="dwn">' + esc(S.me.name) + "</span>"; return; }
       if (!S.editWho) { w.innerHTML = '<span class="dwn">' + esc(S.who.name) + '</span><span class="xs">' + esc(S.who.phone) + '</span><button class="link" id="bWho">' + esc(T("edit")) + "</button>"; $("bWho").onclick = function () { S.editWho = true; renderWho(); }; if (S.keyBad) wc.innerHTML = '<div class="keybad">' + esc(T("keyBad")) + "</div>"; return; }
       w.innerHTML = ""; w = wc;
     }
@@ -332,7 +337,7 @@
       renderSend(); return;
     }
     if (!S.lines.length) {
-      L.innerHTML = isDesk() ? '<div class="dempty">' + esc(T("emptyDk")) + "</div>" : '<div class="card empty"><b>' + esc(T("emptyT")) + '</b>' + esc(T("emptyD")) + '</div>';
+      L.innerHTML = isDesk() ? '<div class="dempty">' + esc(T(BASE ? "emptyDkBase" : "emptyDk")) + "</div>" : '<div class="card empty"><b>' + esc(T("emptyT")) + '</b>' + esc(T("emptyD")) + '</div>';
     } else if (S.secs.length) {
       // bo'limlar bo'yicha: har bo'lim sarlavhasi bilan (bosilsa — yangi tovarlar shu bo'limga tushadi)
       var groups = [{ id: "", name: T("noSec") }].concat(S.secs), html = "", k = 0;
@@ -378,6 +383,8 @@
     var b = $("bSend"); if (!b) return;
     var n = S.secs.length ? totals().length : S.lines.length;
     var c = $("dcount"); if (c) c.textContent = T("positions") + ": " + n;
+    var cl = $("bClear"); if (cl) cl.style.visibility = S.lines.length ? "" : "hidden";
+    if (!isDesk()) { var nw = $("bNew"); if (nw) nw.style.visibility = S.lines.length ? "" : "hidden"; }
     b.textContent = S.sending ? T("sending") : isDesk() ? T("send") + " ✓" : T("send") + (n ? " · " + n + " " + T("items") : "");
     b.disabled = S.sending || (isDesk() && !S.lines.length);
   }
