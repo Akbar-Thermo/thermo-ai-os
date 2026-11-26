@@ -5,7 +5,6 @@
 import * as C from "./core.mjs";
 import { createHash } from "node:crypto";
 import { VOICES, DEF_VOICE } from "./voice.mjs";
-import { morningBuild } from "./morning.mjs";
 
 export const CFG_MODE = "te_tg";        // разрешённые группы — меняет руководитель (lines.allowed = [{ id, title }])
 export const PEND_MODE = "te_tgpend";   // группы, куда добавили бота, — пишет бот (lines.groups = [{ id, title, at }])
@@ -193,7 +192,6 @@ const CMDS = {
   ovoz: ["ovoz", "овоз", "voice", "голос"],
   qoida: ["qoidalar", "qoida", "rules", "правила"],
   eslab: ["eslab", "eslabqol", "запомни"],
-  hisobot: ["hisobot", "ҳисобот", "хисобот", "otchet", "отчет", "отчёт", "report"],
   tekshir: ["tekshir", "текшир", "tekshirish", "kiritilmagan", "сверка", "проверка"],
   yordam: ["yordam", "ёрдам", "help", "помощь", "start", "buyruqlar"],
   id: ["id"],
@@ -236,7 +234,7 @@ export function parseSlash(text) {
   const cmd = parseCommand(t);
   const body = slashText(t);
   // «/qarz 500$ oldik», «/obyekt … 1 200 000» — это приход/расход, а не вопрос
-  if (cmd && !["kassa", "bugun", "yordam", "id", "narx", "sklad", "dostavka", "eslat", "q", "hafta", "oy", "kurs", "hisobot"].includes(cmd.name)) { const a = findAmount(cmd.arg); if (a && (a.v >= 1000 || a.cur)) { const m = parseMoney(body); if (m) return { money: m }; } }
+  if (cmd && !["kassa", "bugun", "yordam", "id", "narx", "sklad", "dostavka", "eslat", "q", "hafta", "oy", "kurs"].includes(cmd.name)) { const a = findAmount(cmd.arg); if (a && (a.v >= 1000 || a.cur)) { const m = parseMoney(body); if (m) return { money: m }; } }
   if (cmd) return { cmd };
   const money = parseMoney(body);
   return money ? { money } : null;
@@ -255,7 +253,6 @@ export const HELP = [
   "• /obyekt — obyektlar: holati, to'lovlar, materiallar, 💳 to'lov qo'shish, 📄 Excel, 📤 mijozga xabar",
   "• /dostavka — yetkazishlar, «✅ Yetkazildi» · /narx <i>tovar</i> — narxlar · /sklad <i>tovar</i> — ombor",
   "• /q <i>so'z</i> — hamma joydan qidirish · /hafta, /oy — davr hisoboti · /kurs — kurs (<code>/kurs 12 650</code>)",
-  "• /hisobot — kecha programmada nima bo'ldi (<code>/hisobot 24.11</code>); har kuni ertalab o'zi ham keladi",
   "• /eslat <code>15:00 matn</code> — eslatma (<code>ertaga 10:00 …</code>, <code>30 daqiqa …</code>, <code>05.11 9:00 …</code>)",
   "• /tekshir <code>23.10</code> — guruhda yozilgan, lekin dasturga kiritilmagan rasxod/prixodlar → belgilab, bitta tugma bilan kiritish",
   "  eski xabarlar uchun: Telegram Desktop → guruh → ⋮ → Export chat history → JSON → <code>result.json</code> faylini shu chatga yuboring",
@@ -280,7 +277,6 @@ export const MENU = [
   { command: "sklad", description: "Omborda bormi (/sklad truba 25)" },
   { command: "dostavka", description: "Yetkazishlar" },
   { command: "q", description: "Hamma joydan qidirish (/q Gulnora)" },
-  { command: "hisobot", description: "Kecha nima bo'ldi (/hisobot 24.11)" },
   { command: "hafta", description: "Shu hafta: kirim-chiqim" },
   { command: "oy", description: "Shu oy: kirim-chiqim" },
   { command: "kurs", description: "Kurs (/kurs 12 650 — yangisi)" },
@@ -292,7 +288,7 @@ export const MENU = [
   { command: "yordam", description: "Qanday ishlatish" },
 ];
 // какой раздел программы нужен для вопроса (как вкладки в программе)
-export const NEED = { hisobot: "objects", kassa: "finance", bugun: "finance", hafta: "finance", oy: "finance", kurs: "finance", qarz: "objects", postavshik: "suppliers", obyekt: "objects", narx: "products", sklad: "wh", dostavka: "delivery", smeta: "products", tekshir: "finance", qoida: "products", eslab: "products" };
+export const NEED = { kassa: "finance", bugun: "finance", hafta: "finance", oy: "finance", kurs: "finance", qarz: "objects", postavshik: "suppliers", obyekt: "objects", narx: "products", sklad: "wh", dostavka: "delivery", smeta: "products", tekshir: "finance", qoida: "products", eslab: "products" };
 export const canAsk = (acc, name) => !NEED[name] || !!acc && (acc.base === "boss" || (acc.tabs || []).includes(NEED[name]));
 export const isFull = (acc) => !!acc && (acc.base === "boss" || C.PERMS.every((p) => acc.perms && acc.perms[p.id]));
 // кнопки с вопросами внизу личного чата — только те, что человеку открыты
@@ -312,8 +308,8 @@ export function noteSplit(t) {
 // расписание отчётов (Аккаунты → Telegram-бот): ежедневный — касса и кирим-чиқим; в последний день месяца — долги
 const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
 export function repCfg(lines) {
-  const r = (lines && lines.report) || {}, d = r.daily || {}, b = r.debts || {}, k = r.risk || {}, mo = r.morning || {};
-  return { morning: { on: mo.on !== false, time: HM.test(mo.time || "") ? mo.time : "09:30" }, daily: { on: d.on !== false, time: HM.test(d.time || "") ? d.time : "21:30", ai: d.ai !== false }, debts: { on: b.on !== false, time: HM.test(b.time || "") ? b.time : "10:00", days: Number(b.days) > 0 ? Number(b.days) : 14 },
+  const r = (lines && lines.report) || {}, d = r.daily || {}, b = r.debts || {}, k = r.risk || {};
+  return { daily: { on: d.on !== false, time: HM.test(d.time || "") ? d.time : "21:30", ai: d.ai !== false }, debts: { on: b.on !== false, time: HM.test(b.time || "") ? b.time : "10:00", days: Number(b.days) > 0 ? Number(b.days) : 14 },
     risk: { on: k.on !== false, dow: Number(k.dow) >= 0 && Number(k.dow) <= 6 ? Number(k.dow) : 1, time: HM.test(k.time || "") ? k.time : "09:00" }, to: Array.isArray(r.to) ? r.to.map(String) : null };
 }
 // ИИ (Аккаунты → Telegram-бот): лимит расходов в месяц ($), голос ответа, когда отвечать голосом
@@ -1411,7 +1407,6 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
       if (cmd.name === "yordam") text = HELP;
       else if (cmd.name === "kassa") { const d0 = parseDay(cmd.arg, day); return send(chatId, cut(await kassa(d0), 4000), { reply_to_message_id: msg.message_id, reply_markup: kcKb(d0) }); }
       else if (cmd.name === "bugun") text = await today(parseDay(cmd.arg, day));
-      else if (cmd.name === "hisobot") { const d0 = cmd.arg ? parseDay(cmd.arg, day) : addDays(day, -1); text = morningBuild({ ...(await morningData(d0)), day: d0, money: fin$(acc) }); if (d0 !== addDays(day, -1)) text = text.replace("Kecha — ", "").replace("Kecha programmada", "Bu kuni programmada").replace("Kecha yangi", "Bu kuni yangi"); }
       else if (cmd.name === "qarz") { const r = await debts(cmd.arg); if (typeof r !== "string") return send(chatId, cut(r.text, 4000), { reply_to_message_id: msg.message_id, reply_markup: r.reply_markup }); text = r; }
       else if (cmd.name === "postavshik") text = await supDebts(cmd.arg);
       else if (cmd.name === "obyekt") { const v = objList(await loadData(["objects"]), cmd.arg); return send(chatId, v.text, { reply_markup: v.reply_markup }); }
@@ -2685,17 +2680,6 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     return ans();
   }
   // ---------- отчёты по расписанию (GitHub Actions будит функцию каждые 10 минут) ----------
-  // утренний отчёт: журнал действий, операции и списки мастеров за день (сутки по Ташкенту)
-  async function morningData(day) {
-    const from = new Date(day + "T00:00:00+05:00").toISOString(), to = new Date(addDays(day, 1) + "T00:00:00+05:00").toISOString();
-    const [data, logs, usta, ustaNew] = await Promise.all([
-      loadData(["objects", "finance_ops", "suppliers"]),
-      db.all("audit_log", "ts=gte." + from + "&ts=lt." + to + "&action=not.like.te_*", "action,entity,detail,user_name,role,ts,created_at"),
-      db.select("usta_lists", "created_at=gte." + from + "&created_at=lt." + to + "&select=usta_name,object_text,lines,status&order=created_at.asc").catch(() => []),
-      db.select("usta_lists", "status=eq.new&select=id").then((r) => r.length).catch(() => 0),
-    ]);
-    return { logs, ops: data.finance_ops, objects: data.objects, suppliers: data.suppliers, usta, ustaNew };
-  }
   async function debtReport(days) {
     const data = await loadData(["objects", "finance_ops", "suppliers", "wh_moves"]);
     const day = tzDate(now()), dnum = (iso) => Date.parse(String(iso).slice(0, 10) + "T12:00:00Z");
@@ -2734,23 +2718,12 @@ export function makeBot({ db, tg, now = () => new Date(), upload = null, ai = nu
     const day = tzDate(now()), hm = tzTime(now());
     const wantDaily = rp.daily.on && isDue(hm, rp.daily.time), wantDebts = rp.debts.on && isLastDay(day) && isDue(hm, rp.debts.time);
     const wantRisk = rp.risk.on && dowOf(day) === rp.risk.dow && isDue(hm, rp.risk.time);
-    const wantMorning = rp.morning.on && isDue(hm, rp.morning.time);
     if (hm.slice(3) < "10") await actCleanup(); // раз в час: старые неподтверждённые действия
     if (hm === "03:00" || hm === "03:05") { try { await db.del("requests", "mode=eq." + QUEUE_MODE + "&created_at=lt." + new Date(now().getTime() - 120 * 864e5).toISOString()); } catch (e) {} }
-    if (!wantDaily && !wantDebts && !wantRisk && !wantMorning) return sent;
+    if (!wantDaily && !wantDebts && !wantRisk) return sent;
     const P = await people();
     const to = (need) => P.all().filter((m) => (rp.to ? rp.to.includes(String(m.user.id)) : isFull(m.acc)) && canAsk(m.acc, need));
     const blast = async (list, text, extra = {}) => { for (const m of list) { try { await send(m.tg, text.length > 4000 ? text.slice(0, 3990) + "\n…" : text, extra); sent.push(m.tg); } catch (e) { /* человек остановил бота */ } } };
-    // утренний отчёт — что было вчера (суммы — только тем, у кого право «Финансы»)
-    if (wantMorning && (await markOnce("rep:morning:" + day))) {
-      const list = to("hisobot");
-      if (list.length) {
-        const y = addDays(day, -1), src = await morningData(y);
-        const withM = list.filter((m) => fin$(m.acc)), noM = list.filter((m) => !fin$(m.acc));
-        if (withM.length) await blast(withM, morningBuild({ ...src, day: y, money: true }));
-        if (noM.length) await blast(noM, morningBuild({ ...src, day: y, money: false }));
-      }
-    }
     if (wantDaily && (await markOnce("rep:daily:" + day))) {
       const list = to("kassa");
       if (list.length) {

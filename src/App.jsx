@@ -827,6 +827,16 @@ body.fw-busy iframe{pointer-events:none}
 @media(max-width:820px){.fw-grip{display:none}}
 .npanel-bg.free .npanel{pointer-events:auto}
 .npanel-head b{font-size:var(--fs-xl);margin-right:auto;display:flex;align-items:center;gap:8px}
+.dayrep-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;align-items:start}
+.dayrep-card{padding:12px 14px;min-width:0}
+.dayrep-h{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.dayrep-h b{margin-right:auto;font-size:var(--fs-sm)}
+.dayrep-r{display:flex;gap:10px;justify-content:space-between;align-items:baseline;padding:5px 0;border-top:1px solid var(--line)}
+.dayrep-r>:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dayrep-r>:last-child{flex:none;max-width:55%;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dayrep-r a{color:var(--txt);cursor:pointer}
+.dayrep-r a:hover{text-decoration:underline}
+.dayrep .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:1px}
 .npanel-cnt{font-size:var(--fs-xs);font-weight:700;color:var(--mut);background:var(--panel2);border:1px solid var(--line);border-radius:var(--r-pill);padding:1px 8px}
 .npanel-x{width:34px;height:34px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--panel2);color:var(--mut);font-size:var(--fs-lg);cursor:pointer;display:flex;align-items:center;justify-content:center}
 .npanel-x:hover{color:var(--txt);border-color:var(--line2)}
@@ -12126,7 +12136,174 @@ function NoteForm({ n, mine, canDel = false, onClose, onSave, onDelete, onHide, 
   );
 }
 /* ============ ЖУРНАЛ ДЕЙСТВИЙ ============ */
-function LogTab({ data, reload, toast, onBackup }) {
+/* ---- «Отчёт за день»: что было в программе за день — по журналу действий, деньгам и спискам от мастеров.
+   Каждый день в DAYREP_AT (09:30) у тех, кому открыт «Журнал», окно открывается само — отчёт за вчера, один раз в день
+   (открыли программу позже — откроется при входе). В «Журнале» — кнопка «Отчёт за день» (любой день).
+   Суммы — только с правом «Финансы». Сборка — dayReport() (чистая функция), окно — DayReportWin. ---- */
+const DAYREP_AT = "09:30";
+const DR_TZ = "Asia/Tashkent";
+const drDay = (ts) => new Date(ts).toLocaleDateString("sv-SE", { timeZone: DR_TZ });
+const drNow = () => { const d = new Date(); return { day: d.toLocaleDateString("sv-SE", { timeZone: DR_TZ }), hm: d.toLocaleTimeString("sv-SE", { timeZone: DR_TZ, hour: "2-digit", minute: "2-digit" }) }; };
+const drAdd = (iso, n) => { const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const DR_WD = ["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"];
+// служебное и техническое (вход, пароли, бэкапы, настройки бота) — в отчёт не идёт
+const DR_SKIP = /^(te_|Вход в систему|Облачный пароль введён|Неверный облачный пароль|Создан облачный пароль|Изменён облачный пароль|Сброшен облачный пароль|Автобэкап|Бэкап скачан|Excel-архив скачан|Telegram: (ссылка|подключён|отключён|отчёты|ИИ|аккаунт бота|группа)|Бот )/;
+const drNum = (s) => { const v = Number(String(s || "").replace(/\s/g, "").replace(",", ".")); return isFinite(v) ? v : 0; };
+const drEnt = (x) => { const s = String(x.entity || ""); const i = s.indexOf(":"); return i < 0 ? s : s.slice(i + 1); };
+const drWho = (x) => String(x.user_name || "—").replace(/^Telegram:\s*/, "").trim() || "—";
+const drRe = (re, s) => (re.exec(String(s || "")) || [])[1];
+function dayReport({ day, logs = [], ops = [], objects = [], suppliers = [], usta = [], ustaNew = 0, money = true }) {
+  const ev = logs.filter((x) => x && x.action && !DR_SKIP.test(x.action) && drDay(x.ts || x.created_at) === day);
+  const used = new Set();
+  const take = (re, f = () => true) => ev.filter((x) => !used.has(x) && re.test(x.action) && f(x)).map((x) => { used.add(x); return x; });
+  const isObj = (x) => /^object:/.test(x.entity || "");
+  const objByName = new Map(objects.map((o) => [o.name, o.id]));
+  const objN = new Map(objects.map((o) => [o.id, o.name || "—"])), supN = new Map(suppliers.map((s) => [s.id, s.name || "—"]));
+  const sumBy = (rows, key, val) => { const m = new Map(); rows.forEach((x) => { const k = key(x); m.set(k, (m.get(k) || 0) + val(x)); }); return [...m.entries()]; };
+  const R = { day, money: null, blocks: [], who: [], warn: [] };
+  const block = (id, title, rows, total) => { if (rows.length) R.blocks.push({ id, title, rows, total: total == null ? rows.length : total }); };
+  const objRow = (name, note) => ({ name, note: note || "", obj: objByName.get(name) || null });
+
+  // деньги — из операций (как в «Финансах»); те же действия журнала дальше не повторяются
+  const dOps = ops.filter((x) => !x.voided && String(x.op_date || x.created_at || "").slice(0, 10) === day);
+  if (money) {
+    const s = (t) => round2(dOps.filter((x) => x.type === t).reduce((a, x) => a + (Number(x.amount) || 0), 0));
+    const inn = [["от клиентов", s("client_payment")], ["приход компании", s("company_income")]];
+    const out = [["поставщикам", s("supplier_payment")], ["расходы по объектам", s("expense")], ["бонусы мастерам", s("bonus_payment")], ["расходы компании", s("company_expense")]];
+    const ti = round2(inn.reduce((a, x) => a + x[1], 0)), to = round2(out.reduce((a, x) => a + x[1], 0));
+    if (ti > 0.004 || to > 0.004) R.money = { inn: ti, out: to, net: round2(ti - to), innParts: inn.filter((x) => x[1] > 0.004), outParts: out.filter((x) => x[1] > 0.004) };
+    const cl = sumBy(dOps.filter((x) => x.type === "client_payment"), (x) => objN.get(x.object_id) || "—", (x) => Number(x.amount) || 0).sort((a, b) => b[1] - a[1]);
+    block("cl", "Оплатили клиенты", cl.map(([n, v]) => ({ ...objRow(n), note: fmt2(v) + " $", ok: true })));
+    const sp = sumBy(dOps.filter((x) => x.type === "supplier_payment"), (x) => supN.get(x.supplier_id) || "—", (x) => Number(x.amount) || 0).sort((a, b) => b[1] - a[1]);
+    block("sp", "Оплачено поставщикам", sp.map(([n, v]) => ({ name: n, note: fmt2(v) + " $" })));
+  }
+  take(/^(Оплата клиента|Оплата поставщику|Telegram: (оплата клиента|расход|приход)|Расход компании|Приход компании|Выплата бонуса|Начислен бонус|Авто-бонус)/);
+
+  // объекты
+  const fresh = take(/^(Заявка сохранена|Создан объект)/, isObj);
+  block("new", "Новые объекты и заявки", [...new Map(fresh.map((x) => [drEnt(x), objRow(drEnt(x), drWho(x))])).values()]);
+  const pst = take(/^Новая поставка/, isObj);
+  block("pst", "Новые поставки", pst.map((x) => { const no = drRe(/поставка №\s*(\d+)/, x.detail), pz = drRe(/позиций:\s*(\d+)/, x.detail), sm = drRe(/на сумму\s*([\d\s.,]+)/, x.detail);
+    return objRow(drEnt(x), [no && "№" + no, pz && pz + " поз.", money && sm && fmt2(drNum(sm)) + " $"].filter(Boolean).join(" · ")); }));
+  const cnt = (rows) => sumBy(rows, drEnt, (x) => Number(drRe(/позиций:\s*(\d+)/, x.detail)) || 0);
+  block("add", "Добавлены позиции", cnt(take(/^Добавлены позиции/, isObj)).map(([n, k]) => objRow(n, k ? k + " поз." : "")));
+  block("dlv", "Отгружено (доставка)", cnt(take(/^(Товар отгружен|Отгрузка со склада)/, isObj)).map(([n, k]) => objRow(n, k ? k + " поз." : "")));
+  block("paid", "Оплачены полностью", [...new Set(take(/^Статус объекта: Оплачено/, isObj).map(drEnt))].map((n) => ({ ...objRow(n), ok: true })));
+  block("ret", "Возвраты товара", take(/^Возврат товара/, isObj).map((x) => { const sm = drRe(/сумма:\s*([\d\s.,]+)/, x.detail); return objRow(drEnt(x), money && sm ? fmt2(drNum(sm)) + " $" : ""); }));
+  const disc = take(/^Скидка/, isObj);
+  if (money) block("disc", "Скидки", disc.map((x) => objRow(drEnt(x), drNum(x.detail) ? fmt2(drNum(x.detail)) + " $" : "")));
+  const st = new Map(); take(/^Статус объекта: /, isObj).forEach((x) => st.set(drEnt(x), x.action.replace(/^Статус объекта:\s*/, ""))); // последний статус за день
+  block("st", "Сменился статус", [...st.entries()].map(([n, s]) => objRow(n, "→ " + s)));
+  block("del", "Удалено", take(/^(Удалён объект|Удалена поставка)/, isObj).map((x) => ({ ...objRow(drEnt(x), (/поставка/.test(x.action) ? x.action.replace(/^Удалена\s*/, "") : "объект") + " · " + drWho(x)), bad: true })));
+  block("edit", "Другие изменения в объектах", sumBy(take(/./, isObj), drEnt, () => 1).sort((a, b) => b[1] - a[1]).map(([n, k]) => objRow(n, k + " изм.")));
+
+  // мастера (списки со страницы /usta)
+  if (usta.length || ustaNew) R.blocks.push({ id: "usta", title: "От мастеров", total: usta.length, foot: "Не разобрано: " + ustaNew,
+    rows: usta.map((u) => ({ name: u.usta_name || "—", note: [u.object_text, (Array.isArray(u.lines) ? u.lines.length : 0) + " поз."].filter(Boolean).join(" · ") })) });
+  const grp = (rows) => sumBy(rows, (x) => x.action, () => 1).sort((a, b) => b[1] - a[1]).map(([a, k]) => ({ name: a, note: k > 1 ? k + " раз" : "" }));
+  block("sup", "Поставщики", [...new Map(take(/поставщик/i).map((x) => [x.action + drEnt(x), { name: drEnt(x) || "—", note: x.action }])).values()]);
+  block("wh", "Склад", grp(take(/^(Склад|Возврат поставщику со склада)/)));
+  block("prod", "Товары", grp(take(/товар|Себестоимость|ИКПУ|Коды товаров/i)));
+  block("mst", "Мастера", [...new Map(take(/мастер/i).map((x) => [x.action + drEnt(x), { name: drEnt(x) || "—", note: x.action }])).values()]);
+  block("other", "Прочее", grp(take(/./)));
+
+  R.who = sumBy(ev, drWho, () => 1).sort((a, b) => b[1] - a[1]);
+  const bad = logs.filter((x) => x && x.action === "Неверный облачный пароль" && drDay(x.ts || x.created_at) === day);
+  if (bad.length) R.warn.push("Неверный пароль: " + bad.length + " раз (" + [...new Set(bad.map(drWho))].join(", ") + ")");
+  // скидки правят часто (удалить и ввести заново) — не тревога; деньги, объекты, база — да
+  const undo = ev.filter((x) => /^(Удалена операция: (?!Скидка)|Отменено: Оплата|Удалён объект|Удалены товары|Удалён (сотрудник|аккаунт|поставщик)|База очищена|База восстановлена)/.test(x.action));
+  if (undo.length) R.warn.push("Удаления и отмены: " + undo.length + " — " + [...new Set(undo.map((x) => x.action))].slice(0, 4).join(", "));
+  R.count = ev.length;
+  R.empty = !ev.length && !R.money && !usta.length;
+  return R;
+}
+// журнал и списки мастеров за день читаются из базы (в программе журнал подгружается только в «Журнале»)
+async function loadDayReport(day) {
+  const from = new Date(day + "T00:00:00+05:00").toISOString(), to = new Date(drAdd(day, 1) + "T00:00:00+05:00").toISOString();
+  let logs = [];
+  if (sb) {
+    for (let p = 0; p < 50; p++) {
+      const r = await sb.from("audit_log").select("action,entity,detail,user_name,ts").gte("ts", from).lt("ts", to).not("action", "like", "te\\_%").order("ts", { ascending: true }).range(p * 1000, p * 1000 + 999);
+      if (r.error) throw new Error(r.error.message);
+      logs = logs.concat(r.data || []);
+      if (!r.data || r.data.length < 1000) break;
+    }
+  } else { const r = await db.from("audit_log").select(); logs = (r.data || []).filter((x) => !String(x.action || "").startsWith("te_")); }
+  let usta = [], ustaNew = 0;
+  try {
+    const r = await db.from("usta_lists").select();
+    const all = r.error ? [] : r.data || [];
+    usta = all.filter((u) => drDay(u.created_at) === day).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+    ustaNew = all.filter((u) => u.status === "new").length;
+  } catch (e) {}
+  return { logs, usta, ustaNew };
+}
+function DayReportWin({ data, money, day: day0, auto, onClose, onObject }) {
+  const today = drNow().day;
+  const [day, setDay] = useState(day0 || drAdd(today, -1));
+  const [src, setSrc] = useState(null);
+  const [err, setErr] = useState("");
+  const [open, setOpen] = useState({});
+  useEffect(() => {
+    let alive = true; setSrc(null); setErr("");
+    loadDayReport(day).then((s) => { if (alive) setSrc(s); }).catch((e) => { if (alive) setErr(String(e.message || e)); });
+    return () => { alive = false; };
+  }, [day]);
+  const rep = useMemo(() => (src ? dayReport({ day, ...src, ops: data.finance_ops || [], objects: data.objects || [], suppliers: data.suppliers || [], money }) : null), [src, day, data.finance_ops, data.objects, data.suppliers, money]);
+  const rel = day === today ? "сегодня" : day === drAdd(today, -1) ? "вчера" : "";
+  const N = 8;
+  return (
+    <Modal title={(auto ? "Доброе утро — " : "") + "Отчёт за день"} onClose={onClose} w={1180} cls="dayrep">
+      <div className="row dayrep-nav" style={{ gap: 8, marginBottom: 14 }}>
+        <button className="btn xs" title="Предыдущий день" onClick={() => setDay(drAdd(day, -1))}><Ic n="chevL" /></button>
+        <input className="inp" type="date" data-phone-nofocus style={{ width: 160 }} value={day} max={today} onChange={(e) => e.target.value && setDay(e.target.value)} />
+        <button className="btn xs" title="Следующий день" disabled={day >= today} onClick={() => setDay(drAdd(day, 1))}><Ic n="chevR" /></button>
+        <span className="sm"><b>{dt(day)}</b> · {DR_WD[new Date(day + "T12:00:00Z").getUTCDay()]}{rel ? " · " + rel : ""}</span>
+        {rep && <span className="xs mut" style={{ marginLeft: "auto" }}>действий в журнале: {rep.count}</span>}
+      </div>
+      {err ? <div className="sm" style={{ color: "var(--bad)" }}>Не удалось загрузить: {err}</div>
+        : !rep ? <div className="sm mut">Загрузка…</div>
+        : rep.empty ? <div className="card sect sm mut" style={{ textAlign: "center", padding: 28 }}>За этот день в программе ничего не делали.</div>
+        : <>
+          {rep.money && <div className="kpis" style={{ marginBottom: 14 }}>
+            <div className="kpi"><div className="l">Приход</div><div className="v" style={{ color: "var(--ok)" }}>{fmt2(rep.money.inn)} $</div><div className="xs mut kpi-sub">{rep.money.innParts.map(([n, v]) => n + " " + fmt2(v)).join(" · ") || "—"}</div></div>
+            <div className="kpi"><div className="l">Расход</div><div className="v">{fmt2(rep.money.out)} $</div><div className="xs mut kpi-sub">{rep.money.outParts.map(([n, v]) => n + " " + fmt2(v)).join(" · ") || "—"}</div></div>
+            <div className="kpi"><div className="l">Итог дня</div><div className="v" style={{ color: rep.money.net < 0 ? "var(--bad)" : "var(--ok)" }}>{rep.money.net < 0 ? "−" : "+"}{fmt2(Math.abs(rep.money.net))} $</div><div className="xs mut kpi-sub">приход минус расход</div></div>
+          </div>}
+          {rep.warn.length > 0 && <div className="card sect dayrep-warn" style={{ marginBottom: 14, padding: "10px 14px" }}>
+            {rep.warn.map((w, i) => <div key={i} className="sm"><span className="dot" style={{ background: "var(--warn)" }} /> {w}</div>)}
+          </div>}
+          <div className="dayrep-grid">
+            {rep.blocks.map((b) => {
+              const all = !!open[b.id], rows = all ? b.rows : b.rows.slice(0, N);
+              return (
+                <div key={b.id} className="card dayrep-card">
+                  <div className="dayrep-h"><b>{b.title}</b><span className="npanel-cnt">{b.total}</span></div>
+                  {rows.map((r, i) => (
+                    <div key={i} className="dayrep-r sm">
+                      {r.obj && onObject ? <a className="clk" onClick={() => onObject(r.obj)}>{r.name}</a> : <span>{r.name}</span>}
+                      <span className="mono" style={{ color: r.ok ? "var(--ok)" : r.bad ? "var(--bad)" : "var(--mut)" }}>{r.note}</span>
+                    </div>
+                  ))}
+                  {b.rows.length > N && <button className="btn xs" style={{ marginTop: 6 }} onClick={() => setOpen({ ...open, [b.id]: !all })}>{all ? "Свернуть" : "Ещё " + (b.rows.length - N)}</button>}
+                  {b.foot && <div className="xs mut" style={{ marginTop: 6 }}>{b.foot}</div>}
+                </div>
+              );
+            })}
+            {rep.who.length > 0 && <div className="card dayrep-card">
+              <div className="dayrep-h"><b>Кто сколько сделал</b><span className="npanel-cnt">{rep.who.length}</span></div>
+              {rep.who.map(([n, k]) => <div key={n} className="dayrep-r sm"><span>{n}</span><span className="mono mut">{k} действ.</span></div>)}
+            </div>}
+          </div>
+        </>}
+      <div className="row" style={{ justifyContent: "space-between", marginTop: 14 }}>
+        <span className="xs mut">Каждый день в {DAYREP_AT} отчёт за вчера открывается сам · подробности — в «Журнале»</span>
+        <button className="btn pri" onClick={onClose}>Закрыть</button>
+      </div>
+    </Modal>
+  );
+}
+function LogTab({ data, reload, toast, onBackup, onReport }) {
   const audit_all = data.audit_log;
   // скрытые служебные записи (снимки удалённого) — не показываются, по ним работает «↩ Восстановить»
   const { audit_log, trashOf, restored, undoOf, undone } = useMemo(() => {
@@ -12230,6 +12407,7 @@ function LogTab({ data, reload, toast, onBackup }) {
     <div>
       <div className="row sect ph">
         <h2 style={{ marginRight: "auto" }}>Журнал действий <span className="mut sm">({audit_log.length})</span></h2>
+        {onReport && <button className="btn log-report" title="Что было в программе за день: деньги, объекты, поставки, доставка, мастера, кто что сделал" onClick={onReport}><Ic n="clipboard" /> Отчёт за день</button>}
         {onBackup && <button className="btn" title="Бэкап и восстановление базы" onClick={onBackup}><Ic n="save" /> Бэкап</button>}
         <button className={"btn log-onlydel" + (onlyDel ? " pri" : "")} title="Показать только удалённое, что можно восстановить" onClick={() => setOnlyDel(!onlyDel)}>↩ Удалённое{nDel ? " (" + nDel + ")" : ""}</button>
         <input className="inp" style={{ maxWidth: 220 }} placeholder="Поиск по журналу…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -12700,16 +12878,16 @@ function TelegramCard({ data, reload, toast, users = [], roles = [], uperms = {}
   };
   // отчёты: ежедневный (касса + кирим-чиқим) и в последний день месяца (долги); кому — галочки (по умолчанию все с полными правами)
   const rep0 = cfg.report || {};
-  const rk0 = rep0.risk || {}, mo0 = rep0.morning || {};
-  const [rp, setRp] = useState(() => ({ mOn: mo0.on !== false, mT: mo0.time || "09:30", dOn: !(rep0.daily && rep0.daily.on === false), dT: (rep0.daily && rep0.daily.time) || "21:30", dAi: !(rep0.daily && rep0.daily.ai === false), bOn: !(rep0.debts && rep0.debts.on === false), bT: (rep0.debts && rep0.debts.time) || "10:00", bD: String((rep0.debts && rep0.debts.days) || 14),
+  const rk0 = rep0.risk || {};
+  const [rp, setRp] = useState(() => ({ dOn: !(rep0.daily && rep0.daily.on === false), dT: (rep0.daily && rep0.daily.time) || "21:30", dAi: !(rep0.daily && rep0.daily.ai === false), bOn: !(rep0.debts && rep0.debts.on === false), bT: (rep0.debts && rep0.debts.time) || "10:00", bD: String((rep0.debts && rep0.debts.days) || 14),
     rOn: rk0.on !== false, rDow: String(Number(rk0.dow) >= 0 && Number(rk0.dow) <= 6 && rk0.dow !== "" && rk0.dow != null ? Number(rk0.dow) : 1), rT: rk0.time || "09:00", to: Array.isArray(rep0.to) ? rep0.to : null }));
   const linked = people.filter((u) => tgOf(u.id));
   const toSet = new Set(rp.to || linked.filter((u) => TG_FULL(accOf(u))).map((u) => u.id));
   const saveRep = async () => {
-    const report = { morning: { on: rp.mOn, time: rp.mT || "09:30" }, daily: { on: rp.dOn, time: rp.dT || "21:30", ai: rp.dAi }, debts: { on: rp.bOn, time: rp.bT || "10:00", days: Math.max(1, parseInt(rp.bD, 10) || 14) }, risk: { on: rp.rOn, dow: Number(rp.rDow) || 0, time: rp.rT || "09:00" }, to: rp.to };
+    const report = { daily: { on: rp.dOn, time: rp.dT || "21:30", ai: rp.dAi }, debts: { on: rp.bOn, time: rp.bT || "10:00", days: Math.max(1, parseInt(rp.bD, 10) || 14) }, risk: { on: rp.rOn, dow: Number(rp.rDow) || 0, time: rp.rT || "09:00" }, to: rp.to };
     setBusy(true); const ok = await saveCfg({ report }); setBusy(false);
     if (!ok) return;
-    await logAction("Telegram: отчёты", "telegram", (rp.mOn ? "утром " + report.morning.time + " — что было вчера" : "без утреннего") + " · " + (rp.dOn ? "ежедневно " + report.daily.time : "без ежедневного") + " · " + (rp.bOn ? "долги в конце месяца " + report.debts.time + " (> " + report.debts.days + " дн.)" : "без долгов"));
+    await logAction("Telegram: отчёты", "telegram", (rp.dOn ? "ежедневно " + report.daily.time : "без ежедневного") + " · " + (rp.bOn ? "долги в конце месяца " + report.debts.time + " (> " + report.debts.days + " дн.)" : "без долгов"));
     await reload(["requests"]); toast("Отчёты сохранены");
   };
   const Row = ({ g, on }) => (
@@ -12761,8 +12939,7 @@ function TelegramCard({ data, reload, toast, users = [], roles = [], uperms = {}
       })}
       <H>Отчёты в личный чат</H>
       <div className="tg-rep" style={{ borderTop: "1px solid var(--line)", paddingTop: 8 }}>
-        <label className="row clk sm" style={{ gap: 8 }}><input type="checkbox" className="tg-mon" checked={rp.mOn} onChange={(e) => setRp({ ...rp, mOn: e.target.checked })} /> Каждое утро — что было вчера: деньги, объекты, поставки, доставка, мастера, кто что сделал, в <input className="inp tg-mt" type="time" style={{ width: 120 }} value={rp.mT} onChange={(e) => setRp({ ...rp, mT: e.target.value })} /></label>
-        <label className="row clk sm" style={{ gap: 8, marginTop: 6 }}><input type="checkbox" checked={rp.dOn} onChange={(e) => setRp({ ...rp, dOn: e.target.checked })} /> Каждый день — касса и приход/расход за день, в <input className="inp tg-dt" type="time" style={{ width: 120 }} value={rp.dT} onChange={(e) => setRp({ ...rp, dT: e.target.value })} /></label>
+        <label className="row clk sm" style={{ gap: 8 }}><input type="checkbox" checked={rp.dOn} onChange={(e) => setRp({ ...rp, dOn: e.target.checked })} /> Каждый день — касса и приход/расход за день, в <input className="inp tg-dt" type="time" style={{ width: 120 }} value={rp.dT} onChange={(e) => setRp({ ...rp, dT: e.target.value })} /></label>
         <label className="row clk sm" style={{ gap: 8, marginTop: 6, paddingLeft: 24 }}><input type="checkbox" className="tg-dai" checked={rp.dAi} onChange={(e) => setRp({ ...rp, dAi: e.target.checked })} /> с коротким комментарием ИИ</label>
         <label className="row clk sm" style={{ gap: 8, marginTop: 6 }}><input type="checkbox" className="tg-ron" checked={rp.rOn} onChange={(e) => setRp({ ...rp, rOn: e.target.checked })} /> Раз в неделю — контроль: ниже себестоимости, не доставлено 7+ дней, низкая маржа, долги без оплаты 30+ дней —
           <select className="inp tg-rdow" style={{ width: 130 }} value={rp.rDow} onChange={(e) => setRp({ ...rp, rDow: e.target.value })}>{["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"].map((d, i) => <option key={i} value={String(i)}>{d}</option>)}</select>
@@ -14186,6 +14363,23 @@ function AppInner() {
     tick(); const t = setInterval(tick, 60000);
     return () => { alive = false; clearInterval(t); };
   }, [hasUsta]);
+  // «Отчёт за день»: в 09:30 (или при первом входе позже) — отчёт за вчера, один раз в день у каждого, кому открыт «Журнал»
+  const hasRep = !!currentUser && roleTabs.includes("log");
+  const [dayRep, setDayRep] = useState(null);
+  useEffect(() => {
+    if (!hasRep) { setDayRep(null); return; }
+    const key = "te:dayrep:" + currentUser.id;
+    const tick = () => {
+      const n = drNow();
+      if (n.hm < DAYREP_AT) return;
+      let seen = ""; try { seen = localStorage.getItem(key) || ""; } catch (e) {}
+      if (seen === n.day) return;
+      try { localStorage.setItem(key, n.day); } catch (e) {}
+      setDayRep({ day: drAdd(n.day, -1), auto: true });
+    };
+    tick(); const t = setInterval(tick, 30000);
+    return () => clearInterval(t);
+  }, [hasRep, currentUser ? currentUser.id : ""]);
   const TAB_LABELS_RU = { usta: "От мастеров", heat: "Расчёт отопления", delivery: "Доставка", request: "Новая заявка", dash: "Дашборд", objects: "Объекты", products: "Товары", wh: "Склад Thermo", suppliers: "Поставщики", masters: "Мастера", finance: "Финансы", log: "Журнал", bots: "Боты", admin: "Аккаунты" , notes: "Заметки" };
   const TAB_LABELS_UZ = { usta: "Ustalardan", heat: "Isitish hisobi", delivery: "Yetkazish", request: "Yangi ariza", dash: "Boshqaruv", objects: "Ob'ektlar", products: "Tovarlar", wh: "Ombor Thermo", suppliers: "Ta'minotchilar", masters: "Ustalar", finance: "Moliya", log: "Jurnal", bots: "Botlar", admin: "Hisoblar" , notes: "Eslatmalar" };
   const TAB_LABELS = lang === "uz" ? TAB_LABELS_UZ : TAB_LABELS_RU;
@@ -14365,7 +14559,7 @@ function AppInner() {
         {tab === "masters" && <MastersTab data={data} reload={reload} toast={toast} fin={true} canDel={!!acc.perms.del} openObject={(id) => { setOpenId(id); setTab("objects"); }} />}
         {tab === "wh" && <WarehouseTab data={cashWorld} reload={reload} toast={toast} readOnly={role === "driver"} openObject={(id) => { if (role === "driver") { setTab("delivery"); setOpenId(id); } else { setOpenId(id); setTab("objects"); } }} />}
         {tab === "delivery" && <DeliveryTab data={data} reload={reload} toast={toast} openId={openId} setOpenId={setOpenId} />}
-        {tab === "log" && <LogTab data={data} reload={reload} toast={toast} onBackup={acc.perms.backup ? () => setBackupOpen(true) : null} />}
+        {tab === "log" && <LogTab data={data} reload={reload} toast={toast} onBackup={acc.perms.backup ? () => setBackupOpen(true) : null} onReport={() => setDayRep({ day: drAdd(drNow().day, -1) })} />}
         {tab === "bots" && <BotsTab data={data} reload={reload} toast={toast} isBoss={role === "boss"} goTab={goTab} />}
         {tab === "admin" && <AdminTab data={data} reload={reload} toast={toast} currentUser={currentUser} isBoss={role === "boss"} seen={team.seen} onChat={openChat} />}
         {tab === "usta" && <UstaListsTab data={data} toast={toast} userName={currentUser.name || currentUser.username} canDel={!!acc.perms.del} onCount={setUstaNew} goRequest={() => { setOpenId(null); setTab("request"); }} />}
@@ -14383,6 +14577,7 @@ function AppInner() {
       }} />}
       {heatWin && heatMounted && currentUser && <HeatWin lang={lang} userName={currentUser.name || currentUser.username} open={heatOpen} onClose={() => setHeatOpen(false)} />}
       {calcOpen && <Calculator onClose={() => setCalcOpen(false)} />}
+      {dayRep && hasRep && <DayReportWin data={data} money={!!acc.perms.fin} day={dayRep.day} auto={dayRep.auto} onClose={() => setDayRep(null)} onObject={roleTabs.includes("objects") ? (id) => { setDayRep(null); setOpenId(id); setTab("objects"); } : null} />}
       {chatOpen && currentUser && <ChatWin team={team} data={data} me={currentUser} start={chatStart} toast={toast} onClose={() => setChatOpen(false)} />}
       {notesOpen && currentUser && <NotesPanel data={data} reload={reload} toast={toast} user={currentUser} boss={role === "boss"} onClose={() => setNotesOpen(false)} />}
       <ConfirmHost />
