@@ -7746,8 +7746,9 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
   const addManualItems = async (rows, target, date0) => {
     const tg = target && typeof target === "object" ? target : { newBatch: !!target, date: date0 };
     const newBatch = !!tg.newBatch, date = tg.date;
-    let batchNo = 1, whOut = [];
+    let batchNo = 1, whOut = [], merged = 0;
     const ok = await saveItems((cur) => {
+      merged = 0; // функция может вызываться повторно (если объект успел измениться) — считаем заново
       const exNos = cur.map((i) => i.batch_no || 1);
       const lastNo = exNos.length ? Math.max(...exNos) : 0;
       batchNo = newBatch ? lastNo + 1 : tg.batchNo && exNos.includes(tg.batchNo) ? tg.batchNo : (lastNo || 1);
@@ -7762,14 +7763,23 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
         return it;
       }, wh.rowsFor);
       whOut = sp.whOut;
+      // такой же товар уже есть в этой поставке и ещё не отгружен (та же цена, себестоимость, поставщик, не со склада) —
+      // количество прибавляется к нему, второй строки нет (по просьбе руководителя, 11.2026)
+      const base = cur.map((i) => ({ ...i }));
+      const fresh = [];
+      sp.items.forEach((it) => {
+        const same = !it.from_warehouse && it.product_id ? base.find((i) => (i.batch_no || 1) === batchNo && i.product_id === it.product_id && !i.from_warehouse && !isShipped(i)
+          && round2(Number(i.price) || 0) === round2(Number(it.price) || 0) && round2(Number(i.cost) || 0) === round2(Number(it.cost) || 0) && (i.supplier_id || null) === (it.supplier_id || null)) : null;
+        if (same) { same.qty = round2((Number(same.qty) || 0) + (Number(it.qty) || 0)); merged++; } else fresh.push(it);
+      });
       // накладная задним числом — номера поставок по датам
-      return newBatch && date && date < today() ? renumberBatches([...cur, ...sp.items], obj.created_at) : [...cur, ...sp.items];
+      return newBatch && date && date < today() ? renumberBatches([...base, ...fresh], obj.created_at) : [...base, ...fresh];
     });
     let whFail = 0;
     if (ok && whOut.length && isLive(obj)) { whFail = await warehouseOut(whOut, obj, curUserName()); await reload(); }
     if (ok) {
       await logAction(newBatch ? "Новая поставка" : "Добавлены позиции", "object:" + obj.name, "поставка №" + batchNo + ", позиций: " + rows.length + ", на сумму " + fmt2(rows.reduce((a, r) => a + parseNum(r.qty) * parseNum(r.price), 0)));
-      toast((newBatch ? "Новая поставка №" + batchNo + ": " : "Добавлено в поставку №" + batchNo + ": ") + rows.length + " поз." + (whOut.length ? " · со Склада Thermo: " + whOut.length + " поз." : "") + (whFail ? " · ⚠ склад не списан у " + whFail + " поз." : ""));
+      toast((newBatch ? "Новая поставка №" + batchNo + ": " : "Добавлено в поставку №" + batchNo + ": ") + rows.length + " поз." + (whOut.length ? " · со Склада Thermo: " + whOut.length + " поз." : "") + (whFail ? " · ⚠ склад не списан у " + whFail + " поз." : "") + (merged ? " · " + merged + " объединено с такими же в поставке" : ""));
     }
     return ok;
   };
@@ -8855,12 +8865,27 @@ function AddItemsModal({ perechCat = false, draftKey = "", fin = true, products,
   const draft0 = useMemo(() => (draftKey ? loadAddDraft(draftKey) : null), []);
   const [rows, setRows] = useState(() => (draft0 ? draft0.rows : []));
   // новая строка — сверху списка; в объект строки сохраняются в порядке добавления
-  const addRow = (r) => setRows((prev) => [{ ...r, _k: uuid() }, ...prev]);
+  const addRow = (r) => setRows((prev) => {
+    const ex = r.product_id ? prev.find((x) => x.product_id === r.product_id) : null;
+    if (!ex) return [{ ...r, _k: uuid() }, ...prev];
+    // тот же товар второй раз — одна строка: количество складывается (по просьбе руководителя, 11.2026)
+    const m = { ...ex, qty: round2(parseNum(ex.qty) + parseNum(r.qty)), alt: !!(ex.alt || r.alt), ...(r.fromWh ? { fromWh: true } : {}) };
+    return [m, ...prev.filter((x) => x !== ex)];
+  });
   const blank = () => addRow({ product_id: null, name: "", size: "", unit: "шт", qty: 1, cost: 0, price: 0, supplier_id: "" });
   const upd = (i, k, val) => setRows((prev) => prev.map((r, j) => (j === i ? { ...r, [k]: val } : r)));
   const del = (i) => setRows((prev) => prev.filter((_, j) => j !== i));
   const total = rows.reduce((a, r) => a + parseNum(r.qty) * parseNum(r.price), 0);
-  const validK = rows.filter((r) => String(r.name || "").trim() && parseNum(r.qty) > 0).reverse();
+  const dupKey = (r) => (r.product_id ? "p:" + r.product_id : "n:" + String(r.name || "").toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim() + "|" + String(r.size || "").trim() + "|" + (r.supplier_id || "") + "|" + parseNum(r.price));
+  const validK = (() => {
+    const out = [], seen = new Map();
+    rows.filter((r) => String(r.name || "").trim() && parseNum(r.qty) > 0).reverse().forEach((r) => {
+      const k = dupKey(r), ex = seen.get(k);
+      if (ex) { ex.qty = round2(parseNum(ex.qty) + parseNum(r.qty)); if (r.fromWh) ex.fromWh = true; return; }
+      const c = { ...r }; seen.set(k, c); out.push(c);
+    });
+    return out;
+  })();
   const valid = validK.map(({ _k, ...r }) => r);
   const [busy, setBusy] = useState(false);
   // строки не из базы — спросить: добавить ли их и в «Товары»
