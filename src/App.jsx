@@ -3522,7 +3522,7 @@ const askWhAlt = (p, exQ, sim, want) => askConfirm({
   title: "Аналог на Складе Thermo",
   text: (exQ > 0 ? "«" + p.name + "» на складе: " + fmt(exQ) + " — не хватает " + fmt(round2(want - exQ)) + ". " : "«" + p.name + "» на складе нет. ")
     + "Есть такой же товар другого поставщика: «" + sim.name + "» — " + fmt(sim.qty) + " " + (p.unit || "шт") + ". Взять его со склада?",
-  ok: "Да, со склада", cancel: "Нет, у поставщика", focus: "ok",
+  ok: "Да, со склада", cancel: "Нет, у поставщика", focus: "cancel", // курсор — на «у поставщика» (решение руководителя 11.2026)
 });
 const whQtyMap = (warehouse) => { const m = {}; (warehouse || []).forEach((w) => { if (w.product_id && Number(w.qty) > 0) m[w.product_id] = (m[w.product_id] || 0) + Number(w.qty); }); return m; };
 // набрано не в той раскладке: «ьфшт» = «main», «cfynt[]» = «сантех» — ищем и так, и так
