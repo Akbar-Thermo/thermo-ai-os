@@ -2148,8 +2148,14 @@ function renumberBatches(items, createdAt) {
 }
 // «Лист доставки» (Excel без цен): по поставкам и поставщикам / Складу Thermo
 // only — номер поставки (одна поставка) или пусто (все поставки)
-function downloadDeliverySheet(obj, suppliers, only = null) {
+// рядом с наименованием — бренд товара из «Товаров» (если бренд уже есть в названии — не повторяем)
+function downloadDeliverySheet(obj, suppliers, only = null, products = []) {
   const supName = (id) => ((suppliers || []).find((x) => x.id === id) || {}).name || "—";
+  const ix = prodIndex(products);
+  const brandFor = (i) => {
+    const p = prodForItemIdx(i, ix), b = brandOf(p, p ? supName(p.supplier_id) : "");
+    return b && !String(i.name || "").toLowerCase().includes(b.toLowerCase()) ? b : "";
+  };
   const rows = [
     { k: "title", v: ["ЛИСТ ДОСТАВКИ: " + (obj.name || "") + (only ? " · поставка №" + only : "")] },
     { k: "info", v: ["Адрес: " + (obj.address || "—")] },
@@ -2163,13 +2169,13 @@ function downloadDeliverySheet(obj, suppliers, only = null) {
     b.items.forEach((i) => { const k = i.from_warehouse ? "СКЛАД THERMO" : supName(i.supplier_id); (g[k] = g[k] || []).push(i); });
     Object.entries(g).forEach(([sn, items]) => {
       rows.push({ k: "section", v: ["Поставщик: " + sn] });
-      rows.push({ k: "head", v: ["№", "Наименование", "Кол-во", "Ед.", "Получено ✓"] });
-      items.forEach((i, k) => rows.push({ k: "row", v: [k + 1, i.name, i.qty, i.unit, ""] }));
+      rows.push({ k: "head", v: ["№", "Наименование", "Бренд", "Кол-во", "Ед.", "Получено ✓"] });
+      items.forEach((i, k) => rows.push({ k: "row", v: [k + 1, i.name, brandFor(i), i.qty, i.unit, ""] }));
       rows.push({ k: "blank" });
     });
   });
   const safeName = String(obj.name || "object").replace(/[^a-zа-яё0-9_-]+/gi, "_").slice(0, 40);
-  return downloadStyledXLSX("Доставка_" + safeName + (only ? "_поставка" + only : "") + ".xlsx", "Доставка", rows, [6, 66, 10, 8, 15], ["c", "t", "n", "c", "c"]);
+  return downloadStyledXLSX("Доставка_" + safeName + (only ? "_поставка" + only : "") + ".xlsx", "Доставка", rows, [6, 60, 18, 10, 8, 15], ["c", "t", "t", "n", "c", "c"]);
 }
 // «Объекты → Excel: долги» (по просьбе руководителя, 11.2026) — видят только аккаунты DEBTS_XL_USERS.
 // Лист на каждого мастера (и «Без мастера»), в начале — «Сводка» по мастерам. В листе мастера объекты «В процессе» /
@@ -2236,11 +2242,11 @@ function downloadMasterDebts(list, masterLabel, perech = false) {
   try { downloadBlob("Долги_" + nm + "_" + today() + ".xlsx", styledXlsxBook(sheets)); return "xlsx"; } catch (e) { console.error(e); return false; }
 }
 // «Лист доставки»: выбрать — все поставки или одна из них (если поставка в объекте одна, окно не показывается)
-function DeliverySheetPick({ obj, suppliers, onClose, toast }) {
+function DeliverySheetPick({ obj, suppliers, products, onClose, toast }) {
   const batches = objBatches(obj);
   const total = batches.reduce((a, b) => a + b.items.length, 0);
   const go = (only) => {
-    const r = downloadDeliverySheet(obj, suppliers, only);
+    const r = downloadDeliverySheet(obj, suppliers, only, products);
     toast(r === "xlsx" ? "Лист доставки скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
     onClose();
   };
@@ -2255,9 +2261,9 @@ function DeliverySheetPick({ obj, suppliers, onClose, toast }) {
     </Modal>
   );
 }
-const deliverySheetStart = (obj, suppliers, toast, ask) => {
+const deliverySheetStart = (obj, suppliers, toast, ask, products) => {
   if (objBatches(obj).length > 1) return ask();
-  const r = downloadDeliverySheet(obj, suppliers);
+  const r = downloadDeliverySheet(obj, suppliers, null, products);
   toast(r === "xlsx" ? "Лист доставки скачан" : r === "csv" ? "Excel заблокирован — скачан CSV" : "Скачивание заблокировано браузером");
 };
 async function warehouseOut(lines, targetObj, user) {
@@ -7899,7 +7905,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
   const [delPick, setDelPick] = useState(false);
   const [costPick, setCostPick] = useState(false);
   const [clientPick, setClientPick] = useState(false);
-  const exportDelivery = () => deliverySheetStart(obj, suppliers, toast, () => setDelPick(true));
+  const exportDelivery = () => deliverySheetStart(obj, suppliers, toast, () => setDelPick(true), data.products);
   const batches = useMemo(() => objBatches(obj), [obj]);
   const batchHead = batches.length > 1 || (obj.items || []).some((i) => i.batch_no);
   // свёрнута, пока не нажали на строку поставки; в «Себестоимости подряд» раскрыты все
@@ -8282,7 +8288,7 @@ function ObjectDetail({ obj, data, reload, toast, back, fin = true, perech = fal
           </div>
         </Modal>
       )}
-      {delPick && <DeliverySheetPick obj={obj} suppliers={suppliers} toast={toast} onClose={() => setDelPick(false)} />}
+      {delPick && <DeliverySheetPick obj={obj} suppliers={suppliers} products={data.products} toast={toast} onClose={() => setDelPick(false)} />}
       {costPick && <CostCurPick obj={obj} onPick={(cur, rate) => { setCostPick(false); exportCost(cur, rate); }} onClose={() => setCostPick(false)} />}
       {clientPick && <CostCurPick obj={obj} title="Excel клиенту — валюта" storeKey={isPerech(obj) ? CLIENT_CUR_KEY + ":perech" : CLIENT_CUR_KEY} def={isPerech(obj) ? "uzs" : "usd"} perechUzs={isPerech(obj)} uzsNote="Оплаты в сумах (колонка «Кол-во») остаются как были внесены." onPick={(cur, rate) => { setClientPick(false); exportClient(cur, rate); }} onClose={() => setClientPick(false)} />}
       {replItem && <ItemReplaceModal item={replItem} products={products} suppliers={suppliers} fin={fin} onClose={() => setReplItem(null)} onSave={async (it) => { if (await replaceItem(it)) setReplItem(null); }} />}
@@ -9839,7 +9845,7 @@ function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
         <div className="row sect ph ph-obj">
           <button className="btn ph-back" onClick={() => setOpenId(null)}>← Доставка</button>
           <h2 style={{ marginRight: "auto" }}>{obj.name}</h2>
-          <button className="btn" onClick={() => deliverySheetStart(obj, suppliers, toast, () => setDelPick(true))}><Ic n="truck" /> Лист доставки</button>
+          <button className="btn" onClick={() => deliverySheetStart(obj, suppliers, toast, () => setDelPick(true), data.products)}><Ic n="truck" /> Лист доставки</button>
           {(obj.items || []).some((i) => !i.from_warehouse) && <button className="btn pri" onClick={() => setShip(true)}><Ic n="truck" /> Отгрузить / Доставлено{pending(obj) ? " (" + pending(obj) + ")" : " ✓"}</button>}
         </div>
         <div className="card sect">
@@ -9871,7 +9877,7 @@ function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
             </div>
           );
         })}
-        {delPick && <DeliverySheetPick obj={obj} suppliers={suppliers} toast={toast} onClose={() => setDelPick(false)} />}
+        {delPick && <DeliverySheetPick obj={obj} suppliers={suppliers} products={data.products} toast={toast} onClose={() => setDelPick(false)} />}
         {ship && <ShipModal obj={obj} batches={batches} fin={false} supName={supName} onClose={() => setShip(false)}
           onShip={async (ids, date) => { if (await doShip(ids, date, true)) setShip(false); }} onUnship={async () => {}} />}
       </div>
