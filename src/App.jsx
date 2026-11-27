@@ -2148,14 +2148,13 @@ function renumberBatches(items, createdAt) {
 }
 // «Лист доставки» (Excel без цен): по поставкам и поставщикам / Складу Thermo
 // only — номер поставки (одна поставка) или пусто (все поставки)
-// рядом с наименованием — бренд товара из «Товаров», даже если он совпадает с названием поставщика (Plastherm — и поставщик,
-// и бренд); не повторяем только если бренд уже написан в самом названии
+// рядом с наименованием — бренд товара из «Товаров» всегда; пусто только если бренд у товара не заполнен
 function downloadDeliverySheet(obj, suppliers, only = null, products = []) {
   const supName = (id) => ((suppliers || []).find((x) => x.id === id) || {}).name || "—";
   const ix = prodIndex(products);
   const brandFor = (i) => {
     const p = prodForItemIdx(i, ix), b = String((p && p.brand) || "").trim();
-    return b && !String(i.name || "").toLowerCase().includes(b.toLowerCase()) ? b : "";
+    return b;
   };
   const rows = [
     { k: "title", v: ["ЛИСТ ДОСТАВКИ: " + (obj.name || "") + (only ? " · поставка №" + only : "")] },
