@@ -966,6 +966,17 @@ tr.wh-grp:hover > td{background:color-mix(in srgb,var(--acc) 10%,transparent)}
 .wh-gh-src{font-weight:700}
 .wh-gh-obj{color:var(--acc2);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--acc2) 35%,transparent);text-underline-offset:2px}
 .wh-gh-m{color:var(--mut);font-weight:600;white-space:nowrap}
+/* долг поставщику за приход: нейтральная подпись с цветной точкой (без «ёлки») */
+.wh-debt{display:inline-flex;align-items:center;gap:5px;font-weight:600;white-space:nowrap;color:var(--txt)}
+.wh-debt::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ok);flex:none}
+.wh-debt.no::before{background:var(--warn)}
+.wh-debt.no{color:var(--warn)}
+.wh-debt.chk{cursor:pointer;font-size:12px}
+.wh-debt.chk::before{display:none}
+.wh-edsub{gap:8px;margin-top:5px;flex-wrap:wrap}
+.wh-edsub select{width:200px;height:30px;padding:3px 8px;font-size:12px}
+.wh-edin{width:96px;height:30px;padding:3px 8px;text-align:right}
+tr.wh-ed td{vertical-align:top}
 .wh-gh-m.old{color:var(--bad);font-weight:700}
 tr.wh-row > td.wh-name{padding-left:30px}
 .wh-kpis{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
@@ -9974,6 +9985,11 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
   const [retForm, setRetForm] = useState(null);
   const [allMoves, setAllMoves] = useState(false);
   const [inForm, setInForm] = useState(false);
+  // общий режим «Редактировать»: вся таблица — поля; edW — по позиции склада (цены, поставщик), edI — по строке прихода (кол-во, долг)
+  const [edit, setEdit] = useState(false);
+  const [edW, setEdW] = useState({});
+  const [edI, setEdI] = useState({});
+  const [edBusy, setEdBusy] = useState(false);
   const stock = warehouse.filter((w) => (w.qty || 0) > 0);
   // приход вручную: товар из базы или новый; если строка склада есть — добавляем количество
   const inOne = async (v) => {
@@ -10104,11 +10120,11 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
         left = round2(left - qn);
         // одна позиция дважды в одном приходе (две строки накладной) — одной строкой
         const g = gOf.get(m.id), ex = g.items.find((x) => x.w.id === w.id);
-        if (ex) { ex.q = round2(ex.q + qn); ex.of = round2(ex.of + (Number(m.qty) || 0)); }
-        else g.items.push({ w, q: round2(qn), of: Number(m.qty) || 0, first });
+        if (ex) { ex.q = round2(ex.q + qn); ex.of = round2(ex.of + (Number(m.qty) || 0)); ex.ms.push(m); }
+        else g.items.push({ w, q: round2(qn), of: Number(m.qty) || 0, first, ms: [m] });
         first = false;
       }
-      if (left > 0.0001) noHist.items.push({ w, q: left, of: 0, first });
+      if (left > 0.0001) noHist.items.push({ w, q: left, of: 0, first, ms: [] });
     });
     const out = groups.filter((g) => g.items.length);
     if (noHist.items.length) out.push(noHist);
@@ -10122,6 +10138,29 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
     });
     return out;
   }, [wh_moves, warehouse]);
+  /* Долг поставщику за приход вручную: при приходе «в долг» пишется операция wh_purchase (тот же товар, кол-во и дата).
+     Для каждой записи прихода находим её операцию — так видно, записан ли долг. */
+  const debtOfMove = useMemo(() => {
+    const kOf = (pid, name, qty, d) => (pid || "n:" + normPName(name)) + "|" + round2(Number(qty) || 0) + "|" + String(d || "").slice(0, 10);
+    const pool = {};
+    (data.finance_ops || []).filter((o) => o.type === "wh_purchase" && !o.voided).forEach((o) => {
+      [kOf(o.product_id, o.product_name, o.qty, o.op_date || o.created_at), kOf(null, o.product_name, o.qty, o.op_date || o.created_at)].forEach((k, i) => { (pool[k] = pool[k] || []).push({ o, i }); });
+    });
+    const used = new Set(), res = new Map();
+    wh_moves.filter((m) => m.dir === "in" && !m.object_id && /вручную/.test(m.note || "")).forEach((m) => {
+      for (const k of [kOf(m.product_id, m.name, m.qty, m.op_date || m.created_at), kOf(null, m.name, m.qty, m.op_date || m.created_at)]) {
+        const hit = (pool[k] || []).find((x) => !used.has(x.o.id));
+        if (hit) { used.add(hit.o.id); res.set(m.id, hit.o); break; }
+      }
+    });
+    return res;
+  }, [data.finance_ops, wh_moves]);
+  // статус долга позиции в приходе: ok — записан, part — частично, no — не записан, null — не приход вручную (возврат с объекта: долг уже в объекте)
+  const debtOf = (g, x) => {
+    if (g.none || !/вручную/.test(String(g.m0 && g.m0.note || "")) || (g.m0 && g.m0.object_id)) return null;
+    const ops = (x.ms || []).map((m) => debtOfMove.get(m.id)).filter(Boolean);
+    return { st: !ops.length ? "no" : ops.length === x.ms.length ? "ok" : "part", ops, sum: round2(ops.reduce((a, o) => a + (Number(o.cost_amount) || 0), 0)) };
+  };
   // заголовок прихода: откуда, комментарий (накладная), кто принял
   const grpInfo = (g) => {
     if (g.none) return { ic: "package", kind: "", sub: "", note: "старые данные — приход не записан в истории движений" };
@@ -10138,8 +10177,10 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
   const hitAll = (txt) => toks.every((t) => txt.includes(t));
   const supKey = (w) => (w.supplier_id && supName.get(w.supplier_id) ? "id:" + w.supplier_id : "none");
   const isManual = (g) => !g.none && grpInfo(g).kind === "Приход вручную";
+  const noDebt = (g, x) => { const d = debtOf(g, x); return !!d && d.st !== "ok"; };
   const shownGroups = whGroups.filter((g) => supF !== "manual" || isManual(g))
-    .map((g) => (supF && supF !== "manual" ? { ...g, items: g.items.filter((x) => supKey(x.w) === supF) } : g))
+    .map((g) => (supF === "nodebt" ? { ...g, items: g.items.filter((x) => noDebt(g, x)) } : g))
+    .map((g) => (supF && supF !== "manual" && supF !== "nodebt" ? { ...g, items: g.items.filter((x) => supKey(x.w) === supF) } : g))
     .map((g) => (markF ? { ...g, items: g.items.filter((x) => markOf(x.w) === markF) } : g)).filter((g) => g.items.length).map((g) => {
     if (!toks.length) return g;
     const I = grpInfo(g);
@@ -10170,6 +10211,7 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
     ...supItems.filter((x) => x.kind === "m").map((x) => [x.key, x.name + " (" + x.n + ")"]),
     ["none", "Без поставщика (" + (noneSup ? noneSup.n : 0) + ")"],
     ["manual", "Приход вручную (" + manualN + ")"],
+    ["nodebt", "Долг поставщику не записан (" + whGroups.reduce((a, g) => a + g.items.filter((x) => noDebt(g, x)).length, 0) + ")"],
   ];
   const markCnt = useMemo(() => { const c = {}; stock.forEach((w) => { const m = markOf(w); if (m) c[m] = (c[m] || 0) + 1; }); return c; }, [stock, marks]);
   const allOpen = shownGroups.length > 0 && shownGroups.every(gOpen);
@@ -10177,6 +10219,79 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
   const mtoks = normPName(mq).split(" ").filter(Boolean);
   const shownMoves = moves.filter((mv) => (mvDir === "all" || mv.dir === mvDir) && (!mtoks.length || mtoks.every((t) => normPName([mv.name, mv.object_name, mv.note, mv.user].join(" ")).includes(t))));
   const mvWhere = (mv) => mv.object_name ? (mv.dir === "in" ? "с объекта «" + mv.object_name + "»" : "на объект «" + mv.object_name + "»") : (mv.note || "—");
+  // ---- общий режим «Редактировать» ----
+  const wVal = (w, k) => (edW[w.id] && edW[w.id][k] !== undefined ? edW[w.id][k] : k === "sup" ? w.supplier_id || "" : inNum(w[k]));
+  const iVal = (hk, k, def) => (edI[hk] && edI[hk][k] !== undefined ? edI[hk][k] : def);
+  const setW = (w, patch) => setEdW((m) => ({ ...m, [w.id]: { ...(m[w.id] || {}), ...patch } }));
+  const setI = (hk, patch) => setEdI((m) => ({ ...m, [hk]: { ...(m[hk] || {}), ...patch } }));
+  const startEdit = () => { setEdW({}); setEdI({}); setOpen(null); setEdit(true); };
+  const cancelEdit = () => { setEdit(false); setEdW({}); setEdI({}); };
+  // что изменится при сохранении (для счётчика на кнопке и для записи)
+  const editPlan = useMemo(() => {
+    if (!edit) return { rows: [], debts: [], n: 0 };
+    const byW = new Map();
+    whGroups.forEach((g) => g.items.forEach((x) => {
+      const w = x.w, hk = g.id + "|" + w.id, e = edI[hk] || {};
+      const r = byW.get(w.id) || { w, dq: 0 };
+      if (e.q !== undefined && parseNum(e.q) !== x.q) r.dq = round2(r.dq + parseNum(e.q) - x.q);
+      byW.set(w.id, r);
+    }));
+    const rows = [];
+    byW.forEach((r) => {
+      const ew = edW[r.w.id] || {}, patch = {};
+      if (ew.cost !== undefined && parseNum(ew.cost) !== (Number(r.w.cost) || 0)) patch.cost = parseNum(ew.cost);
+      if (ew.price !== undefined && parseNum(ew.price) !== (Number(r.w.price) || 0)) patch.price = parseNum(ew.price);
+      if (ew.sup !== undefined && (ew.sup || null) !== (r.w.supplier_id || null)) patch.supplier_id = ew.sup || null;
+      if (r.dq) patch.qty = Math.max(0, round2((Number(r.w.qty) || 0) + r.dq));
+      if (Object.keys(patch).length) rows.push({ w: r.w, patch, dq: r.dq });
+    });
+    // долг: включили / выключили галочку, или у записанного долга поменялись себестоимость / поставщик
+    const debts = [];
+    whGroups.forEach((g) => g.items.forEach((x) => {
+      const d = debtOf(g, x); if (!d) return;
+      const w = x.w, hk = g.id + "|" + w.id, want = iVal(hk, "debt", d.st !== "no"), sup = wVal(w, "sup"), cost = parseNum(wVal(w, "cost"));
+      if (want && sup) {
+        x.ms.forEach((m) => {
+          const o = debtOfMove.get(m.id), amt = round2((Number(m.qty) || 0) * cost);
+          if (!o) debts.push({ kind: "add", m, w, sup, cost, amt });
+          else if (o.supplier_id !== sup || Math.abs((Number(o.cost_amount) || 0) - amt) > 0.004) debts.push({ kind: "upd", o, w, sup, amt });
+        });
+      } else if (!want) d.ops.forEach((o) => debts.push({ kind: "del", o, w }));
+    }));
+    return { rows, debts, n: rows.length + debts.length };
+  }, [edit, edW, edI, whGroups, debtOfMove, data.finance_ops]);
+  const saveEdit = async () => {
+    if (!editPlan.n) { cancelEdit(); return; }
+    setEdBusy(true);
+    let ok = 0, bad = 0, dAdd = 0, dDel = 0;
+    for (const r of editPlan.rows) {
+      const u = await db.from("warehouse").update(r.patch).eq("id", r.w.id);
+      if (u.error) { bad++; continue; }
+      ok++;
+      if (r.dq) await db.from("wh_moves").insert(cleanUuids({ product_id: r.w.product_id || null, name: r.w.name, qty: Math.abs(r.dq), dir: r.dq > 0 ? "in" : "out", object_id: null, object_name: null, op_date: today(), user: curUserName(), note: "ручная корректировка" }));
+      const ch = [];
+      if ("qty" in r.patch) ch.push("кол-во " + fmt(r.w.qty) + " → " + fmt(r.patch.qty));
+      if ("cost" in r.patch) ch.push("себест. " + fmt2(r.w.cost) + " → " + fmt2(r.patch.cost));
+      if ("price" in r.patch) ch.push("цена " + fmt2(r.w.price) + " → " + fmt2(r.patch.price));
+      if ("supplier_id" in r.patch) ch.push("поставщик " + (supName.get(r.w.supplier_id) || "—") + " → " + (supName.get(r.patch.supplier_id) || "—"));
+      await logAction("Склад: изменена позиция", r.w.name, ch.join(", "));
+    }
+    for (const d of editPlan.debts) {
+      if (d.kind === "add") {
+        const q = Number(d.m.qty) || 0;
+        const r = await db.from("finance_ops").insert(cleanUuids({ type: "wh_purchase", object_id: null, supplier_id: d.sup, product_id: d.w.product_id || null, product_name: d.w.name, unit: d.w.unit || "шт", qty: q, cost_amount: d.amt, amount: d.amt, op_date: String(d.m.op_date || d.m.created_at || today()).slice(0, 10), note: "долг записан при редактировании склада", user: curUserName() }));
+        if (r.error) bad++; else { dAdd += d.amt; await logAction("Склад: долг поставщику записан", d.w.name, (supName.get(d.sup) || "") + " +" + fmt2(d.amt)); }
+      } else if (d.kind === "upd") {
+        const r = await db.from("finance_ops").update({ supplier_id: d.sup, cost_amount: d.amt, amount: d.amt }).eq("id", d.o.id);
+        if (r.error) bad++; else await logAction("Склад: долг поставщику изменён", d.w.name, fmt2(d.o.cost_amount) + " → " + fmt2(d.amt) + (d.o.supplier_id !== d.sup ? ", поставщик " + (supName.get(d.o.supplier_id) || "—") + " → " + (supName.get(d.sup) || "—") : ""));
+      } else {
+        const r = await db.from("finance_ops").delete().eq("id", d.o.id);
+        if (r.error) bad++; else { dDel += Number(d.o.cost_amount) || 0; await logDeleted("Склад: долг поставщику снят", d.w.name, (supName.get(d.o.supplier_id) || "") + " −" + fmt2(d.o.cost_amount), { label: "долг поставщику за «" + d.w.name + "» (" + fmt2(d.o.cost_amount) + ")", rows: { finance_ops: [d.o] } }); }
+      }
+    }
+    setEdBusy(false); setEdit(false); setEdW({}); setEdI({}); await reload();
+    toast("Склад: изменено позиций " + ok + (dAdd ? " · долг поставщикам +" + fmt2(dAdd) : "") + (dDel ? " · долг снят −" + fmt2(dDel) : "") + (bad ? " · ⚠ не сохранено: " + bad : ""));
+  };
   const totalCost = stock.reduce((a, w) => a + w.qty * (w.cost || 0), 0);
   const totalSale = stock.reduce((a, w) => a + w.qty * (w.price || 0), 0);
   const KPI = ({ l, v, c }) => <div className="kpi"><div className="l">{l}</div><div className="v" style={{ color: c }}>{fmt(v)}</div></div>;
@@ -10218,8 +10333,12 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
     <div>
       <div className="row sect ph">
         <h2 style={{ marginRight: "auto" }}>Склад Thermo <span className="mut sm">(возвраты с объектов и приход вручную)</span></h2>
-        {!readOnly && <button className="btn" onClick={() => setInForm(true)}>+ Приход вручную</button>}
-        {!readOnly && <button className="btn pri" disabled={!stock.length} onClick={() => setIssue(true)}>→ Отправить на объект</button>}
+        {!readOnly && !edit && <button className="btn" disabled={!stock.length} onClick={startEdit} title="Вся таблица — поля: количество, себестоимость, цена, поставщик и долг поставщику; сохранить одним нажатием"><Ic n="pencil" /> Редактировать</button>}
+        {!readOnly && !edit && <button className="btn" onClick={() => setInForm(true)}>+ Приход вручную</button>}
+        {!readOnly && !edit && <button className="btn pri" disabled={!stock.length} onClick={() => setIssue(true)}>→ Отправить на объект</button>}
+        {edit && <span className="sm mut">Режим редактирования{editPlan.n ? " · изменений: " + editPlan.n : ""}</span>}
+        {edit && <button className="btn" disabled={edBusy} onClick={cancelEdit}>Отмена</button>}
+        {edit && <button className="btn pri" disabled={edBusy || !editPlan.n} onClick={saveEdit}>{edBusy ? "Сохранение…" : "Сохранить" + (editPlan.n ? " (" + editPlan.n + ")" : "")}</button>}
       </div>
       <div className="kpis sect wh-kpis">
         <div className="kpi"><div className="l"><Ic n="package" /> Позиций на складе</div><div className="v">{fmt(stock.length)}</div><div className="xs mut">{fmt(stock.reduce((a, w) => a + w.qty, 0))} ед. · приходов: {whGroups.filter((g) => !g.none).length}</div></div>
@@ -10262,30 +10381,43 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
                       {I.kind && <span className="wh-gh-src">{I.kind}{I.obj ? <> «{I.objId ? <span className="clk wh-gh-obj" onClick={(e) => { e.stopPropagation(); openObject(I.objId); }}>{I.obj}</span> : I.obj}»</> : null}{I.sub ? <span className="mut">: {I.sub}</span> : null}</span>}
                       {g.users.length > 0 && <span className="wh-gh-m">принял: {g.users.join(", ")}</span>}
                       <span className="wh-gh-m">позиций: {g.items.length} · {fmt(units)} ед.{!readOnly ? " · на сумму " + fmt(sum) : ""}</span>
+                      {!readOnly && (() => { const ds = g.items.map((x) => debtOf(g, x)).filter(Boolean); if (!ds.length) return null; const okN = ds.filter((d) => d.st === "ok").length;
+                        return <span className={"wh-debt" + (okN === ds.length ? " ok" : " no")}>{okN === ds.length ? "долг поставщику записан" : "в долг записано: " + okN + " из " + ds.length}</span>; })()}
                       {g.days != null && <span className={"wh-gh-m" + (old ? " old" : "")}>{old ? <><Ic n="hourglass" /> </> : null}{g.days} дн. на складе</span>}
                     </div>
                   </td>
                 </tr>
                 {isG && g.items.map((x) => {
-                  const w = x.w, H = info[w.id] || {}, hk = g.id + "|" + w.id, isOpen = open === hk;
+                  const w = x.w, H = info[w.id] || {}, hk = g.id + "|" + w.id, isOpen = open === hk && !edit, D = readOnly ? null : debtOf(g, x);
                   return (
                   <React.Fragment key={w.id}>
-                  <tr className={"clk wh-row" + (isOpen ? " on" : "")} onClick={() => setOpen(isOpen ? null : hk)} title="Нажмите — история этой позиции">
+                  <tr className={(edit ? "wh-row wh-ed" : "clk wh-row") + (isOpen ? " on" : "")} onClick={() => { if (!edit) setOpen(isOpen ? null : hk); }} title={edit ? undefined : "Нажмите — история этой позиции"}>
                     <td className="wh-name"><WhMarkPick value={markOf(w)} readOnly={readOnly} onPick={(v) => setMark(w, v)} /><span style={{ fontWeight: 600 }}>{w.name}</span> <span className="wh-hico mut"><Ic n="history" /></span>
-                      <div className="xs mut">{supName.get(w.supplier_id) ? "Поставщик: " + supName.get(w.supplier_id) : "поставщик не указан"}{x.also.length ? " · всего на складе " + fmt(w.qty) + " (ещё в приходе " + x.also.join(", ") + ")" : ""}</div></td>
+                      {edit ? <div className="row wh-edsub" onClick={(e) => e.stopPropagation()}>
+                        <select className="inp" value={wVal(w, "sup")} onChange={(e) => setW(w, { sup: e.target.value })} title="Поставщик"><option value="">— без поставщика —</option>{activeSuppliers(suppliers, wVal(w, "sup")).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+                        {D && wVal(w, "sup") ? <label className={"wh-debt chk" + (iVal(hk, "debt", D.st !== "no") ? " ok" : " no")}><input type="checkbox" checked={!!iVal(hk, "debt", D.st !== "no")} onChange={(e) => setI(hk, { debt: e.target.checked })} /> в долг поставщику {fmt2(x.ms.reduce((a, m) => a + (Number(m.qty) || 0), 0) * parseNum(wVal(w, "cost")))}</label> : null}
+                      </div> : <div className="xs mut">{supName.get(w.supplier_id) ? "Поставщик: " + supName.get(w.supplier_id) : "поставщик не указан"}{x.also.length ? " · всего на складе " + fmt(w.qty) + " (ещё в приходе " + x.also.join(", ") + ")" : ""}
+                        {!readOnly && D ? <> · <span className={"wh-debt " + (D.st === "ok" ? "ok" : "no")} title={D.st === "ok" ? "Записано в долг поставщику (Финансы → Поставщики)" : "Этот приход не записан в долг поставщику — включите в «Редактировать»"}>{D.st === "ok" ? "в долгу поставщику " + fmt2(D.sum) : D.st === "part" ? "в долгу частично " + fmt2(D.sum) : "долг не записан"}</span></> : null}</div>}</td>
+                    {edit ? <td className="num" onClick={(e) => e.stopPropagation()}><DeferInput type="number" className="inp num wh-edin" min={0} value={iVal(hk, "q", inNum(x.q))} onChange={(e) => setI(hk, { q: e.target.value })} /></td> :
                     <td className="num" style={{ fontWeight: 700, color: "var(--acc2)" }}>{fmt(x.q)}
                       {x.of > x.q + 0.0001 ? <div className="xs mut" style={{ fontWeight: 500 }} title={"пришло " + fmt(x.of) + ", осталось " + fmt(x.q)}>из {fmt(x.of)}</div> : null}
-                      {x.first && H.res ? <div className="xs wh-res" style={{ color: "var(--warn)", fontWeight: 600, whiteSpace: "nowrap" }} title={"В брони: " + H.res.objs.join(", ")}><Ic n="lock" /> бронь {fmt(Math.min(H.res.qty, w.qty))}</div> : null}</td>
+                      {x.first && H.res ? <div className="xs wh-res" style={{ color: "var(--warn)", fontWeight: 600, whiteSpace: "nowrap" }} title={"В брони: " + H.res.objs.join(", ")}><Ic n="lock" /> бронь {fmt(Math.min(H.res.qty, w.qty))}</div> : null}</td>}
                     <td className="sm">{w.unit}</td>
                     {!readOnly && <>
+                    {edit ? <>
+                    <td className="num" onClick={(e) => e.stopPropagation()}><DeferInput type="number" className="inp num wh-edin" value={wVal(w, "cost")} onChange={(e) => setW(w, { cost: e.target.value })} /></td>
+                    <td className="num" onClick={(e) => e.stopPropagation()}><DeferInput type="number" className="inp num wh-edin" value={wVal(w, "price")} onChange={(e) => setW(w, { price: e.target.value })} /></td>
+                    <td className="num">{fmt(parseNum(iVal(hk, "q", x.q)) * parseNum(wVal(w, "cost")))}</td>
+                    <td></td>
+                    </> : <>
                     <td className="num">{fmt(w.cost)}</td>
                     <td className="num">{fmt(w.price)}</td>
                     <td className="num">{fmt(x.q * (w.cost || 0))}</td>
                     <td onClick={(e) => e.stopPropagation()}><div className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
-                      <button className="btn xs" onClick={() => setEditRow(w)}>ред.</button>
                       <button className="btn xs" onClick={() => setRetForm(w)}><Ic n="undo" /> поставщику</button>
                       <button className="btn xs dng" onClick={() => setDelRow(w)}>✕</button>
                     </div></td>
+                    </>}
                     </>}
                   </tr>
                   {isOpen && <tr className="wh-hist"><td colSpan={cols} style={{ background: "var(--panel2)", padding: "8px 14px 12px" }}>
