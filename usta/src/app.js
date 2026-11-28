@@ -72,6 +72,9 @@
       if (!rows || !rows.length) return;
       SUPS = j && Array.isArray(j.s) ? j.s.map(function (x) { return { id: x[0], name: x[1] }; }) : [];
       SUPN = {}; SUPS.forEach(function (x) { SUPN[x.id] = x.name; });
+      // «Перечисление» nusxalari (bir xil nom + postavshik) ikki marta chiqmasin: tartib bo'yicha birinchisi — asl tovar
+      var seen = {};
+      rows = rows.filter(function (r) { var k = String(r[1] || "").trim().toLowerCase() + "|" + (r[7] || ""); if (seen[k]) return false; seen[k] = 1; return true; });
       BASE = rows.map(function (r) { var sup = r[7] || ""; return { id: r[0], name: r[1], unit: r[2] || "шт", brand: r[3] || "", size: r[4] || "", code: r[6] || "", sup: sup, t: baseText(r, SUPN[sup]) }; });
       SUPC = {}; var bm = {};
       BASE.forEach(function (p) { if (!p.sup) return; SUPC[p.sup] = (SUPC[p.sup] || 0) + 1; var x = (bm[p.sup] = bm[p.sup] || {}); var b = String(p.brand || "").trim(); x[b] = (x[b] || 0) + 1; });

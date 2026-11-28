@@ -1,5 +1,6 @@
 -- Usta sahifasi (kompyuter): tovar qidiruvi — programmadagi «Товары» bazasidan, programmadagidek, lekin NARXSIZ.
 -- Faqat shaxsiy havolasi (usta_keys) bor ustaga. Javob: { s: [[postavshik_id, nomi]], p: [[id, nomi, birlik, brend, o'lcham, qo'shimcha matn, kod, postavshik_id]] }.
+-- «Перечисление» tovarlari (products.perech = true — alohida baza, alohida narxlar) ustaga ko'rsatilmaydi.
 -- Narx, tannarx, qoldiq — berilmaydi. Tartib — programmadagidek: avval kod 1, 2, 3…, keyin qo'shilgan sanasi.
 create or replace function public.usta_catalog(p_key text)
 returns jsonb language plpgsql stable security definer set search_path = public as $$
@@ -15,7 +16,7 @@ begin
                     left(concat_ws(' ', p.alt_names, p.sku, p.category), 160), btrim(coalesce(p.code, '')), p.supplier_id)
                   order by (case when p.code ~ '^\d{1,9}$' then 0 else 1 end), (case when p.code ~ '^\d{1,9}$' then p.code::bigint else 0 end), p.created_at, p.name), '[]'::jsonb)
             from public.products p
-           where coalesce(p.status, 'active') <> 'archive' and btrim(coalesce(p.name, '')) <> '')
+           where coalesce(p.status, 'active') <> 'archive' and btrim(coalesce(p.name, '')) <> '' and not coalesce(p.perech, false))
   );
 end $$;
 revoke all on function public.usta_catalog(text) from public;
