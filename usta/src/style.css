@@ -281,3 +281,9 @@ table.dt tr.sechd td span{display:inline}
 .top .tt .s{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .top #bHist{flex:none;padding:7px 11px;font-size:17px;line-height:1}
 .mfoot{justify-content:space-between;margin-top:6px}
+
+/* Excel'dan kelgan, tekshirilishi kerak qatorlar */
+table.dt tr.ln.chk td{background:var(--warn-t)}
+.xchk{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:4px;font-size:12px;color:var(--warn);font-weight:600}
+.xchk .btn.xs{height:auto;padding:2px 8px;font-size:12px}
+.phd.repl{background:var(--warn-t);color:var(--warn);font-weight:600}

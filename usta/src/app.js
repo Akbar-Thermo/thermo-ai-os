@@ -119,7 +119,7 @@
       '<div class="card dobjc"><div id="whoCard"></div><div class="dgrid"><div class="fld"><label for="obj">' + esc(T("object")) + '</label><input class="inp" id="obj" placeholder="' + esc(T("objectPh")) + '" value="' + esc(S.object) + '" maxlength="200"></div>' +
       '<div class="fld"><label for="note">' + esc(T("note")) + '</label><input class="inp" id="note" placeholder="' + esc(T("notePh")) + '" value="' + esc(S.note) + '" maxlength="1000"></div></div></div>' +
       // bo'limlar — kartochka sarlavhasining o'zida (alohida qator olmaydi); katalog/matn — faqat bazasiz (umumiy havola) holatda
-      '<div class="card dpick"><div class="row dpickh"><h3>' + esc(T("pickT")) + '</h3><div id="secbar"></div><button class="btn" id="bCat">☰ ' + esc(T("catalog")) + '</button><button class="btn" id="bPaste">⧉ ' + esc(T("paste")) + '</button></div>' +
+      '<div class="card dpick"><div class="row dpickh"><h3>' + esc(T("pickT")) + '</h3><div id="secbar"></div><button class="btn" id="bXls" title="' + esc(T("xlsTitle")) + '">⇪ ' + esc(T("xlsBtn")) + '</button><button class="btn" id="bCat">☰ ' + esc(T("catalog")) + '</button><button class="btn" id="bPaste">⧉ ' + esc(T("paste")) + '</button></div>' +
       '<div class="dsrch"><div class="srow"><div id="supf" class="supf"></div><input class="inp" id="q" placeholder="' + esc(T("searchPh")) + '" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></div><div class="sug dsug" id="sug"></div></div>' +
       '<div id="list"></div>' +
       '<div class="row dfoot"><button class="btn xs" id="bManual">+ ' + esc(T("manualAdd")) + '</button><button class="btn xs ghost" id="bClear">' + esc(T("clearShort")) + '</button><span class="dsp"></span><b class="dcount" id="dcount"></b><button class="btn pri" id="bSend"></button></div>' +
@@ -132,7 +132,7 @@
       '<div class="lang"><button data-l="uz" class="' + (S.lang === "uz" ? "on" : "") + '">UZ</button><button data-l="ru" class="' + (S.lang === "ru" ? "on" : "") + '">RU</button></div></div>' +
       '<div class="card" id="who"></div>' +
       '<div class="card"><div class="lbl">' + esc(T("object")) + '</div><input class="inp" id="obj" placeholder="' + esc(T("objectPh")) + '" value="' + esc(S.object) + '" maxlength="200"></div>' +
-      '<div class="tools"><button class="btn" id="bCat">☰ ' + esc(T("catalog")) + '</button><button class="btn" id="bPaste">⧉ ' + esc(T("paste")) + '</button></div>' +
+      '<div class="tools"><button class="btn" id="bCat">☰ ' + esc(T("catalog")) + '</button><button class="btn" id="bPaste">⧉ ' + esc(T("paste")) + '</button><button class="btn" id="bXls">⇪ Excel</button></div>' +
       '<div id="secbar"></div>' +
       '<div id="list"></div>' +
       '<div class="card" id="noteBox"><div class="lbl">' + esc(T("note")) + '</div><input class="inp" id="note" placeholder="' + esc(T("notePh")) + '" value="' + esc(S.note) + '" maxlength="1000"></div>' +
@@ -159,7 +159,7 @@
         else if (e.key === "PageDown") { e.preventDefault(); moveBaseHi(7); }
         else if (e.key === "PageUp") { e.preventDefault(); moveBaseHi(-7); }
         else if (e.key === "Enter") { e.preventDefault(); if (S.hi != null && S.hi >= 0 && baseHits[S.hi]) pickK(S.hi); }
-        else if (e.key === "Escape") { e.preventDefault(); q.value = ""; S.hi = -1; renderSug(); }
+        else if (e.key === "Escape") { e.preventDefault(); q.value = ""; S.hi = -1; S.replId = null; renderSug(); }
         return;
       }
       if (isDesk() && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
@@ -174,6 +174,7 @@
       if (/\n/.test(txt.trim())) { e.preventDefault(); addMany(txt); }
     };
     if ($("bAdd")) $("bAdd").onclick = acceptTop;
+    if ($("bXls")) $("bXls").onclick = pickXls;
     if ($("bManual")) $("bManual").onclick = function () {
       if (!isDesk()) return openPicker({ name: "", vars: [], size: "", qty: null, unit: "шт", raw: "", known: false, cat: "", ii: -1 }, true);
       // programmadagidek: jadval boshiga bo'sh qator — nomi, miqdori (1), birligi shu yerning o'zida yoziladi
@@ -277,17 +278,24 @@
           : '<div class="qty' + (l.qty ? "" : " none") + '"><button data-act="minus">−</button><div class="v" data-act="edit">' + fmtQ(l.qty) + '<small>' + esc(l.unit || "") + '</small>' + ex + '</div><button data-act="plus">+</button></div>') + "</div>";
   }
   // kompyuter: jadval qatori — soni shu yerning o'zida yoziladi (12+8+6 ham), Enter — keyingi tovarni yozishga qaytadi
+  function chkHtml(l) {
+    // Excel'dan kelgan qator: taxminiy topilgan (chk) — tasdiqlash yoki almashtirish; bazada topilmagan (miss) — qidirib tanlash
+    if (l.chk) return '<div class="xchk">' + esc(T("xlsWas")) + ' «' + esc(l.src) + '» — ' + esc(T("xlsCheck")) + ' <button class="btn xs" data-act="ok">✓ ' + esc(T("xlsRight")) + '</button><button class="btn xs" data-act="repl">' + esc(T("xlsReplace")) + "</button></div>";
+    if (l.miss) return '<div class="xchk">' + esc(T("xlsMiss")) + ' <button class="btn xs" data-act="repl">' + esc(T("xlsFind")) + "</button></div>";
+    if (l.src && l.src !== l.name) return '<div class="sub">' + esc(T("xlsWas")) + " «" + esc(l.src) + "»</div>";
+    return "";
+  }
   function lineDesk(l, i, ro) {
     var sub = [(l.vars || []).filter(Boolean).join(" "), l.size, l.brand].filter(Boolean).join(" · ");
     if (ro && l.n > 1) sub += (sub ? " · " : "") + T("fromSecs").replace("{n}", l.n);
     var qv = l.expr && isExpr(l.expr) ? l.expr : l.qty ? fmtQ(l.qty) : "";
-    if (l.manual && !ro) return '<tr class="ln dr man' + (S.fresh === l.id ? " fresh" : "") + '" data-id="' + l.id + '"><td class="c-n">' + (i + 1) + "</td>" +
-      '<td class="t"><input class="inp mnm' + (l.name.trim() ? "" : " none") + '" placeholder="' + esc(T("manualPh")) + '" value="' + esc(l.name) + '" maxlength="200" autocomplete="off"><div class="sub">' + esc(T("manualMark")) + "</div></td>" +
+    if (l.manual && !ro) return '<tr class="ln dr man' + (l.miss ? " chk" : "") + (S.fresh === l.id ? " fresh" : "") + '" data-id="' + l.id + '"><td class="c-n">' + (i + 1) + "</td>" +
+      '<td class="t"><input class="inp mnm' + (l.name.trim() ? "" : " none") + '" placeholder="' + esc(T("manualPh")) + '" value="' + esc(l.name) + '" maxlength="200" autocomplete="off">' + (l.miss ? chkHtml(l) : '<div class="sub">' + esc(T("manualMark")) + "</div>") + "</td>" +
       '<td class="c-q"><div class="dq"><input class="inp qin' + (l.qty ? "" : " none") + '" value="' + esc(qv) + '" placeholder="0" autocomplete="off" aria-label="' + esc(T("qty")) + '"><small class="res">' + (l.expr && isExpr(l.expr) ? "= " + fmtQ(l.qty) : "") + "</small></div></td>" +
       '<td class="c-u"><input class="inp mun" value="' + esc(l.unit || "") + '" maxlength="10" autocomplete="off" aria-label="' + esc(T("unitCol")) + '"></td>' +
       '<td class="c-x"><button class="btn xs dng" data-act="del" title="' + esc(T("del")) + '" aria-label="' + esc(T("del")) + '">✕</button></td></tr>';
-    return '<tr class="ln dr' + (l.known || l.manual ? "" : " unk") + (ro ? " ro" : "") + (S.fresh === l.id ? " fresh" : "") + '" data-id="' + l.id + '"><td class="c-n">' + (i + 1) + "</td>" +
-      '<td class="t"' + (ro ? "" : ' data-act="edit" title="' + esc(T("edit")) + '"') + '><div class="nm">' + esc(l.name) + "</div>" + (sub ? '<div class="sub">' + esc(sub) + "</div>" : "") + (l.known ? "" : l.manual ? '<div class="sub">' + esc(T("manualMark")) + "</div>" : '<div class="sub w">' + esc(T("unknown")) + "</div>") + "</td>" +
+    return '<tr class="ln dr' + (l.known || l.manual ? "" : " unk") + (l.chk && !ro ? " chk" : "") + (ro ? " ro" : "") + (S.fresh === l.id ? " fresh" : "") + '" data-id="' + l.id + '"><td class="c-n">' + (i + 1) + "</td>" +
+      '<td class="t"' + (ro ? "" : ' data-act="edit" title="' + esc(T("edit")) + '"') + '><div class="nm">' + esc(l.name) + "</div>" + (sub ? '<div class="sub">' + esc(sub) + "</div>" : "") + (ro ? "" : chkHtml(l)) + (l.known ? "" : l.manual ? '<div class="sub">' + esc(T("manualMark")) + "</div>" : '<div class="sub w">' + esc(T("unknown")) + "</div>") + "</td>" +
       (ro ? '<td class="c-q"><b>' + fmtQ(l.qty) + "</b></td>"
           : '<td class="c-q"><div class="dq"><input class="inp qin' + (l.qty ? "" : " none") + '" value="' + esc(qv) + '" placeholder="0" autocomplete="off" aria-label="' + esc(T("qty")) + '"><small class="res">' + (l.expr && isExpr(l.expr) ? "= " + fmtQ(l.qty) : "") + "</small></div></td>") +
       '<td class="c-u">' + esc(l.unit || "") + "</td>" +
@@ -300,7 +308,7 @@
     L.querySelectorAll("tr.man").forEach(function (row) {
       var l = S.lines.find(function (x) { return x.id === row.dataset.id; }); if (!l) return;
       var nm = row.querySelector(".mnm"), un = row.querySelector(".mun");
-      nm.oninput = function () { l.name = nm.value; nm.classList.toggle("none", !nm.value.trim()); save(); };
+      nm.oninput = function () { l.name = nm.value; l.miss = false; nm.classList.toggle("none", !nm.value.trim()); save(); };
       un.oninput = function () { l.unit = un.value.trim(); save(); };
       nm.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); var q = row.querySelector(".qin"); q.focus(); q.select(); } };
       un.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); $("q").focus(); } };
@@ -367,6 +375,8 @@
           var a = act.dataset.act;
           if (a === "edit") return openPicker(l, false);
           if (a === "del") { S.lines = S.lines.filter(function (x) { return x.id !== l.id; }); save(); renderList(); return; }
+          if (a === "ok") { l.chk = false; save(); renderList(); return; }
+          if (a === "repl") { S.replId = l.id; var q = $("q"); q.value = l.src || l.name; S.hi = -1; S.pend = null; q.focus(); q.select(); renderSug(); return; }
           var st = 1, cur = Number(l.qty) || 0;
           l.qty = a === "plus" ? cur + st : Math.max(0, cur - st);
           if (!l.qty) l.qty = a === "plus" ? 1 : null;
@@ -419,6 +429,13 @@
   }
   // kompyuterda — programmadagi «Подбор товаров» kabi: tanlangan tovar uchun shu joyda «Miqdori: [ ] [Qo'shish] [Bekor]»
   function takeDesk(l) {
+    if (S.replId) {
+      var old = S.lines.find(function (x) { return x.id === S.replId; }); S.replId = null;
+      if (old) {
+        var nl = Object.assign(l, { id: old.id, qty: old.qty || l.qty, expr: old.expr || "", sec: old.sec || "", src: old.src || "" });
+        S.lines[S.lines.indexOf(old)] = nl; S.fresh = nl.id; save(); renderList(); clearInput(); $("q").focus(); return;
+      }
+    }
     var it = l.ii >= 0 ? E.items[l.ii] : null;
     if (it && it.sizes.length && !l.size) { clearInput(); openPicker(l, true); return; }
     if (l.qty) { addLine(l); backToSearch(); return; }
@@ -538,7 +555,8 @@
     if (!keep) { baseTop = 0; if (S.hi == null || S.hi >= baseHits.length) S.hi = -1; }
     box.dataset.q = q;
     if (!baseHits.length) { box.innerHTML = '<div class="phd"><span>' + esc(T("notFoundBase")) + "</span></div>"; return; }
-    box.innerHTML = '<div class="phd"><span>' + esc(T("found")) + ": " + baseHits.length + "</span>" + (baseHits.length > 1 ? "<span>" + esc(T("pickHint")) + "</span>" : "") + "</div>" +
+    var rl = S.replId && S.lines.find(function (x) { return x.id === S.replId; });
+    box.innerHTML = (rl ? '<div class="phd repl"><span>' + esc(T("xlsReplacing")) + " «" + esc(rl.src || rl.name) + '»</span><span>Esc — ' + esc(T("cancel")) + "</span></div>" : "") + '<div class="phd"><span>' + esc(T("found")) + ": " + baseHits.length + "</span>" + (baseHits.length > 1 ? "<span>" + esc(T("pickHint")) + "</span>" : "") + "</div>" +
       '<div class="plist" style="max-height:' + BOX_H + 'px"><div class="pinner" style="height:' + baseHits.length * ROW + 'px"></div></div>';
     var list = box.querySelector(".plist");
     list.scrollTop = keep ? baseTop : 0;
@@ -626,6 +644,154 @@
     });
     save(); renderList(); clearInput();
     toast(T("pasted").replace("{n}", rows.length).replace("{k}", known));
+  }
+
+  // ---------- Excel'dan yuklash ----------
+  // usta o'z Excel faylini tanlaydi → nom/son/birlik ustunlari o'zi topiladi → har qator bizning bazadan topiladi
+  // (kompyuter + shaxsiy havola) yoki ichki katalogdan (telefon). Taxminiylar sariq — «✓ To'g'ri» yoki «Almashtirish».
+  function loadXlsx(cb) {
+    if (window.XLSX) return cb();
+    var sc = document.createElement("script"); sc.src = "/usta/xlsx.core.min.js";
+    sc.onload = function () { cb(); }; sc.onerror = function () { toast(T("xlsErr")); };
+    document.head.appendChild(sc);
+  }
+  function pickXls() {
+    var inp = document.createElement("input"); inp.type = "file"; inp.accept = ".xlsx,.xls,.xlsm,.ods,.csv";
+    inp.onchange = function () { var f = inp.files && inp.files[0]; if (f) readXls(f); };
+    inp.click();
+  }
+  function readXls(f) {
+    toast(T("xlsReading"));
+    loadXlsx(function () {
+      var rd = new FileReader();
+      rd.onload = function () {
+        try {
+          var wb = window.XLSX.read(new Uint8Array(rd.result), { type: "array" }), best = [];
+          wb.SheetNames.forEach(function (n) { var items = parseAoa(window.XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: "" })); if (items.filter(function (x) { return !x.secOnly; }).length > best.filter(function (x) { return !x.secOnly; }).length) best = items; });
+          importXls(best, f.name.replace(/\.[^.]+$/, ""));
+        } catch (e) { toast(T("xlsErr")); }
+      };
+      rd.readAsArrayBuffer(f);
+    });
+  }
+  function cellNum(v) {
+    if (typeof v === "number") return isFinite(v) ? v : null;
+    var t = String(v == null ? "" : v).trim().replace(/\s/g, "").replace(",", ".");
+    return /^\d+(\.\d+)?$/.test(t) ? Number(t) : null;
+  }
+  var UNIT_RE = /^(шт|шт\.|штук|м|м\.|мп|п\.?м\.?|пог\.?м|м2|м²|м3|кг|г|л|компл|комп|к-т|кт|упак|уп|рул|пара|компл\.|dona|metr|komplekt|kg|m)$/i;
+  function parseAoa(aoa) {
+    var rows = aoa.filter(function (r) { return r && r.some(function (c) { return String(c).trim() !== ""; }); });
+    if (!rows.length) return [];
+    var nameRe = /наимен|назван|товар|материал|номенкл|позици|nomi|tovar|mahsulot|material|name/i, qtyRe = /кол|к-во|сони|soni|miqdor|qty|count|количество/i, unitRe = /^ед|ед\.|изм|birlik|o.lchov|unit/i;
+    var hdr = -1, nc = -1, qc = -1, uc = -1;
+    // sarlavha qatori: «nomi» va yana kamida bitta ustun («soni» yoki «birlik») bo'lgan qator (fayl sarlavhasi emas)
+    for (var i = 0; i < Math.min(rows.length, 20) && hdr < 0; i++) {
+      var a1 = -1, a2 = -1, a3 = -1;
+      rows[i].forEach(function (c, k) { var t = String(c).trim(); if (!t || t.length > 40) return; if (a1 < 0 && nameRe.test(t)) a1 = k; else if (a2 < 0 && qtyRe.test(t)) a2 = k; else if (a3 < 0 && unitRe.test(t)) a3 = k; });
+      if (a1 >= 0 && (a2 >= 0 || a3 >= 0)) { hdr = i; nc = a1; qc = a2; uc = a3; }
+    }
+    var data = rows.slice(hdr + 1), w = 0;
+    data.forEach(function (r) { w = Math.max(w, r.length); });
+    if (nc < 0) { // sarlavhasiz fayl: eng ko'p matnli ustun — nom
+      var tc = []; for (var k = 0; k < w; k++) tc[k] = 0;
+      data.forEach(function (r) { r.forEach(function (c, k) { if (typeof c === "string" && /[a-zа-яё]{2,}/i.test(c) && c.trim().length >= 3 && !UNIT_RE.test(c.trim())) tc[k]++; }); });
+      nc = tc.indexOf(Math.max.apply(null, tc));
+    }
+    if (qc < 0) { // nom ustunidan o'ngdagi eng ko'p sonli ustun — miqdor
+      var bestN = 0;
+      for (var k2 = nc + 1; k2 < w; k2++) { var n = 0; data.forEach(function (r) { if (cellNum(r[k2]) != null) n++; }); if (n > bestN) { bestN = n; qc = k2; } }
+    }
+    if (uc < 0) {
+      var bestU = 0;
+      for (var k3 = 0; k3 < w; k3++) { if (k3 === nc || k3 === qc) continue; var u = 0; data.forEach(function (r) { if (UNIT_RE.test(String(r[k3] || "").trim())) u++; }); if (u > bestU) { bestU = u; uc = k3; } }
+    }
+    var out = [], sec = "";
+    data.forEach(function (r) {
+      var name = String(r[nc] == null ? "" : r[nc]).replace(/\s+/g, " ").trim();
+      var cells = r.map(function (c) { return String(c == null ? "" : c).replace(/\s+/g, " ").trim(); }).filter(Boolean);
+      var total = function (t) { return /^(итого|всего|итог|jami|жами|hammasi)(?![а-яёa-z])/i.test(t); };
+      if (cells.some(total)) return;
+      // «1-qavat», «Кухня» kabi sarlavha qator: qatorda bitta matn bor, soni yo'q (qaysi ustunda bo'lsa ham)
+      if (cells.length === 1 && cellNum(cells[0]) == null && /[a-zа-яё]/i.test(cells[0]) && cells[0].length <= 40 && (qc < 0 || cellNum(r[qc]) == null)) { sec = cells[0]; out.push({ secOnly: true, sec: sec }); return; }
+      if (!name || /^\d+([.,]\d+)?$/.test(name)) return;
+      var q = qc >= 0 ? cellNum(r[qc]) : null, unit = uc >= 0 ? String(r[uc] || "").trim() : "";
+      out.push({ name: name, qty: q != null && q > 0 ? Math.round(q * 1000) / 1000 : null, unit: UNIT_RE.test(unit) ? unit.replace(/\.$/, "") : "", sec: sec });
+    });
+    // bo'lim sarlavhasidan keyin tovar bo'lmasa — u bo'lim emas
+    return out.filter(function (x, i) { return !x.secOnly || out.slice(i + 1).some(function (y) { return !y.secOnly && y.sec === x.sec; }); });
+  }
+  // nomni bazadagi tovar bilan solishtirish: so'zlar mosligi; o'lcham/raqamlar albatta mos kelishi kerak
+  function toks(t) {
+    return String(t || "").toLowerCase().replace(/ё/g, "е").replace(/["'«»“”]/g, " ").replace(/(\d),(\d)/g, "$1.$2").replace(/(\d)\s*[xх×*]\s*(\d)/g, "$1*$2")
+      .split(/[^a-zа-яўқғҳ0-9/.*]+/).map(function (w) { return w.replace(/^[.*]+|[.*]+$/g, ""); })
+      .filter(function (w) { return w && !/^(для|с|и|на|в|из|по|под|мм|шт|м|ta|va|uchun)$/.test(w); });
+  }
+  function ptoks(p) {
+    if (!p.tk) { var a = toks(p.name + " " + p.size); p.tk = a.concat(toks(translit(a.join(" ")))); p.tn = a.length; }
+    return p.tk;
+  }
+  function baseBest(name, unit) {
+    var Q = toks(name).filter(function (w, i, a) { return a.indexOf(w) === i; }); if (!Q.length) return null;
+    var key = Q.filter(function (w) { return !/\d/.test(w) && w.length >= 3; }), sfSet = null;
+    if (S.sfs.length) { sfSet = {}; S.sfs.forEach(function (id) { sfSet[id] = 1; }); }
+    var best = null, second = 0;
+    for (var i = 0; i < BASE.length; i++) {
+      var p = BASE[i]; if (sfSet && !sfSet[p.sup]) continue;
+      if (key.length && !key.some(function (w) { return p.t.indexOf(w.slice(0, 4)) >= 0; })) continue;
+      var P = ptoks(p), com = 0, numMiss = 0;
+      Q.forEach(function (w) {
+        if (P.indexOf(w) >= 0) com += 1;
+        else if (w.length >= 4 && P.some(function (x) { return x.length >= 4 && (x.indexOf(w.slice(0, 5)) === 0 || w.indexOf(x.slice(0, 5)) === 0); })) com += 0.7;
+        else if (/\d/.test(w)) numMiss++;
+      });
+      if (!com) continue;
+      var sc = 0.65 * (com / Q.length) + 0.35 * Math.min(1, com / Math.max(1, p.tn));
+      sc *= Math.pow(0.55, numMiss);
+      if (unit && p.unit && unit.toLowerCase().replace(/\.$/, "") === p.unit.toLowerCase()) sc += 0.03;
+      if (!best || sc > best.score) { if (best && best.p.name !== p.name) second = Math.max(second, best.score); best = { p: p, score: sc, prec: Math.min(1, com / Math.max(1, p.tn)) }; } else if (sc > second && p.name !== best.p.name) second = sc;
+    }
+    if (best) best.gap = best.score - second;
+    return best;
+  }
+  function xlsLine(it) {
+    var qty = it.qty, l;
+    if (BASE) {
+      var b = baseBest(it.name, it.unit);
+      if (b && b.score >= 0.8 && b.gap >= 0.04 && b.prec >= 0.6) l = Object.assign(fromBase(b.p), { qty: qty, src: it.name });
+      else if (b && b.score >= 0.5) l = Object.assign(fromBase(b.p), { qty: qty, src: it.name, chk: true });
+      else l = { name: it.name, vars: [], size: "", qty: qty, unit: it.unit || "шт", raw: it.name, known: false, manual: true, miss: true, src: it.name, cat: "", ii: -1 };
+    } else {
+      var r = E.suggest(it.name, 1)[0];
+      l = r && r.score >= 0.8 ? fromResult(r, it.name) : freeLine(it.name);
+      if (qty) l.qty = qty; if (it.unit && !l.known) l.unit = it.unit;
+    }
+    l.id = uid();
+    return l;
+  }
+  function importXls(items, fname) {
+    var goods = items.filter(function (x) { return !x.secOnly; });
+    if (!goods.length) { toast(T("xlsNone")); return; }
+    var run = function (fresh) {
+      if (fresh) { save(); S.listId = uid(); S.lines = []; S.secs = []; S.cur = ""; S.object = ""; S.note = ""; }
+      if (!S.object.trim()) S.object = fname.slice(0, 200);
+      var secId = {}, made = [];
+      items.forEach(function (x) {
+        if (!x.sec) return; if (secId[x.sec]) return;
+        var ex = S.secs.find(function (sc) { return sc.name.toLowerCase() === x.sec.toLowerCase(); });
+        secId[x.sec] = ex ? ex.id : (function () { var ns = { id: uid(), name: x.sec.slice(0, 40) }; S.secs.push(ns); return ns.id; })();
+      });
+      goods.forEach(function (it) { var l = xlsLine(it); l.sec = it.sec ? secId[it.sec] : S.cur || ""; S.lines.push(l); made.push(l); });
+      // hamma tovar bo'limlarda bo'lsa — keyingi qo'shiladiganlar oxirgi bo'limga tushadi (bo'sh «Bo'limsiz» chiqmaydi)
+      if (S.secs.length && !S.lines.some(function (l) { return !l.sec; })) S.cur = S.lines[S.lines.length - 1].sec;
+      S.view = "list"; save(); closeSheet(); shell();
+      var ok = made.filter(function (l) { return !l.chk && !l.miss && (l.known || !BASE); }).length, chk = made.length - ok;
+      toast(T(chk ? "xlsDoneChk" : "xlsDone").replace("{n}", made.length).replace("{k}", ok).replace("{c}", chk));
+    };
+    if (!S.lines.length) return run(false);
+    sheet("<h3>" + esc(T("xlsWhereT").replace("{n}", goods.length)) + '</h3><div class="d">' + esc(T("xlsWhereD")) + '</div><div class="acts"><button class="btn" id="xAdd">' + esc(T("xlsAppend")) + '</button><button class="btn pri" id="xNew">' + esc(T("newList")) + "</button></div>", function () {
+      $("xAdd").onclick = function () { run(false); }; $("xNew").onclick = function () { run(true); };
+    });
   }
 
   // ---------- oynalar (pastdan chiqadi) ----------
@@ -811,6 +977,13 @@
     var d = digits(S.who.phone);
     if (!S.me && (S.who.name.trim().length < 2 || d.length < 9)) { S.editWho = true; renderWho(); toast(d.length && d.length < 9 ? T("errPhone") : T("needWho")); (S.who.name.trim().length < 2 ? $("wName") : $("wPhone")).focus(); return; }
     if (!S.lines.length) { toast(T("needLines")); $("q").focus(); return; }
+    var unchk = S.lines.filter(function (l) { return l.chk || l.miss; });
+    if (unchk.length && isDesk()) {
+      toast(T("xlsUnchecked").replace("{n}", unchk.length));
+      if (S.view === "total") { S.view = "list"; renderSecs(); renderList(); }
+      var ue = document.querySelector('.ln[data-id="' + unchk[0].id + '"]'); if (ue && ue.scrollIntoView) ue.scrollIntoView({ block: "center", behavior: "smooth" });
+      return;
+    }
     var noName = S.lines.find(function (l) { return l.manual && !String(l.name || "").trim(); });
     if (noName && isDesk()) { toast(T("needName")); if (S.view === "total") { S.view = "list"; renderSecs(); renderList(); } var nf = document.querySelector('.ln[data-id="' + noName.id + '"] .mnm'); if (nf) nf.focus(); return; }
     var noQ = S.lines.find(function (l) { return !l.qty; });
@@ -823,7 +996,7 @@
     S.sending = true; renderSend();
     // bizga — jami (hamma bo'limlar qo'shilgan); bo'limlar faqat ustaning o'zida qoladi
     var payload = { key: S.me ? S.key : "", name: S.who.name.trim(), phone: S.who.phone.trim(), object: S.object.trim(), note: S.note.trim(), lines: totals().map(function (l) {
-      return { name: l.name, vars: (l.vars || []).filter(Boolean).join(" "), size: l.size || "", qty: String(l.qty), unit: l.unit || "", raw: l.raw || "", known: !!l.known, cat: l.cat || "", pid: l.pid || "" };
+      return { name: l.name, vars: (l.vars || []).filter(Boolean).join(" "), size: l.size || "", qty: String(l.qty), unit: l.unit || "", raw: l.raw || l.src || "", known: !!l.known, cat: l.cat || "", pid: l.pid || "" };
     }) };
     fetch(CFG.url + "/rest/v1/rpc/usta_submit", {
       method: "POST", headers: { "Content-Type": "application/json", apikey: CFG.key, Authorization: "Bearer " + CFG.key },
