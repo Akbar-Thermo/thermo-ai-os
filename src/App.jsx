@@ -175,7 +175,8 @@ const TG_AI_MODE = "te_tgai";
 const ZK_MODE = "te_zk", ZK_PEND_MODE = "te_zkpend"; // бот поставщиков: группы ↔ поставщики + группа расходов (руководитель) / группы бота (пишет бот) // расход ИИ бота за месяц (пишет бот): lines = { month, usd, claude, speech, calls, sec, … }
 // бот остатка (функция «ostatka»): кто может пользоваться (руководитель) / кто писал боту + сколько фактур (пишет бот)
 const OS_MODE = "te_os", OS_PEND_MODE = "te_ospend";
-const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note", MIGR_MODE, NOTE_ORD_MODE, TG_MODE, TG_PEND_MODE, TG_LINK_MODE, TG_USERS_MODE, TG_AI_MODE, ZK_MODE, ZK_PEND_MODE, "te_perech", OS_MODE, OS_PEND_MODE];
+const WH_MARK_MODE = "te_whmark"; // цветные метки позиций «Склада Thermo» (видны всем): lines = { [id строки склада]: "r" | "y" | "g" | "b" }
+const CFG_MODES = [ROLE_CFG_MODE, CLOUD_MODE, "te_perms", "te_note", MIGR_MODE, NOTE_ORD_MODE, TG_MODE, TG_PEND_MODE, TG_LINK_MODE, TG_USERS_MODE, TG_AI_MODE, ZK_MODE, ZK_PEND_MODE, "te_perech", OS_MODE, OS_PEND_MODE, WH_MARK_MODE];
 // служебная запись-словарь в requests: прочитать свежую и поменять один ключ
 async function cfgSetKey(mode, key, value) {
   const r0 = await db.from("requests").select().eq("mode", mode);
@@ -727,6 +728,21 @@ kbd{display:inline-block;padding:1px 6px;border:1px solid var(--line2);border-bo
 .acc-av.plus{background:transparent;border:1px dashed var(--mut);color:var(--mut)}
 .acc-o.add{border-top:1px solid var(--line);border-radius:0 0 8px 8px;margin-top:2px;padding-top:8px}
 .acc-o-t{display:flex;flex-direction:column;line-height:1.2;min-width:0}
+.whm{display:inline-flex;vertical-align:-1px;margin-right:8px}
+.whm-btn{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border:1px solid transparent;border-radius:var(--r-pill);background:transparent;cursor:pointer}
+.whm-btn:hover,.whm-btn[aria-expanded="true"]{border-color:var(--line)}
+.whm-btn:focus-visible{outline:none;border-color:var(--mut)}
+.whm-dot{display:inline-block;flex:none;border-radius:50%;border:1.5px solid var(--line);box-sizing:border-box}
+.whm-btn .whm-dot[style*="transparent"]{border-color:color-mix(in srgb,var(--mut) 55%,transparent)}
+.whm-pop{min-width:180px}
+.dm-it.on{font-weight:600}
+.wh-supf{width:auto;min-width:200px;max-width:280px}
+.wh-markf{display:inline-flex;align-items:center;gap:4px}
+.whm-f{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 8px;border:1px solid var(--line);border-radius:var(--r-pill);background:var(--panel);color:var(--txt);font:inherit;font-size:var(--fs-sm);cursor:pointer}
+.whm-f:hover:not(:disabled){border-color:var(--mut)}
+.whm-f.on{border-color:var(--mut);background:var(--panel2);font-weight:600}
+.whm-f:disabled{opacity:.45;cursor:default}
+.whm-f:active:not(:disabled){transform:translateY(1px)}
 .dm{position:relative;display:inline-flex}
 .dm-car{margin-left:6px;font-size:10px;opacity:.7}
 .dm-btn.more{padding-left:10px;padding-right:10px;font-weight:800;letter-spacing:1px}
@@ -9910,6 +9926,46 @@ function DeliveryTab({ data, reload, toast, openId, setOpenId }) {
     </div>
   );
 }
+/* цветная метка позиции склада: кружок (пусто — рамка); нажали — меню цветов, как меню «Документы».
+   Цвета — те же, что в программе (красный / жёлтый / зелёный / синий), без заливки строки — только кружок */
+const WH_MARKS = [{ id: "r", c: "var(--bad)", l: "Красный" }, { id: "y", c: "var(--warn)", l: "Жёлтый" }, { id: "g", c: "var(--ok)", l: "Зелёный" }, { id: "b", c: "var(--acc)", l: "Синий" }];
+const whMarkOf = (id) => WH_MARKS.find((m) => m.id === id) || null;
+function WhMarkDot({ c, size = 12 }) {
+  return <span className="whm-dot" style={{ width: size, height: size, background: c || "transparent", borderColor: c || "var(--line)" }} />;
+}
+function WhMarkPick({ value, onPick, readOnly = false }) {
+  const [open, setOpen] = useState(null);
+  const ref = useRef(null), pop = useRef(null);
+  const cur = whMarkOf(value);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target) && !(pop.current && pop.current.contains(e.target))) setOpen(null); };
+    const off = () => setOpen(null);
+    document.addEventListener("pointerdown", h, true); window.addEventListener("resize", off); window.addEventListener("scroll", off, true);
+    setTimeout(() => { const b = pop.current && (pop.current.querySelector(".dm-it.on") || pop.current.querySelector(".dm-it")); if (b) b.focus(); }, 0);
+    return () => { document.removeEventListener("pointerdown", h, true); window.removeEventListener("resize", off); window.removeEventListener("scroll", off, true); };
+  }, [!!open]);
+  const key = (e) => {
+    const its = [...pop.current.querySelectorAll(".dm-it")], i = its.indexOf(document.activeElement);
+    if (e.key === "Escape") { e.preventDefault(); setOpen(null); ref.current.querySelector("button").focus(); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); (its[i + 1] || its[0]).focus(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); (its[i - 1] || its[its.length - 1]).focus(); }
+  };
+  const pick = (id) => { setOpen(null); if (id !== (value || "")) onPick(id); };
+  if (readOnly) return cur ? <span className="whm" title={"Метка: " + cur.l}><WhMarkDot c={cur.c} /></span> : null;
+  return (
+    <span ref={ref} className="whm" onClick={(e) => e.stopPropagation()}>
+      <button type="button" className={"whm-btn" + (cur ? " on" : "")} aria-haspopup="menu" aria-expanded={!!open} title={cur ? "Метка: " + cur.l + " — изменить" : "Отметить цветом"}
+        onClick={() => { if (open) { setOpen(null); return; } const r = ref.current.getBoundingClientRect(); setOpen({ top: r.bottom + 6, left: Math.max(8, r.left - 6) }); }}>
+        <WhMarkDot c={cur && cur.c} />
+      </button>
+      {open && createPortal(<div ref={pop} className="dm-pop whm-pop" role="menu" style={open} onKeyDown={key}>
+        {WH_MARKS.map((m) => <button key={m.id} type="button" role="menuitem" className={"dm-it" + (value === m.id ? " on" : "")} onClick={() => pick(m.id)}><WhMarkDot c={m.c} /><span>{m.l}</span>{value === m.id && <span className="mut" style={{ marginLeft: "auto" }}>✓</span>}</button>)}
+        {cur && <><div className="dm-sep" /><button type="button" role="menuitem" className="dm-it" onClick={() => pick("")}><WhMarkDot /><span>Убрать метку</span></button></>}
+      </div>, (ref.current && ref.current.closest(".te")) || document.body)}
+    </span>
+  );
+}
 function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
   const { warehouse, wh_moves, objects, suppliers } = data;
   const [issue, setIssue] = useState(false);
@@ -9995,7 +10051,20 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
   const [sort, setSort] = useState("new");
   const [open, setOpen] = useState(null);
   const [openG, setOpenG] = useState({}); // приходы свёрнуты, пока не нажали на строку прихода
-  const [supF, setSupF] = useState(""); // фильтр по поставщику (лента сверху): "id:<поставщик>" / "none"
+  const [supF, setSupF] = useState(""); // фильтр «Поставщик»: "" все / "id:<поставщик>" / "none" без поставщика / "manual" приход вручную
+  const [markF, setMarkF] = useState(""); // фильтр по цветной метке
+  // цветные метки: из базы (служебная запись) + то, что только что нажали (сразу, не дожидаясь сохранения)
+  const markRow = (data.requests || []).find((r) => r.mode === WH_MARK_MODE);
+  const [mk, setMk] = useState({});
+  const marks = useMemo(() => ({ ...((markRow && markRow.lines && !Array.isArray(markRow.lines) && markRow.lines) || {}), ...mk }), [markRow, mk]);
+  const markOf = (w) => (marks[w.id] && whMarkOf(marks[w.id]) ? marks[w.id] : "");
+  const setMark = async (w, v) => {
+    setMk((m) => ({ ...m, [w.id]: v }));
+    BUSY_SILENT++;
+    let ok = false;
+    try { ok = await cfgSetKey(WH_MARK_MODE, w.id, v || null); } finally { BUSY_SILENT = Math.max(0, BUSY_SILENT - 1); }
+    if (!ok) { setMk((m) => { const n = { ...m }; delete n[w.id]; return n; }); toast("Метку не удалось сохранить — попробуйте ещё раз"); }
+  };
   const [movesOpen, setMovesOpen] = useState(false); // «История движений» свёрнута, пока не нажали
   const [mvDir, setMvDir] = useState("all");
   const [mq, setMq] = useState("");
@@ -10068,14 +10137,17 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
   const toks = normPName(q).split(" ").filter(Boolean);
   const hitAll = (txt) => toks.every((t) => txt.includes(t));
   const supKey = (w) => (w.supplier_id && supName.get(w.supplier_id) ? "id:" + w.supplier_id : "none");
-  const shownGroups = whGroups.map((g) => (supF ? { ...g, items: g.items.filter((x) => supKey(x.w) === supF) } : g)).filter((g) => g.items.length).map((g) => {
+  const isManual = (g) => !g.none && grpInfo(g).kind === "Приход вручную";
+  const shownGroups = whGroups.filter((g) => supF !== "manual" || isManual(g))
+    .map((g) => (supF && supF !== "manual" ? { ...g, items: g.items.filter((x) => supKey(x.w) === supF) } : g))
+    .map((g) => (markF ? { ...g, items: g.items.filter((x) => markOf(x.w) === markF) } : g)).filter((g) => g.items.length).map((g) => {
     if (!toks.length) return g;
     const I = grpInfo(g);
     if (hitAll(normPName([I.kind, I.obj, I.sub, g.users.join(" "), g.no ? "№" + g.no : "", dt(g.date)].join(" ")))) return g;
     const items = g.items.filter((x) => hitAll(normPName([x.w.name, supName.get(x.w.supplier_id)].join(" "))));
     return items.length ? { ...g, items } : null;
   }).filter(Boolean).sort((a, b) => (a.none - b.none) || (sort === "old" ? String(a.date).localeCompare(String(b.date)) || a.no - b.no : String(b.date).localeCompare(String(a.date)) || b.no - a.no));
-  const gOpen = (g) => !!toks.length || !!supF || !!openG[g.id];
+  const gOpen = (g) => !!toks.length || !!supF || !!markF || !!openG[g.id];
   // поставщики склада: сколько позиций и на какую сумму (по закупу); больше позиций — левее
   const supItems = useMemo(() => {
     const m = new Map();
@@ -10091,6 +10163,15 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
     const none = m.get("none");
     return [{ key: "", kind: "all", icon: "truck", name: "Все поставщики", n, note: note(sum) }, ...list, ...(none ? [{ ...none, kind: "none", note: note(none.sum) }] : [])];
   }, [warehouse, supName, readOnly]);
+  const manualN = whGroups.filter(isManual).reduce((a, g) => a + g.items.length, 0);
+  const noneSup = supItems.find((x) => x.kind === "none");
+  const supOpts = [
+    ["", "Все поставщики (" + (supItems[0] ? supItems[0].n : 0) + ")"],
+    ...supItems.filter((x) => x.kind === "m").map((x) => [x.key, x.name + " (" + x.n + ")"]),
+    ["none", "Без поставщика (" + (noneSup ? noneSup.n : 0) + ")"],
+    ["manual", "Приход вручную (" + manualN + ")"],
+  ];
+  const markCnt = useMemo(() => { const c = {}; stock.forEach((w) => { const m = markOf(w); if (m) c[m] = (c[m] || 0) + 1; }); return c; }, [stock, marks]);
   const allOpen = shownGroups.length > 0 && shownGroups.every(gOpen);
   const oldCnt = whGroups.filter((g) => g.days >= WH_OLD_DAYS).reduce((a, g) => a + g.items.length, 0);
   const mtoks = normPName(mq).split(" ").filter(Boolean);
@@ -10148,14 +10229,20 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
           <div className="l"><Ic n="hourglass" /> Лежат {WH_OLD_DAYS}+ дней</div><div className="v">{oldCnt}</div><div className="xs mut">{oldCnt ? (sort === "old" ? "старые сверху ✓" : "нажмите — старые сверху") : "всё свежее"}</div>
         </button>
       </div>
-      {stock.length > 0 && <MasterBar items={supItems} value={supF} onPick={setSupF} noun={["позиция", "позиции", "позиций"]} label="Фильтр по поставщику" allTitle="Весь склад" />}
       <div className="sect wh-bar">
         <div className="obj-q wh-q">
           <span className="obj-q-ic"><Ic n="search" /></span>
           <input className="inp" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Найти: товар, поставщик, объект, накладная…" />
         </div>
+        <select className="inp wh-supf" value={supF} onChange={(e) => setSupF(e.target.value)} title="Фильтр по поставщику">{supOpts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+        <div className="wh-markf" role="group" aria-label="Фильтр по метке">
+          <span className="xs mut">Метка:</span>
+          {WH_MARKS.map((m) => <button key={m.id} type="button" className={"whm-f" + (markF === m.id ? " on" : "")} disabled={!markCnt[m.id] && markF !== m.id} aria-pressed={markF === m.id}
+            title={m.l + " — " + (markCnt[m.id] || 0) + " поз." + (markF === m.id ? " (нажмите ещё раз — показать все)" : "")} onClick={() => setMarkF(markF === m.id ? "" : m.id)}><WhMarkDot c={m.c} /><span>{markCnt[m.id] || 0}</span></button>)}
+        </div>
+        {(supF || markF) && <button type="button" className="btn xs" onClick={() => { setSupF(""); setMarkF(""); }}>Сбросить</button>}
         <div className="seg">{[["new", "Новые сверху"], ["old", "Давно лежат"]].map(([k, l]) => <button key={k} type="button" className={sort === k ? "on" : ""} onClick={() => setSort(k)}>{l}</button>)}</div>
-        {!toks.length && !supF && whGroups.length > 1 && <button className="btn wh-all" onClick={() => setOpenG(allOpen ? {} : Object.fromEntries(whGroups.map((g) => [g.id, true])))}>{allOpen ? "▴ Свернуть все" : "▾ Раскрыть все"}</button>}
+        {!toks.length && !supF && !markF && whGroups.length > 1 && <button className="btn wh-all" onClick={() => setOpenG(allOpen ? {} : Object.fromEntries(whGroups.map((g) => [g.id, true])))}>{allOpen ? "▴ Свернуть все" : "▾ Раскрыть все"}</button>}
       </div>
       <div className="card sect" style={{ padding: 0, overflow: "auto" }}>
         <table className="t wh-t">
@@ -10184,7 +10271,7 @@ function WarehouseTab({ data, reload, toast, openObject, readOnly = false }) {
                   return (
                   <React.Fragment key={w.id}>
                   <tr className={"clk wh-row" + (isOpen ? " on" : "")} onClick={() => setOpen(isOpen ? null : hk)} title="Нажмите — история этой позиции">
-                    <td className="wh-name"><span style={{ fontWeight: 600 }}>{w.name}</span> <span className="wh-hico mut"><Ic n="history" /></span>
+                    <td className="wh-name"><WhMarkPick value={markOf(w)} readOnly={readOnly} onPick={(v) => setMark(w, v)} /><span style={{ fontWeight: 600 }}>{w.name}</span> <span className="wh-hico mut"><Ic n="history" /></span>
                       <div className="xs mut">{supName.get(w.supplier_id) ? "Поставщик: " + supName.get(w.supplier_id) : "поставщик не указан"}{x.also.length ? " · всего на складе " + fmt(w.qty) + " (ещё в приходе " + x.also.join(", ") + ")" : ""}</div></td>
                     <td className="num" style={{ fontWeight: 700, color: "var(--acc2)" }}>{fmt(x.q)}
                       {x.of > x.q + 0.0001 ? <div className="xs mut" style={{ fontWeight: 500 }} title={"пришло " + fmt(x.of) + ", осталось " + fmt(x.q)}>из {fmt(x.of)}</div> : null}
